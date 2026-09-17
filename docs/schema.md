@@ -59,3 +59,12 @@ The schema is designed so sensitive content remains optional:
 - structural fields (`kind`, `status`, `target`, `tokens`) support most heuristics and reporting
 - `textExcerpt` is opt-in and short-lived
 - `raw.ref` points back to source material without copying entire payloads into the normalized record
+
+## `raw.ref` contract
+
+`raw.ref` should be treated as an adapter-defined opaque identifier with two constraints:
+
+- it must stay stable for as long as the referenced raw log entry is retained
+- when the source is file-backed, it should prefer a file path or URI plus a line or byte offset so humans and tools can resolve it directly
+
+Examples include `transcripts/session.jsonl#L128`, `file:///.../copilot.log#offset=4096`, or another adapter-specific reference that can be mapped back to a single raw record.
