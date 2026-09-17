@@ -38,7 +38,7 @@ These records are sufficient for most heuristics and for daily aggregate reporti
 | --- | --- | --- |
 | Structural events | 90 days before rolling into daily aggregates | `snagboat.retention.rawDays` |
 | `textExcerpt` content | 3 days | `snagboat.retention.textDays` |
-| Daily aggregates | Indefinite by default; `0` disables retention | `snagboat.retention.aggregateDays` |
+| Daily aggregates | `-1` keeps them indefinitely; `0` disables retention | `snagboat.retention.aggregateDays` |
 
 ## User controls
 
