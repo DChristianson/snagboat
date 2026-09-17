@@ -67,16 +67,16 @@ Adapters own all agent-specific parsing. The normalization layer is the only pla
 
 ## Planned status indicators
 
-| Character | Meaning | Planned accessible label / icon text |
+| Primary status label | Planned glyph style | Character name for tooltips/detail views |
 | --- | --- | --- |
-| 🚗 **Cruisin' Clyde** | No open findings in the active window | `On track` with a steady-dot or check-style codicon-weight glyph |
-| 🪃 **Boomerang Bea** | Backtracking detected | `Backtracking detected` with a loop or history-style glyph |
-| 🔁 **Loopy Lou** | Tool churn detected | `Tool churn detected` with a sync/spin-style glyph |
-| 🤔 **Wobbly Walt** | Hedge language paired with behavioral trouble | `Low-confidence language detected` with a question or pulse-style glyph |
-| ⛽ **Meter Mo** | Token budget warning | `Token budget warning` with a dashboard or meter-style glyph |
-| 💤 **Snoozy Sam** | An active session has stalled | `Session stalled` with a clock or mute-style glyph |
+| `On track` | Steady-dot or check-style codicon-weight glyph | Cruisin' Clyde |
+| `Backtracking detected` | Loop or history-style glyph | Boomerang Bea |
+| `Tool churn detected` | Sync or spin-style glyph | Loopy Lou |
+| `Low-confidence language detected` | Question or pulse-style glyph | Wobbly Walt |
+| `Token budget warning` | Dashboard or meter-style glyph | Meter Mo |
+| `Session stalled` | Clock or mute-style glyph | Snoozy Sam |
 
-The final extension should use simple SVG or codicon-weight icons in the actual status bar, keep text labels available to screen readers, and reserve the character names for tooltips and detail views.
+The final extension should use simple SVG or codicon-weight icons in the actual status bar, keep text labels available to screen readers, and treat the character names as secondary mnemonic copy rather than the primary visible signal.
 
 ## Repository docs
 
