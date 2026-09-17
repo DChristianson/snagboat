@@ -77,7 +77,7 @@ Adapters own all agent-specific parsing. The normalization layer is the only pla
 | `Token budget warning` | Dashboard or meter-style glyph | Meter Mo |
 | `Session stalled` | Clock or mute-style glyph | Snoozy Sam |
 
-The final extension should use simple SVG or codicon-weight icons in the actual status bar, expose the primary status label to screen readers, and treat the character names as decorative mnemonic copy only in supporting UI such as tooltips or the detail view.
+The final extension should use simple SVG or codicon-weight icons in the actual status bar, keep the visible status text meaningful even without the glyph, and treat the character names as decorative mnemonic copy only in supporting UI such as tooltips or the detail view.
 
 ## Repository docs
 
