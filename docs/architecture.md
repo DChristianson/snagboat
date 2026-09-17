@@ -79,7 +79,4 @@ The planned detail page includes:
 
 ## Longer-horizon rollups
 
-The design also reserves room for session/day/PR rollups that evaluate laziness, impatience, and hubris over longer windows than the short heuristics engine uses. Two future event subkinds are expected to support that work:
-
-- `explain_query`
-- `verify_run`
+The design also reserves room for session/day/PR rollups that evaluate laziness, impatience, and hubris over longer windows than the short heuristics engine uses. If those rollups need more context than the current schema exposes, a future schema revision could add explicit annotations for concepts such as explanation-oriented turns or verification runs without overloading the current `kind` values.

@@ -56,4 +56,4 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
 - Should backtracking use an event-count window, a time window, or a user-selectable combination?
 - Should verbal hedge findings ever escalate without a paired behavioral signal?
 - Should Copilot log-scrape mode be the default because it has lower setup friction than OTel mode?
-- When longer-horizon rollups arrive, which adapters can reliably emit future `explain_query` and `verify_run` subkinds?
+- When longer-horizon rollups arrive, should explanation-oriented turns and verification runs become explicit schema annotations or remain derived signals?

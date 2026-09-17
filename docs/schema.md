@@ -3,10 +3,13 @@
 ## `NormalizedEvent`
 
 ```ts
+type BuiltInAgentId = 'claude-code' | 'copilot' | 'generic-fs';
+type AgentId = BuiltInAgentId | `custom:${string}`;
+
 interface NormalizedEvent {
   eventId: string;
   sessionId: string;
-  agent: 'claude-code' | 'copilot' | 'generic-fs' | string;
+  agent: AgentId;
   ts: string;
   kind: 'tool_call' | 'tool_result' | 'edit' | 'test_run'
     | 'hedge_text' | 'turn_start' | 'turn_stop';
@@ -27,7 +30,7 @@ interface NormalizedEvent {
 }
 ```
 
-`confidence` is intentionally optional. Current Claude Code and Copilot integrations do not expose a trustworthy probability signal, but reserving the field now avoids a future schema migration.
+`confidence` is intentionally optional. Current Claude Code and Copilot integrations do not expose a trustworthy probability signal, but reserving the field now avoids a future schema migration. Built-in agent IDs stay explicit while third-party adapters should use a namespaced `custom:*` identifier.
 
 ## Transformation matrix
 
