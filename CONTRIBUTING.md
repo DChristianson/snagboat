@@ -9,7 +9,7 @@ This repository currently tracks the design for the Snagboat VS Code extension. 
 1. Implement the shared adapter interface.
 2. Keep all agent-specific parsing inside the adapter.
 3. Register the adapter via the `snagboat.adapters` contribution point.
-4. Add or update the adapter's transformation-matrix rows in [docs/schema.md](docs/schema.md).
+4. Add or update the adapter's transformation-matrix rows in [docs/schema.md](./docs/schema.md).
 5. Document any privacy-sensitive data the adapter can emit.
 
 ## Adding a heuristic
