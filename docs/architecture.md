@@ -7,15 +7,26 @@ Adapters know agent-specific formats; nothing downstream does. The normalization
 ## Adapter contract
 
 ```ts
+interface AdapterCheckpoint {
+  updatedAt: string;
+  state: Record<string, unknown>;
+}
+
+interface AdapterContext {
+  publish(event: NormalizedEvent): void;
+  readCheckpoint(): Promise<AdapterCheckpoint | undefined>;
+  writeCheckpoint(checkpoint: AdapterCheckpoint): Promise<void>;
+}
+
 interface AgentAdapter {
-  readonly agentId: string;
-  start(ctx: AdapterContext): Promise<void>;
+  readonly agentId: AgentId;
+  init(ctx: AdapterContext): Promise<void>;
+  start(): Promise<void>;
   stop(): Promise<void>;
-  onRawEvent(cb: (raw: RawAgentEvent) => void): Disposable;
 }
 ```
 
-Adapters emit raw, agent-native events. Core code is responsible for turning those events into `NormalizedEvent` records.
+Snagboat initializes an adapter once with an `AdapterContext`, then starts and stops collection separately. Adapters publish `NormalizedEvent` records directly through the context event stream, optionally embedding the source agent payload in `event.raw.event` for inspection or debugging. Checkpoints are adapter-owned state blobs so polling adapters can resume from the last processed file, line, or byte offset instead of rescanning from the beginning.
 
 ## Planned built-in adapters
 
@@ -23,14 +34,14 @@ Adapters emit raw, agent-native events. Core code is responsible for turning tho
 
 - Registers `PostToolUse` and `Stop` hooks.
 - Tails the Claude Code JSONL transcript for the workspace.
-- Uses hooks and transcripts as redundant data paths so token usage and text still work when hooks are missing.
+- Uses checkpoints to resume transcript tailing and hooks plus transcripts as redundant data paths so token usage and text still work when hooks are missing.
 
 ### `copilot-adapter`
 
 Two user-selectable modes:
 
 1. **OTel mode** — run a local OTLP HTTP receiver and configure Copilot to export to it with concrete settings such as `github.copilot.chat.otel.enabled`, `github.copilot.chat.otel.otlpEndpoint`, `github.copilot.chat.otel.exporterType`, and the optional `github.copilot.chat.otel.captureContent` toggle for text capture.
-2. **Log-scrape mode** — parse Copilot Chat local session logs directly for zero-configuration fallback coverage.
+2. **Log-scrape mode** — parse Copilot Chat local session logs directly for zero-configuration fallback coverage, resuming from the last saved checkpoint.
 
 Content capture remains an explicit opt-in because it affects privacy and retention. The design should treat upstream Copilot monitoring docs as the authoritative source for any additional OTel settings such as exporter headers or debug-span exporters.
 

@@ -38,7 +38,7 @@ Flags unusually high tool-call volume against a shrinking set of targets. This c
 
 ### `verbal-hedge`
 
-Looks for hedge or self-correction language in `textExcerpt`. This heuristic is intentionally low confidence and should stay informational unless paired with a behavioral signal such as backtracking or tool churn.
+Looks for hedge or self-correction language in `textExcerpt` captured on normalized turn events. This is a post-processing heuristic rather than an adapter-emitted event type, and it should stay informational unless paired with a behavioral signal such as backtracking or tool churn.
 
 ### `token-budget`
 

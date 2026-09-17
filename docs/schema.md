@@ -12,7 +12,7 @@ interface NormalizedEvent {
   agent: AgentId;
   ts: string;
   kind: 'tool_call' | 'tool_result' | 'edit' | 'test_run'
-    | 'hedge_text' | 'turn_start' | 'turn_stop';
+    | 'turn_start' | 'turn_stop';
   target?: string;
   status: 'success' | 'failure' | 'unknown';
   tokens?: {
@@ -26,11 +26,12 @@ interface NormalizedEvent {
   raw: {
     adapter: string;
     ref: string;
+    event?: unknown;
   };
 }
 ```
 
-`confidence` is intentionally optional. Current Claude Code and Copilot integrations do not expose a trustworthy probability signal, but reserving the field now avoids a future schema migration. Built-in agent IDs stay explicit while third-party adapters should use a namespaced `custom:*` identifier.
+`confidence` is intentionally optional. Current Claude Code and Copilot integrations do not expose a trustworthy probability signal, but reserving the field now avoids a future schema migration. Built-in agent IDs stay explicit while third-party adapters should use a namespaced `custom:*` identifier. `raw.event` is optional and exists only for inspection or debugging when keeping part of the source payload is worth the extra storage.
 
 ## Transformation matrix
 
@@ -41,7 +42,7 @@ Every adapter should document how each raw signal maps into the shared schema.
 | `PostToolUse` hook payload | Claude Code | `tool_call` | `tool_input.file_path` or `.command` | Derived from `tool_response.error` | — | — | Hooks provide structure but not usage. |
 | `Stop` hook payload | Claude Code | `turn_stop` | — | `unknown` | — | — | Marks turn boundaries for windowed heuristics. |
 | Transcript message with usage block | Claude Code JSONL | `turn_stop` | — | `unknown` | Direct map from `input_tokens`, `output_tokens`, and cache fields | Full text when not redacted | Primary token-accounting source. |
-| Transcript message text | Claude Code JSONL | `hedge_text` when regex matches | — | `unknown` | — | Matched span plus nearby context | Regex detection lives in the adapter, not core. |
+| Transcript message text | Claude Code JSONL | Decorates the owning `turn_stop` event | — | `unknown` | — | Full text or a truncated excerpt when capture is enabled | Heuristics mine this captured text later; adapters do not need to invent a separate hedge event. |
 | `execute_tool` span | Copilot OTel | `tool_call` | Span attributes for tool name or args | Span status code | — | — | Higher-fidelity tool activity path. |
 | `execute_hook` span | Copilot OTel | `tool_call` | `hook_type` attribute | `hook_result_kind` mapping | — | — | Annotation-oriented signal. |
 | `gen_ai.client.token.usage` metric | Copilot OTel | Attached to nearest `turn_stop` | — | — | Input/output totals joined by time window and session id | — | Metric stream rather than span data. |
@@ -59,6 +60,7 @@ The schema is designed so sensitive content remains optional:
 - structural fields (`kind`, `status`, `target`, `tokens`) support most heuristics and reporting
 - `textExcerpt` is opt-in and short-lived
 - `raw.ref` points back to source material without copying entire payloads into the normalized record
+- `raw.event` is optional debug data and should be omitted unless an adapter has a clear inspection need
 
 ## `raw.ref` contract
 
