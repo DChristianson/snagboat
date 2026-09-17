@@ -59,6 +59,7 @@ Adapters own all agent-specific parsing. The normalization layer is the only pla
 | --- | --- | --- |
 | `snagboat.retention.rawDays` | `90` | Retain structural events before rolling them into daily aggregates. |
 | `snagboat.retention.textDays` | `3` | Retain captured text excerpts when content capture is enabled. |
+| `snagboat.retention.aggregateDays` | `indefinite` | Retain daily aggregates; set to `0` to disable aggregate retention entirely. |
 | `snagboat.captureContent` | `false` | Opt into storing truncated text excerpts used by the verbal-hedge heuristic. |
 | `snagboat.tokenBudget.session` | unset | Warn when a single session crosses a configured token budget. |
 | `snagboat.tokenBudget.day` | unset | Warn when the current day crosses a configured token budget. |

@@ -29,10 +29,10 @@ Adapters emit raw, agent-native events. Core code is responsible for turning tho
 
 Two user-selectable modes:
 
-1. **OTel mode** — run a local OTLP HTTP receiver and point `github.copilot.chat.otel.*` settings at it for higher-fidelity spans and token metrics.
+1. **OTel mode** — run a local OTLP HTTP receiver and configure Copilot to export to it with concrete settings such as `github.copilot.chat.otel.enabled`, `github.copilot.chat.otel.otlpEndpoint`, `github.copilot.chat.otel.exporterType`, and the optional `github.copilot.chat.otel.captureContent` toggle for text capture.
 2. **Log-scrape mode** — parse Copilot Chat local session logs directly for zero-configuration fallback coverage.
 
-Content capture remains an explicit opt-in because it affects privacy and retention.
+Content capture remains an explicit opt-in because it affects privacy and retention. The design should treat upstream Copilot monitoring docs as the authoritative source for any additional OTel settings such as exporter headers or debug-span exporters.
 
 ### `generic-fs-adapter`
 
