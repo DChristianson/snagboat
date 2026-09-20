@@ -1,0 +1,46 @@
+{
+  "name": "snagboat",
+  "displayName": "Snagboat",
+  "description": "Watches AI coding agent activity and shows token/event counts locally.",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "snagboat",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "snagboat.showBreakdown",
+        "title": "Snagboat: Show Token/Event Breakdown"
+      },
+      {
+        "command": "snagboat._emitTestEvent",
+        "title": "Snagboat (Dev): Emit Test Event"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "compile-tests": "tsc -p . --outDir out",
+    "pretest": "npm run compile-tests && npm run build",
+    "test": "node ./out/test/runTest.js",
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^3.1.0",
+    "esbuild": "^0.24.0",
+    "mocha": "^10.4.0",
+    "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0"
+  }
+}
