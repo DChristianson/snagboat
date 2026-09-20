@@ -1,9 +1,10 @@
-import { AgentId, NormalizedEvent } from './types';
+import { AgentId, NormalizedEvent, NormalizedEventKind } from './types';
 import { EventLog } from './eventLog';
 
 export interface AgentAggregate {
   tokens: { input: number; output: number; cacheRead: number; cacheCreation: number };
   eventCount: number;
+  eventCountByKind: Partial<Record<NormalizedEventKind, number>>;
 }
 
 export interface AggregateSnapshot {
@@ -13,7 +14,7 @@ export interface AggregateSnapshot {
 }
 
 function emptyAgentAggregate(): AgentAggregate {
-  return { tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }, eventCount: 0 };
+  return { tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }, eventCount: 0, eventCountByKind: {} };
 }
 
 export class Aggregate {
@@ -28,6 +29,7 @@ export class Aggregate {
       this.perAgent.set(event.agent, agentAgg);
     }
     agentAgg.eventCount += 1;
+    agentAgg.eventCountByKind[event.kind] = (agentAgg.eventCountByKind[event.kind] ?? 0) + 1;
 
     if (event.tokens) {
       const { input = 0, output = 0, cacheRead = 0, cacheCreation = 0 } = event.tokens;
@@ -53,7 +55,11 @@ export class Aggregate {
   snapshot(): AggregateSnapshot {
     const perAgent: Record<string, AgentAggregate> = {};
     for (const [agent, agg] of this.perAgent) {
-      perAgent[agent] = { tokens: { ...agg.tokens }, eventCount: agg.eventCount };
+      perAgent[agent] = {
+        tokens: { ...agg.tokens },
+        eventCount: agg.eventCount,
+        eventCountByKind: { ...agg.eventCountByKind },
+      };
     }
     return {
       perAgent,

@@ -2,8 +2,9 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { normalizeTranscriptLine } from '../../adapters/claude-code/normalize';
+import { normalizeTranscriptLine, normalizeHookPayload } from '../../adapters/claude-code/normalize';
 import { readNewLines } from '../../core/lineTailer';
+import { ensureHooksConfigured, buildHookCommand } from '../../adapters/claude-code/hooksConfig';
 
 // Shaped after a real assistant transcript line captured from this machine's own
 // ~/.claude/projects/.../*.jsonl transcript during the design of this extension.
@@ -72,6 +73,75 @@ async function main() {
     fs.appendFileSync(filePath, 'rd\nline-four\n');
     const third = await readNewLines(filePath, first.newOffset);
     assert.deepStrictEqual(third.lines, ['partial-third', 'line-four']);
+  });
+
+  test('normalizeHookPayload maps PostToolUse to a tool_call event with derived status', () => {
+    const success = normalizeHookPayload({
+      session_id: 'sess-1',
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Edit',
+      tool_input: { file_path: '/tmp/foo.ts' },
+      tool_response: {},
+    });
+    assert.ok(success);
+    assert.strictEqual(success!.kind, 'tool_call');
+    assert.strictEqual(success!.status, 'success');
+    assert.strictEqual(success!.target, '/tmp/foo.ts');
+    assert.strictEqual(success!.tokens, undefined, 'hook events must never carry tokens (transcript is the sole token source)');
+
+    const failure = normalizeHookPayload({
+      session_id: 'sess-1',
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'false' },
+      tool_response: { error: 'exit code 1' },
+    });
+    assert.strictEqual(failure!.status, 'failure');
+    assert.strictEqual(failure!.target, 'false');
+  });
+
+  test('normalizeHookPayload maps Stop to a turn_stop event and ignores unknown hook names', () => {
+    const stop = normalizeHookPayload({ session_id: 'sess-1', hook_event_name: 'Stop' });
+    assert.ok(stop);
+    assert.strictEqual(stop!.kind, 'turn_stop');
+
+    assert.strictEqual(normalizeHookPayload({ hook_event_name: 'SomethingElse' }), undefined);
+    assert.strictEqual(normalizeHookPayload('not an object'), undefined);
+    assert.strictEqual(normalizeHookPayload(null), undefined);
+  });
+
+  test('ensureHooksConfigured additively merges hooks without touching existing settings', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-hooksconfig-'));
+    const settingsPath = path.join(dir, '.claude', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        someUnrelatedSetting: true,
+        hooks: { PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo existing' }] }] },
+      })
+    );
+
+    await ensureHooksConfigured(dir, 45679);
+    const afterFirst = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    assert.strictEqual(afterFirst.someUnrelatedSetting, true, 'unrelated settings must be preserved');
+    assert.strictEqual(afterFirst.hooks.PostToolUse.length, 2, 'existing hook entry preserved, ours appended');
+    assert.strictEqual(afterFirst.hooks.PostToolUse[0].hooks[0].command, 'echo existing');
+    assert.ok(afterFirst.hooks.PostToolUse[1].hooks[0].command.includes(buildHookCommand(45679).split(' # ')[1]));
+    assert.strictEqual(afterFirst.hooks.Stop.length, 1);
+
+    // Calling again must be idempotent: no duplicate snagboat entries.
+    await ensureHooksConfigured(dir, 45679);
+    const afterSecond = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    assert.strictEqual(afterSecond.hooks.PostToolUse.length, 2, 'second call must not add a duplicate entry');
+  });
+
+  test('ensureHooksConfigured creates .claude/settings.json from scratch when absent', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-hooksconfig-fresh-'));
+    await ensureHooksConfigured(dir, 45679);
+    const settings = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
+    assert.strictEqual(settings.hooks.PostToolUse.length, 1);
+    assert.strictEqual(settings.hooks.Stop.length, 1);
   });
 
   let failures = 0;

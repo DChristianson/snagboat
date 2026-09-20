@@ -1,21 +1,17 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import * as vscode from 'vscode';
 import { AdapterContext } from '../../core/types';
 import { LineTailer } from '../../core/lineTailer';
 import { normalizeTranscriptLine } from './normalize';
-
-function sanitizeCwd(cwd: string): string {
-  return cwd.replace(/[\\/]/g, '-');
-}
+import { resolveProjectDir, sanitizeCwd } from './workspace';
 
 /** Test/CI seam: override where transcripts are read from instead of the real ~/.claude. */
 export function resolveTranscriptsDir(): string | undefined {
   if (process.env.SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR) {
     return process.env.SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR;
   }
-  const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const cwd = resolveProjectDir();
   if (!cwd) return undefined;
   return path.join(os.homedir(), '.claude', 'projects', sanitizeCwd(cwd));
 }

@@ -70,6 +70,17 @@ async function main() {
     assert.strictEqual(snap.localEditCount, 1);
   });
 
+  test('Aggregate tracks eventCountByKind per agent, distinct from the flat eventCount total', () => {
+    const agg = new Aggregate();
+    agg.apply(makeEvent({ agent: 'claude-code', kind: 'tool_call', tokens: undefined }));
+    agg.apply(makeEvent({ agent: 'claude-code', kind: 'tool_call', tokens: undefined }));
+    agg.apply(makeEvent({ agent: 'claude-code', kind: 'turn_stop' }));
+
+    const snap = agg.snapshot();
+    assert.strictEqual(snap.perAgent['claude-code'].eventCount, 3);
+    assert.deepStrictEqual(snap.perAgent['claude-code'].eventCountByKind, { tool_call: 2, turn_stop: 1 });
+  });
+
   test('Aggregate.rehydrateFrom reproduces the same snapshot as live-applying the same events', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-rehydrate-'));
     const log = new EventLog(dir);
