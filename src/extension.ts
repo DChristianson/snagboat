@@ -9,6 +9,7 @@ import { AgentAdapter } from './core/types';
 import { renderStatusBar, breakdownText } from './ui/statusBar';
 import { EditTrackerAdapter } from './adapters/edit-tracker';
 import { ClaudeCodeAdapter } from './adapters/claude-code';
+import { CopilotAdapter } from './adapters/copilot';
 
 export interface SnagboatTestApi {
   getAggregateSnapshot(): AggregateSnapshot;
@@ -46,7 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     })
   );
 
-  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter()];
+  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter()];
   for (const adapter of adapters) {
     const adapterCtx = makeAdapterContext(adapter.agentId, bus, checkpoints);
     await adapter.init(adapterCtx);

@@ -21,7 +21,17 @@
         "command": "snagboat._emitTestEvent",
         "title": "Snagboat (Dev): Emit Test Event"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Snagboat",
+      "properties": {
+        "snagboat.copilot.otlpPort": {
+          "type": "number",
+          "default": 4318,
+          "description": "Local port Snagboat listens on for Copilot Chat's OpenTelemetry export. Point github.copilot.chat.otel.otlpEndpoint at http://127.0.0.1:<this port>."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "node esbuild.js",
@@ -29,7 +39,7 @@
     "compile-tests": "tsc -p . --outDir out",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js"
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
