@@ -3,18 +3,33 @@ import * as crypto from 'crypto';
 import { EventBus } from './core/eventBus';
 import { EventLog } from './core/eventLog';
 import { Aggregate, AggregateSnapshot } from './core/aggregate';
+import { EventStore, ReadonlyEventStore } from './core/eventStore';
 import { CheckpointStore } from './core/checkpointStore';
 import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
-import { AgentAdapter } from './core/types';
+import { AgentAdapter, NormalizedEventKind } from './core/types';
 import { renderStatusBar } from './ui/statusBar';
 import { buildBreakdownLines } from './ui/format';
 import { EditTrackerAdapter } from './adapters/edit-tracker';
 import { ClaudeCodeAdapter } from './adapters/claude-code';
 import { CopilotAdapter } from './adapters/copilot';
+import { FindingsRegistry } from './heuristics/findingsRegistry';
+import { HeuristicsEngine } from './heuristics/engine';
+import { builtInHeuristics, heuristicSettings } from './heuristics/index';
+import { Finding } from './heuristics/types';
+
+const POLL_INTERVAL_MS = 30_000;
+
+// Generous placeholder sizing, comfortably covering every planned heuristic's
+// short window (minutes) without yet reading heuristic settings -- revisited
+// once those settings exist and can drive this properly.
+const EVENT_STORE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const EVENT_STORE_MAX_EVENTS = 5000;
 
 export interface SnagboatTestApi {
   getAggregateSnapshot(): AggregateSnapshot;
+  getEventStore(): ReadonlyEventStore;
+  getFindings(): Finding[];
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<SnagboatTestApi> {
@@ -30,7 +45,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const aggregate = new Aggregate();
   await aggregate.rehydrateFrom(eventLog);
 
+  const eventStore = new EventStore({ windowMs: EVENT_STORE_WINDOW_MS, maxEvents: EVENT_STORE_MAX_EVENTS });
+  await eventStore.rehydrateFrom(eventLog);
+
   const health = new HealthRegistry();
+
+  const findings = new FindingsRegistry();
+  const engine = new HeuristicsEngine(builtInHeuristics(), eventStore, heuristicSettings);
+  const runHeuristics = (kind?: NormalizedEventKind) => {
+    const now = new Date().toISOString();
+    const results = kind ? engine.tickFor(kind, now) : engine.tick(now);
+    for (const [id, list] of results) findings.report(id, list);
+  };
 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBarItem.command = 'snagboat.showBreakdown';
@@ -43,13 +69,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const refresh = () => renderStatusBar(statusBarItem, aggregate.snapshot(), health.list());
   refresh();
   health.onChange(refresh);
+  // Status bar integration is a later step; log to the Debug Console for now
+  // so findings are actually observable in the meantime.
+  findings.onChange(() => {
+    console.log('snagboat: findings changed ->', JSON.stringify(findings.list(), null, 2));
+    refresh();
+  });
 
   const bus = new EventBus();
   bus.onEvent((event) => {
     eventLog.append(event);
     aggregate.apply(event);
+    eventStore.ingest(event);
+    runHeuristics(event.kind);
     refresh();
   });
+
+  // Catch a stalled/over-budget condition immediately on activation (e.g. the
+  // workspace was already idle before this window opened), rather than
+  // waiting for the first timer tick.
+  runHeuristics();
+  const pollTimer = setInterval(() => {
+    runHeuristics();
+    refresh();
+  }, POLL_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(pollTimer) });
 
   context.subscriptions.push(
     vscode.commands.registerCommand('snagboat.showBreakdown', () => {
@@ -94,6 +138,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
 
   return {
     getAggregateSnapshot: () => aggregate.snapshot(),
+    getEventStore: () => eventStore,
+    getFindings: () => findings.list(),
   };
 }
 

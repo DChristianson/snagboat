@@ -72,6 +72,14 @@ suite('Snagboat core plumbing', () => {
       beforeEvents + 2,
       'claude-code event count should increase by 2'
     );
+
+    const storeCount = api.getEventStore().query({ agents: ['claude-code'] }).length;
+    assert.ok(storeCount >= 2, 'EventStore should also have ingested both emitted events');
+
+    // Recent activity means "stalled" shouldn't be firing; this mainly proves
+    // the real vscode.workspace.getConfiguration() wiring in heuristicSettings()
+    // doesn't throw in a live host, not the heuristic's own logic (unit-tested).
+    assert.ok(!api.getFindings().some((f) => f.heuristicId === 'stalled'), 'stalled should not fire right after recent activity');
   });
 
   test('saving a real file triggers the edit-tracker adapter', async () => {
