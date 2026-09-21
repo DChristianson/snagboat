@@ -16,7 +16,10 @@ export class CopilotAdapter implements AgentAdapter {
 
   async start(): Promise<void> {
     if (!this.ctx) throw new Error('CopilotAdapter.start() called before init()');
-    const port = vscode.workspace.getConfiguration('snagboat').get<number>('copilot.otlpPort', DEFAULT_OTLP_PORT);
+    // Test/CI seam: override the port instead of relying on the vscode setting.
+    const port = process.env.SNAGBOAT_COPILOT_OTLP_PORT
+      ? Number(process.env.SNAGBOAT_COPILOT_OTLP_PORT)
+      : vscode.workspace.getConfiguration('snagboat').get<number>('copilot.otlpPort', DEFAULT_OTLP_PORT);
     this.otelReceiver = new OtelReceiver(this.ctx, port);
     this.otelReceiver.start();
   }
