@@ -14,10 +14,10 @@ export class OtelReceiver {
   start(): void {
     this.server = http.createServer((req, res) => this.handleRequest(req, res));
     this.server.on('error', (err) => {
-      console.error(`snagboat: copilot OTel receiver failed on port ${this.port}`, err);
+      this.ctx.reportHealth('otelReceiver', `failed to listen on port ${this.port}: ${err.message}`);
     });
     this.server.listen(this.port, '127.0.0.1', () => {
-      console.log(`snagboat: copilot OTel receiver listening on 127.0.0.1:${this.port}`);
+      this.ctx.reportHealth('otelReceiver', undefined);
     });
   }
 

@@ -41,8 +41,9 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const projectDir = resolveProjectDir();
     if (projectDir) {
       await ensureHooksConfigured(projectDir, port);
+      this.ctx.reportHealth('hooks', undefined);
     } else {
-      console.warn('snagboat: no workspace folder open, claude-code hooks were not configured');
+      this.ctx.reportHealth('hooks', 'no workspace folder open, hooks were not configured');
     }
   }
 

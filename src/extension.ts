@@ -4,9 +4,11 @@ import { EventBus } from './core/eventBus';
 import { EventLog } from './core/eventLog';
 import { Aggregate, AggregateSnapshot } from './core/aggregate';
 import { CheckpointStore } from './core/checkpointStore';
+import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
 import { AgentAdapter } from './core/types';
-import { renderStatusBar, breakdownText } from './ui/statusBar';
+import { renderStatusBar } from './ui/statusBar';
+import { buildBreakdownLines } from './ui/format';
 import { EditTrackerAdapter } from './adapters/edit-tracker';
 import { ClaudeCodeAdapter } from './adapters/claude-code';
 import { CopilotAdapter } from './adapters/copilot';
@@ -28,28 +30,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const aggregate = new Aggregate();
   await aggregate.rehydrateFrom(eventLog);
 
+  const health = new HealthRegistry();
+
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBarItem.command = 'snagboat.showBreakdown';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
-  renderStatusBar(statusBarItem, aggregate.snapshot());
+
+  const outputChannel = vscode.window.createOutputChannel('Snagboat');
+  context.subscriptions.push(outputChannel);
+
+  const refresh = () => renderStatusBar(statusBarItem, aggregate.snapshot(), health.list());
+  refresh();
+  health.onChange(refresh);
 
   const bus = new EventBus();
   bus.onEvent((event) => {
     eventLog.append(event);
     aggregate.apply(event);
-    renderStatusBar(statusBarItem, aggregate.snapshot());
+    refresh();
   });
 
   context.subscriptions.push(
     vscode.commands.registerCommand('snagboat.showBreakdown', () => {
-      vscode.window.showInformationMessage(breakdownText(aggregate.snapshot()));
+      outputChannel.clear();
+      outputChannel.appendLine(buildBreakdownLines(aggregate.snapshot(), health.list()).join('\n'));
+      outputChannel.show();
     })
   );
 
   const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter()];
   for (const adapter of adapters) {
-    const adapterCtx = makeAdapterContext(adapter.agentId, bus, checkpoints);
+    const adapterCtx = makeAdapterContext(adapter.agentId, bus, checkpoints, health);
     await adapter.init(adapterCtx);
     await adapter.start();
   }

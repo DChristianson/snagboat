@@ -28,9 +28,10 @@ export class TranscriptTailer {
   start(): void {
     const dir = resolveTranscriptsDir();
     if (!dir) {
-      console.warn('snagboat: no workspace folder open, claude-code transcript tailing disabled');
+      this.ctx.reportHealth('transcripts', 'no workspace folder open, transcript tailing disabled');
       return;
     }
+    this.ctx.reportHealth('transcripts', undefined);
     if (!fs.existsSync(dir)) {
       console.warn(
         `snagboat: no Claude Code transcripts directory found at ${dir} yet (no session recorded for this workspace path) — will pick up files if one appears`

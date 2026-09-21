@@ -1,11 +1,13 @@
 import { AdapterContext, NormalizedEvent } from './types';
 import { EventBus } from './eventBus';
 import { CheckpointStore } from './checkpointStore';
+import { HealthRegistry } from './health';
 
 export function makeAdapterContext(
   adapterId: string,
   bus: EventBus,
-  checkpoints: CheckpointStore
+  checkpoints: CheckpointStore,
+  health: HealthRegistry
 ): AdapterContext {
   return {
     publish(event: NormalizedEvent) {
@@ -16,6 +18,9 @@ export function makeAdapterContext(
     },
     writeCheckpoint(checkpoint) {
       return checkpoints.write(adapterId, checkpoint);
+    },
+    reportHealth(key, message) {
+      health.report(adapterId, key, message);
     },
   };
 }

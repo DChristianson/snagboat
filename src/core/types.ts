@@ -36,6 +36,8 @@ export interface AdapterContext {
   publish(event: NormalizedEvent): void;
   readCheckpoint(): Promise<AdapterCheckpoint | undefined>;
   writeCheckpoint(checkpoint: AdapterCheckpoint): Promise<void>;
+  /** Reports (or clears, with `message: undefined`) a named health concern for this adapter. */
+  reportHealth(key: string, message: string | undefined): void;
 }
 
 export interface AgentAdapter {

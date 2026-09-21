@@ -7,6 +7,7 @@ import { EventLog } from '../../core/eventLog';
 import { Aggregate } from '../../core/aggregate';
 import { CheckpointStore } from '../../core/checkpointStore';
 import { makeAdapterContext } from '../../core/adapterContext';
+import { HealthRegistry } from '../../core/health';
 import { NormalizedEvent } from '../../core/types';
 
 function makeEvent(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
@@ -119,13 +120,35 @@ async function main() {
     const received: NormalizedEvent[] = [];
     bus.onEvent((e) => received.push(e));
 
-    const ctx = makeAdapterContext('copilot', bus, store);
+    const health = new HealthRegistry();
+    const ctx = makeAdapterContext('copilot', bus, store, health);
     ctx.publish(makeEvent({ agent: 'copilot' }));
     assert.strictEqual(received.length, 1);
 
     await ctx.writeCheckpoint({ updatedAt: 'now', state: { a: 1 } });
     assert.deepStrictEqual(await store.read('copilot'), { updatedAt: 'now', state: { a: 1 } });
     assert.deepStrictEqual(await ctx.readCheckpoint(), { updatedAt: 'now', state: { a: 1 } });
+
+    ctx.reportHealth('otlp', 'port in use');
+    assert.deepStrictEqual(health.list(), [{ source: 'copilot', message: 'port in use' }]);
+  });
+
+  test('HealthRegistry tracks independent keys per source and only notifies listeners on real changes', () => {
+    const health = new HealthRegistry();
+    let notifications = 0;
+    health.onChange(() => (notifications += 1));
+
+    health.report('claude-code', 'transcripts', 'no workspace folder open');
+    health.report('claude-code', 'hooks', 'no workspace folder open');
+    assert.strictEqual(notifications, 2);
+    assert.strictEqual(health.list().length, 2, 'two independent keys under the same source must not clobber each other');
+
+    health.report('claude-code', 'transcripts', 'no workspace folder open');
+    assert.strictEqual(notifications, 2, 'reporting the same message again must not notify again');
+
+    health.report('claude-code', 'transcripts', undefined);
+    assert.strictEqual(notifications, 3);
+    assert.strictEqual(health.list().length, 1);
   });
 
   let failures = 0;

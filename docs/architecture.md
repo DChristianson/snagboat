@@ -16,6 +16,7 @@ interface AdapterContext {
   publish(event: NormalizedEvent): void;
   readCheckpoint(): Promise<AdapterCheckpoint | undefined>;
   writeCheckpoint(checkpoint: AdapterCheckpoint): Promise<void>;
+  reportHealth(key: string, message: string | undefined): void;
 }
 
 interface AgentAdapter {
@@ -26,7 +27,7 @@ interface AgentAdapter {
 }
 ```
 
-Snagboat initializes an adapter once with an `AdapterContext`, then starts and stops collection separately. Adapters publish `NormalizedEvent` records directly through the context event stream, optionally embedding the source agent payload in `event.raw.event` for inspection or debugging. Checkpoints are adapter-owned state blobs so polling adapters can resume from the last processed file, line, or byte offset instead of rescanning from the beginning.
+Snagboat initializes an adapter once with an `AdapterContext`, then starts and stops collection separately. Adapters publish `NormalizedEvent` records directly through the context event stream, optionally embedding the source agent payload in `event.raw.event` for inspection or debugging. Checkpoints are adapter-owned state blobs so polling adapters can resume from the last processed file, line, or byte offset instead of rescanning from the beginning. `reportHealth(key, message)` lets an adapter surface (or clear, by passing `undefined`) a named concern — e.g. "no workspace folder open" or "receiver failed to bind its port" — so genuine problems are visible in the status bar's health section instead of only in the Debug Console; `key` scopes independent concerns within the same adapter (e.g. `claude-code` can report both a `transcripts` and a `hooks` issue at once without one clobbering the other).
 
 ## Planned built-in adapters
 

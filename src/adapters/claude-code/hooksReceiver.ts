@@ -21,7 +21,6 @@ export class HooksReceiver {
       req.on('end', () => {
         res.writeHead(200).end();
         const raw = Buffer.concat(chunks).toString('utf8');
-        console.log(`snagboat: hooks receiver got a request, body: ${raw}`);
         let payload: unknown;
         try {
           payload = JSON.parse(raw);
@@ -38,10 +37,10 @@ export class HooksReceiver {
       });
     });
     this.server.on('error', (err) => {
-      console.error(`snagboat: hooks receiver failed on port ${this.port}`, err);
+      this.ctx.reportHealth('hooksReceiver', `failed to listen on port ${this.port}: ${err.message}`);
     });
     this.server.listen(this.port, '127.0.0.1', () => {
-      console.log(`snagboat: claude-code hooks receiver listening on 127.0.0.1:${this.port}`);
+      this.ctx.reportHealth('hooksReceiver', undefined);
     });
   }
 
