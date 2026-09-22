@@ -2,6 +2,18 @@ import * as assert from 'assert';
 import { formatCount, agentEventTotal, buildStatusBarText, buildBreakdownLines } from '../../ui/format';
 import { Aggregate } from '../../core/aggregate';
 import { NormalizedEvent } from '../../core/types';
+import { Finding } from '../../heuristics/types';
+
+function makeFinding(overrides: Partial<Finding> = {}): Finding {
+  return {
+    heuristicId: 'stalled',
+    severity: 'warn',
+    summary: 'No activity for 20 minutes',
+    eventRefs: [],
+    detectedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
 
 function makeEvent(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
   return {
@@ -76,6 +88,34 @@ async function main() {
     const withHealth = buildBreakdownLines(snap, [{ source: 'copilot', message: 'port in use' }]).join('\n');
     assert.ok(withHealth.includes('Health:'));
     assert.ok(withHealth.includes('copilot: port in use'));
+  });
+
+  test('buildStatusBarText uses a finding-specific glyph and appends its summary when present', () => {
+    const agg = new Aggregate();
+    const snap = agg.snapshot();
+    const finding = makeFinding();
+
+    const text = buildStatusBarText(snap, [], finding);
+    assert.ok(text.startsWith('$(clock)'), text); // stalled -> $(clock) per README's indicator table
+    assert.ok(text.includes('No activity for 20 minutes'), text);
+  });
+
+  test('buildStatusBarText prioritizes the health warning icon over a finding glyph', () => {
+    const agg = new Aggregate();
+    const snap = agg.snapshot();
+    const text = buildStatusBarText(snap, [{ source: 'copilot', message: 'oops' }], makeFinding());
+    assert.ok(text.startsWith('$(warning)'), text);
+  });
+
+  test('buildBreakdownLines includes a Findings section only when there are active findings', () => {
+    const agg = new Aggregate();
+    const snap = agg.snapshot();
+    assert.ok(!buildBreakdownLines(snap, []).join('\n').includes('Findings:'));
+
+    const withFinding = buildBreakdownLines(snap, [], [makeFinding({ suggestedAction: 'take a break' })]).join('\n');
+    assert.ok(withFinding.includes('Findings:'));
+    assert.ok(withFinding.includes('[warn] stalled: No activity for 20 minutes'));
+    assert.ok(withFinding.includes('take a break'));
   });
 
   let failures = 0;

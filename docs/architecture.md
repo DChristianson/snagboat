@@ -69,15 +69,45 @@ Every new adapter should add or update its row in the transformation matrix docu
 - Optional export: `snagboat.exportLog` should offer SQLite and CSV export.
 - Optional SQLite side index: rebuilt from JSONL if missing or corrupt so JSONL remains the source of truth.
 
+## Event query interface: `EventStore`
+
+Implemented as part of v1's heuristics engine. `EventStore` is the single well-defined query interface heuristics are allowed to use for event data — direct access to `EventLog` or `Aggregate` is not permitted, an explicit design requirement so heuristics can't quietly grow ad hoc coupling to storage internals.
+
+```ts
+interface EventQuery {
+  since?: string; until?: string;
+  kinds?: NormalizedEventKind[]; agents?: AgentId[];
+  sessionId?: string; target?: string; limit?: number;
+}
+interface TokenTotals { input: number; output: number; cacheRead: number; cacheCreation: number; }
+
+interface ReadonlyEventStore {          // the interface heuristics actually see
+  query(filter?: EventQuery): NormalizedEvent[];
+  lastN(n: number): NormalizedEvent[];
+  latestTs(): string | undefined;
+  cumulativeTokens(scope: { sessionId?: string; day?: string }): TokenTotals;
+}
+```
+
+Design notes:
+
+- Holds a bounded in-memory window of recent events (sized generously at startup from configured heuristic windows) plus separate incremental per-session and per-day token accumulators. Query-time never falls back to disk — the window is seeded once via `rehydrateFrom(eventLog)` and maintained incrementally via `ingest(event)`, so a query never re-parses the on-disk log. If a heuristic's window setting is later widened past what's retained, `query()` results silently truncate; this is a known limitation, not a solved one.
+- `cumulativeTokens` is not a scan over the window — it's a separate accumulator, so `token-budget` stays correct for sessions/days that have scrolled out of the raw-event window.
+- Coexists with `Aggregate` rather than merging into it: `Aggregate` answers "all-time per-agent totals for the status bar" (a different question, already shipped and tested); consolidating the two is a candidate for whenever retention/rollup work touches `Aggregate` anyway.
+
+## Heuristics engine
+
+`HeuristicsEngine` (see [heuristics.md](heuristics.md) for the `Heuristic`/`Finding` contract) runs on two triggers: pushed on every event (filtered cheaply by each heuristic's `appliesTo`, since a heuristic whose relevant kinds didn't change can't have a new verdict), and on a timer regardless of events (30s poll interval, a code constant not a setting) — required because some heuristics, like `stalled`, depend on the *absence* of events and can't be purely event-triggered. `FindingsRegistry` tracks the current set of findings per heuristic, mirroring `HealthRegistry`'s proven shape (replace-per-key, notify only on real change) — surfaced via the status bar's icon/text (worst active finding) and the tooltip/breakdown's `Findings:` section (all active findings). Findings are in-memory only, not persisted to disk or acknowledgeable yet; both are deferred to the detail-webview/retention work.
+
 ## UI
 
 ### Status bar
 
 A single item combines:
 
-- today's token total across all agents
-- a hover breakdown by agent
-- the worst unacknowledged finding in the current window
+- the token total across all agents — currently an all-time cumulative sum since the log began (`Aggregate` never resets), not a daily figure; this doc previously said "today's total" but nothing resets it daily yet. Worth resolving once retention/rollup work gives `Aggregate` a real notion of "today."
+- a hover breakdown by agent, including a per-source cache-token breakdown and a grand-total section
+- the worst active finding (severity, then most recent) — "unacknowledged" is trivially true today since no acknowledge/mute mechanism exists yet (deferred to the detail-webview work)
 
 ### Detail webview
 

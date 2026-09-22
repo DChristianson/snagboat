@@ -1,5 +1,6 @@
 import { AggregateSnapshot, AgentAggregate } from '../core/aggregate';
 import { HealthIssue } from '../core/health';
+import { Finding } from '../heuristics/types';
 
 export function formatCount(n: number): string {
   if (n >= 1000) {
@@ -26,14 +27,31 @@ function formatByKind(agg: AgentAggregate): string {
   return kinds.map(([kind, count]) => `${kind}: ${count}`).join(', ');
 }
 
-export function buildStatusBarText(snapshot: AggregateSnapshot, health: HealthIssue[]): string {
-  const icon = health.length > 0 ? '$(warning)' : '$(pulse)';
+// Per README's planned status indicators table: keep the glyph meaningful but
+// non-essential -- the visible text (via buildBreakdownLines/summary) already
+// says what's wrong without it.
+const FINDING_GLYPHS: Record<string, string> = {
+  backtracking: '$(history)',
+  'tool-churn': '$(sync)',
+  'token-budget': '$(dashboard)',
+  stalled: '$(clock)',
+};
+
+function findingGlyph(heuristicId: string): string {
+  return FINDING_GLYPHS[heuristicId] ?? '$(pulse)';
+}
+
+export function buildStatusBarText(snapshot: AggregateSnapshot, health: HealthIssue[], worstFinding?: Finding): string {
+  // Health takes priority over a behavioral finding: it means Snagboat itself
+  // isn't working right, which is more urgent than something it noticed.
+  const icon = health.length > 0 ? '$(warning)' : worstFinding ? findingGlyph(worstFinding.heuristicId) : '$(pulse)';
   const events = agentEventTotal(snapshot);
-  return `${icon} ${formatCount(snapshot.totalTokens)} tokens · ${formatCount(events)} events · ${formatCount(snapshot.localEditCount)} edits`;
+  const base = `${icon} ${formatCount(snapshot.totalTokens)} tokens · ${formatCount(events)} events · ${formatCount(snapshot.localEditCount)} edits`;
+  return worstFinding ? `${base} · ${worstFinding.summary}` : base;
 }
 
 /** Plain-text lines shared by the status bar tooltip and the Output Channel breakdown. */
-export function buildBreakdownLines(snapshot: AggregateSnapshot, health: HealthIssue[]): string[] {
+export function buildBreakdownLines(snapshot: AggregateSnapshot, health: HealthIssue[], findings: Finding[] = []): string[] {
   const lines: string[] = ['Snagboat', ''];
   const agentIds = Object.keys(snapshot.perAgent).sort();
 
@@ -55,6 +73,17 @@ export function buildBreakdownLines(snapshot: AggregateSnapshot, health: HealthI
   lines.push(`  Tokens: ${snapshot.totalTokens}`);
   lines.push(`  Events: ${agentEventTotal(snapshot)}`);
   lines.push(`  Local edits: ${snapshot.localEditCount}`);
+
+  if (findings.length > 0) {
+    lines.push('');
+    lines.push('Findings:');
+    for (const finding of findings) {
+      lines.push(`  [${finding.severity}] ${finding.heuristicId}: ${finding.summary}`);
+      if (finding.suggestedAction) {
+        lines.push(`    -> ${finding.suggestedAction}`);
+      }
+    }
+  }
 
   if (health.length > 0) {
     lines.push('');

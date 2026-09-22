@@ -29,6 +29,44 @@
           "type": "number",
           "default": 4318,
           "description": "Local port Snagboat listens on for Copilot Chat's OpenTelemetry export. Point github.copilot.chat.otel.otlpEndpoint at http://127.0.0.1:<this port>."
+        },
+        "snagboat.heuristics.stalled.minutes": {
+          "type": "number",
+          "default": 15,
+          "description": "Warn when no events have arrived for this many minutes."
+        },
+        "snagboat.tokenBudget.session": {
+          "type": "number",
+          "description": "Warn when a single session's token usage crosses this total. Unset by default (no check)."
+        },
+        "snagboat.tokenBudget.day": {
+          "type": "number",
+          "description": "Warn when this workspace's token usage for the current day crosses this total. Unset by default (no check)."
+        },
+        "snagboat.heuristics.toolChurn.window": {
+          "type": "number",
+          "default": 5,
+          "description": "Rolling window, in minutes, that tool-churn looks back over."
+        },
+        "snagboat.heuristics.toolChurn.minCalls": {
+          "type": "number",
+          "default": 8,
+          "description": "Minimum tool calls within the window before tool-churn can fire."
+        },
+        "snagboat.heuristics.toolChurn.maxDistinctTargets": {
+          "type": "number",
+          "default": 2,
+          "description": "tool-churn only fires when calls within the window hit at most this many distinct targets."
+        },
+        "snagboat.heuristics.backtracking.window": {
+          "type": "number",
+          "default": 10,
+          "description": "Rolling window, in minutes, that backtracking looks back over."
+        },
+        "snagboat.heuristics.backtracking.minRepeats": {
+          "type": "number",
+          "default": 3,
+          "description": "Minimum times the same target must be touched within the window before backtracking can fire."
         }
       }
     }

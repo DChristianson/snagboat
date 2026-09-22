@@ -61,10 +61,14 @@ Adapters own all agent-specific parsing. The normalization layer is the only pla
 | `snagboat.retention.textDays` | `3` | Retain captured text excerpts when content capture is enabled. |
 | `snagboat.retention.aggregateDays` | `-1` | Retain daily aggregates indefinitely; set to `0` to disable aggregate retention entirely. |
 | `snagboat.captureContent` | `false` | Opt into storing truncated text excerpts used by the verbal-hedge heuristic. |
-| `snagboat.tokenBudget.session` | unset | Warn when a single session crosses a configured token budget. |
-| `snagboat.tokenBudget.day` | unset | Warn when the current day crosses a configured token budget. |
-| `snagboat.heuristics.backtracking.window` | TBD | Tune the short rolling window used to distinguish iteration from looping. |
-| `snagboat.heuristics.stalled.minutes` | TBD | Define when an active session is considered stalled. |
+| `snagboat.tokenBudget.session` | unset | Warn when a single session crosses a configured token budget (local level). |
+| `snagboat.tokenBudget.day` | unset | Warn when this workspace's usage for the current day crosses a configured token budget (project level). A global, cross-workspace level plus a treemap visualization is planned but not yet built. |
+| `snagboat.heuristics.backtracking.window` | `10` (minutes) | Rolling window used to distinguish iteration from looping. Resolved as wall-clock minutes, not an event count. |
+| `snagboat.heuristics.backtracking.minRepeats` | `3` | Minimum times the same target must be touched within the window before backtracking fires. |
+| `snagboat.heuristics.stalled.minutes` | `15` | Warn when no events have arrived for this many minutes. |
+| `snagboat.heuristics.toolChurn.window` | `5` (minutes) | Rolling window that tool-churn looks back over. |
+| `snagboat.heuristics.toolChurn.minCalls` | `8` | Minimum tool calls within the window before tool-churn fires. |
+| `snagboat.heuristics.toolChurn.maxDistinctTargets` | `2` | tool-churn only fires when calls in the window hit at most this many distinct targets. |
 
 ## Planned status indicators
 

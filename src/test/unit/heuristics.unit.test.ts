@@ -2,8 +2,12 @@ import * as assert from 'assert';
 import { HeuristicsEngine } from '../../heuristics/engine';
 import { FindingsRegistry } from '../../heuristics/findingsRegistry';
 import { stalledHeuristic } from '../../heuristics/stalled';
+import { tokenBudgetHeuristic } from '../../heuristics/tokenBudget';
+import { toolChurnHeuristic } from '../../heuristics/toolChurn';
+import { backtrackingHeuristic } from '../../heuristics/backtracking';
 import { Heuristic, Finding, HeuristicContext } from '../../heuristics/types';
-import { ReadonlyEventStore } from '../../core/eventStore';
+import { ReadonlyEventStore, TokenTotals } from '../../core/eventStore';
+import { NormalizedEvent } from '../../core/types';
 
 const fakeStore: ReadonlyEventStore = {
   query: () => [],
@@ -14,6 +18,75 @@ const fakeStore: ReadonlyEventStore = {
 
 function storeWithLatestTs(ts: string | undefined): ReadonlyEventStore {
   return { ...fakeStore, latestTs: () => ts };
+}
+
+function totals(input: number): TokenTotals {
+  return { input, output: 0, cacheRead: 0, cacheCreation: 0 };
+}
+
+function fakeEvent(sessionId: string): NormalizedEvent {
+  return {
+    eventId: `evt-${sessionId}`,
+    sessionId,
+    agent: 'claude-code',
+    ts: '2026-01-01T00:00:00.000Z',
+    kind: 'turn_stop',
+    status: 'unknown',
+    raw: { adapter: 'test', ref: 'n/a' },
+  };
+}
+
+function makeToolCall(eventId: string, target: string | undefined): NormalizedEvent {
+  return {
+    eventId,
+    sessionId: 'session-1',
+    agent: 'claude-code',
+    ts: '2026-01-01T00:00:00.000Z',
+    kind: 'tool_call',
+    target,
+    status: 'unknown',
+    raw: { adapter: 'test', ref: 'n/a' },
+  };
+}
+
+/** A store whose query() returns exactly this fixed list, regardless of filter args (EventStore's own filtering is tested separately). */
+function fixedQueryStore(events: NormalizedEvent[]): ReadonlyEventStore {
+  return { ...fakeStore, query: () => events };
+}
+
+function makeTargetedEvent(
+  eventId: string,
+  target: string | undefined,
+  status: NormalizedEvent['status'],
+  ts: string
+): NormalizedEvent {
+  return {
+    eventId,
+    sessionId: 'session-1',
+    agent: 'claude-code',
+    ts,
+    kind: 'edit',
+    target,
+    status,
+    raw: { adapter: 'test', ref: 'n/a' },
+  };
+}
+
+/** A store whose query() lists the given active sessions and whose cumulativeTokens() is driven by lookup tables. */
+function tokenBudgetStore(
+  activeSessionIds: string[],
+  sessionTotals: Record<string, number>,
+  dayTotal: number
+): ReadonlyEventStore {
+  return {
+    ...fakeStore,
+    query: () => activeSessionIds.map(fakeEvent),
+    cumulativeTokens: (scope) => {
+      if (scope.sessionId !== undefined) return totals(sessionTotals[scope.sessionId] ?? 0);
+      if (scope.day !== undefined) return totals(dayTotal);
+      return totals(0);
+    },
+  };
 }
 
 function makeFinding(overrides: Partial<Finding> = {}): Finding {
@@ -169,6 +242,169 @@ async function main() {
       0,
       'an invalid setting value should fall back to the 15-minute default, under which 5 minutes elapsed is fine'
     );
+  });
+
+  test('token-budget: no findings when neither budget setting is configured', () => {
+    const store = tokenBudgetStore(['s1'], { s1: 1000 }, 1000);
+    const findings = tokenBudgetHeuristic.evaluate({ now: '2026-01-01T00:00:00.000Z', store, settings: {} });
+    assert.deepStrictEqual(findings, []);
+  });
+
+  test('token-budget: only sessions over the session budget produce findings', () => {
+    const store = tokenBudgetStore(['under', 'over'], { under: 50, over: 150 }, 0);
+    const findings = tokenBudgetHeuristic.evaluate({
+      now: '2026-01-01T00:00:00.000Z',
+      store,
+      settings: { session: 100 },
+    });
+    assert.strictEqual(findings.length, 1);
+    assert.ok(findings[0].summary.includes('over'));
+    assert.ok(findings[0].summary.includes('150'));
+  });
+
+  test('token-budget: day total over the day budget produces a project-level finding', () => {
+    const store = tokenBudgetStore([], {}, 5000);
+    const findings = tokenBudgetHeuristic.evaluate({
+      now: '2026-01-01T00:00:00.000Z',
+      store,
+      settings: { day: 4000 },
+    });
+    assert.strictEqual(findings.length, 1);
+    assert.ok(findings[0].summary.includes('5000'));
+  });
+
+  test('token-budget: both session and day can fire together, and invalid settings are ignored', () => {
+    const store = tokenBudgetStore(['s1'], { s1: 200 }, 5000);
+    const withBoth = tokenBudgetHeuristic.evaluate({
+      now: '2026-01-01T00:00:00.000Z',
+      store,
+      settings: { session: 100, day: 4000 },
+    });
+    assert.strictEqual(withBoth.length, 2, 'both a session and a day finding should fire');
+
+    const withInvalid = tokenBudgetHeuristic.evaluate({
+      now: '2026-01-01T00:00:00.000Z',
+      store,
+      settings: { session: 'not-a-number', day: -5 },
+    });
+    assert.deepStrictEqual(withInvalid, [], 'non-numeric or non-positive settings must be treated as unset, not as a threshold of 0/NaN');
+  });
+
+  test('tool-churn: fewer calls than minCalls produces no finding', () => {
+    const calls = [makeToolCall('a', 'x.ts'), makeToolCall('b', 'x.ts')];
+    const findings = toolChurnHeuristic.evaluate({
+      now: '2026-01-01T00:05:00.000Z',
+      store: fixedQueryStore(calls),
+      settings: { minCalls: 8 },
+    });
+    assert.deepStrictEqual(findings, []);
+  });
+
+  test('tool-churn: enough calls but spread across too many targets produces no finding', () => {
+    const calls = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((id, i) => makeToolCall(id, `file-${i}.ts`));
+    const findings = toolChurnHeuristic.evaluate({
+      now: '2026-01-01T00:05:00.000Z',
+      store: fixedQueryStore(calls),
+      settings: { minCalls: 8, maxDistinctTargets: 2 },
+    });
+    assert.deepStrictEqual(findings, [], 'each call hit a different file, so this is not churn against a narrow target set');
+  });
+
+  test('tool-churn: enough calls against few targets produces a warn finding referencing every call', () => {
+    const calls = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((id) => makeToolCall(id, 'x.ts'));
+    const findings = toolChurnHeuristic.evaluate({
+      now: '2026-01-01T00:05:00.000Z',
+      store: fixedQueryStore(calls),
+      settings: { minCalls: 8, maxDistinctTargets: 2 },
+    });
+    assert.strictEqual(findings.length, 1);
+    assert.strictEqual(findings[0].severity, 'warn');
+    assert.deepStrictEqual(findings[0].eventRefs.sort(), ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+  });
+
+  test('tool-churn: missing target values are grouped together rather than crashing', () => {
+    const calls = Array.from({ length: 8 }, (_, i) => makeToolCall(`e${i}`, undefined));
+    const findings = toolChurnHeuristic.evaluate({
+      now: '2026-01-01T00:05:00.000Z',
+      store: fixedQueryStore(calls),
+      settings: { minCalls: 8, maxDistinctTargets: 2 },
+    });
+    assert.strictEqual(findings.length, 1);
+  });
+
+  test('backtracking: fewer touches than minRepeats produces no finding', () => {
+    const events = [
+      makeTargetedEvent('a', 'x.ts', 'unknown', '2026-01-01T00:00:00.000Z'),
+      makeTargetedEvent('b', 'x.ts', 'unknown', '2026-01-01T00:01:00.000Z'),
+    ];
+    const findings = backtrackingHeuristic.evaluate({
+      now: '2026-01-01T00:05:00.000Z',
+      store: fixedQueryStore(events),
+      settings: { minRepeats: 3 },
+    });
+    assert.deepStrictEqual(findings, []);
+  });
+
+  test('backtracking: enough touches with no intervening success produces a warn finding', () => {
+    const events = [
+      makeTargetedEvent('a', 'x.ts', 'unknown', '2026-01-01T00:00:00.000Z'),
+      makeTargetedEvent('b', 'x.ts', 'failure', '2026-01-01T00:01:00.000Z'),
+      makeTargetedEvent('c', 'x.ts', 'unknown', '2026-01-01T00:02:00.000Z'),
+    ];
+    const findings = backtrackingHeuristic.evaluate({
+      now: '2026-01-01T00:05:00.000Z',
+      store: fixedQueryStore(events),
+      settings: { minRepeats: 3 },
+    });
+    assert.strictEqual(findings.length, 1);
+    assert.strictEqual(findings[0].severity, 'warn');
+    assert.deepStrictEqual(findings[0].eventRefs, ['a', 'b', 'c']);
+  });
+
+  test('backtracking: an intervening success between the first and last touch suppresses the finding', () => {
+    const events = [
+      makeTargetedEvent('a', 'x.ts', 'unknown', '2026-01-01T00:00:00.000Z'),
+      makeTargetedEvent('b', 'x.ts', 'success', '2026-01-01T00:01:00.000Z'), // strictly between a and c
+      makeTargetedEvent('c', 'x.ts', 'unknown', '2026-01-01T00:02:00.000Z'),
+    ];
+    const findings = backtrackingHeuristic.evaluate({
+      now: '2026-01-01T00:05:00.000Z',
+      store: fixedQueryStore(events),
+      settings: { minRepeats: 3 },
+    });
+    assert.deepStrictEqual(findings, [], 'a success in between looks like legitimate iteration, not looping');
+  });
+
+  test('backtracking: a success only at the first or last touch does NOT suppress the finding', () => {
+    const events = [
+      makeTargetedEvent('a', 'x.ts', 'success', '2026-01-01T00:00:00.000Z'), // endpoint, not "in between"
+      makeTargetedEvent('b', 'x.ts', 'unknown', '2026-01-01T00:01:00.000Z'),
+      makeTargetedEvent('c', 'x.ts', 'success', '2026-01-01T00:02:00.000Z'), // endpoint, not "in between"
+    ];
+    const findings = backtrackingHeuristic.evaluate({
+      now: '2026-01-01T00:05:00.000Z',
+      store: fixedQueryStore(events),
+      settings: { minRepeats: 3 },
+    });
+    assert.strictEqual(findings.length, 1, 'success only at the endpoints must still count as looping');
+  });
+
+  test('backtracking: events without a target are ignored, and only qualifying targets are reported', () => {
+    const events = [
+      makeTargetedEvent('a', undefined, 'unknown', '2026-01-01T00:00:00.000Z'),
+      makeTargetedEvent('b', undefined, 'unknown', '2026-01-01T00:01:00.000Z'),
+      makeTargetedEvent('c', undefined, 'unknown', '2026-01-01T00:02:00.000Z'),
+      makeTargetedEvent('d', 'y.ts', 'unknown', '2026-01-01T00:00:00.000Z'),
+      makeTargetedEvent('e', 'y.ts', 'unknown', '2026-01-01T00:01:00.000Z'),
+      makeTargetedEvent('f', 'y.ts', 'unknown', '2026-01-01T00:02:00.000Z'),
+    ];
+    const findings = backtrackingHeuristic.evaluate({
+      now: '2026-01-01T00:05:00.000Z',
+      store: fixedQueryStore(events),
+      settings: { minRepeats: 3 },
+    });
+    assert.strictEqual(findings.length, 1);
+    assert.deepStrictEqual(findings[0].eventRefs, ['d', 'e', 'f']);
   });
 
   let failures = 0;

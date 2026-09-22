@@ -66,15 +66,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const outputChannel = vscode.window.createOutputChannel('Snagboat');
   context.subscriptions.push(outputChannel);
 
-  const refresh = () => renderStatusBar(statusBarItem, aggregate.snapshot(), health.list());
+  const refresh = () => renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), findings.list(), findings.worst());
   refresh();
   health.onChange(refresh);
-  // Status bar integration is a later step; log to the Debug Console for now
-  // so findings are actually observable in the meantime.
-  findings.onChange(() => {
-    console.log('snagboat: findings changed ->', JSON.stringify(findings.list(), null, 2));
-    refresh();
-  });
+  findings.onChange(refresh);
 
   const bus = new EventBus();
   bus.onEvent((event) => {
@@ -98,7 +93,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   context.subscriptions.push(
     vscode.commands.registerCommand('snagboat.showBreakdown', () => {
       outputChannel.clear();
-      outputChannel.appendLine(buildBreakdownLines(aggregate.snapshot(), health.list()).join('\n'));
+      outputChannel.appendLine(buildBreakdownLines(aggregate.snapshot(), health.list(), findings.list()).join('\n'));
       outputChannel.show();
     })
   );
