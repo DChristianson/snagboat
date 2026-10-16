@@ -74,6 +74,8 @@
   "scripts": {
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
+    "vscode:prepublish": "npm run build",
+    "package": "vsce package --allow-missing-repository --no-rewrite-relative-links",
     "compile-tests": "tsc -p . --outDir out",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
@@ -84,6 +86,7 @@
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.24.0",
     "mocha": "^10.4.0",
     "typescript": "^5.5.0"

@@ -1,0 +1,9 @@
+# Everything is excluded by default; only the bundled extension and the
+# docs vsce expects at the package root are shipped.
+**
+!dist/extension.js
+!package.json
+!README.md
+!LICENSE
+!PRIVACY.md
+!THIRD_PARTY_LICENSES.md
