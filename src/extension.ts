@@ -5,6 +5,7 @@ import { EventLog } from './core/eventLog';
 import { Aggregate, AggregateSnapshot } from './core/aggregate';
 import { EventStore, ReadonlyEventStore } from './core/eventStore';
 import { CheckpointStore } from './core/checkpointStore';
+import { AggregateStore, RetentionPolicy, applyRetention } from './core/retention';
 import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
 import { AgentAdapter, NormalizedEventKind } from './core/types';
@@ -19,12 +20,25 @@ import { builtInHeuristics, heuristicSettings } from './heuristics/index';
 import { Finding } from './heuristics/types';
 
 const POLL_INTERVAL_MS = 30_000;
+const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
 
 // Generous placeholder sizing, comfortably covering every planned heuristic's
 // short window (minutes) without yet reading heuristic settings -- revisited
 // once those settings exist and can drive this properly.
 const EVENT_STORE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const EVENT_STORE_MAX_EVENTS = 5000;
+
+function retentionPolicy(): RetentionPolicy {
+  const config = vscode.workspace.getConfiguration('snagboat.retention');
+  return {
+    rawDays: config.get<number>('rawDays', 90),
+    aggregateDays: config.get<number>('aggregateDays', -1),
+  };
+}
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export interface SnagboatTestApi {
   getAggregateSnapshot(): AggregateSnapshot;
@@ -42,8 +56,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const checkpoints = new CheckpointStore(storageDir);
   await checkpoints.init();
 
+  const aggregateStore = new AggregateStore(storageDir);
+  await aggregateStore.init();
+
+  // Prune before rehydrating, so nothing past retention is ever loaded.
+  try {
+    await applyRetention(eventLog, aggregateStore, retentionPolicy(), todayKey());
+  } catch (err) {
+    console.error('snagboat: retention failed on activation', err);
+  }
+
   const aggregate = new Aggregate();
-  await aggregate.rehydrateFrom(eventLog);
+  await aggregate.rehydrateFrom(eventLog, aggregateStore);
 
   const eventStore = new EventStore({ windowMs: EVENT_STORE_WINDOW_MS, maxEvents: EVENT_STORE_MAX_EVENTS });
   await eventStore.rehydrateFrom(eventLog);
@@ -90,11 +114,63 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   }, POLL_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(pollTimer) });
 
+  // Long-lived windows cross midnight, so retention reruns hourly as well as
+  // whenever its settings change. Runs are serialized so two never race over
+  // the same files.
+  let retentionQueue: Promise<void> = Promise.resolve();
+  const runRetention = () => {
+    retentionQueue = retentionQueue
+      .then(async () => {
+        const result = await applyRetention(eventLog, aggregateStore, retentionPolicy(), todayKey());
+        for (const daily of result.dropped) aggregate.applyDaily(daily, -1);
+        if (result.dropped.length > 0) refresh();
+      })
+      .catch((err) => console.error('snagboat: retention failed', err));
+    return retentionQueue;
+  };
+  const retentionTimer = setInterval(runRetention, RETENTION_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(retentionTimer) });
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('snagboat.retention')) runRetention();
+    })
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand('snagboat.showBreakdown', () => {
       outputChannel.clear();
       outputChannel.appendLine(buildBreakdownLines(aggregate.snapshot(), health.list(), findings.list()).join('\n'));
       outputChannel.show();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('snagboat.clearLog', async () => {
+      const choice = await vscode.window.showWarningMessage(
+        'Delete all Snagboat event logs and daily aggregates for this workspace? This cannot be undone.',
+        { modal: true, detail: 'Adapter checkpoints are kept, so already-seen transcript and log history is not re-imported.' },
+        'Delete'
+      );
+      if (choice !== 'Delete') return;
+      // Queued behind any in-flight retention run so the two never touch the same files at once.
+      // In-memory state is reset in the same continuation as the last file
+      // delete, so no event can land between the wipe and the reset.
+      const clearOp = retentionQueue.then(async () => {
+        await aggregateStore.clear();
+        await eventLog.clear();
+        aggregate.reset();
+        eventStore.reset();
+      });
+      retentionQueue = clearOp.catch(() => undefined);
+      try {
+        await clearOp;
+      } catch (err) {
+        vscode.window.showErrorMessage(`Snagboat: failed to clear event log: ${String(err)}`);
+        return;
+      }
+      runHeuristics();
+      refresh();
+      vscode.window.showInformationMessage('Snagboat: event log cleared.');
     })
   );
 

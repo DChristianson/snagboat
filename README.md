@@ -58,9 +58,9 @@ Adapters own all agent-specific parsing. The normalization layer is the only pla
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `snagboat.retention.rawDays` | `90` | Retain structural events before rolling them into daily aggregates. |
-| `snagboat.retention.textDays` | `3` | Retain captured text excerpts when content capture is enabled. |
+| `snagboat.retention.textDays` | `3` | Retain captured text excerpts when content capture is enabled. Not yet built: nothing captures text yet, so there is nothing to prune. |
 | `snagboat.retention.aggregateDays` | `-1` | Retain daily aggregates indefinitely; set to `0` to disable aggregate retention entirely. |
-| `snagboat.captureContent` | `false` | Opt into storing truncated text excerpts used by the verbal-hedge heuristic. |
+| `snagboat.captureContent` | `false` | Opt into storing truncated text excerpts used by the verbal-hedge heuristic. Not yet built. |
 | `snagboat.tokenBudget.session` | unset | Warn when a single session crosses a configured token budget (local level). |
 | `snagboat.tokenBudget.day` | unset | Warn when this workspace's usage for the current day crosses a configured token budget (project level). A global, cross-workspace level plus a treemap visualization is planned but not yet built. |
 | `snagboat.heuristics.backtracking.window` | `10` (minutes) | Rolling window used to distinguish iteration from looping. Resolved as wall-clock minutes, not an event count. |

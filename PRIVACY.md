@@ -40,9 +40,11 @@ These records are sufficient for most heuristics and for daily aggregate reporti
 | `textExcerpt` content | 3 days | `snagboat.retention.textDays` |
 | Daily aggregates | `-1` keeps them indefinitely; `0` disables retention | `snagboat.retention.aggregateDays` |
 
+Raw and aggregate retention are implemented: on activation, hourly, and whenever these settings change, raw daily files older than `rawDays` (counting today) are rolled up into `aggregates/<date>.json` and deleted, and aggregates older than `aggregateDays` are removed. `textDays` is not yet implemented because no adapter captures `textExcerpt` yet.
+
 ## User controls
 
-- `snagboat.clearLog` should wipe raw logs and derived indexes on demand.
+- `Snagboat: Clear Event Log` (`snagboat.clearLog`) wipes raw logs and daily aggregates on demand, after a confirmation prompt. Adapter checkpoints are kept so already-seen transcript history is not re-imported.
 - Content capture and text retention should be explained together in settings so the privacy tradeoff is visible at enable time.
 
 ## Design guardrails

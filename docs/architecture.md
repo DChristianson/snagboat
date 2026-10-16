@@ -68,6 +68,7 @@ Every new adapter should add or update its row in the transformation matrix docu
 - Queryability: readable directly via `jq`, DuckDB, or notebooks.
 - Optional export: `snagboat.exportLog` should offer SQLite and CSV export.
 - Optional SQLite side index: rebuilt from JSONL if missing or corrupt so JSONL remains the source of truth.
+- Retention (implemented): raw days past `snagboat.retention.rawDays` are rolled up into per-day `DailyAggregate` JSON files under `aggregates/` (written atomically before the raw file is deleted), and those are pruned past `snagboat.retention.aggregateDays`. `Aggregate` rehydrates from daily aggregates plus surviving raw days, preferring raw when both exist for a day, so the status bar's all-time totals survive rollup. `EventStore` is unaffected: its window is far shorter than any retention period.
 
 ## Event query interface: `EventStore`
 

@@ -1,5 +1,6 @@
 import { AgentId, NormalizedEvent, NormalizedEventKind } from './types';
 import { EventLog } from './eventLog';
+import type { AggregateStore, DailyAggregate } from './retention';
 
 export interface AgentAggregate {
   tokens: { input: number; output: number; cacheRead: number; cacheCreation: number };
@@ -45,9 +46,49 @@ export class Aggregate {
     }
   }
 
-  async rehydrateFrom(eventLog: EventLog): Promise<void> {
-    const events = await eventLog.readAll();
-    for (const event of events) {
+  /** Folds a rolled-up day in (sign 1) or back out (sign -1) of the running totals. */
+  applyDaily(daily: DailyAggregate, sign: 1 | -1 = 1): void {
+    for (const [agent, dayAgg] of Object.entries(daily.perAgent)) {
+      let agentAgg = this.perAgent.get(agent as AgentId);
+      if (!agentAgg) {
+        agentAgg = emptyAgentAggregate();
+        this.perAgent.set(agent as AgentId, agentAgg);
+      }
+      agentAgg.eventCount += sign * dayAgg.eventCount;
+      for (const [kind, count] of Object.entries(dayAgg.eventCountByKind)) {
+        const k = kind as NormalizedEventKind;
+        agentAgg.eventCountByKind[k] = (agentAgg.eventCountByKind[k] ?? 0) + sign * (count ?? 0);
+      }
+      agentAgg.tokens.input += sign * dayAgg.tokens.input;
+      agentAgg.tokens.output += sign * dayAgg.tokens.output;
+      agentAgg.tokens.cacheRead += sign * dayAgg.tokens.cacheRead;
+      agentAgg.tokens.cacheCreation += sign * dayAgg.tokens.cacheCreation;
+    }
+    this.localEditCount += sign * daily.localEditCount;
+    this.totalTokens += sign * daily.totalTokens;
+  }
+
+  reset(): void {
+    this.perAgent.clear();
+    this.localEditCount = 0;
+    this.totalTokens = 0;
+  }
+
+  /**
+   * Rebuilds totals from rolled-up daily aggregates plus the raw days still on
+   * disk. A day present in both (a crash between writing its aggregate and
+   * deleting its raw file) is counted from the raw file only.
+   */
+  async rehydrateFrom(eventLog: EventLog, aggregates?: AggregateStore): Promise<void> {
+    const rawDays = new Set(await eventLog.listDays());
+    if (aggregates) {
+      for (const day of await aggregates.listDays()) {
+        if (rawDays.has(day)) continue;
+        const daily = await aggregates.read(day);
+        if (daily) this.applyDaily(daily);
+      }
+    }
+    for (const event of await eventLog.readAll()) {
       this.apply(event);
     }
   }

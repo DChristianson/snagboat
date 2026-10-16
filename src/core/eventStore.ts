@@ -83,6 +83,12 @@ export class EventStore implements ReadonlyEventStore {
     }
   }
 
+  reset(): void {
+    this.events = [];
+    this.sessionTotals.clear();
+    this.dayTotals.clear();
+  }
+
   async rehydrateFrom(eventLog: EventLog): Promise<void> {
     const events = await eventLog.readAll();
     for (const event of events) {

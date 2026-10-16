@@ -18,6 +18,10 @@
         "title": "Snagboat: Show Token/Event Breakdown"
       },
       {
+        "command": "snagboat.clearLog",
+        "title": "Snagboat: Clear Event Log"
+      },
+      {
         "command": "snagboat._emitTestEvent",
         "title": "Snagboat (Dev): Emit Test Event"
       }
@@ -25,6 +29,18 @@
     "configuration": {
       "title": "Snagboat",
       "properties": {
+        "snagboat.retention.rawDays": {
+          "type": "number",
+          "default": 90,
+          "minimum": 1,
+          "description": "Days of raw structural events to keep, counting today. Older days are rolled up into daily aggregates and their raw events deleted."
+        },
+        "snagboat.retention.aggregateDays": {
+          "type": "number",
+          "default": -1,
+          "minimum": -1,
+          "description": "Days of daily aggregates to keep, counting today. -1 keeps them indefinitely; 0 keeps none, so raw days past snagboat.retention.rawDays are deleted without being rolled up."
+        },
         "snagboat.copilot.otlpPort": {
           "type": "number",
           "default": 4318,
@@ -79,7 +95,7 @@
     "compile-tests": "tsc -p . --outDir out",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js"
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
