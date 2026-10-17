@@ -24,15 +24,17 @@ export class HooksReceiver {
         let payload: unknown;
         try {
           payload = JSON.parse(raw);
-        } catch (err) {
-          console.warn('snagboat: failed to parse hook payload as JSON', err);
+        } catch {
+          // Payloads carry tool inputs and outputs (file contents, commands), and
+          // JSON.parse errors quote part of their input, so log only the size.
+          console.warn(`snagboat: failed to parse hook payload as JSON (${raw.length} bytes)`);
           return;
         }
         const event = normalizeHookPayload(payload);
         if (event) {
           this.ctx.publish(event);
         } else {
-          console.warn('snagboat: hook payload parsed but did not map to a NormalizedEvent', payload);
+          console.warn(`snagboat: hook payload did not map to a NormalizedEvent (${describeHookPayload(payload)}, ${raw.length} bytes)`);
         }
       });
     });
@@ -48,4 +50,12 @@ export class HooksReceiver {
     this.server?.close();
     this.server = undefined;
   }
+}
+
+/** Identifies a hook payload for diagnostics by its event and tool names only, never its contents. */
+function describeHookPayload(payload: unknown): string {
+  if (typeof payload !== 'object' || payload === null) return typeof payload;
+  const p = payload as Record<string, unknown>;
+  const field = (key: string) => (typeof p[key] === 'string' ? (p[key] as string) : '?');
+  return `hook_event_name=${field('hook_event_name')} tool_name=${field('tool_name')}`;
 }

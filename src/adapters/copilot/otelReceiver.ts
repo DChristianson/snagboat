@@ -54,8 +54,10 @@ export class OtelReceiver {
     let json: unknown;
     try {
       json = JSON.parse(body.toString('utf8'));
-    } catch (err) {
-      console.warn('snagboat: failed to parse OTLP payload as JSON', err);
+    } catch {
+      // With Copilot's captureContent on, payloads carry prompts and replies, and
+      // JSON.parse errors quote part of their input, so log only the size.
+      console.warn(`snagboat: failed to parse OTLP payload as JSON (${body.length} bytes)`);
       return;
     }
 
@@ -66,7 +68,7 @@ export class OtelReceiver {
         : [];
 
     if (events.length === 0) {
-      console.log(`snagboat: OTel receiver got a request on ${url} that produced no events`, json);
+      console.log(`snagboat: OTel receiver got a request on ${url} that produced no events (${body.length} bytes)`);
     }
     for (const event of events) {
       this.ctx.publish(event);
