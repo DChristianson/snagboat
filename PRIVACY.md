@@ -32,7 +32,7 @@ All under the extension's per-workspace storage folder unless noted:
 | --- | --- | --- |
 | `events/<date>.jsonl` | Every normalized event, including `target` and, when capture is on, `textExcerpt` | `snagboat.retention.rawDays` (default 90 days, counting today) |
 | `aggregates/<date>.json` | Per-day, per-agent token and event counts. No targets or text. | `snagboat.retention.aggregateDays` (default `-1`, kept indefinitely; `0` keeps none) |
-| `checkpoints/<adapter>.json` | Read offsets into Claude Code transcript files, keyed by transcript path | Until cleared manually; not covered by `Clear Event Log` |
+| `checkpoints/<adapter>.json` | Read offsets into Claude Code transcript files and the last few API message ids seen in each, keyed by transcript path | Until cleared manually; not covered by `Clear Event Log` |
 | VS Code workspace state | The list of muted heuristics | Until unmuted |
 | VS Code webview state | The detail view's filters, including the timeline search text | Managed by VS Code |
 | VS Code extension host log | Diagnostic messages: file paths, port errors, and, for hook or OTLP requests Snagboat couldn't parse or map, only their size and hook/tool names, never payload contents | Managed by VS Code |

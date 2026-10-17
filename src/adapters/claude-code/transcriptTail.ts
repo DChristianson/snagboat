@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { AdapterContext } from '../../core/types';
 import { LineTailer } from '../../core/lineTailer';
-import { normalizeTranscriptLine } from './normalize';
+import { normalizeTranscriptChunk, SeenMessages } from './normalize';
 import { resolveProjectDir, sanitizeCwd } from './workspace';
 
 /** Test/CI seam: override where transcripts are read from instead of the real ~/.claude. */
@@ -22,6 +22,7 @@ export class TranscriptTailer {
   constructor(
     private readonly ctx: AdapterContext,
     private readonly offsets: Map<string, number>,
+    private readonly seen: SeenMessages,
     private readonly persistCheckpoint: () => void
   ) {}
 
@@ -45,10 +46,11 @@ export class TranscriptTailer {
         this.persistCheckpoint();
       },
       onLines: (filePath, lines, chunkStartOffset) => {
-        for (const line of lines) {
-          const event = normalizeTranscriptLine(line, filePath, chunkStartOffset, { captureContent: this.ctx.captureContent() });
-          if (event) this.ctx.publish(event);
-        }
+        const events = normalizeTranscriptChunk(lines, filePath, chunkStartOffset, {
+          captureContent: this.ctx.captureContent(),
+          seen: this.seen,
+        });
+        for (const event of events) this.ctx.publish(event);
       },
     });
     this.tailer.start();

@@ -121,6 +121,35 @@ suite('Snagboat core plumbing', () => {
     assert.strictEqual(api.getAggregateSnapshot().perAgent['claude-code'].tokens.input, beforeTokens + 7);
   });
 
+  test('a Claude Code message split across transcript lines is counted once', async () => {
+    const transcriptsDir = process.env.SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR!;
+    const before = api.getAggregateSnapshot().perAgent['claude-code']?.tokens.output ?? 0;
+
+    // Real transcripts write one line per content block, each repeating the
+    // whole message's usage (see src/test/fixtures/claude-transcript-redacted.jsonl).
+    const messageId = `msg_fixture_${Date.now()}`;
+    const lines = ['thinking', 'text', 'tool_use'].map((type, i) =>
+      JSON.stringify({
+        type: 'assistant',
+        uuid: `${messageId}-${i}`,
+        sessionId: 'fixture-split-session',
+        timestamp: new Date().toISOString(),
+        message: {
+          id: messageId,
+          model: 'claude-sonnet-5',
+          content: [type === 'text' ? { type, text: 'ok' } : { type }],
+          usage: { input_tokens: 1, output_tokens: 11, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        },
+      })
+    );
+    fs.writeFileSync(path.join(transcriptsDir, 'fixture-split-session.jsonl'), lines.join('\n') + '\n');
+
+    await waitFor(() => (api.getAggregateSnapshot().perAgent['claude-code']?.tokens.output ?? 0) > before);
+    // Give any (wrongly) separate events for the other two lines time to land before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    assert.strictEqual(api.getAggregateSnapshot().perAgent['claude-code'].tokens.output, before + 11);
+  });
+
   test('a synthetic Claude Code hook payload is picked up by the hooks receiver', async () => {
     const before = api.getAggregateSnapshot().perAgent['claude-code']?.eventCountByKind.tool_call ?? 0;
 

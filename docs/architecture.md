@@ -34,7 +34,7 @@ Snagboat initializes an adapter once with an `AdapterContext`, then starts and s
 ### `claude-code-adapter`
 
 - Registers `PostToolUse` and `Stop` hooks.
-- Tails the Claude Code JSONL transcript for the workspace.
+- Tails the Claude Code JSONL transcript for the workspace, emitting one `turn_stop` per API message: each response is written as one line per content block, all repeating the message's `usage`, so lines are merged by `message.id`. Recent message ids per file are kept in the adapter checkpoint, so a message split across reads or a restart is still counted once. `npm run verify:transcripts` replays this project's real transcripts to check the totals.
 - Uses checkpoints to resume transcript tailing and hooks plus transcripts as redundant data paths so token usage and text still work when hooks are missing.
 
 ### `copilot-adapter`
