@@ -98,7 +98,7 @@ Design notes:
 
 ## Heuristics engine
 
-`HeuristicsEngine` (see [heuristics.md](heuristics.md) for the `Heuristic`/`Finding` contract) runs on two triggers: pushed on every event (filtered cheaply by each heuristic's `appliesTo`, since a heuristic whose relevant kinds didn't change can't have a new verdict), and on a timer regardless of events (30s poll interval, a code constant not a setting) — required because some heuristics, like `stalled`, depend on the *absence* of events and can't be purely event-triggered. `FindingsRegistry` tracks the current set of findings per heuristic, mirroring `HealthRegistry`'s proven shape (replace-per-key, notify only on real change) — surfaced via the status bar's icon/text (worst active finding) and the tooltip/breakdown's `Findings:` section (all active findings). Findings are in-memory only, not persisted to disk or acknowledgeable yet; both are deferred to the detail-webview/retention work.
+`HeuristicsEngine` (see [heuristics.md](heuristics.md) for the `Heuristic`/`Finding` contract) runs on two triggers: pushed on every event (filtered cheaply by each heuristic's `appliesTo`, since a heuristic whose relevant kinds didn't change can't have a new verdict), and on a timer regardless of events (30s poll interval, a code constant not a setting) — required because some heuristics, like `stalled`, depend on the *absence* of events and can't be purely event-triggered. `FindingsRegistry` tracks the current set of findings per heuristic, mirroring `HealthRegistry`'s proven shape (replace-per-key, notify only on real change) — surfaced via the status bar's icon/text (worst active finding) and the tooltip/breakdown's `Findings:` section (all active findings). Findings themselves are in-memory only (recomputed from events), but the user's treatment of them isn't: a heuristic can be **acknowledged**, which hides its findings from the status bar until it next reports nothing (so a fresh occurrence resurfaces), or **muted**, which hides it from the status bar, tooltip, and breakdown indefinitely. Mutes persist per workspace in `workspaceState`; acknowledgements last only for the current episode and window. Both are set from the detail view.
 
 ## UI
 
@@ -108,17 +108,21 @@ A single item combines:
 
 - today's token, agent-event, and local-edit totals across all agents (`TodayAggregate`). "Today" is the machine's **local** day, resetting at local midnight, even though daily log files and the `token-budget` day are keyed by UTC date. With `snagboat.retention.rawDays` at `1`, events from earlier in the local day can fall in a rolled-up UTC file and drop out of today's figure.
 - a hover breakdown led by a `Today:` section, followed by all-time totals by agent (including a per-source cache-token breakdown) and an all-time grand total
-- the worst active finding (severity, then most recent) — "unacknowledged" is trivially true today since no acknowledge/mute mechanism exists yet (deferred to the detail-webview work)
+- the worst active finding that is neither acknowledged nor muted (severity, then most recent)
+
+Clicking the item opens the detail view; the plain-text breakdown remains available as `Snagboat: Show Token/Event Breakdown`.
 
 ### Detail webview
 
-The planned detail page includes:
+Implemented as `Snagboat: Open Detail View` (also the status bar's click action): a single webview panel (`DetailPanel`) fed a whole `DetailState` snapshot (`buildDetailState`, vscode-free and unit-tested), pushed on every model change, debounced to 500ms and only while the panel is visible. The page itself (`media/detail.js`/`.css`) is plain DOM with a strict nonce CSP and writes event data only via `textContent`. It includes:
 
-- a filterable timeline of normalized events
-- linked findings and triggering events
-- acknowledge/mute support per finding
-- jump-to-file actions
-- a per-agent, per-day token usage chart
+- today's totals as tiles
+- findings with acknowledge, mute/unmute, and "show events", which narrows the timeline to the finding's `eventRefs`
+- a stacked per-day token chart by agent (7/30/90 days, keyed by UTC day to match retention rollups, with hover/focus tooltips and a table view), fed by `DailyHistory`, which spans all retained history (raw days plus daily aggregates). Series colors are fixed per agent (Claude Code, Copilot, then all other agents folded into one), validated for color-vision deficiency against VS Code's default light and dark surfaces.
+- a filterable timeline (agent, kind, status, target/session text) of the newest 1,000 events from `EventStore`'s 24-hour window
+- jump-to-file on any target that resolves to an existing file, absolute or relative to a workspace folder; the extension re-resolves the target itself rather than trusting the webview
+
+The global, cross-workspace token budget treemap is still deferred: it needs shared storage across workspaces.
 
 ## Longer-horizon rollups
 

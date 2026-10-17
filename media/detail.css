@@ -1,0 +1,154 @@
+/* Chart series slots: the reference palette's first three categorical hues,
+   validated against VS Code's default light (#ffffff) and dark (#1e1e1e)
+   editor surfaces. Slot 3 is below 3:1 on light, so the chart always ships
+   with its table view. */
+body {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --surface: var(--vscode-editor-background);
+  --ink: var(--vscode-foreground);
+  --ink-muted: var(--vscode-descriptionForeground);
+  --rule: var(--vscode-editorWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  --warn: var(--vscode-editorWarning-foreground, #bf8803);
+  --info: var(--vscode-editorInfo-foreground, #3794ff);
+
+  margin: 0;
+  padding: 16px 20px 32px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  line-height: 1.45;
+}
+body.vscode-dark,
+body.vscode-high-contrast {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+}
+
+main { max-width: 1100px; }
+h1 { font-size: 1.35em; font-weight: 600; margin: 0 0 4px; }
+h2 { font-size: 1.05em; font-weight: 600; margin: 0 0 10px; }
+section { margin-top: 28px; }
+.muted { color: var(--ink-muted); }
+.small { font-size: 0.9em; }
+
+/* Today tiles */
+.tiles { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+.tile { min-width: 140px; padding: 10px 14px; border: 1px solid var(--rule); border-radius: 6px; }
+.tile .label { color: var(--ink-muted); font-size: 0.9em; }
+.tile .value { font-size: 1.6em; font-weight: 600; }
+
+/* Buttons */
+button {
+  font: inherit;
+  color: var(--vscode-button-secondaryForeground, var(--ink));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+button:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground)); }
+button:focus-visible, select:focus-visible, input:focus-visible, .col-hit:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+button[aria-pressed="true"] {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--vscode-textLink-foreground);
+  text-align: left;
+  word-break: break-all;
+}
+button.link:hover { text-decoration: underline; background: none; }
+
+/* Findings */
+.finding {
+  border: 1px solid var(--rule);
+  border-left-width: 3px;
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.finding.warn { border-left-color: var(--warn); }
+.finding.info { border-left-color: var(--info); }
+.finding.acknowledged { opacity: 0.65; }
+.finding .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.badge {
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 6px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+}
+.badge.warn { color: var(--warn); }
+.badge.info { color: var(--info); }
+.finding .summary { margin: 4px 0; }
+.finding .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--rule); border-radius: 12px; padding: 1px 4px 1px 10px; }
+
+/* Chart */
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 0 0 6px; color: var(--ink); }
+.legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.legend .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.chart { width: 100%; height: 220px; display: block; }
+.chart .grid { stroke: var(--rule); stroke-width: 1; shape-rendering: crispEdges; }
+.chart .axis-label { fill: var(--ink-muted); font-size: 11px; }
+.chart .col-hit { fill: transparent; cursor: default; }
+.chart .col-hit:hover, .chart .col-hit:focus { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12)); }
+.s1 { fill: var(--series-1); background: var(--series-1); }
+.s2 { fill: var(--series-2); background: var(--series-2); }
+.s3 { fill: var(--series-3); background: var(--series-3); }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--ink-muted); }
+
+/* Tables */
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { color: var(--ink-muted); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+td.num, th.num { text-align: right; }
+tr.highlight td { background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.2)); }
+.status-failure { color: var(--vscode-errorForeground); }
+.timeline-wrap { max-height: 520px; overflow: auto; }
+select, input[type="search"] {
+  font: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--rule));
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+input[type="search"] { min-width: 220px; }
+.filter-note { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+
+/* Tooltip */
+.tooltip {
+  position: fixed;
+  z-index: 10;
+  pointer-events: none;
+  background: var(--vscode-editorHoverWidget-background);
+  color: var(--vscode-editorHoverWidget-foreground, var(--ink));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--rule));
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 0.9em;
+  min-width: 140px;
+}
+.tooltip .row { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.tooltip .row .key { display: inline-flex; gap: 6px; align-items: center; }
+.tooltip .total { border-top: 1px solid var(--rule); margin-top: 4px; padding-top: 4px; font-weight: 600; }
+
+@media (forced-colors: active) {
+  .s1, .s2, .s3 { forced-color-adjust: none; }
+}

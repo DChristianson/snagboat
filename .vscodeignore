@@ -2,6 +2,7 @@
 # docs vsce expects at the package root are shipped.
 **
 !dist/extension.js
+!media/**
 !package.json
 !README.md
 !LICENSE

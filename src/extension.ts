@@ -5,12 +5,15 @@ import { EventLog } from './core/eventLog';
 import { Aggregate, AggregateSnapshot, TodayAggregate } from './core/aggregate';
 import { EventStore, ReadonlyEventStore } from './core/eventStore';
 import { CheckpointStore } from './core/checkpointStore';
+import { DailyHistory } from './core/dailyHistory';
 import { AggregateStore, RetentionPolicy, applyRetention } from './core/retention';
 import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
 import { AgentAdapter, NormalizedEventKind } from './core/types';
 import { renderStatusBar } from './ui/statusBar';
 import { buildBreakdownLines } from './ui/format';
+import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
+import { DetailPanel } from './ui/detailPanel';
 import { EditTrackerAdapter } from './adapters/edit-tracker';
 import { ClaudeCodeAdapter } from './adapters/claude-code';
 import { CopilotAdapter } from './adapters/copilot';
@@ -21,6 +24,7 @@ import { Finding } from './heuristics/types';
 
 const POLL_INTERVAL_MS = 30_000;
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
+const MUTED_HEURISTICS_KEY = 'snagboat.mutedHeuristics';
 
 // Generous placeholder sizing, comfortably covering every planned heuristic's
 // short window (minutes) without yet reading heuristic settings -- revisited
@@ -71,13 +75,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   await aggregate.rehydrateFrom(eventLog, aggregateStore);
   const todayAggregate = new TodayAggregate();
   await todayAggregate.rehydrateFrom(eventLog);
+  const dailyHistory = new DailyHistory();
+  await dailyHistory.rehydrateFrom(eventLog, aggregateStore);
 
   const eventStore = new EventStore({ windowMs: EVENT_STORE_WINDOW_MS, maxEvents: EVENT_STORE_MAX_EVENTS });
   await eventStore.rehydrateFrom(eventLog);
 
   const health = new HealthRegistry();
 
-  const findings = new FindingsRegistry();
+  const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []));
   const engine = new HeuristicsEngine(builtInHeuristics(), eventStore, heuristicSettings);
   const runHeuristics = (kind?: NormalizedEventKind) => {
     const now = new Date().toISOString();
@@ -86,14 +92,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   };
 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  statusBarItem.command = 'snagboat.showBreakdown';
+  statusBarItem.command = 'snagboat.openDetail';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
   const outputChannel = vscode.window.createOutputChannel('Snagboat');
   context.subscriptions.push(outputChannel);
 
-  const refresh = () => renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), findings.list(), findings.worst());
+  const detailPanel = new DetailPanel(context.extensionUri, {
+    buildState: (isOpenable) =>
+      buildDetailState({
+        now: new Date().toISOString(),
+        today: todayAggregate.snapshot(),
+        recentEvents: eventStore.lastN(TIMELINE_LIMIT + 1),
+        findings: findings.views(),
+        muted: findings.mutedHeuristics(),
+        daily: dailyHistory.tokensByDay(),
+        isOpenable,
+      }),
+    acknowledge: (heuristicId) => findings.acknowledge(heuristicId),
+    setMuted: (heuristicId, muted) => {
+      findings.setMuted(heuristicId, muted);
+      void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
+    },
+  });
+  context.subscriptions.push(detailPanel);
+
+  const refresh = () => {
+    renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), findings.visible(), findings.worst());
+    detailPanel.scheduleUpdate();
+  };
   refresh();
   health.onChange(refresh);
   findings.onChange(refresh);
@@ -103,6 +131,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     eventLog.append(event);
     aggregate.apply(event);
     todayAggregate.apply(event);
+    dailyHistory.apply(event);
     eventStore.ingest(event);
     runHeuristics(event.kind);
     refresh();
@@ -126,7 +155,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     retentionQueue = retentionQueue
       .then(async () => {
         const result = await applyRetention(eventLog, aggregateStore, retentionPolicy(), todayKey());
-        for (const daily of result.dropped) aggregate.applyDaily(daily, -1);
+        for (const daily of result.dropped) {
+          aggregate.applyDaily(daily, -1);
+          dailyHistory.removeDay(daily.date);
+        }
         if (result.dropped.length > 0) refresh();
       })
       .catch((err) => console.error('snagboat: retention failed', err));
@@ -143,9 +175,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   context.subscriptions.push(
     vscode.commands.registerCommand('snagboat.showBreakdown', () => {
       outputChannel.clear();
-      outputChannel.appendLine(buildBreakdownLines(aggregate.snapshot(), health.list(), findings.list(), todayAggregate.snapshot()).join('\n'));
+      outputChannel.appendLine(buildBreakdownLines(aggregate.snapshot(), health.list(), findings.visible(), todayAggregate.snapshot()).join('\n'));
       outputChannel.show();
-    })
+    }),
+    vscode.commands.registerCommand('snagboat.openDetail', () => detailPanel.show())
   );
 
   context.subscriptions.push(
@@ -164,6 +197,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         await eventLog.clear();
         aggregate.reset();
         todayAggregate.reset();
+        dailyHistory.reset();
         eventStore.reset();
       });
       retentionQueue = clearOp.catch(() => undefined);

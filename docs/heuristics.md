@@ -51,6 +51,10 @@ Compares cumulative token counts against `snagboat.tokenBudget.session` (per act
 
 Marks the workspace as stalled when no new events arrive within `snagboat.heuristics.stalled.minutes` (default `15`). Triggered on every event kind (not a narrow subset) specifically so a new event promptly clears an active finding via the push path, rather than waiting for the next timer tick; it also runs on a timer regardless of events, since detecting *absence* of events can't be purely event-triggered.
 
+## Acknowledging and muting
+
+Heuristics don't need to do anything to support either: both are applied by `FindingsRegistry` on top of whatever a heuristic reports, keyed by heuristic id. See [architecture.md](architecture.md#heuristics-engine).
+
 ## Plugin model
 
 Third-party heuristics should register via `snagboat.heuristics` and document:

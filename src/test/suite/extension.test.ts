@@ -167,4 +167,16 @@ suite('Snagboat core plumbing', () => {
     await waitFor(() => (api.getAggregateSnapshot().perAgent['copilot']?.tokens.input ?? 0) > before);
     assert.strictEqual(api.getAggregateSnapshot().perAgent['copilot'].tokens.input, before + 9);
   });
+
+  test('the detail view opens as a webview tab and the today snapshot tracks new events', async () => {
+    const beforeToday = api.getTodaySnapshot().totalTokens;
+    await vscode.commands.executeCommand('snagboat._emitTestEvent');
+    await waitFor(() => api.getTodaySnapshot().totalTokens > beforeToday);
+    assert.strictEqual(api.getTodaySnapshot().totalTokens, beforeToday + 35);
+
+    await vscode.commands.executeCommand('snagboat.openDetail');
+    await waitFor(() =>
+      vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputWebview && t.label === 'Snagboat'))
+    );
+  });
 });
