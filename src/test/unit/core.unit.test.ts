@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { EventBus } from '../../core/eventBus';
 import { EventLog } from '../../core/eventLog';
-import { Aggregate } from '../../core/aggregate';
+import { Aggregate, TodayAggregate, localDayKey } from '../../core/aggregate';
 import { CheckpointStore } from '../../core/checkpointStore';
 import { makeAdapterContext } from '../../core/adapterContext';
 import { HealthRegistry } from '../../core/health';
@@ -97,6 +97,46 @@ async function main() {
     await rehydrated.rehydrateFrom(log);
 
     assert.deepStrictEqual(rehydrated.snapshot(), live.snapshot());
+  });
+
+  test('TodayAggregate counts only events on the current local day and rolls over at local midnight', () => {
+    // Local-time constructors keep this independent of the machine's timezone.
+    const morning = new Date(2026, 0, 10, 9, 0, 0);
+    const lateNight = new Date(2026, 0, 10, 23, 59, 0);
+    const nextMorning = new Date(2026, 0, 11, 0, 1, 0);
+    const today = new TodayAggregate(morning);
+
+    today.apply(makeEvent({ ts: new Date(2026, 0, 9, 22, 0, 0).toISOString() }), morning); // yesterday: ignored
+    today.apply(makeEvent({ ts: morning.toISOString() }), morning);
+    today.apply(makeEvent({ ts: lateNight.toISOString() }), lateNight);
+    assert.strictEqual(today.snapshot(lateNight).totalTokens, 2 * 37);
+
+    assert.strictEqual(today.snapshot(nextMorning).totalTokens, 0, 'first touch after midnight resets');
+    today.apply(makeEvent({ ts: nextMorning.toISOString() }), nextMorning);
+    assert.strictEqual(today.snapshot(nextMorning).totalTokens, 37);
+  });
+
+  test('TodayAggregate.rehydrateFrom picks today\'s events out of UTC-keyed daily files', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'snagboat-today-'));
+    const eventsDir = path.join(dir, 'events');
+    await fs.promises.mkdir(eventsDir, { recursive: true });
+    const now = new Date(2026, 0, 10, 12, 0, 0);
+    const todayEarly = new Date(2026, 0, 10, 0, 30, 0);
+    const todayLate = new Date(2026, 0, 10, 23, 30, 0);
+    const yesterday = new Date(2026, 0, 9, 12, 0, 0);
+    // Group by UTC day exactly as EventLog does, wherever the test machine is.
+    const byUtcDay = new Map<string, NormalizedEvent[]>();
+    for (const d of [todayEarly, todayLate, yesterday]) {
+      const key = d.toISOString().slice(0, 10);
+      byUtcDay.set(key, [...(byUtcDay.get(key) ?? []), makeEvent({ ts: d.toISOString() })]);
+    }
+    for (const [day, events] of byUtcDay) {
+      await fs.promises.writeFile(path.join(eventsDir, `${day}.jsonl`), events.map((e) => JSON.stringify(e) + '\n').join(''));
+    }
+
+    const today = new TodayAggregate(now);
+    await today.rehydrateFrom(new EventLog(dir), now);
+    assert.strictEqual(today.snapshot(now).totalTokens, 2 * 37, `local day ${localDayKey(now)}`);
   });
 
   test('CheckpointStore round-trips a checkpoint and returns undefined when absent', async () => {

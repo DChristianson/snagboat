@@ -109,3 +109,61 @@ export class Aggregate {
     };
   }
 }
+
+/** YYYY-MM-DD in the machine's local timezone -- what a person means by "today". */
+export function localDayKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * An Aggregate restricted to events whose timestamp falls on the current local
+ * day. Rolls over (resets) on its own the first time it's touched after local
+ * midnight, so the status bar's 30s poll is enough to zero it overnight.
+ */
+export class TodayAggregate {
+  private day: string;
+  private agg = new Aggregate();
+
+  constructor(now: Date = new Date()) {
+    this.day = localDayKey(now);
+  }
+
+  apply(event: NormalizedEvent, now: Date = new Date()): void {
+    this.rollTo(now);
+    if (localDayKey(new Date(event.ts)) === this.day) this.agg.apply(event);
+  }
+
+  /**
+   * Seeds from the raw daily files that can overlap the local day. Those files
+   * are keyed by UTC date, so local "today" spans at most the UTC days either
+   * side of it.
+   */
+  async rehydrateFrom(eventLog: EventLog, now: Date = new Date()): Promise<void> {
+    this.rollTo(now);
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const utcDays = new Set([-1, 0, 1].map((offset) => new Date(now.getTime() + offset * DAY_MS).toISOString().slice(0, 10)));
+    for (const day of [...utcDays].sort()) {
+      for (const event of await eventLog.readDay(day)) this.apply(event, now);
+    }
+  }
+
+  reset(): void {
+    this.agg.reset();
+  }
+
+  snapshot(now: Date = new Date()): AggregateSnapshot {
+    this.rollTo(now);
+    return this.agg.snapshot();
+  }
+
+  private rollTo(now: Date): void {
+    const today = localDayKey(now);
+    if (today !== this.day) {
+      this.day = today;
+      this.agg.reset();
+    }
+  }
+}

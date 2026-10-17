@@ -41,19 +41,35 @@ function findingGlyph(heuristicId: string): string {
   return FINDING_GLYPHS[heuristicId] ?? '$(pulse)';
 }
 
-export function buildStatusBarText(snapshot: AggregateSnapshot, health: HealthIssue[], worstFinding?: Finding): string {
+/** Status bar text, built from today's (local day) snapshot; all-time totals live in the tooltip. */
+export function buildStatusBarText(today: AggregateSnapshot, health: HealthIssue[], worstFinding?: Finding): string {
   // Health takes priority over a behavioral finding: it means Snagboat itself
   // isn't working right, which is more urgent than something it noticed.
   const icon = health.length > 0 ? '$(warning)' : worstFinding ? findingGlyph(worstFinding.heuristicId) : '$(pulse)';
-  const events = agentEventTotal(snapshot);
-  const base = `${icon} ${formatCount(snapshot.totalTokens)} tokens · ${formatCount(events)} events · ${formatCount(snapshot.localEditCount)} edits`;
+  const events = agentEventTotal(today);
+  const base = `${icon} ${formatCount(today.totalTokens)} tokens today · ${formatCount(events)} events · ${formatCount(today.localEditCount)} edits`;
   return worstFinding ? `${base} · ${worstFinding.summary}` : base;
 }
 
 /** Plain-text lines shared by the status bar tooltip and the Output Channel breakdown. */
-export function buildBreakdownLines(snapshot: AggregateSnapshot, health: HealthIssue[], findings: Finding[] = []): string[] {
+export function buildBreakdownLines(
+  snapshot: AggregateSnapshot,
+  health: HealthIssue[],
+  findings: Finding[] = [],
+  today?: AggregateSnapshot
+): string[] {
   const lines: string[] = ['Snagboat', ''];
   const agentIds = Object.keys(snapshot.perAgent).sort();
+
+  if (today) {
+    lines.push('Today:');
+    lines.push(`  Tokens: ${today.totalTokens}`);
+    lines.push(`  Events: ${agentEventTotal(today)}`);
+    lines.push(`  Local edits: ${today.localEditCount}`);
+    lines.push('');
+    lines.push('All time, by agent:');
+    lines.push('');
+  }
 
   if (agentIds.length === 0) {
     lines.push('No agent events recorded yet.');
@@ -69,7 +85,7 @@ export function buildBreakdownLines(snapshot: AggregateSnapshot, health: HealthI
     }
   }
 
-  lines.push('Total:');
+  lines.push(today ? 'All time:' : 'Total:');
   lines.push(`  Tokens: ${snapshot.totalTokens}`);
   lines.push(`  Events: ${agentEventTotal(snapshot)}`);
   lines.push(`  Local edits: ${snapshot.localEditCount}`);

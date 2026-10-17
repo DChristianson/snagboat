@@ -8,11 +8,12 @@ export function renderStatusBar(
   item: vscode.StatusBarItem,
   snapshot: AggregateSnapshot,
   health: HealthIssue[],
+  today: AggregateSnapshot,
   findings: Finding[] = [],
   worstFinding?: Finding
 ): void {
-  item.text = buildStatusBarText(snapshot, health, worstFinding);
-  const tooltip = new vscode.MarkdownString('```\n' + buildBreakdownLines(snapshot, health, findings).join('\n') + '\n```');
+  item.text = buildStatusBarText(today, health, worstFinding);
+  const tooltip = new vscode.MarkdownString('```\n' + buildBreakdownLines(snapshot, health, findings, today).join('\n') + '\n```');
   tooltip.isTrusted = false;
   item.tooltip = tooltip;
 }

@@ -106,8 +106,8 @@ Design notes:
 
 A single item combines:
 
-- the token total across all agents — currently an all-time cumulative sum since the log began (`Aggregate` never resets), not a daily figure; this doc previously said "today's total" but nothing resets it daily yet. Worth resolving once retention/rollup work gives `Aggregate` a real notion of "today."
-- a hover breakdown by agent, including a per-source cache-token breakdown and a grand-total section
+- today's token, agent-event, and local-edit totals across all agents (`TodayAggregate`). "Today" is the machine's **local** day, resetting at local midnight, even though daily log files and the `token-budget` day are keyed by UTC date. With `snagboat.retention.rawDays` at `1`, events from earlier in the local day can fall in a rolled-up UTC file and drop out of today's figure.
+- a hover breakdown led by a `Today:` section, followed by all-time totals by agent (including a per-source cache-token breakdown) and an all-time grand total
 - the worst active finding (severity, then most recent) — "unacknowledged" is trivially true today since no acknowledge/mute mechanism exists yet (deferred to the detail-webview work)
 
 ### Detail webview

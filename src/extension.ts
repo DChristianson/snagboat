@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { EventBus } from './core/eventBus';
 import { EventLog } from './core/eventLog';
-import { Aggregate, AggregateSnapshot } from './core/aggregate';
+import { Aggregate, AggregateSnapshot, TodayAggregate } from './core/aggregate';
 import { EventStore, ReadonlyEventStore } from './core/eventStore';
 import { CheckpointStore } from './core/checkpointStore';
 import { AggregateStore, RetentionPolicy, applyRetention } from './core/retention';
@@ -42,6 +42,7 @@ function todayKey(): string {
 
 export interface SnagboatTestApi {
   getAggregateSnapshot(): AggregateSnapshot;
+  getTodaySnapshot(): AggregateSnapshot;
   getEventStore(): ReadonlyEventStore;
   getFindings(): Finding[];
 }
@@ -68,6 +69,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
 
   const aggregate = new Aggregate();
   await aggregate.rehydrateFrom(eventLog, aggregateStore);
+  const todayAggregate = new TodayAggregate();
+  await todayAggregate.rehydrateFrom(eventLog);
 
   const eventStore = new EventStore({ windowMs: EVENT_STORE_WINDOW_MS, maxEvents: EVENT_STORE_MAX_EVENTS });
   await eventStore.rehydrateFrom(eventLog);
@@ -90,7 +93,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const outputChannel = vscode.window.createOutputChannel('Snagboat');
   context.subscriptions.push(outputChannel);
 
-  const refresh = () => renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), findings.list(), findings.worst());
+  const refresh = () => renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), findings.list(), findings.worst());
   refresh();
   health.onChange(refresh);
   findings.onChange(refresh);
@@ -99,6 +102,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   bus.onEvent((event) => {
     eventLog.append(event);
     aggregate.apply(event);
+    todayAggregate.apply(event);
     eventStore.ingest(event);
     runHeuristics(event.kind);
     refresh();
@@ -139,7 +143,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   context.subscriptions.push(
     vscode.commands.registerCommand('snagboat.showBreakdown', () => {
       outputChannel.clear();
-      outputChannel.appendLine(buildBreakdownLines(aggregate.snapshot(), health.list(), findings.list()).join('\n'));
+      outputChannel.appendLine(buildBreakdownLines(aggregate.snapshot(), health.list(), findings.list(), todayAggregate.snapshot()).join('\n'));
       outputChannel.show();
     })
   );
@@ -159,6 +163,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         await aggregateStore.clear();
         await eventLog.clear();
         aggregate.reset();
+        todayAggregate.reset();
         eventStore.reset();
       });
       retentionQueue = clearOp.catch(() => undefined);
@@ -209,6 +214,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
 
   return {
     getAggregateSnapshot: () => aggregate.snapshot(),
+    getTodaySnapshot: () => todayAggregate.snapshot(),
     getEventStore: () => eventStore,
     getFindings: () => findings.list(),
   };

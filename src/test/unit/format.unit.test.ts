@@ -64,7 +64,7 @@ async function main() {
     agg.apply(makeEvent({ agent: 'claude-code' }));
     agg.apply(makeEvent({ agent: 'generic-fs', kind: 'edit', tokens: undefined }));
     const text = buildStatusBarText(agg.snapshot(), []);
-    assert.ok(text.includes('37 tokens'), text);
+    assert.ok(text.includes('37 tokens today'), text);
     assert.ok(text.includes('1 events'), text);
     assert.ok(text.includes('1 edits'), text);
   });
@@ -78,6 +78,21 @@ async function main() {
     assert.ok(lines.includes('10 in, 20 out, 5 cache-read, 2 cache-create'), lines);
     assert.ok(lines.includes('Total:'), lines);
     assert.ok(lines.includes('Local edits: 1'), lines);
+  });
+
+  test('buildBreakdownLines leads with a Today section and labels the rest all-time when given today', () => {
+    const allTime = new Aggregate();
+    allTime.apply(makeEvent({ tokens: { input: 100 } }));
+    allTime.apply(makeEvent({ tokens: { input: 7 } }));
+    const today = new Aggregate();
+    today.apply(makeEvent({ tokens: { input: 7 } }));
+
+    const lines = buildBreakdownLines(allTime.snapshot(), [], [], today.snapshot());
+    assert.strictEqual(lines[2], 'Today:');
+    assert.strictEqual(lines[3], '  Tokens: 7');
+    const text = lines.join('\n');
+    assert.ok(text.includes('All time, by agent:'), text);
+    assert.ok(text.includes('All time:\n  Tokens: 107'), text);
   });
 
   test('buildBreakdownLines includes a Health section only when there are issues', () => {
