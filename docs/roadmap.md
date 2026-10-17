@@ -51,6 +51,10 @@ The design reserves longer-window rollups for three virtues and their failure mo
 
 These rollups should evaluate sessions, days, or PRs instead of the short event windows used by the live heuristics engine.
 
+## Planned tasks
+
+- **Per-field retention policy.** Today every field in an event shares the `rawDays` clock. Once content capture is in use, decide which fields (command-string `target`, `textExcerpt`, possibly file paths) need a shorter retention, and implement it by scrubbing those fields from older events in place, keeping one event store. See [PRIVACY.md](../PRIVACY.md#retention).
+
 ## Open questions before v0.1
 
 - Should backtracking use an event-count window, a time window, or a user-selectable combination?

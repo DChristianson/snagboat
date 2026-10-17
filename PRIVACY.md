@@ -1,54 +1,55 @@
 # Privacy
 
-Snagboat is designed to keep observation local to the developer's machine.
+Snagboat keeps everything it observes on the developer's machine. Nothing is sent off-machine, and there is no telemetry.
 
 ## What is captured
 
-### Structural events
+Each observed action becomes one normalized event (see [docs/schema.md](docs/schema.md)). Most fields are structural (kind, status, timestamps, session id, model, token counts), but some carry details of what the agent did:
 
-By default the extension is expected to retain only structural events such as:
-
-- tool calls
-- edits
-- test runs
-- turn boundaries
-- token usage totals
-
-These records are sufficient for most heuristics and for daily aggregate reporting.
-
-### Optional captured text
-
-`textExcerpt` is the only normalized field expected to contain user or code content. It exists solely to support hedge-language detection and should remain:
-
-- opt-in
-- truncated
-- retained separately from structural events
-- disabled by default
-
-## Storage model
-
-- Event logs are append-only JSONL files under the extension storage URI.
-- Logs remain local-only by default.
-- No telemetry is sent off-machine.
-- Any future shared aggregate feature must be a separate, clearly labeled opt-in.
-
-## Retention defaults
-
-| Data | Default retention | Setting |
+| Source | Field | What it holds |
 | --- | --- | --- |
-| Structural events | 90 days before rolling into daily aggregates | `snagboat.retention.rawDays` |
-| `textExcerpt` content | 3 days | `snagboat.retention.textDays` |
-| Daily aggregates | `-1` keeps them indefinitely; `0` disables retention | `snagboat.retention.aggregateDays` |
+| Claude Code hooks | `target` | The tool's `file_path`, or the **full shell command string** for Bash calls. Commands can contain secrets such as tokens in headers, credentials in connection strings, or exported environment variables. |
+| Claude Code hooks | `raw.ref` | The tool name (`hook:PostToolUse:<tool>`) |
+| Claude Code transcript | `raw.ref` | The transcript file path and byte offset the event came from |
+| Copilot OTel | `target` | The tool or hook name only, not its arguments |
+| Edit tracker | `target`, `raw.ref` | The saved file's path and URI, not its contents |
 
-Raw and aggregate retention are implemented: on activation, hourly, and whenever these settings change, raw daily files older than `rawDays` (counting today) are rolled up into `aggregates/<date>.json` and deleted, and aggregates older than `aggregateDays` are removed. `textDays` is not yet implemented because no adapter captures `textExcerpt` yet.
+Not captured today: file contents, edit diffs, tool output, search patterns, prompts, and agent replies.
+
+### Captured text (planned)
+
+`snagboat.captureContent` (off by default; not yet built) will add agent text to events as `textExcerpt`, for hedge-language detection. When enabled, that text is stored **in the same event logs as everything else**, not in a separate store, until the shape of captured data is better understood. Token tracking and the behavioral heuristics will never require it.
+
+## Where data is stored
+
+All under the extension's per-workspace storage folder unless noted:
+
+| Store | Contents | Retention |
+| --- | --- | --- |
+| `events/<date>.jsonl` | Every normalized event, including `target` and, once built, `textExcerpt` | `snagboat.retention.rawDays` (default 90 days, counting today) |
+| `aggregates/<date>.json` | Per-day, per-agent token and event counts. No targets or text. | `snagboat.retention.aggregateDays` (default `-1`, kept indefinitely; `0` keeps none) |
+| `checkpoints/<adapter>.json` | Read offsets into Claude Code transcript files, keyed by transcript path | Until cleared manually; not covered by `Clear Event Log` |
+| VS Code workspace state | The list of muted heuristics | Until unmuted |
+| VS Code webview state | The detail view's filters, including the timeline search text | Managed by VS Code |
+| VS Code extension host log | Diagnostic messages: file paths, port errors, and, for hook or OTLP requests Snagboat couldn't parse or map, only their size and hook/tool names, never payload contents | Managed by VS Code |
+| `<project>/.claude/settings.json` | Outside Snagboat's storage: the `PostToolUse`/`Stop` hook entries Snagboat adds so Claude Code reports to it | Until removed by hand |
+
+Snagboat also reads data it doesn't own: Claude Code transcripts (`~/.claude/projects/…`) and Copilot's OTel export. It never modifies or deletes them.
+
+## Retention
+
+On activation, hourly, and whenever the retention settings change, raw daily files older than `rawDays` are rolled up into `aggregates/<date>.json` and deleted, and aggregates older than `aggregateDays` are removed. Today there is **one retention clock for every field** in an event: a shell command or a text excerpt lives exactly as long as the event it belongs to.
+
+**Planned: per-field retention.** Establish separate retention for the more sensitive fields (command-string targets, `textExcerpt`, possibly file paths), likely by scrubbing those fields from older events in place rather than splitting them into another store. This replaces the earlier `snagboat.retention.textDays` design and should be decided once real captured data shows which fields need it.
 
 ## User controls
 
-- `Snagboat: Clear Event Log` (`snagboat.clearLog`) wipes raw logs and daily aggregates on demand, after a confirmation prompt. Adapter checkpoints are kept so already-seen transcript history is not re-imported.
-- Content capture and text retention should be explained together in settings so the privacy tradeoff is visible at enable time.
+- `Snagboat: Clear Event Log` (`snagboat.clearLog`) deletes all raw logs and daily aggregates after a confirmation prompt. Adapter checkpoints are kept so already-seen transcript history is not re-imported.
+- `snagboat.captureContent`, once built, will be opt-in, and its setting description must state that captured text is kept as long as raw events (`rawDays`).
 
 ## Design guardrails
 
-- Adapters should prefer pointers back to raw source data over copying large payloads into normalized events.
-- Heuristics and UI code should tolerate missing `textExcerpt` values.
-- Token tracking should not require content capture.
+- Logs stay local. Any future sharing or sync feature must be a separate, clearly labeled opt-in.
+- Adapters prefer pointers back to source data (`raw.ref`) over copying payloads into events.
+- Heuristics and UI must work without `textExcerpt`.
+- Token tracking must not require content capture.

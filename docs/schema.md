@@ -61,7 +61,8 @@ This matrix is the adapter conformance spec. New adapters should not be accepted
 The schema is designed so sensitive content remains optional:
 
 - structural fields (`kind`, `status`, `target`, `tokens`) support most heuristics and reporting
-- `textExcerpt` is opt-in and short-lived
+- `textExcerpt` is opt-in and, like every field, stored in the daily event log and retained for `snagboat.retention.rawDays`; per-field retention is planned (see [PRIVACY.md](../PRIVACY.md#retention))
+- `target` is structural for file paths but can carry sensitive content for shell commands, so it is a candidate for per-field retention too
 - `raw.ref` points back to source material without copying entire payloads into the normalized record
 - `raw.event` is optional debug data and should be omitted unless an adapter has a clear inspection need
 
