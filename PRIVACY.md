@@ -13,12 +13,16 @@ Each observed action becomes one normalized event (see [docs/schema.md](docs/sch
 | Claude Code transcript | `raw.ref` | The transcript file path and byte offset the event came from |
 | Copilot OTel | `target` | The tool or hook name only, not its arguments |
 | Edit tracker | `target`, `raw.ref` | The saved file's path and URI, not its contents |
+| Claude Code transcript, only with `snagboat.captureContent` | `textExcerpt` | The reply's `text` blocks, truncated to 500 characters. Never thinking blocks or tool inputs. |
+| Copilot OTel, only with `snagboat.captureContent` **and** Copilot's `github.copilot.chat.otel.captureContent` | `textExcerpt` | The assistant `text` parts of `gen_ai.output.messages`, truncated to 500 characters. Never reasoning parts, prompts, tool arguments, or tool results. |
 
-Not captured today: file contents, edit diffs, tool output, search patterns, prompts, and agent replies.
+Never captured: file contents, edit diffs, tool output, search patterns, and your prompts.
 
-### Captured text (planned)
+### Captured text
 
-`snagboat.captureContent` (off by default; not yet built) will add agent text to events as `textExcerpt`, for hedge-language detection. When enabled, that text is stored **in the same event logs as everything else**, not in a separate store, until the shape of captured data is better understood. Token tracking and the behavioral heuristics will never require it.
+`snagboat.captureContent` is off by default. When on, it adds the agent's own reply text to each turn event as `textExcerpt`, for the verbal-hedge heuristic. That text is stored **in the same event logs as everything else**, not in a separate store, until the shape of captured data is better understood. Turning the setting off stops new capture; excerpts already logged stay until their day ages out under `rawDays` or the log is cleared. Token tracking and the behavioral heuristics never require it.
+
+Note that Copilot's own `github.copilot.chat.otel.captureContent` makes Copilot send full prompts, replies, and tool results to Snagboat's local receiver. Snagboat keeps only the truncated reply text and discards the rest without logging it.
 
 ## Where data is stored
 
@@ -26,7 +30,7 @@ All under the extension's per-workspace storage folder unless noted:
 
 | Store | Contents | Retention |
 | --- | --- | --- |
-| `events/<date>.jsonl` | Every normalized event, including `target` and, once built, `textExcerpt` | `snagboat.retention.rawDays` (default 90 days, counting today) |
+| `events/<date>.jsonl` | Every normalized event, including `target` and, when capture is on, `textExcerpt` | `snagboat.retention.rawDays` (default 90 days, counting today) |
 | `aggregates/<date>.json` | Per-day, per-agent token and event counts. No targets or text. | `snagboat.retention.aggregateDays` (default `-1`, kept indefinitely; `0` keeps none) |
 | `checkpoints/<adapter>.json` | Read offsets into Claude Code transcript files, keyed by transcript path | Until cleared manually; not covered by `Clear Event Log` |
 | VS Code workspace state | The list of muted heuristics | Until unmuted |
@@ -45,7 +49,7 @@ On activation, hourly, and whenever the retention settings change, raw daily fil
 ## User controls
 
 - `Snagboat: Clear Event Log` (`snagboat.clearLog`) deletes all raw logs and daily aggregates after a confirmation prompt. Adapter checkpoints are kept so already-seen transcript history is not re-imported.
-- `snagboat.captureContent`, once built, will be opt-in, and its setting description must state that captured text is kept as long as raw events (`rawDays`).
+- `snagboat.captureContent` is opt-in, and its setting description states that captured text is kept as long as raw events (`rawDays`). The detail view shows whether capture is on.
 
 ## Design guardrails
 

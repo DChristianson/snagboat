@@ -142,6 +142,7 @@ async function main() {
 
     const state = buildDetailState({
       now: '2026-01-01T12:00:00.000Z',
+      capture: { enabled: false, retentionDays: 90 },
       today: today.snapshot(),
       recentEvents: events,
       findings: registry.views(),

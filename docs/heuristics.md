@@ -39,9 +39,9 @@ Flags when the same target is touched repeatedly (`edit` or `tool_call`) within 
 
 Flags high tool-call volume (`snagboat.heuristics.toolChurn.minCalls`, default `8`) within a rolling window (`.window`, minutes, default `5`) landing on very few distinct targets (`.maxDistinctTargets`, default `2`). Catches spinning behavior even when an adapter can only report `unknown` status values.
 
-### `verbal-hedge` — not yet implemented
+### `verbal-hedge` — implemented
 
-Looks for hedge or self-correction language in `textExcerpt` captured on normalized turn events. This is a post-processing heuristic rather than an adapter-emitted event type, and it should stay informational unless paired with a behavioral signal such as backtracking or tool churn. Deferred because no adapter currently captures `textExcerpt` at all — content capture is its own separate opt-in decision (see [PRIVACY.md](../PRIVACY.md)).
+Looks for hedge or self-correction phrases ("I think", "should work", "let me try", "actually,", "my mistake", "that didn't work", …) in the `textExcerpt` of `turn_stop` events. It fires per session when at least `snagboat.heuristics.verbalHedge.minTurns` (default `2`) replies hedge within `.window` minutes (default `10`). It is `info` on its own and escalates to `warn` only when the same session shows a behavioral signal in the window: a target touched 3 or more times, or a failed tool call. Hedging alone never escalates. It is silent unless `snagboat.captureContent` is on, since no other path populates `textExcerpt`. Phrases favor multi-word or punctuated forms ("actually," rather than "actually") to avoid matching ordinary prose.
 
 ### `token-budget` — implemented, local and project levels only
 

@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 import { NormalizedEvent, EventTokens } from '../../core/types';
+import { makeExcerpt } from '../../core/excerpt';
 
 /**
  * Parses the OTLP/HTTP JSON wire format (a stable, documented protobuf-JSON
@@ -84,6 +85,34 @@ function modelFrom(attrs: AttrRecord): string | undefined {
 }
 
 /**
+ * Extracts assistant text parts from `gen_ai.output.messages`, a JSON string
+ * that Copilot only sets when its own github.copilot.chat.otel.captureContent
+ * is on. Shape per the OpenTelemetry GenAI conventions' output-messages schema
+ * (semantic-conventions-genai, model/gen-ai/gen-ai-output-messages.json):
+ * `[{ role: 'assistant', parts: [{ type: 'text', content: '...' }], finish_reason }]`.
+ * Reasoning and other part types are skipped.
+ */
+function assistantTextFrom(attrs: AttrRecord): string | undefined {
+  const raw = pickString(attrs['gen_ai.output.messages']);
+  if (!raw) return undefined;
+  let messages: unknown;
+  try {
+    messages = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(messages)) return undefined;
+  const texts: Array<string | undefined> = [];
+  for (const message of messages as Array<{ role?: unknown; parts?: unknown }>) {
+    if (message?.role !== 'assistant' || !Array.isArray(message.parts)) continue;
+    for (const part of message.parts as Array<{ type?: unknown; content?: unknown }>) {
+      if (part?.type === 'text') texts.push(pickString(part.content));
+    }
+  }
+  return makeExcerpt(texts);
+}
+
+/**
  * Maps spans to NormalizedEvents per the transformation matrix:
  * - `invoke_agent` carries the whole turn's token usage directly as span
  *   attributes (`gen_ai.usage.input_tokens`/`.output_tokens`) -- a simpler,
@@ -91,7 +120,7 @@ function modelFrom(attrs: AttrRecord): string | undefined {
  * - `execute_tool`/`execute_hook` map to tool_call events (tool name comes
  *   from `gen_ai.tool.name` per the real GenAI semantic conventions).
  */
-export function normalizeOtlpTraces(payload: unknown): NormalizedEvent[] {
+export function normalizeOtlpTraces(payload: unknown, opts: { captureContent?: boolean } = {}): NormalizedEvent[] {
   const events: NormalizedEvent[] = [];
   const resourceSpans = (payload as OtlpTracesPayload)?.resourceSpans ?? [];
   for (const rs of resourceSpans) {
@@ -116,6 +145,7 @@ export function normalizeOtlpTraces(payload: unknown): NormalizedEvent[] {
             status: spanStatus(span),
             model: modelFrom(attrs),
             tokens: Object.keys(tokens).length > 0 ? tokens : undefined,
+            textExcerpt: opts.captureContent ? assistantTextFrom(attrs) : undefined,
             raw: { adapter: 'copilot', ref: `otlp:span:${span.spanId ?? 'unknown'}` },
           });
           continue;

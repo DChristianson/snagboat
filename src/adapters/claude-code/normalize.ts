@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 import { NormalizedEvent } from '../../core/types';
+import { makeExcerpt } from '../../core/excerpt';
 
 interface ClaudeTranscriptLine {
   type?: string;
@@ -8,6 +9,7 @@ interface ClaudeTranscriptLine {
   timestamp?: string;
   message?: {
     model?: string;
+    content?: Array<{ type?: string; text?: string }> | string;
     usage?: {
       input_tokens?: number;
       output_tokens?: number;
@@ -26,7 +28,8 @@ interface ClaudeTranscriptLine {
 export function normalizeTranscriptLine(
   rawLine: string,
   filePath: string,
-  chunkStartOffset: number
+  chunkStartOffset: number,
+  opts: { captureContent?: boolean } = {}
 ): NormalizedEvent | undefined {
   let parsed: ClaudeTranscriptLine;
   try {
@@ -54,8 +57,17 @@ export function normalizeTranscriptLine(
       cacheRead: usage.cache_read_input_tokens,
       cacheCreation: usage.cache_creation_input_tokens,
     },
+    textExcerpt: opts.captureContent ? assistantText(parsed) : undefined,
     raw: { adapter: 'claude-code', ref: `${filePath}#offset~${chunkStartOffset}` },
   };
+}
+
+/** The reply's text blocks only: never thinking, tool_use inputs, or anything the user wrote. */
+function assistantText(line: ClaudeTranscriptLine): string | undefined {
+  const content = line.message?.content;
+  if (typeof content === 'string') return makeExcerpt([content]);
+  if (!Array.isArray(content)) return undefined;
+  return makeExcerpt(content.filter((block) => block?.type === 'text').map((block) => block.text));
 }
 
 interface ClaudeHookPayload {

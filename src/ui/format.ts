@@ -35,6 +35,7 @@ const FINDING_GLYPHS: Record<string, string> = {
   'tool-churn': '$(sync)',
   'token-budget': '$(dashboard)',
   stalled: '$(clock)',
+  'verbal-hedge': '$(comment-discussion)',
 };
 
 function findingGlyph(heuristicId: string): string {

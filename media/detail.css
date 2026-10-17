@@ -119,6 +119,9 @@ th, td { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid var
 th { color: var(--ink-muted); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
 td.num, th.num { text-align: right; }
 tr.highlight td { background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.2)); }
+.excerpt td { border-bottom: 1px solid var(--rule); padding-top: 0; }
+tr.excerpt details { margin-top: 0; }
+.excerpt-text { white-space: pre-wrap; margin: 4px 0 6px; max-width: 80ch; }
 .status-failure { color: var(--vscode-errorForeground); }
 .timeline-wrap { max-height: 520px; overflow: auto; }
 select, input[type="search"] {

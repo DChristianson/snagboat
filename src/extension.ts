@@ -40,6 +40,10 @@ function retentionPolicy(): RetentionPolicy {
   };
 }
 
+function captureContentEnabled(): boolean {
+  return vscode.workspace.getConfiguration('snagboat').get<boolean>('captureContent', false);
+}
+
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -103,6 +107,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     buildState: (isOpenable) =>
       buildDetailState({
         now: new Date().toISOString(),
+        capture: { enabled: captureContentEnabled(), retentionDays: retentionPolicy().rawDays },
         today: todayAggregate.snapshot(),
         recentEvents: eventStore.lastN(TIMELINE_LIMIT + 1),
         findings: findings.views(),
@@ -169,6 +174,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('snagboat.retention')) runRetention();
+      if (e.affectsConfiguration('snagboat.captureContent')) detailPanel.scheduleUpdate();
     })
   );
 
@@ -215,7 +221,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
 
   const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter()];
   for (const adapter of adapters) {
-    const adapterCtx = makeAdapterContext(adapter.agentId, bus, checkpoints, health);
+    const adapterCtx = makeAdapterContext(adapter.agentId, bus, checkpoints, health, captureContentEnabled);
     await adapter.init(adapterCtx);
     await adapter.start();
   }

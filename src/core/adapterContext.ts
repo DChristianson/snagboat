@@ -7,7 +7,8 @@ export function makeAdapterContext(
   adapterId: string,
   bus: EventBus,
   checkpoints: CheckpointStore,
-  health: HealthRegistry
+  health: HealthRegistry,
+  captureContent: () => boolean = () => false
 ): AdapterContext {
   return {
     publish(event: NormalizedEvent) {
@@ -22,5 +23,6 @@ export function makeAdapterContext(
     reportHealth(key, message) {
       health.report(adapterId, key, message);
     },
+    captureContent,
   };
 }

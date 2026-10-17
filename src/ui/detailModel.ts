@@ -18,6 +18,7 @@ export interface TimelineEvent {
   sessionId: string;
   target?: string;
   tokens?: number;
+  textExcerpt?: string;
   /** True when target resolves to a file on disk, so the view can offer jump-to-file. */
   openable: boolean;
 }
@@ -36,6 +37,8 @@ export interface FindingItem {
 /** Everything the webview renders, sent whole on each update. */
 export interface DetailState {
   generatedAt: string;
+  /** Whether snagboat.captureContent is on, and how long excerpts are kept (rawDays). */
+  capture: { enabled: boolean; retentionDays: number };
   today: { tokens: number; events: number; edits: number };
   timeline: { events: TimelineEvent[]; truncated: boolean };
   findings: FindingItem[];
@@ -93,6 +96,7 @@ function eventTokens(event: NormalizedEvent): number | undefined {
 
 export function buildDetailState(inputs: {
   now: string;
+  capture: { enabled: boolean; retentionDays: number };
   today: AggregateSnapshot;
   recentEvents: NormalizedEvent[];
   findings: FindingView[];
@@ -103,6 +107,7 @@ export function buildDetailState(inputs: {
   const newest = inputs.recentEvents.slice(-TIMELINE_LIMIT).reverse();
   return {
     generatedAt: inputs.now,
+    capture: inputs.capture,
     today: {
       tokens: inputs.today.totalTokens,
       events: agentEventTotal(inputs.today),
@@ -119,6 +124,7 @@ export function buildDetailState(inputs: {
         sessionId: e.sessionId,
         target: e.target,
         tokens: eventTokens(e),
+        textExcerpt: e.textExcerpt,
         openable: e.target !== undefined && inputs.isOpenable(e.target),
       })),
     },

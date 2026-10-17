@@ -80,6 +80,7 @@
   const tooltip = document.getElementById('tooltip');
 
   const updatedNote = el('p', { class: 'muted small' });
+  const captureNote = el('p', { class: 'muted small' });
   const tiles = el('div', { class: 'tiles' });
   const findingsList = el('div');
   const mutedRow = el('div', { class: 'chips' });
@@ -101,7 +102,7 @@
   const agentSelect = el('select', { 'aria-label': 'Filter by agent' });
   const kindSelect = el('select', { 'aria-label': 'Filter by kind' });
   const statusSelect = el('select', { 'aria-label': 'Filter by status' });
-  const searchInput = el('input', { type: 'search', placeholder: 'Filter by target or session', 'aria-label': 'Filter by target or session' });
+  const searchInput = el('input', { type: 'search', placeholder: 'Filter by target, session, or reply text', 'aria-label': 'Filter by target, session, or reply text' });
   searchInput.value = ui.search;
   for (const [select, key] of [[agentSelect, 'agent'], [kindSelect, 'kind'], [statusSelect, 'status']]) {
     select.addEventListener('change', () => {
@@ -120,7 +121,7 @@
   const timelineBody = el('tbody');
 
   app.replaceChildren(
-    el('header', {}, [el('h1', { text: 'Snagboat' }), updatedNote, tiles]),
+    el('header', {}, [el('h1', { text: 'Snagboat' }), updatedNote, captureNote, tiles]),
     el('section', { 'aria-labelledby': 'findings-h' }, [el('h2', { id: 'findings-h', text: 'Findings' }), findingsList, mutedRow]),
     el('section', { 'aria-labelledby': 'usage-h' }, [
       el('h2', { id: 'usage-h', text: 'Token usage per day' }),
@@ -156,6 +157,9 @@
 
   function renderHeader() {
     updatedNote.textContent = `Updated ${new Date(state.generatedAt).toLocaleTimeString()}`;
+    captureNote.textContent = state.capture.enabled
+      ? `Content capture is on: agent reply excerpts are stored in the local event log for ${state.capture.retentionDays} days.`
+      : 'Content capture is off: no reply text is stored. Turn on snagboat.captureContent to enable the verbal-hedge heuristic.';
     tiles.replaceChildren(
       ...[
         ['Tokens today', state.today.tokens],
@@ -382,6 +386,13 @@
     select.value = current;
   }
 
+  // Expanded excerpts survive live re-renders; they're reset only by reloading the view.
+  const expanded = new Set();
+  function toggleExpanded(id, open) {
+    if (open) expanded.add(id);
+    else expanded.delete(id);
+  }
+
   function renderTimeline() {
     if (!state) return;
     const events = state.timeline.events;
@@ -397,7 +408,10 @@
         (!ui.agent || e.agent === ui.agent) &&
         (!ui.kind || e.kind === ui.kind) &&
         (!ui.status || e.status === ui.status) &&
-        (!needle || (e.target || '').toLowerCase().includes(needle) || e.sessionId.toLowerCase().includes(needle))
+        (!needle ||
+          (e.target || '').toLowerCase().includes(needle) ||
+          e.sessionId.toLowerCase().includes(needle) ||
+          (e.textExcerpt || '').toLowerCase().includes(needle))
     );
 
     if (ui.finding) {
@@ -418,7 +432,7 @@
       (state.timeline.truncated ? ' (newest 1,000 only)' : '');
 
     timelineBody.replaceChildren(
-      ...rows.map((e) =>
+      ...rows.flatMap((e) => [
         el('tr', { class: ui.finding ? 'highlight' : undefined }, [
           el('td', { text: formatTime(e.ts), title: e.ts }),
           el('td', { text: e.agent }),
@@ -432,8 +446,16 @@
                 : el('span', { text: e.target }),
           ]),
           el('td', { class: 'num', text: e.tokens === undefined ? '' : fmt(e.tokens) }),
-        ])
-      )
+        ]),
+        e.textExcerpt &&
+          el('tr', { class: `excerpt${ui.finding ? ' highlight' : ''}` }, [
+            el('td'),
+            el('td', { colspan: 5 }, [el('details', { open: expanded.has(e.id) || undefined, ontoggle: (evt) => toggleExpanded(e.id, evt.currentTarget.open) }, [
+              el('summary', { text: 'Reply excerpt' }),
+              el('p', { class: 'excerpt-text', text: e.textExcerpt }),
+            ])]),
+          ]),
+      ].filter(Boolean))
     );
   }
 

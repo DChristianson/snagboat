@@ -46,7 +46,7 @@ export class TranscriptTailer {
       },
       onLines: (filePath, lines, chunkStartOffset) => {
         for (const line of lines) {
-          const event = normalizeTranscriptLine(line, filePath, chunkStartOffset);
+          const event = normalizeTranscriptLine(line, filePath, chunkStartOffset, { captureContent: this.ctx.captureContent() });
           if (event) this.ctx.publish(event);
         }
       },

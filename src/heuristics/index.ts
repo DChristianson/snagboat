@@ -4,9 +4,10 @@ import { stalledHeuristic } from './stalled';
 import { tokenBudgetHeuristic } from './tokenBudget';
 import { toolChurnHeuristic } from './toolChurn';
 import { backtrackingHeuristic } from './backtracking';
+import { verbalHedgeHeuristic } from './verbalHedge';
 
 export function builtInHeuristics(): Heuristic[] {
-  return [stalledHeuristic, tokenBudgetHeuristic, toolChurnHeuristic, backtrackingHeuristic];
+  return [stalledHeuristic, tokenBudgetHeuristic, toolChurnHeuristic, backtrackingHeuristic, verbalHedgeHeuristic];
 }
 
 // Most heuristic settings live under `snagboat.heuristics.<id>.*` with `id`
@@ -19,6 +20,7 @@ export function builtInHeuristics(): Heuristic[] {
 const SETTINGS_SECTION: Record<string, string> = {
   'token-budget': 'snagboat.tokenBudget',
   'tool-churn': 'snagboat.heuristics.toolChurn',
+  'verbal-hedge': 'snagboat.heuristics.verbalHedge',
 };
 
 /**

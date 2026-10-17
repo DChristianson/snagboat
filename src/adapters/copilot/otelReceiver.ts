@@ -64,7 +64,7 @@ export class OtelReceiver {
     const events = url.includes('/v1/metrics')
       ? normalizeOtlpMetrics(json)
       : url.includes('/v1/traces')
-        ? normalizeOtlpTraces(json)
+        ? normalizeOtlpTraces(json, { captureContent: this.ctx.captureContent() })
         : [];
 
     if (events.length === 0) {

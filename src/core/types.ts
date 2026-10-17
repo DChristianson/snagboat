@@ -20,6 +20,8 @@ export interface NormalizedEvent {
   status: 'success' | 'failure' | 'unknown';
   model?: string;
   tokens?: EventTokens;
+  /** The agent's own reply text, truncated; present only when snagboat.captureContent is on. */
+  textExcerpt?: string;
   raw: {
     adapter: string;
     ref: string;
@@ -38,6 +40,8 @@ export interface AdapterContext {
   writeCheckpoint(checkpoint: AdapterCheckpoint): Promise<void>;
   /** Reports (or clears, with `message: undefined`) a named health concern for this adapter. */
   reportHealth(key: string, message: string | undefined): void;
+  /** Whether snagboat.captureContent is on right now; read per event so toggling takes effect immediately. */
+  captureContent(): boolean;
 }
 
 export interface AgentAdapter {

@@ -59,11 +59,13 @@ Adapters own all agent-specific parsing. The normalization layer is the only pla
 | --- | --- | --- |
 | `snagboat.retention.rawDays` | `90` | Retain structural events before rolling them into daily aggregates. |
 | `snagboat.retention.aggregateDays` | `-1` | Retain daily aggregates indefinitely; set to `0` to disable aggregate retention entirely. |
-| `snagboat.captureContent` | `false` | Opt into storing truncated text excerpts used by the verbal-hedge heuristic, kept in the event log for as long as `rawDays`. Not yet built. Separate per-field retention is a planned follow-up (see [PRIVACY.md](PRIVACY.md#retention)). |
+| `snagboat.captureContent` | `false` | Store up to 500 characters of each agent reply (never prompts or tool output) for the verbal-hedge heuristic, kept in the event log for as long as `rawDays`. Copilot also needs `github.copilot.chat.otel.captureContent`. Separate per-field retention is a planned follow-up (see [PRIVACY.md](PRIVACY.md#retention)). |
 | `snagboat.tokenBudget.session` | unset | Warn when a single session crosses a configured token budget (local level). |
 | `snagboat.tokenBudget.day` | unset | Warn when this workspace's usage for the current day crosses a configured token budget (project level). A global, cross-workspace level plus a treemap visualization is planned but not yet built. |
 | `snagboat.heuristics.backtracking.window` | `10` (minutes) | Rolling window used to distinguish iteration from looping. Resolved as wall-clock minutes, not an event count. |
 | `snagboat.heuristics.backtracking.minRepeats` | `3` | Minimum times the same target must be touched within the window before backtracking fires. |
+| `snagboat.heuristics.verbalHedge.window` | `10` (minutes) | Rolling window verbal-hedge looks back over. |
+| `snagboat.heuristics.verbalHedge.minTurns` | `2` | Hedging replies in one session within the window before verbal-hedge fires. |
 | `snagboat.heuristics.stalled.minutes` | `15` | Warn when no events have arrived for this many minutes. |
 | `snagboat.heuristics.toolChurn.window` | `5` (minutes) | Rolling window that tool-churn looks back over. |
 | `snagboat.heuristics.toolChurn.minCalls` | `8` | Minimum tool calls within the window before tool-churn fires. |
