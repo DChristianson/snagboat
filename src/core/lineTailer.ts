@@ -6,6 +6,9 @@ export interface LineTailerOptions {
   getOffset(filePath: string): number;
   setOffset(filePath: string, offset: number): void;
   onLines(filePath: string, lines: string[], chunkStartOffset: number): void;
+  /** Called after every read attempt: the error if it failed, undefined if it succeeded. */
+  onReadResult?(filePath: string, err: unknown): void;
+  onWatchError?(err: Error): void;
 }
 
 /** Watches a glob of growing text files and delivers newly appended, complete lines. */
@@ -17,12 +20,17 @@ export class LineTailer {
 
   start(): void {
     this.watcher = watch(this.options.glob, {
+      // Pinned off so development (where node_modules has fsevents) behaves
+      // exactly like the packaged extension, whose bundle can't load it and
+      // falls back to fs.watch anyway.
+      useFsEvents: false,
       persistent: true,
       ignoreInitial: false,
       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
     });
     this.watcher.on('add', (path) => this.processFile(path));
     this.watcher.on('change', (path) => this.processFile(path));
+    this.watcher.on('error', (err) => this.options.onWatchError?.(err instanceof Error ? err : new Error(String(err))));
   }
 
   stop(): void {
@@ -40,8 +48,10 @@ export class LineTailer {
         this.options.onLines(filePath, lines, fromOffset);
         this.options.setOffset(filePath, newOffset);
       }
+      this.options.onReadResult?.(filePath, undefined);
     } catch (err) {
       console.error(`snagboat: failed tailing ${filePath}`, err);
+      this.options.onReadResult?.(filePath, err);
     } finally {
       this.inFlight.delete(filePath);
     }

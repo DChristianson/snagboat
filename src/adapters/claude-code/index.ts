@@ -2,7 +2,7 @@ import { AgentAdapter, AdapterContext } from '../../core/types';
 import { TranscriptTailer } from './transcriptTail';
 import { HooksReceiver } from './hooksReceiver';
 import { ensureHooksConfigured } from './hooksConfig';
-import { resolveProjectDir } from './workspace';
+import { resolveProjectDir, resolveTranscriptsDir } from './workspace';
 import { SeenMessages } from './normalize';
 import { CheckpointStateV2, readCheckpointState } from './checkpointState';
 
@@ -33,7 +33,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   async start(): Promise<void> {
     if (!this.ctx) throw new Error('ClaudeCodeAdapter.start() called before init()');
 
-    this.transcriptTailer = new TranscriptTailer(this.ctx, this.offsets, this.seen, () => this.persistCheckpoint());
+    this.transcriptTailer = new TranscriptTailer(this.ctx, resolveTranscriptsDir(), this.offsets, this.seen, () => this.persistCheckpoint());
     this.transcriptTailer.start();
 
     const port = resolveHooksPort();

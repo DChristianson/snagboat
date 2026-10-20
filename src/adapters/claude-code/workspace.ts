@@ -1,3 +1,5 @@
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 /** Test/CI seam: override the project root instead of using the open VS Code workspace folder. */
@@ -10,4 +12,14 @@ export function resolveProjectDir(): string | undefined {
 
 export function sanitizeCwd(cwd: string): string {
   return cwd.replace(/[\\/]/g, '-');
+}
+
+/** Test/CI seam: override where transcripts are read from instead of the real ~/.claude. */
+export function resolveTranscriptsDir(): string | undefined {
+  if (process.env.SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR) {
+    return process.env.SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR;
+  }
+  const cwd = resolveProjectDir();
+  if (!cwd) return undefined;
+  return path.join(os.homedir(), '.claude', 'projects', sanitizeCwd(cwd));
 }

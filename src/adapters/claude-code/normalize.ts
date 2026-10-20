@@ -108,6 +108,11 @@ export class SeenMessages {
     this.byFile.set(file, ids);
   }
 
+  /** Restores a snapshot(), e.g. to undo a chunk whose events failed to publish. */
+  restore(snapshot: Record<string, string[]>): void {
+    this.byFile = new Map(Object.entries(snapshot).map(([file, ids]) => [file, [...ids]]));
+  }
+
   snapshot(): Record<string, string[]> {
     return Object.fromEntries([...this.byFile].map(([file, ids]) => [file, [...ids]]));
   }

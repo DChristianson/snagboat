@@ -60,6 +60,8 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
   - receivers reject requests without a valid token, so other local processes can't inject events;
   - as defense in depth, a receiver also drops hook payloads whose `cwd` is outside its workspace.
 
+  The "failed to listen on port" health warnings this causes in every other window affect only hook `tool_call` events and Copilot, never Claude Code token counts, which come solely from transcript tailing. (Zero Claude tokens in a window had a different cause, now fixed: a window opened before its project's first Claude session never noticed the transcripts folder appearing. The tailer now checks for a missing folder every 15 minutes.)
+
   Copilot OTel has the same shared-port problem but can't use discovery (its exporter takes one endpoint URL); revisit once live traffic shows whether spans identify the workspace.
 
 ## Open questions before v0.1
