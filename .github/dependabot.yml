@@ -1,15 +1,24 @@
 version: 2
 updates:
-  # Grouped weekly so updates arrive as one PR per ecosystem rather than one per
-  # package. CI's license check catches an update that brings in a disallowed
-  # license or changes what's bundled without regenerating the notices.
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    # Minor and patch updates arrive together as one PR; each major update gets
+    # its own PR, so one breaking upgrade can't hold back the safe ones. CI's
+    # license check catches an update that changes what's bundled.
     groups:
-      npm-dependencies:
-        patterns: ["*"]
+      npm-minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Must never be newer than engines.vscode in package.json (types for newer
+      # APIs would let code use APIs older VS Code lacks, and vsce refuses to
+      # package). Bump it by hand together with engines.vscode.
+      - dependency-name: "@types/vscode"
+      # Should match the Node major that the minimum supported VS Code ships
+      # (Node 22 for VS Code 1.119). Bump the major by hand with engines.vscode.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

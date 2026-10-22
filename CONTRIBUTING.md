@@ -11,7 +11,9 @@ Thanks for helping out. This guide covers how the code is organized, how to run 
 
 ## Setup
 
-Requires Node.js 22 or later (packaging with `@vscode/vsce` needs it) and VS Code.
+Requires Node.js 22 or later (packaging with `@vscode/vsce` needs it) and VS Code 1.119 or later.
+
+The minimum VS Code version (`engines.vscode`) also pins two dev dependencies, which Dependabot is told not to move on its own: `@types/vscode` must not be newer than that minimum (so code can't use APIs older VS Code lacks), and `@types/node` should match the Node major that version ships (Node 22 for 1.119). Raise all three together, deliberately.
 
 ```bash
 npm install
@@ -64,7 +66,7 @@ Some unit tests deliberately use real file watching, real HTTP servers, and the 
 
 ## Dependencies and licenses
 
-Runtime dependencies are bundled into `dist/extension.js` and shipped in the `.vsix`, so keep them few. Bundled packages must be licensed MIT, ISC, Apache-2.0, BSD-2-Clause, BSD-3-Clause, or 0BSD. After changing runtime dependencies, run `npm run licenses` to regenerate `THIRD_PARTY_LICENSES.md` and commit it; CI fails if it's out of date or a license is outside the allowlist. Development-only tools aren't shipped and aren't subject to this.
+Runtime dependencies are bundled into `dist/extension.js` and shipped in the `.vsix`. There currently are none, and new ones need a good reason: file watching, HTTP, and charts are all done with Node and VS Code built-ins. Bundled packages must be licensed MIT, ISC, Apache-2.0, BSD-2-Clause, BSD-3-Clause, or 0BSD. After changing runtime dependencies, run `npm run licenses` to regenerate `THIRD_PARTY_LICENSES.md` and commit it; CI fails if it's out of date or a license is outside the allowlist. Development-only tools aren't shipped and aren't subject to this.
 
 ## Before opening a pull request
 
