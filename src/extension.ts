@@ -233,9 +233,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     },
   });
 
-  // Dev-only: manually emit a synthetic event to prove the bus -> log -> aggregate ->
-  // status bar pipeline works end to end before any real adapter exists. Not exposed
-  // as a command palette entry (absent from package.json contributes.commands).
+  // Dev/test-only: emits a synthetic Claude Code turn (35 tokens) through the full
+  // bus -> log -> aggregate -> status bar pipeline; the integration suite relies on
+  // it. Hidden from the command palette (package.json menus.commandPalette) since it
+  // writes a fake event into the user's real log; still callable via executeCommand.
   context.subscriptions.push(
     vscode.commands.registerCommand('snagboat._emitTestEvent', () => {
       bus.publish({

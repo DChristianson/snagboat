@@ -1,7 +1,7 @@
 {
   "name": "snagboat",
   "displayName": "Snagboat",
-  "description": "Watches AI coding agent activity and shows token/event counts locally.",
+  "description": "Watches Claude Code and GitHub Copilot agents in VS Code: token usage, tool activity, and signs of trouble like looping, churn, stalls, and budget overruns. All local.",
   "version": "0.0.1",
   "private": true,
   "publisher": "snagboat",
@@ -19,7 +19,18 @@
     "vscode": "^1.85.0"
   },
   "categories": [
+    "Visualization",
     "Other"
+  ],
+  "keywords": [
+    "claude code",
+    "github copilot",
+    "ai agents",
+    "tokens",
+    "usage",
+    "observability",
+    "telemetry",
+    "hooks"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -44,6 +55,14 @@
         "title": "Snagboat (Dev): Emit Test Event"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "snagboat._emitTestEvent",
+          "when": "false"
+        }
+      ]
+    },
     "configuration": {
       "title": "Snagboat",
       "properties": {
