@@ -25,6 +25,8 @@ function assistantLine(id: string): string {
 function fakeCtx(onPublish: (e: NormalizedEvent) => void = () => undefined) {
   const published: NormalizedEvent[] = [];
   const health = new Map<string, string>();
+  // Every report in order, since a problem can be reported and cleared faster than a test can poll.
+  const healthLog: Array<[key: string, message: string | undefined]> = [];
   const ctx: AdapterContext = {
     publish: (e) => {
       onPublish(e);
@@ -32,10 +34,14 @@ function fakeCtx(onPublish: (e: NormalizedEvent) => void = () => undefined) {
     },
     readCheckpoint: async () => undefined,
     writeCheckpoint: async () => undefined,
-    reportHealth: (key, message) => (message === undefined ? health.delete(key) : health.set(key, message)),
+    reportHealth: (key, message) => {
+      healthLog.push([key, message]);
+      if (message === undefined) health.delete(key);
+      else health.set(key, message);
+    },
     captureContent: () => false,
   };
-  return { ctx, published, health };
+  return { ctx, published, health, healthLog };
 }
 
 function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
@@ -92,10 +98,10 @@ async function main() {
     }
   });
 
-  test('a failed read is reported as a health issue for that file and cleared by the next good read', async () => {
+  test('a failed read is reported as a health issue for that file, then retried and cleared', async () => {
     const dir = await tempDir();
     let failNext = true;
-    const { ctx, published, health } = fakeCtx(() => {
+    const { ctx, published, health, healthLog } = fakeCtx(() => {
       if (failNext) {
         failNext = false;
         throw new Error('boom');
@@ -106,12 +112,14 @@ async function main() {
     try {
       await new Promise((r) => setTimeout(r, 300));
       await fs.promises.writeFile(path.join(dir, 'session.jsonl'), assistantLine('a'));
-      await waitFor(() => health.has('transcript:session.jsonl'));
-      assert.match(health.get('transcript:session.jsonl')!, /failed reading session\.jsonl: boom/);
+      const failed = () => healthLog.some(([key, message]) => key === 'transcript:session.jsonl' && /failed reading session\.jsonl: boom/.test(message ?? ''));
+      await waitFor(failed);
 
+      // Depending on the platform, the retry happens on the next change or on
+      // events already queued while the failed read ran (Linux sends several per write).
       await fs.promises.appendFile(path.join(dir, 'session.jsonl'), assistantLine('b'));
-      await waitFor(() => !health.has('transcript:session.jsonl'));
-      assert.ok(published.length >= 2, 'the unread line is retried, since the offset only advances after a good read');
+      await waitFor(() => !health.has('transcript:session.jsonl') && published.some((e) => e.eventId === 'b'));
+      assert.ok(published.some((e) => e.eventId === 'a'), 'the line that failed is retried, since the offset only advances after a good read');
     } finally {
       tailer.stop();
     }
