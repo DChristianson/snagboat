@@ -67,7 +67,7 @@ suite('Snagboat core plumbing', () => {
   let api: SnagboatTestApi;
 
   suiteSetup(async () => {
-    const ext = vscode.extensions.getExtension<SnagboatTestApi>('snagboat.snagboat');
+    const ext = vscode.extensions.getExtension<SnagboatTestApi>('dchristianson.snagboat');
     assert.ok(ext, 'extension should be present');
     api = await ext!.activate();
   });

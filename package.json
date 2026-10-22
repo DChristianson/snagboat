@@ -4,7 +4,7 @@
   "description": "Watches Claude Code and GitHub Copilot agents in VS Code: token usage, tool activity, and signs of trouble like looping, churn, stalls, and budget overruns. All local.",
   "version": "0.0.1",
   "private": true,
-  "publisher": "snagboat",
+  "publisher": "dchristianson",
   "license": "MIT",
   "author": "DChristianson",
   "repository": {
