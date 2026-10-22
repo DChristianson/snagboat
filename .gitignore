@@ -3,3 +3,7 @@ dist/
 out/
 *.vsix
 .vscode-test/
+
+# Claude Code project settings: machine-specific (includes the Snagboat hook
+# entry Snagboat writes into every project it watches, this one included).
+.claude/

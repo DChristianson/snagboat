@@ -17,7 +17,7 @@ Working, but early (version `0.0.1`), not yet published to the Marketplace or Op
 
 ## Install
 
-Requires Node.js and VS Code 1.85 or later.
+Requires Node.js 22 or later and VS Code 1.85 or later.
 
 ```bash
 git clone https://github.com/DChristianson/snagboat.git
@@ -144,6 +144,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 | `npm test` | Compiles and bundles, then runs the integration suite in a real VS Code instance via `@vscode/test-electron` |
 | `npm run verify:transcripts` | Replays your own local Claude Code transcripts for this project through the adapter and checks token totals; prints totals only |
 | `npm run package` | Builds the `.vsix` |
+| `npm run licenses` | Regenerates `THIRD_PARTY_LICENSES.md` from the bundled dependencies (`-- --check` verifies it, as CI does) |
 
 ## Known limitations
 
