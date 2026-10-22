@@ -54,15 +54,11 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
 ## Planned tasks
 
 - **Per-field retention policy.** Today every field in an event shares the `rawDays` clock. Once content capture is in use, decide which fields (command-string `target`, `textExcerpt`, possibly file paths) need a shorter retention, and implement it by scrubbing those fields from older events in place, keeping one event store. See [PRIVACY.md](../PRIVACY.md#retention).
-- **Per-window hook routing with discovery files and auth tokens.** Today every project's `.claude/settings.json` points Claude Code hooks at fixed port 45679, so the first VS Code window to bind it logs hook events from every project, and other windows get none. Replace this with the discovery-file pattern Claude Code's own IDE integration uses (`~/.claude/ide/<port>.lock`):
-  - each window listens on a free port (port 0) and writes `~/.snagboat/windows/<id>.json` with its port, pid, workspace folders, and a random auth token, removing it on deactivate (and ignoring files whose pid is gone);
-  - the hook entry in settings.json calls a small helper script at a stable path instead of `curl` to a fixed port, so the entry never changes; the script reads the payload's `cwd`, picks the window whose workspace folders contain it, and posts with that window's token, or does nothing (and never blocks Claude Code) if no window matches;
-  - receivers reject requests without a valid token, so other local processes can't inject events;
-  - as defense in depth, a receiver also drops hook payloads whose `cwd` is outside its workspace.
+- **Per-window hook routing with discovery files and auth tokens — done.** Hooks previously all went to fixed port 45679, so the first VS Code window to bind it logged every project's hook events and the rest got none. Each window now listens on its own port and publishes per-folder route files with an auth token; a stable sh script routes each hook by `CLAUDE_PROJECT_DIR` (see [architecture.md](architecture.md#claude-code-adapter)). Existing projects' old `curl` hook entries are rewritten in place the next time a window opens them. Not handled: workspace folders added or removed after activation get routes only on the next reload, and the script needs a POSIX shell, so Windows is unsupported (as before).
 
-  The "failed to listen on port" health warnings this causes in every other window affect only hook `tool_call` events and Copilot, never Claude Code token counts, which come solely from transcript tailing. (Zero Claude tokens in a window had a different cause, now fixed: a window opened before its project's first Claude session never noticed the transcripts folder appearing. The tailer now checks for a missing folder every 15 minutes.)
+  Separately, zero Claude tokens in a window had a different cause, now fixed: a window opened before its project's first Claude session never noticed the transcripts folder appearing. The tailer now checks for a missing folder every 15 minutes.
 
-  Copilot OTel has the same shared-port problem but can't use discovery (its exporter takes one endpoint URL); revisit once live traffic shows whether spans identify the workspace.
+- **Copilot OTel per-window routing.** Copilot still exports every window's telemetry to one fixed port (4318), so the first window to bind it collects all of it. It can't use the hook routing above, since Copilot's exporter takes a single endpoint URL; revisit once live traffic shows whether spans identify the workspace.
 
 ## Open questions before v0.1
 

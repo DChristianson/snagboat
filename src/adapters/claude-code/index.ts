@@ -1,17 +1,11 @@
 import { AgentAdapter, AdapterContext } from '../../core/types';
 import { TranscriptTailer } from './transcriptTail';
 import { HooksReceiver } from './hooksReceiver';
-import { ensureHooksConfigured } from './hooksConfig';
-import { resolveProjectDir, resolveTranscriptsDir } from './workspace';
+import { buildHookCommand, ensureHooksConfigured } from './hooksConfig';
+import { resolveTranscriptsDir, resolveWorkspaceFolders } from './workspace';
+import { installHookScript, newToken, pruneStaleRoutes, removeRoutes, snagboatHome, withRealPaths, writeRoutes } from './hookRoutes';
 import { SeenMessages } from './normalize';
 import { CheckpointStateV2, readCheckpointState } from './checkpointState';
-
-const DEFAULT_HOOKS_PORT = 45679;
-
-function resolveHooksPort(): number {
-  const fromEnv = process.env.SNAGBOAT_CLAUDE_HOOKS_PORT;
-  return fromEnv ? Number(fromEnv) : DEFAULT_HOOKS_PORT;
-}
 
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly agentId = 'claude-code' as const;
@@ -21,6 +15,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   private seen = new SeenMessages();
   private transcriptTailer?: TranscriptTailer;
   private hooksReceiver?: HooksReceiver;
+  private routedFolders: string[] = [];
 
   async init(ctx: AdapterContext): Promise<void> {
     this.ctx = ctx;
@@ -36,21 +31,42 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     this.transcriptTailer = new TranscriptTailer(this.ctx, resolveTranscriptsDir(), this.offsets, this.seen, () => this.persistCheckpoint());
     this.transcriptTailer.start();
 
-    const port = resolveHooksPort();
-    this.hooksReceiver = new HooksReceiver(this.ctx, port);
-    this.hooksReceiver.start();
+    await this.startHooks(this.ctx);
+  }
 
-    const projectDir = resolveProjectDir();
-    if (projectDir) {
-      await ensureHooksConfigured(projectDir, port);
-      this.ctx.reportHealth('hooks', undefined);
-    } else {
-      this.ctx.reportHealth('hooks', 'no workspace folder open, hooks were not configured');
+  /**
+   * Starts this window's hook receiver on a free port and publishes routes for
+   * its workspace folders, so the shared hook script delivers each Claude Code
+   * project's hooks here and nowhere else (see hookRoutes.ts).
+   */
+  private async startHooks(ctx: AdapterContext): Promise<void> {
+    const workspaceFolders = resolveWorkspaceFolders();
+    if (workspaceFolders.length === 0) {
+      ctx.reportHealth('hooks', 'no workspace folder open, hooks were not configured');
+      return;
+    }
+    const folders = withRealPaths(workspaceFolders);
+    try {
+      const home = snagboatHome();
+      pruneStaleRoutes(home);
+      const scriptPath = installHookScript(home);
+      const token = newToken();
+      this.hooksReceiver = new HooksReceiver(ctx, { token, workspaceFolders: folders });
+      const port = await this.hooksReceiver.start();
+      writeRoutes(home, folders, { port, token, pid: process.pid });
+      this.routedFolders = folders;
+      const command = buildHookCommand(scriptPath);
+      for (const folder of workspaceFolders) await ensureHooksConfigured(folder, command);
+      ctx.reportHealth('hooks', undefined);
+    } catch (err) {
+      ctx.reportHealth('hooks', `hook routing not set up: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   async stop(): Promise<void> {
     this.transcriptTailer?.stop();
+    removeRoutes(snagboatHome(), this.routedFolders, process.pid);
+    this.routedFolders = [];
     this.hooksReceiver?.stop();
   }
 

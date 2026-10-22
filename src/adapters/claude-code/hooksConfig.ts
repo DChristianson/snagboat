@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 interface HookEntry {
@@ -19,19 +20,28 @@ interface ClaudeSettings {
 const HOOK_COMMAND_MARKER = 'snagboat-hook-receiver';
 const HOOK_EVENT_NAMES = ['PostToolUse', 'Stop'] as const;
 
-export function buildHookCommand(port: number): string {
-  // "|| true" ensures a hook never fails (and so never blocks Claude Code) just
-  // because the extension/receiver isn't currently running.
-  return `curl -s -X POST http://127.0.0.1:${port}/hook -H "Content-Type: application/json" -d @- >/dev/null 2>&1 || true # ${HOOK_COMMAND_MARKER}`;
+/**
+ * The settings.json command for our hooks: runs the routing script at a stable
+ * path, so the entry never changes between sessions or windows. Written with
+ * a literal $HOME for the default location, so a committed settings.json works
+ * for anyone. "2>/dev/null || true" keeps a hook from ever failing (and so
+ * from ever blocking Claude Code) if the script is gone, e.g. Snagboat was
+ * uninstalled.
+ */
+export function buildHookCommand(scriptPath: string): string {
+  const home = os.homedir();
+  const shown = scriptPath.startsWith(home + path.sep) ? `$HOME${scriptPath.slice(home.length)}` : scriptPath;
+  return `"${shown}" 2>/dev/null || true # ${HOOK_COMMAND_MARKER}`;
 }
 
 /**
- * Additively merges PostToolUse/Stop hook entries pointing at our local receiver
- * into the project's .claude/settings.json, without touching any hooks or other
- * settings the user already has configured there. Safe to call on every adapter
- * start: a no-op once our entries are already present.
+ * Merges PostToolUse/Stop hook entries running our command into the project's
+ * .claude/settings.json without touching any other hooks or settings. Any
+ * existing Snagboat entry (found by its marker comment, e.g. the old fixed-port
+ * curl command) is rewritten in place to the current command, and duplicates
+ * are removed. Safe to call on every adapter start: a no-op once up to date.
  */
-export async function ensureHooksConfigured(projectDir: string, port: number): Promise<void> {
+export async function ensureHooksConfigured(projectDir: string, command: string): Promise<void> {
   const settingsDir = path.join(projectDir, '.claude');
   const settingsPath = path.join(settingsDir, 'settings.json');
   await fs.promises.mkdir(settingsDir, { recursive: true });
@@ -51,11 +61,32 @@ export async function ensureHooksConfigured(projectDir: string, port: number): P
   let changed = false;
   for (const eventName of HOOK_EVENT_NAMES) {
     const matchers = (settings.hooks[eventName] ??= []);
-    const alreadyPresent = matchers.some((m) =>
-      m.hooks?.some((h) => h.command?.includes(HOOK_COMMAND_MARKER))
-    );
-    if (!alreadyPresent) {
-      matchers.push({ matcher: '*', hooks: [{ type: 'command', command: buildHookCommand(port) }] });
+    let found = false;
+    for (const matcher of matchers) {
+      const hooks = matcher.hooks ?? [];
+      const kept = hooks.filter((h) => {
+        if (!h.command?.includes(HOOK_COMMAND_MARKER)) return true;
+        if (found) return false; // duplicate Snagboat entry
+        found = true;
+        if (h.command !== command) {
+          h.command = command;
+          changed = true;
+        }
+        return true;
+      });
+      if (kept.length !== hooks.length) {
+        matcher.hooks = kept;
+        changed = true;
+      }
+    }
+    // Drop matcher groups emptied by duplicate removal.
+    const nonEmpty = matchers.filter((m) => (m.hooks ?? []).length > 0);
+    if (nonEmpty.length !== matchers.length) {
+      settings.hooks[eventName] = nonEmpty;
+      changed = true;
+    }
+    if (!found) {
+      settings.hooks[eventName]!.push({ matcher: '*', hooks: [{ type: 'command', command }] });
       changed = true;
     }
   }

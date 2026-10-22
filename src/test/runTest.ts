@@ -9,17 +9,19 @@ async function main() {
 
   const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-workspace-'));
   const transcriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-transcripts-'));
+  const snagboatHome = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-home-'));
 
   try {
     await runTests({
       extensionDevelopmentPath,
       extensionTestsPath,
       launchArgs: [workspaceDir, '--disable-extensions'],
-      // Alternate ports/dir so this doesn't collide with a real Dev Host window
-      // you might have open using the real defaults (45679 / 4318).
+      // A private Snagboat home (hook routes and script) and alternate OTLP
+      // port, so this doesn't touch or collide with a real window you might
+      // have open (~/.snagboat, port 4318).
       extensionTestsEnv: {
         SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR: transcriptsDir,
-        SNAGBOAT_CLAUDE_HOOKS_PORT: '45680',
+        SNAGBOAT_HOME: snagboatHome,
         SNAGBOAT_COPILOT_OTLP_PORT: '4319',
       },
     });

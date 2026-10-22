@@ -24,6 +24,8 @@ const REAL_SHAPED_ASSISTANT_LINE = JSON.stringify({
   },
 });
 
+const CMD = buildHookCommand('/tmp/snagboat-test/bin/snagboat-hook');
+
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
   const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
@@ -122,23 +124,58 @@ async function main() {
       })
     );
 
-    await ensureHooksConfigured(dir, 45679);
+    await ensureHooksConfigured(dir, CMD);
     const afterFirst = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     assert.strictEqual(afterFirst.someUnrelatedSetting, true, 'unrelated settings must be preserved');
     assert.strictEqual(afterFirst.hooks.PostToolUse.length, 2, 'existing hook entry preserved, ours appended');
     assert.strictEqual(afterFirst.hooks.PostToolUse[0].hooks[0].command, 'echo existing');
-    assert.ok(afterFirst.hooks.PostToolUse[1].hooks[0].command.includes(buildHookCommand(45679).split(' # ')[1]));
+    assert.ok(afterFirst.hooks.PostToolUse[1].hooks[0].command === CMD);
     assert.strictEqual(afterFirst.hooks.Stop.length, 1);
 
     // Calling again must be idempotent: no duplicate snagboat entries.
-    await ensureHooksConfigured(dir, 45679);
+    await ensureHooksConfigured(dir, CMD);
     const afterSecond = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     assert.strictEqual(afterSecond.hooks.PostToolUse.length, 2, 'second call must not add a duplicate entry');
   });
 
+  test('ensureHooksConfigured rewrites an old fixed-port curl entry in place and removes duplicates', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-hooksconfig-migrate-'));
+    const settingsPath = path.join(dir, '.claude', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    const old = 'curl -s -X POST http://127.0.0.1:45679/hook -H "Content-Type: application/json" -d @- >/dev/null 2>&1 || true # snagboat-hook-receiver';
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            { matcher: '*', hooks: [{ type: 'command', command: old }] },
+            { matcher: '*', hooks: [{ type: 'command', command: old }] },
+            { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo mine' }] },
+          ],
+          Stop: [{ matcher: '*', hooks: [{ type: 'command', command: old }] }],
+        },
+      })
+    );
+
+    await ensureHooksConfigured(dir, CMD);
+    const after = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    assert.deepStrictEqual(
+      after.hooks.PostToolUse.map((m: any) => m.hooks.map((h: any) => h.command)),
+      [[CMD], ['echo mine']],
+      'old entry rewritten in place, duplicate group dropped, user hook untouched'
+    );
+    assert.deepStrictEqual(after.hooks.Stop[0].hooks[0].command, CMD);
+  });
+
+  test('buildHookCommand writes the default location with a literal $HOME and never fails', () => {
+    const cmd = buildHookCommand(path.join(os.homedir(), '.snagboat', 'bin', 'snagboat-hook'));
+    assert.strictEqual(cmd, '"$HOME/.snagboat/bin/snagboat-hook" 2>/dev/null || true # snagboat-hook-receiver');
+    assert.ok(buildHookCommand('/opt/x/snagboat-hook').startsWith('"/opt/x/snagboat-hook"'));
+  });
+
   test('ensureHooksConfigured creates .claude/settings.json from scratch when absent', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-hooksconfig-fresh-'));
-    await ensureHooksConfigured(dir, 45679);
+    await ensureHooksConfigured(dir, CMD);
     const settings = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
     assert.strictEqual(settings.hooks.PostToolUse.length, 1);
     assert.strictEqual(settings.hooks.Stop.length, 1);

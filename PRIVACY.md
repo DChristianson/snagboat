@@ -1,6 +1,6 @@
 # Privacy
 
-Snagboat keeps everything it observes on the developer's machine. Nothing is sent off-machine, and there is no telemetry.
+Snagboat keeps everything it observes on the developer's machine. Nothing is sent off-machine, and there is no telemetry of the extension itself.
 
 ## What is captured
 
@@ -36,7 +36,9 @@ All under the extension's per-workspace storage folder unless noted:
 | VS Code workspace state | The list of muted heuristics | Until unmuted |
 | VS Code webview state | The detail view's filters, including the timeline search text | Managed by VS Code |
 | VS Code extension host log | Diagnostic messages: file paths, port errors, and, for hook or OTLP requests Snagboat couldn't parse or map, only their size and hook/tool names, never payload contents | Managed by VS Code |
-| `<project>/.claude/settings.json` | Outside Snagboat's storage: the `PostToolUse`/`Stop` hook entries Snagboat adds so Claude Code reports to it | Until removed by hand |
+| `~/.snagboat/routes/<folder>` | One file per open workspace folder: the local port, a random auth token, and the VS Code process id, so hooks reach the right window. Owner-only (`0600`). | Removed when the window closes; leftovers from crashed windows are removed on the next activation |
+| `~/.snagboat/bin/snagboat-hook` | The hook forwarder script that Claude Code runs | Rewritten on every activation |
+| `<project>/.claude/settings.json` | Outside Snagboat's storage: the `PostToolUse`/`Stop` hook entries Snagboat adds so Claude Code runs `snagboat-hook` | Until removed by hand |
 
 Snagboat also reads data it doesn't own: Claude Code transcripts (`~/.claude/projects/…`) and Copilot's OTel export. It never modifies or deletes them.
 

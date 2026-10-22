@@ -1,19 +1,65 @@
+import * as crypto from 'crypto';
 import * as http from 'http';
+import * as path from 'path';
 import { AdapterContext } from '../../core/types';
 import { normalizeHookPayload } from './normalize';
 
+function tokensMatch(header: string | undefined, token: string): boolean {
+  const given = Buffer.from(header?.replace(/^Bearer\s+/i, '') ?? '');
+  const expected = Buffer.from(token);
+  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+}
+
+/** Whether dir is one of the folders or inside one. */
+export function isWithinFolders(dir: string, folders: string[]): boolean {
+  return folders.some((folder) => {
+    const rel = path.relative(folder, dir);
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  });
+}
+
+/**
+ * The project dir the routing script routed on. Header values arrive as raw
+ * bytes read as latin1, so re-decode them as UTF-8 for non-ASCII paths.
+ */
+function projectDirHeader(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw === undefined ? undefined : Buffer.from(raw, 'latin1').toString('utf8');
+}
+
+/**
+ * Local HTTP endpoint for Claude Code hook payloads, forwarded by the routing
+ * script (see hookRoutes.ts). Listens on a free port chosen by the OS, accepts
+ * only requests carrying this window's token, and drops hooks whose project
+ * (the script's X-Snagboat-Project-Dir, i.e. CLAUDE_PROJECT_DIR) is outside
+ * this window's folders, which can happen when two folders' route names
+ * collide. The payload's cwd is deliberately not checked: it follows Claude
+ * into other directories and worktrees mid-session.
+ */
 export class HooksReceiver {
   private server?: http.Server;
 
   constructor(
     private readonly ctx: AdapterContext,
-    private readonly port: number
+    private readonly opts: { token: string; workspaceFolders: string[]; port?: number }
   ) {}
 
-  start(): void {
+  /** Resolves with the bound port once listening; rejects if it can't listen. */
+  start(): Promise<number> {
     this.server = http.createServer((req, res) => {
       if (req.method !== 'POST') {
         res.writeHead(404).end();
+        return;
+      }
+      if (!tokensMatch(req.headers.authorization, this.opts.token)) {
+        res.writeHead(401).end();
+        req.resume();
+        return;
+      }
+      const projectDir = projectDirHeader(req.headers['x-snagboat-project-dir']);
+      if (!projectDir || !isWithinFolders(projectDir, this.opts.workspaceFolders)) {
+        res.writeHead(421).end(); // Misdirected Request: not this window's project
+        req.resume();
         return;
       }
       const chunks: Buffer[] = [];
@@ -38,11 +84,16 @@ export class HooksReceiver {
         }
       });
     });
-    this.server.on('error', (err) => {
-      this.ctx.reportHealth('hooksReceiver', `failed to listen on port ${this.port}: ${err.message}`);
-    });
-    this.server.listen(this.port, '127.0.0.1', () => {
-      this.ctx.reportHealth('hooksReceiver', undefined);
+    const server = this.server;
+    return new Promise((resolve, reject) => {
+      server.once('error', (err) => {
+        this.ctx.reportHealth('hooksReceiver', `failed to start the hook receiver: ${err.message}`);
+        reject(err);
+      });
+      server.listen(this.opts.port ?? 0, '127.0.0.1', () => {
+        this.ctx.reportHealth('hooksReceiver', undefined);
+        resolve((server.address() as { port: number }).port);
+      });
     });
   }
 

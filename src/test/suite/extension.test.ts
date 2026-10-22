@@ -2,10 +2,10 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
+import * as childProcess from 'child_process';
 import * as vscode from 'vscode';
 import { SnagboatTestApi } from '../../extension';
 
-const HOOKS_PORT = 45680;
 const OTLP_PORT = 4319;
 
 function waitFor(predicate: () => boolean, timeoutMs = 8000, intervalMs = 100): Promise<void> {
@@ -23,6 +23,21 @@ function waitFor(predicate: () => boolean, timeoutMs = 8000, intervalMs = 100): 
       setTimeout(tick, intervalMs);
     };
     tick();
+  });
+}
+
+function postJsonStatus(port: number, urlPath: string, body: unknown, headers: Record<string, string> = {}): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const data = Buffer.from(JSON.stringify(body), 'utf8');
+    const req = http.request(
+      { host: '127.0.0.1', port, path: urlPath, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': data.length, ...headers } },
+      (res) => {
+        res.resume();
+        res.on('end', () => resolve(res.statusCode ?? 0));
+      }
+    );
+    req.on('error', reject);
+    req.end(data);
   });
 }
 
@@ -150,20 +165,39 @@ suite('Snagboat core plumbing', () => {
     assert.strictEqual(api.getAggregateSnapshot().perAgent['claude-code'].tokens.output, before + 11);
   });
 
-  test('a synthetic Claude Code hook payload is picked up by the hooks receiver', async () => {
-    const before = api.getAggregateSnapshot().perAgent['claude-code']?.eventCountByKind.tool_call ?? 0;
+  test('a Claude Code hook reaches this window through the routing script, and only with its token', async () => {
+    const home = process.env.SNAGBOAT_HOME;
+    assert.ok(home, 'SNAGBOAT_HOME must be set by runTest.ts');
+    const folder = vscode.workspace.workspaceFolders![0].uri.fsPath;
+    const toolCalls = () => api.getAggregateSnapshot().perAgent['claude-code']?.eventCountByKind.tool_call ?? 0;
+    const before = toolCalls();
 
-    // Shaped after a real PostToolUse payload captured live from this machine.
-    await postJson(HOOKS_PORT, '/hook', {
+    // Shaped after a real PostToolUse payload captured live from this machine,
+    // sent the way Claude Code does: piped into the command from settings.json.
+    const payload = {
       session_id: 'fixture-session',
+      cwd: folder,
       hook_event_name: 'PostToolUse',
       tool_name: 'Bash',
       tool_input: { command: 'echo hi' },
       tool_response: {},
+    };
+    const run = childProcess.spawnSync('sh', [path.join(home!, 'bin', 'snagboat-hook')], {
+      input: JSON.stringify(payload),
+      env: { ...process.env, SNAGBOAT_HOME: home, CLAUDE_PROJECT_DIR: path.join(folder, 'some', 'subdir') },
     });
+    assert.strictEqual(run.status, 0);
+    await waitFor(() => toolCalls() > before);
+    assert.strictEqual(toolCalls(), before + 1);
 
-    await waitFor(() => (api.getAggregateSnapshot().perAgent['claude-code']?.eventCountByKind.tool_call ?? 0) > before);
-    assert.strictEqual(api.getAggregateSnapshot().perAgent['claude-code'].eventCountByKind.tool_call, before + 1);
+    // The same payload without the token is rejected (the token check comes first).
+    const routeFile = path.join(home!, 'routes', folder.replace(/\//g, '-'));
+    const [port] = fs.readFileSync(routeFile, 'utf8').trim().split(' ');
+    const status = await postJsonStatus(Number(port), '/hook', payload);
+    assert.strictEqual(status, 401);
+
+    const settings = JSON.parse(fs.readFileSync(path.join(folder, '.claude', 'settings.json'), 'utf8'));
+    assert.ok(settings.hooks.PostToolUse.some((m: any) => m.hooks.some((h: any) => h.command.includes('snagboat-hook'))));
   });
 
   test('a synthetic Copilot OTLP invoke_agent span is picked up by the OTel receiver', async () => {

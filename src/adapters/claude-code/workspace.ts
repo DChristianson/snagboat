@@ -10,6 +10,14 @@ export function resolveProjectDir(): string | undefined {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
+/** Every workspace folder in this window (hooks are routed to each). */
+export function resolveWorkspaceFolders(): string[] {
+  if (process.env.SNAGBOAT_CLAUDE_PROJECT_DIR) {
+    return [process.env.SNAGBOAT_CLAUDE_PROJECT_DIR];
+  }
+  return (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+}
+
 export function sanitizeCwd(cwd: string): string {
   return cwd.replace(/[\\/]/g, '-');
 }
