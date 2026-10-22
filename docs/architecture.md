@@ -63,7 +63,8 @@ Every new adapter should add or update its row in the transformation matrix docu
 
 ## Event log and indexing
 
-- Raw storage format: append-only daily JSONL files under the extension storage URI.
+- Raw storage format: append-only daily JSONL files under the extension storage URI, one per UTC day, with each event filed under the day it happened (its `ts`), not the day it was written, so catching up on an old transcript files history under the right days.
+- Each day lives in exactly one place: its raw file while inside `rawDays`, its daily aggregate once rolled up. `EventSink` routes each incoming event accordingly: to the day's raw file if it has one or is inside the raw window; otherwise merged into the day's aggregate (batched, on the same queue as retention runs); and not stored at all if older than aggregate retention, in which case it's also left out of the all-time totals. Retention releases a day before rolling it up, so an event arriving mid-rollup goes to the aggregate rather than a raw file about to be deleted.
 - Default behavior: local-only, no sync, no telemetry.
 - Queryability: readable directly via `jq`, DuckDB, or notebooks.
 - Optional export: `snagboat.exportLog` should offer SQLite and CSV export.

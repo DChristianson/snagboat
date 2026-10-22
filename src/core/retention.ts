@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { AgentAggregate, Aggregate } from './aggregate';
-import { EventLog } from './eventLog';
+import { EventLog, eventDay } from './eventLog';
 import { NormalizedEvent } from './types';
 
 const AGGREGATE_FILE_PATTERN = /^(\d{4}-\d{2}-\d{2})\.json$/;
@@ -47,8 +47,19 @@ export function oldestKeptDay(today: string, days: number): string {
   return new Date(todayMs - (days - 1) * DAY_MS).toISOString().slice(0, 10);
 }
 
+/** Sums two rolled-up days (same date) into one. */
+export function combineDaily(a: DailyAggregate, b: DailyAggregate): DailyAggregate {
+  const agg = new Aggregate();
+  agg.applyDaily(a);
+  agg.applyDaily(b);
+  return { version: 1, date: a.date, ...agg.snapshot() };
+}
+
 export class AggregateStore {
   private readonly aggregatesDir: string;
+  // Days with an aggregate file, kept in sync with writes and deletes so
+  // EventSink can route synchronously.
+  private knownDays = new Set<string>();
 
   constructor(storageDir: string) {
     this.aggregatesDir = path.join(storageDir, 'aggregates');
@@ -56,6 +67,17 @@ export class AggregateStore {
 
   async init(): Promise<void> {
     await fs.promises.mkdir(this.aggregatesDir, { recursive: true });
+    this.knownDays = new Set(await this.listDays());
+  }
+
+  hasDay(day: string): boolean {
+    return this.knownDays.has(day);
+  }
+
+  /** Adds a day's events into its existing aggregate (or creates one). */
+  async mergeInto(daily: DailyAggregate): Promise<void> {
+    const existing = await this.read(daily.date);
+    await this.write(existing ? combineDaily(existing, daily) : daily);
   }
 
   async listDays(): Promise<string[]> {
@@ -89,13 +111,16 @@ export class AggregateStore {
     const tmp = `${target}.tmp`;
     await fs.promises.writeFile(tmp, JSON.stringify(daily, null, 2), 'utf8');
     await fs.promises.rename(tmp, target);
+    this.knownDays.add(daily.date);
   }
 
   async delete(day: string): Promise<void> {
+    this.knownDays.delete(day);
     await fs.promises.rm(this.filePath(day), { force: true });
   }
 
   async clear(): Promise<void> {
+    this.knownDays.clear();
     for (const day of await this.listDays()) {
       await this.delete(day);
     }
@@ -121,12 +146,13 @@ export async function applyRetention(
 ): Promise<RetentionResult> {
   const result: RetentionResult = { rolledUp: [], dropped: [] };
   const rawCutoff = oldestKeptDay(today, Math.max(1, Math.floor(policy.rawDays)));
-  const keepAggregates = policy.aggregateDays !== 0;
-  const aggregateCutoff = policy.aggregateDays > 0 ? oldestKeptDay(today, Math.floor(policy.aggregateDays)) : undefined;
-  const aggregateInWindow = (day: string) => keepAggregates && (aggregateCutoff === undefined || day >= aggregateCutoff);
+  const aggregateInWindow = (day: string) => aggregateWindowIncludes(day, policy, today);
 
   for (const day of await eventLog.listDays()) {
     if (day >= rawCutoff) break;
+    // From here on, new events for this day go to its aggregate (EventSink),
+    // and any appends already queued land before it's read.
+    await eventLog.releaseDay(day);
     const daily = summarizeDay(day, await eventLog.readDay(day));
     if (aggregateInWindow(day)) {
       await aggregates.write(daily);
@@ -147,4 +173,73 @@ export async function applyRetention(
   }
 
   return result;
+}
+
+/**
+ * Decides where each incoming event is stored, keeping every day in exactly
+ * one place: its raw file while inside the raw window, its daily aggregate
+ * once rolled up. Events usually belong to today, but a transcript catch-up
+ * (or a fresh install reading old transcripts) can deliver events for any past
+ * day, including days already rolled up or older than retention:
+ *
+ *   - day already has an aggregate            -> merged into it
+ *   - day has a raw file, or is inside the raw window -> appended raw
+ *   - older than the raw window, within aggregate retention -> merged into a (new) aggregate
+ *   - older than aggregate retention          -> not stored
+ *
+ * Aggregate merges are batched per day and run on `enqueue`, the same queue
+ * retention runs on, so they never interleave with a rollup.
+ */
+export class EventSink {
+  private pending = new Map<string, NormalizedEvent[]>();
+  private flushScheduled = false;
+
+  constructor(
+    private readonly eventLog: EventLog,
+    private readonly aggregates: AggregateStore,
+    private readonly policy: () => RetentionPolicy,
+    private readonly today: () => string,
+    private readonly enqueue: (op: () => Promise<void>) => void
+  ) {}
+
+  /** Stores the event; returns false if it's older than all retention and so wasn't kept. */
+  write(event: NormalizedEvent): boolean {
+    const day = eventDay(event);
+    const policy = this.policy();
+    const today = this.today();
+    if (this.aggregates.hasDay(day)) {
+      this.queueMerge(day, event);
+      return true;
+    }
+    if (this.eventLog.hasDay(day) || day >= oldestKeptDay(today, Math.max(1, Math.floor(policy.rawDays)))) {
+      this.eventLog.append(event);
+      return true;
+    }
+    if (!aggregateWindowIncludes(day, policy, today)) return false;
+    this.queueMerge(day, event);
+    return true;
+  }
+
+  private queueMerge(day: string, event: NormalizedEvent): void {
+    const events = this.pending.get(day) ?? [];
+    events.push(event);
+    this.pending.set(day, events);
+    if (this.flushScheduled) return;
+    this.flushScheduled = true;
+    this.enqueue(async () => {
+      this.flushScheduled = false;
+      const batch = this.pending;
+      this.pending = new Map();
+      for (const [batchDay, events] of batch) {
+        // Re-checked at flush time: retention may have pruned the window since.
+        if (!aggregateWindowIncludes(batchDay, this.policy(), this.today())) continue;
+        await this.aggregates.mergeInto(summarizeDay(batchDay, events));
+      }
+    });
+  }
+}
+
+function aggregateWindowIncludes(day: string, policy: RetentionPolicy, today: string): boolean {
+  if (policy.aggregateDays === 0) return false;
+  return policy.aggregateDays < 0 || day >= oldestKeptDay(today, Math.floor(policy.aggregateDays));
 }

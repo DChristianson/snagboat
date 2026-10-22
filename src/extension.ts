@@ -6,7 +6,7 @@ import { Aggregate, AggregateSnapshot, TodayAggregate } from './core/aggregate';
 import { EventStore, ReadonlyEventStore } from './core/eventStore';
 import { CheckpointStore } from './core/checkpointStore';
 import { DailyHistory } from './core/dailyHistory';
-import { AggregateStore, RetentionPolicy, applyRetention } from './core/retention';
+import { AggregateStore, EventSink, RetentionPolicy, applyRetention } from './core/retention';
 import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
 import { AgentAdapter, NormalizedEventKind } from './core/types';
@@ -132,11 +132,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   findings.onChange(refresh);
 
   const bus = new EventBus();
+  // Retention runs, aggregate merges from the sink, and Clear Event Log all
+  // touch the same files, so they share one queue and never interleave.
+  let retentionQueue: Promise<void> = Promise.resolve();
+  const enqueueStorageOp = (op: () => Promise<void>) => {
+    retentionQueue = retentionQueue.then(op).catch((err) => console.error('snagboat: storage operation failed', err));
+  };
+  const sink = new EventSink(eventLog, aggregateStore, retentionPolicy, todayKey, enqueueStorageOp);
+
   bus.onEvent((event) => {
-    eventLog.append(event);
-    aggregate.apply(event);
+    // An event older than all retention isn't stored, so it's left out of the
+    // all-time totals and chart too; they'd otherwise drop on the next reload.
+    if (sink.write(event)) {
+      aggregate.apply(event);
+      dailyHistory.apply(event);
+    }
     todayAggregate.apply(event);
-    dailyHistory.apply(event);
     eventStore.ingest(event);
     runHeuristics(event.kind);
     refresh();
@@ -155,7 +166,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   // Long-lived windows cross midnight, so retention reruns hourly as well as
   // whenever its settings change. Runs are serialized so two never race over
   // the same files.
-  let retentionQueue: Promise<void> = Promise.resolve();
   const runRetention = () => {
     retentionQueue = retentionQueue
       .then(async () => {

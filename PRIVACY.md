@@ -44,7 +44,7 @@ Snagboat also reads data it doesn't own: Claude Code transcripts (`~/.claude/pro
 
 ## Retention
 
-On activation, hourly, and whenever the retention settings change, raw daily files older than `rawDays` are rolled up into `aggregates/<date>.json` and deleted, and aggregates older than `aggregateDays` are removed. Today there is **one retention clock for every field** in an event: a shell command or a text excerpt lives exactly as long as the event it belongs to.
+On activation, hourly, and whenever the retention settings change, raw daily files older than `rawDays` are rolled up into `aggregates/<date>.json` and deleted, and aggregates older than `aggregateDays` are removed. Today there is **one retention clock for every field** in an event: a shell command or a text excerpt lives exactly as long as the event it belongs to. Events are filed under the day they happened, so history caught up from an old transcript is retained by its own date; anything older than `rawDays` goes straight into that day's aggregate, and anything older than `aggregateDays` isn't stored.
 
 **Planned: per-field retention.** Establish separate retention for the more sensitive fields (command-string targets, `textExcerpt`, possibly file paths), likely by scrubbing those fields from older events in place rather than splitting them into another store. This replaces the earlier `snagboat.retention.textDays` design and should be decided once real captured data shows which fields need it.
 

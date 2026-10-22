@@ -4,13 +4,24 @@ import { NormalizedEvent } from './types';
 
 const DAY_FILE_PATTERN = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
 
-function todayFileName(date = new Date()): string {
-  return `${date.toISOString().slice(0, 10)}.jsonl`;
+/**
+ * The UTC day an event belongs to, from its own timestamp: events are filed
+ * under the day they happened, not the day they were written, so catching up
+ * on an old transcript doesn't pile history into today's file. Falls back to
+ * today for a missing or unparseable timestamp.
+ */
+export function eventDay(event: NormalizedEvent): string {
+  const ms = Date.parse(event.ts);
+  return new Date(Number.isNaN(ms) ? Date.now() : ms).toISOString().slice(0, 10);
 }
 
 export class EventLog {
   private readonly eventsDir: string;
   private writeQueue: Promise<void> = Promise.resolve();
+  // Days with a raw file on disk or queued to be written, kept in sync with
+  // every append and delete so routing decisions (EventSink) can be made
+  // synchronously as events arrive.
+  private knownDays = new Set<string>();
 
   constructor(storageDir: string) {
     this.eventsDir = path.join(storageDir, 'events');
@@ -18,12 +29,32 @@ export class EventLog {
 
   async init(): Promise<void> {
     await fs.promises.mkdir(this.eventsDir, { recursive: true });
+    this.knownDays = new Set(await this.listDays());
   }
 
+  /** Appends to the file for the event's own day (see eventDay). */
   append(event: NormalizedEvent): void {
+    const day = eventDay(event);
+    this.knownDays.add(day);
     const line = JSON.stringify(event) + '\n';
-    const filePath = path.join(this.eventsDir, todayFileName());
+    const filePath = path.join(this.eventsDir, `${day}.jsonl`);
     this.enqueue(() => fs.promises.appendFile(filePath, line, 'utf8'), 'failed to append event log line');
+  }
+
+  /** Whether the day has a raw file (or one queued to be written). */
+  hasDay(day: string): boolean {
+    return this.knownDays.has(day);
+  }
+
+  /**
+   * Stops routing new events to this day's raw file, then waits for appends
+   * already queued to land. Retention calls this before rolling a day up, so
+   * no event can be appended after the day has been read and before it is
+   * deleted; later events for the day go to its daily aggregate instead.
+   */
+  releaseDay(day: string): Promise<void> {
+    this.knownDays.delete(day);
+    return this.flush();
   }
 
   /** Resolves once every append/clear queued so far has hit disk. */
@@ -73,17 +104,15 @@ export class EventLog {
     return events;
   }
 
-  /**
-   * Deletes one past day's file. Callers must never pass today's key: appends
-   * always target today's file, so only past days are safe to remove without
-   * going through the write queue.
-   */
+  /** Deletes a day's file. Call releaseDay first, so nothing is still being appended to it. */
   async deleteDay(day: string): Promise<void> {
+    this.knownDays.delete(day);
     await fs.promises.rm(path.join(this.eventsDir, `${day}.jsonl`), { force: true });
   }
 
   /** Removes every daily file, ordered after any appends already queued. */
   clear(): Promise<void> {
+    this.knownDays.clear();
     this.enqueue(async () => {
       for (const day of await this.listDays()) {
         await fs.promises.rm(path.join(this.eventsDir, `${day}.jsonl`), { force: true });

@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { EventLog } from '../../core/eventLog';
 import { Aggregate } from '../../core/aggregate';
-import { AggregateStore, applyRetention, oldestKeptDay, summarizeDay } from '../../core/retention';
+import { AggregateStore, EventSink, applyRetention, oldestKeptDay, summarizeDay } from '../../core/retention';
 import { NormalizedEvent } from '../../core/types';
 
 function makeEvent(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
@@ -180,6 +180,110 @@ async function main() {
     await log.clear();
     assert.deepStrictEqual(await log.listDays(), []);
     assert.deepStrictEqual(await log.readAll(), []);
+  });
+
+  /** An EventSink whose queued aggregate merges are collected, to run on demand. */
+  function sinkFor(log: EventLog, store: AggregateStore, policy: { rawDays: number; aggregateDays: number }, today: string) {
+    const ops: Array<() => Promise<void>> = [];
+    const sink = new EventSink(log, store, () => policy, () => today, (op) => ops.push(op));
+    const drain = async () => {
+      while (ops.length > 0) await ops.shift()!();
+      await log.flush();
+    };
+    return { sink, drain };
+  }
+
+  test('events are filed under the UTC day they happened, not the day they were written', async () => {
+    const { log } = await setup();
+    log.append(makeEvent({ ts: '2026-01-05T23:30:00.000Z' }));
+    log.append(makeEvent({ ts: '2026-01-06T00:30:00.000-05:00' })); // 05:30 UTC on the 6th
+    log.append(makeEvent({ ts: 'not a timestamp' }));
+    await log.flush();
+    const today = new Date().toISOString().slice(0, 10);
+    assert.deepStrictEqual(await log.listDays(), ['2026-01-05', '2026-01-06', today].sort());
+    assert.ok(log.hasDay('2026-01-05'));
+  });
+
+  test('EventSink: inside the raw window goes to that day\'s raw file', async () => {
+    const { log, store } = await setup();
+    const { sink, drain } = sinkFor(log, store, { rawDays: 10, aggregateDays: -1 }, '2026-01-10');
+    assert.strictEqual(sink.write(makeEvent({ ts: '2026-01-10T12:00:00.000Z' })), true);
+    assert.strictEqual(sink.write(makeEvent({ ts: '2026-01-03T12:00:00.000Z' })), true);
+    await drain();
+    assert.deepStrictEqual(await log.listDays(), ['2026-01-03', '2026-01-10']);
+    assert.deepStrictEqual(await store.listDays(), []);
+  });
+
+  test('EventSink: older than the raw window is merged into that day\'s aggregate, batched', async () => {
+    const { log, store } = await setup();
+    await store.write(summarizeDay('2025-12-01', [makeEvent()]));
+    const { sink, drain } = sinkFor(log, store, { rawDays: 10, aggregateDays: -1 }, '2026-01-10');
+    sink.write(makeEvent({ ts: '2025-12-01T08:00:00.000Z' }));
+    sink.write(makeEvent({ ts: '2025-12-01T09:00:00.000Z' }));
+    sink.write(makeEvent({ ts: '2025-11-15T09:00:00.000Z' }));
+    await drain();
+    assert.deepStrictEqual(await log.listDays(), [], 'nothing written raw');
+    assert.strictEqual((await store.read('2025-12-01'))?.totalTokens, 3 * 37, 'merged with the existing aggregate');
+    assert.strictEqual((await store.read('2025-11-15'))?.totalTokens, 37, 'new aggregate created');
+  });
+
+  test('EventSink: a day that already has an aggregate stays aggregate-only, even inside the raw window', async () => {
+    const { log, store } = await setup();
+    await store.write(summarizeDay('2026-01-08', [makeEvent()])); // e.g. rolled up before rawDays was raised
+    const { sink, drain } = sinkFor(log, store, { rawDays: 10, aggregateDays: -1 }, '2026-01-10');
+    sink.write(makeEvent({ ts: '2026-01-08T12:00:00.000Z' }));
+    await drain();
+    assert.ok(!log.hasDay('2026-01-08'));
+    assert.strictEqual((await store.read('2026-01-08'))?.totalTokens, 2 * 37);
+  });
+
+  test('EventSink: older than aggregate retention is not stored', async () => {
+    const { log, store } = await setup();
+    const { sink, drain } = sinkFor(log, store, { rawDays: 2, aggregateDays: 5 }, '2026-01-10');
+    assert.strictEqual(sink.write(makeEvent({ ts: '2025-06-01T00:00:00.000Z' })), false);
+    const zero = sinkFor(log, store, { rawDays: 2, aggregateDays: 0 }, '2026-01-10');
+    assert.strictEqual(zero.sink.write(makeEvent({ ts: '2026-01-01T00:00:00.000Z' })), false);
+    await drain();
+    await zero.drain();
+    assert.deepStrictEqual(await log.listDays(), []);
+    assert.deepStrictEqual(await store.listDays(), []);
+  });
+
+  test('a late event for a day being rolled up lands in its aggregate, not a deleted raw file', async () => {
+    const { dir, log, store } = await setup();
+    await writeRawDay(dir, '2026-01-01', [makeEvent()]);
+    await log.init(); // pick up the raw file written directly
+    const { sink, drain } = sinkFor(log, store, { rawDays: 1, aggregateDays: -1 }, '2026-01-10');
+    assert.ok(log.hasDay('2026-01-01'));
+
+    // Retention releases the day before reading it; an event arriving now must not go raw.
+    await log.releaseDay('2026-01-01');
+    sink.write(makeEvent({ ts: '2026-01-01T18:00:00.000Z' }));
+    // Checked directly: the timing that would lose a raw append (landing after
+    // retention reads the file, before it deletes it) can't be forced here.
+    assert.ok(!log.hasDay('2026-01-01'), 'a released day must not receive raw appends');
+    await applyRetention(log, store, { rawDays: 1, aggregateDays: -1 }, '2026-01-10');
+    await drain(); // the sink's merge is queued behind the retention run, as in the extension
+
+    assert.deepStrictEqual(await log.listDays(), []);
+    assert.strictEqual((await store.read('2026-01-01'))?.totalTokens, 2 * 37);
+  });
+
+  test('a reload reproduces exactly the totals the live session counted', async () => {
+    const { log, store } = await setup();
+    const policy = { rawDays: 5, aggregateDays: 30 };
+    const { sink, drain } = sinkFor(log, store, policy, '2026-01-10');
+    const live = new Aggregate();
+    for (const ts of ['2026-01-10T01:00:00.000Z', '2026-01-07T01:00:00.000Z', '2025-12-20T01:00:00.000Z', '2025-12-20T02:00:00.000Z', '2025-06-01T00:00:00.000Z']) {
+      const event = makeEvent({ ts });
+      if (sink.write(event)) live.apply(event);
+    }
+    await drain();
+    await applyRetention(log, store, policy, '2026-01-10');
+    const reloaded = new Aggregate();
+    await reloaded.rehydrateFrom(log, store);
+    assert.deepStrictEqual(reloaded.snapshot(), live.snapshot());
+    assert.strictEqual(live.snapshot().totalTokens, 4 * 37, 'the event beyond aggregate retention was not counted');
   });
 
   let failures = 0;
