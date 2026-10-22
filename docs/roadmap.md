@@ -2,17 +2,17 @@
 
 ## Dependencies
 
-Kept deliberately small: everything at runtime is bundled into one file and shipped in the `.vsix`.
+No runtime dependencies: the extension uses only Node.js and VS Code built-ins, so nothing third-party is bundled or shipped. File watching is Node's `fs.watch` plus a backup rescan (chokidar was used until it moved to requiring Node 22.22, and Snagboat used only a sliver of it).
 
-| Purpose | Dependency | License | Shipped |
-| --- | --- | --- | --- |
-| File watching | chokidar 4 (and its one dependency, readdirp) | MIT | Yes |
-| Language | TypeScript | Apache-2.0 | No |
-| Bundling | esbuild | MIT | No |
-| Integration tests | `@vscode/test-electron`, mocha | MIT | No |
-| Packaging | `@vscode/vsce` | MIT | No |
+| Purpose | Dev dependency | License |
+| --- | --- | --- |
+| Language | TypeScript 7 | Apache-2.0 |
+| Bundling | esbuild | MIT |
+| Integration tests | `@vscode/test-electron`, mocha | MIT |
+| Packaging | `@vscode/vsce` | MIT |
+| Types | `@types/vscode` (pinned to the minimum VS Code), `@types/node` (pinned to its Node major) | MIT |
 
-The OTLP receiver, HTTP servers, charts (inline SVG), and unit tests (plain Node scripts) use no libraries. [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md) is generated from what's actually bundled. Likely future additions: `ovsx` for publishing to Open VSX (publish-time only), and a SQLite library if log export needs one.
+The minimum supported VS Code is 1.119 (Node 22.22), which Copilot's telemetry export needs anyway. [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md) is generated from what's actually bundled, and CI fails if anything bundled appears without being listed. Likely future additions: `ovsx` for publishing to Open VSX (publish-time only), and possibly a SQLite library if log export needs one.
 
 ## CI/CD
 

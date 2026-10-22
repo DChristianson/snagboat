@@ -17,7 +17,7 @@ Working, but early (version `0.0.1`), not yet published to the Marketplace or Op
 
 ## Install
 
-Requires Node.js 22 or later and VS Code 1.85 or later.
+Requires VS Code 1.119 or later, and Node.js 22 or later to build.
 
 ```bash
 git clone https://github.com/DChristianson/snagboat.git
@@ -35,7 +35,7 @@ Nothing to configure. Snagboat finds the project's transcripts on its own and, o
 
 ### Copilot setup
 
-Copilot only sends telemetry if you turn it on (VS Code 1.119 or later). In your VS Code settings:
+Copilot only sends telemetry if you turn it on. In your VS Code settings:
 
 ```json
 {
