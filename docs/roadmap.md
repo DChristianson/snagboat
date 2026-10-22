@@ -1,45 +1,35 @@
 # Implementation roadmap
 
-## Planned libraries
+## Dependencies
 
-| Purpose | Library | Planned license |
-| --- | --- | --- |
-| Extension host APIs | VS Code Extension API | MIT |
-| Language | TypeScript | Apache-2.0 |
-| Bundling | esbuild | MIT |
-| File watching | chokidar | MIT |
-| Schema validation | zod | MIT |
-| Copilot OTel receiver | `@opentelemetry/sdk-node`, related exporters | Apache-2.0 |
-| Optional SQLite side index | `better-sqlite3` or `sql.js` | MIT |
-| Testing | Vitest and `@vscode/test-electron` | MIT |
-| Packaging | `@vscode/vsce` | MIT |
-| Open VSX publishing | `ovsx` (publish-time only) | EPL-2.0 |
-| Charts | Chart.js or inline SVG | MIT |
-| Icons | Codicons plus custom SVGs | MIT |
-| Date handling | date-fns | MIT |
+Kept deliberately small: everything at runtime is bundled into one file and shipped in the `.vsix`.
 
-## Planned CI/CD
+| Purpose | Dependency | License | Shipped |
+| --- | --- | --- | --- |
+| File watching | chokidar 4 (and its one dependency, readdirp) | MIT | Yes |
+| Language | TypeScript | Apache-2.0 | No |
+| Bundling | esbuild | MIT | No |
+| Integration tests | `@vscode/test-electron`, mocha | MIT | No |
+| Packaging | `@vscode/vsce` | MIT | No |
 
-### Pull requests
+The OTLP receiver, HTTP servers, charts (inline SVG), and unit tests (plain Node scripts) use no libraries. [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md) is generated from what's actually bundled. Likely future additions: `ovsx` for publishing to Open VSX (publish-time only), and a SQLite library if log export needs one.
+
+## CI/CD
+
+In place ([.github/workflows/ci.yml](../.github/workflows/ci.yml)), on pushes to `main` and pull requests, on Ubuntu and macOS:
 
 - `npm ci`
-- ESLint and `tsc --noEmit`
-- Vitest
-- license allowlist checks
-- headless VS Code smoke test via `@vscode/test-electron`
+- unit tests (`npm run test:unit`, which also type-checks via `tsc`)
+- production bundle
+- third-party license check (`npm run licenses -- --check`)
+- `.vsix` packaging
+- Dependabot updates for npm and GitHub Actions
 
-### Tags (`v*`)
+Planned:
 
-- full test suite
-- production bundle via esbuild
-- `.vsix` artifact generation with `vsce`
-- publish to the VS Code Marketplace and Open VSX
-- release notes generated from Changesets
-
-### Scheduled automation
-
-- dependency update automation through Dependabot or Renovate
-- weekly fixture-log replay against the heuristics engine
+- the integration suite (`npm test`) in CI, which needs a virtual display on Linux
+- on `v*` tags: build the `.vsix`, attach it to a GitHub release, and publish to the VS Code Marketplace and Open VSX
+- a weekly replay of the redacted transcript fixture against the heuristics engine
 
 ## Session-level meta-characters
 
@@ -58,10 +48,13 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
 
   Separately, zero Claude tokens in a window had a different cause, now fixed: a window opened before its project's first Claude session never noticed the transcripts folder appearing. The tailer now checks for a missing folder every 15 minutes.
 
+- **Terminal and git signals.** Complete the generic file-system adapter: terminal shell-integration exit codes as `test_run` events, and `git status`/`git diff` polling to tell real edits from no-op saves (rows already in [schema.md](schema.md)).
+- **Cross-workspace token budget.** A global budget across all workspaces, plus a treemap of where tokens go. Needs storage shared between workspaces; today each workspace's storage is isolated.
+- **Extension points.** `snagboat.adapters` and `snagboat.heuristics` contribution points so other extensions can add sources and heuristics without forking.
+- **Log export.** A `snagboat.exportLog` command writing CSV or SQLite, with an optional SQLite side index rebuilt from the JSONL log.
+- **Housekeeping.** Prune checkpoint entries for transcripts that no longer exist, and offer a command to remove Snagboat's hook entries from a project's `.claude/settings.json`.
 - **Copilot OTel per-window routing.** Copilot still exports every window's telemetry to one fixed port (4318), so the first window to bind it collects all of it. It can't use the hook routing above, since Copilot's exporter takes a single endpoint URL; revisit once live traffic shows whether spans identify the workspace.
 
-## Open questions before v0.1
+## Open questions
 
-- Should backtracking use an event-count window, a time window, or a user-selectable combination?
-- Should Copilot log-scrape mode be the default because it has lower setup friction than OTel mode?
 - When longer-horizon rollups arrive, should explanation-oriented turns and verification runs become explicit schema annotations or remain derived signals?

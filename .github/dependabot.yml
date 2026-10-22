@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Grouped weekly so updates arrive as one PR per ecosystem rather than one per
+  # package. CI's license check catches an update that brings in a disallowed
+  # license or changes what's bundled without regenerating the notices.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
