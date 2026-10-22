@@ -2,7 +2,10 @@ import { watch, FSWatcher } from 'chokidar';
 import * as fs from 'fs';
 
 export interface LineTailerOptions {
-  glob: string;
+  /** Folder whose direct children are watched (not recursive). */
+  dir: string;
+  /** Which files in it to tail. */
+  includeFile(filePath: string): boolean;
   getOffset(filePath: string): number;
   setOffset(filePath: string, offset: number): void;
   onLines(filePath: string, lines: string[], chunkStartOffset: number): void;
@@ -11,7 +14,7 @@ export interface LineTailerOptions {
   onWatchError?(err: Error): void;
 }
 
-/** Watches a glob of growing text files and delivers newly appended, complete lines. */
+/** Watches a folder of growing text files and delivers newly appended, complete lines. */
 export class LineTailer {
   private watcher?: FSWatcher;
   private readonly inFlight = new Set<string>();
@@ -19,11 +22,11 @@ export class LineTailer {
   constructor(private readonly options: LineTailerOptions) {}
 
   start(): void {
-    this.watcher = watch(this.options.glob, {
-      // Pinned off so development (where node_modules has fsevents) behaves
-      // exactly like the packaged extension, whose bundle can't load it and
-      // falls back to fs.watch anyway.
-      useFsEvents: false,
+    // chokidar 4 has no glob support (and no fsevents: it always uses
+    // fs.watch), so watch the folder itself and filter its files.
+    this.watcher = watch(this.options.dir, {
+      depth: 0,
+      ignored: (filePath, stats) => stats?.isFile() === true && !this.options.includeFile(filePath),
       persistent: true,
       ignoreInitial: false,
       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },

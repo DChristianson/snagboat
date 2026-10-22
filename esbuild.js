@@ -7,9 +7,7 @@ const options = {
   entryPoints: ['src/extension.ts'],
   bundle: true,
   outfile: 'dist/extension.js',
-  // fsevents is chokidar's optional macOS-native watcher; esbuild can't bundle
-  // its .node binary, and chokidar already require()s it lazily/optionally.
-  external: ['vscode', 'fsevents'],
+  external: ['vscode'],
   format: 'cjs',
   platform: 'node',
   target: 'node18',

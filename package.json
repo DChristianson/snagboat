@@ -5,11 +5,25 @@
   "version": "0.0.1",
   "private": true,
   "publisher": "snagboat",
+  "license": "MIT",
+  "author": "DChristianson",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DChristianson/snagboat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DChristianson/snagboat/issues"
+  },
+  "homepage": "https://github.com/DChristianson/snagboat#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -110,7 +124,8 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --allow-missing-repository --no-rewrite-relative-links",
+    "package": "vsce package",
+    "licenses": "node scripts/licenses.js",
     "compile-tests": "tsc -p . --outDir out",
     "verify:transcripts": "npm run compile-tests && node ./out/scripts/transcripts.js verify",
     "pretest": "npm run compile-tests && npm run build",
@@ -123,11 +138,11 @@
     "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.0.0",
-    "esbuild": "^0.24.0",
-    "mocha": "^10.4.0",
+    "esbuild": "^0.28.2",
+    "mocha": "^12.0.3",
     "typescript": "^5.5.0"
   },
   "dependencies": {
-    "chokidar": "^3.6.0"
+    "chokidar": "^4.0.3"
   }
 }

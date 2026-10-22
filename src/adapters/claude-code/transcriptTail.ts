@@ -54,7 +54,8 @@ export class TranscriptTailer {
 
   private startTailing(dir: string): void {
     this.tailer = new LineTailer({
-      glob: path.join(dir, '*.jsonl'),
+      dir,
+      includeFile: (filePath) => filePath.endsWith('.jsonl'),
       getOffset: (filePath) => this.offsets.get(filePath) ?? 0,
       setOffset: (filePath, offset) => {
         this.offsets.set(filePath, offset);
