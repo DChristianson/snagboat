@@ -5,9 +5,10 @@ import * as path from 'path';
 import { TranscriptTailer } from '../../adapters/claude-code/transcriptTail';
 import { SeenMessages } from '../../adapters/claude-code/normalize';
 import { AdapterContext, NormalizedEvent } from '../../core/types';
+import { LineTailer } from '../../core/lineTailer';
 
-// These run the real chokidar watcher (fs.watch, as in the packaged
-// extension), so they wait on real file system events.
+// These run the real watcher (Node's fs.watch plus a backup rescan), so they
+// wait on real file system events.
 
 function assistantLine(id: string): string {
   return (
@@ -111,6 +112,134 @@ async function main() {
       await fs.promises.appendFile(path.join(dir, 'session.jsonl'), assistantLine('b'));
       await waitFor(() => !health.has('transcript:session.jsonl'));
       assert.ok(published.length >= 2, 'the unread line is retried, since the offset only advances after a good read');
+    } finally {
+      tailer.stop();
+    }
+  });
+
+  /** A LineTailer collecting every delivered line, with a short backup-scan interval. */
+  function lineTailer(dir: string, rescanIntervalMs = 200) {
+    const lines: string[] = [];
+    const offsets = new Map<string, number>();
+    const tailer = new LineTailer({
+      dir,
+      includeFile: (f) => f.endsWith('.jsonl'),
+      getOffset: (f) => offsets.get(f) ?? 0,
+      setOffset: (f, o) => offsets.set(f, o),
+      onLines: (_f, ls) => lines.push(...ls),
+      rescanIntervalMs,
+    });
+    return { tailer, lines };
+  }
+
+  test('changes are still picked up by the backup scan when the folder watcher misses them', async () => {
+    const dir = await tempDir();
+    const { tailer, lines } = lineTailer(dir);
+    tailer.start();
+    try {
+      // Simulate a dead watcher that never fires and is never replaced.
+      (tailer as any).watcher.close();
+      (tailer as any).watcher = { close: () => undefined };
+      await fs.promises.writeFile(path.join(dir, 's.jsonl'), 'one\n');
+      await waitFor(() => lines.length === 1, 3000);
+    } finally {
+      tailer.stop();
+    }
+  });
+
+  test('the watcher recovers when its folder is deleted and recreated', async () => {
+    const root = await tempDir();
+    const dir = path.join(root, 'project');
+    await fs.promises.mkdir(dir);
+    const { tailer, lines } = lineTailer(dir);
+    tailer.start();
+    try {
+      await fs.promises.writeFile(path.join(dir, 'a.jsonl'), 'one\n');
+      await waitFor(() => lines.length === 1);
+      await fs.promises.rm(dir, { recursive: true });
+      await new Promise((r) => setTimeout(r, 300));
+      await fs.promises.mkdir(dir);
+      await fs.promises.writeFile(path.join(dir, 'b.jsonl'), 'two\n');
+      await waitFor(() => lines.includes('two'), 3000);
+    } finally {
+      tailer.stop();
+    }
+  });
+
+  test('a rapid burst of appends delivers every line exactly once, in order', async () => {
+    const dir = await tempDir();
+    const file = path.join(dir, 's.jsonl');
+    await fs.promises.writeFile(file, '');
+    const { tailer, lines } = lineTailer(dir, 60_000); // no rescan help: the watcher alone must keep up
+    tailer.start();
+    try {
+      const expected = Array.from({ length: 200 }, (_, i) => `line-${i}`);
+      for (const line of expected) await fs.promises.appendFile(file, line + '\n');
+      await waitFor(() => lines.length >= expected.length, 5000);
+      await new Promise((r) => setTimeout(r, 200));
+      assert.deepStrictEqual(lines, expected);
+    } finally {
+      tailer.stop();
+    }
+  });
+
+  test('a change reported while the file is being read triggers one more read', async () => {
+    const dir = await tempDir();
+    const file = path.join(dir, 's.jsonl');
+    await fs.promises.writeFile(file, 'one\n');
+    const lines: string[] = [];
+    const offsets = new Map<string, number>();
+    let tailer!: LineTailer;
+    tailer = new LineTailer({
+      dir,
+      includeFile: (f) => f.endsWith('.jsonl'),
+      getOffset: (f) => offsets.get(f) ?? 0,
+      setOffset: (f, o) => offsets.set(f, o),
+      onLines: (f, ls) => {
+        lines.push(...ls);
+        if (lines.length === 1) {
+          // Mid-read: the file grows and a change is reported for it.
+          fs.appendFileSync(f, 'two\n');
+          void (tailer as any).processFile(f);
+        }
+      },
+      rescanIntervalMs: 60_000,
+    });
+    tailer.start();
+    // Only the re-read can deliver "two": the watcher is disabled and the rescan is far off.
+    (tailer as any).watcher.close();
+    (tailer as any).watcher = { close: () => undefined };
+    try {
+      await waitFor(() => lines.length === 2, 3000);
+      assert.deepStrictEqual(lines, ['one', 'two']);
+    } finally {
+      tailer.stop();
+    }
+  });
+
+  test('non-matching files are ignored and deleted files are not errors', async () => {
+    const dir = await tempDir();
+    const errors: unknown[] = [];
+    const offsets = new Map<string, number>();
+    const seen: string[] = [];
+    const tailer = new LineTailer({
+      dir,
+      includeFile: (f) => f.endsWith('.jsonl'),
+      getOffset: (f) => offsets.get(f) ?? 0,
+      setOffset: (f, o) => offsets.set(f, o),
+      onLines: (f) => seen.push(path.basename(f)),
+      onReadResult: (_f, err) => err && errors.push(err),
+      rescanIntervalMs: 200,
+    });
+    tailer.start();
+    try {
+      await fs.promises.writeFile(path.join(dir, 'notes.txt'), 'ignored\n');
+      await fs.promises.writeFile(path.join(dir, 'gone.jsonl'), 'x\n');
+      await waitFor(() => seen.includes('gone.jsonl'));
+      await fs.promises.rm(path.join(dir, 'gone.jsonl'));
+      await new Promise((r) => setTimeout(r, 500));
+      assert.ok(!seen.includes('notes.txt'));
+      assert.deepStrictEqual(errors, []);
     } finally {
       tailer.stop();
     }
