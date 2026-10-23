@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { DetailState, isDetailMessage, resolveTargetFile } from './detailModel';
+import { SessionController } from './sessionController';
 
 const UPDATE_DEBOUNCE_MS = 500;
 
@@ -8,6 +9,16 @@ export interface DetailPanelHooks {
   buildState(isOpenable: (target: string) => boolean): DetailState;
   acknowledge(heuristicId: string): void;
   setMuted(heuristicId: string, muted: boolean): void;
+  sessions: SessionController;
+  /** Today's UTC day key, for the session list's default day. */
+  today(): string;
+}
+
+/** Where to take the page when opening it from a link or command. */
+export interface DetailTarget {
+  tab?: 'overview' | 'sessions';
+  day?: string;
+  sessionId?: string;
 }
 
 function workspaceRoots(): string[] {
@@ -25,14 +36,18 @@ export class DetailPanel implements vscode.Disposable {
   // Targets repeat heavily (the same file edited many times), so one stat per
   // distinct target per panel session is plenty.
   private openableCache = new Map<string, boolean>();
+  private activeTab: 'overview' | 'sessions' = 'overview';
+  private sessionDay?: string;
 
   constructor(private readonly extensionUri: vscode.Uri, private readonly hooks: DetailPanelHooks) {}
 
-  show(): void {
+  show(target?: DetailTarget): void {
     if (this.panel) {
       this.panel.reveal();
+      if (target) void this.navigate(target);
       return;
     }
+    this.pendingTarget = target;
     const mediaRoot = vscode.Uri.joinPath(this.extensionUri, 'media');
     const panel = vscode.window.createWebviewPanel('snagboat.detail', 'Snagboat', vscode.ViewColumn.Active, {
       enableScripts: true,
@@ -73,16 +88,60 @@ export class DetailPanel implements vscode.Disposable {
     return openable;
   };
 
+  private pendingTarget?: DetailTarget;
+
   private postState(): void {
     if (!this.panel) return;
     void this.panel.webview.postMessage({ type: 'state', state: this.hooks.buildState(this.isOpenable) });
+    if (this.activeTab === 'sessions') this.postSessions();
+  }
+
+  private postSessions(): void {
+    if (!this.panel) return;
+    void this.panel.webview.postMessage({ type: 'sessions', list: this.hooks.sessions.list(this.sessionDay, this.hooks.today()) });
+    const view = this.hooks.sessions.view();
+    if (view) void this.panel.webview.postMessage({ type: 'session', view });
+  }
+
+  /** Switches tab, day, and session, then tells the page where it is. */
+  private async navigate(target: DetailTarget): Promise<void> {
+    if (target.tab) this.activeTab = target.tab;
+    if (target.sessionId) {
+      this.activeTab = 'sessions';
+      const view = await this.hooks.sessions.open(target.sessionId);
+      if (view && !target.day) this.sessionDay = view.summary.days[view.summary.days.length - 1];
+    }
+    if (target.day) this.sessionDay = target.day;
+    void this.panel?.webview.postMessage({ type: 'navigate', tab: this.activeTab, sessionId: this.hooks.sessions.openSessionId });
+    this.postState();
   }
 
   private async onMessage(message: unknown): Promise<void> {
     if (!isDetailMessage(message)) return;
     switch (message.type) {
       case 'ready':
-        this.postState();
+        if (this.pendingTarget) {
+          const target = this.pendingTarget;
+          this.pendingTarget = undefined;
+          await this.navigate(target);
+        } else {
+          this.postState();
+        }
+        break;
+      case 'tab':
+        this.activeTab = message.tab;
+        if (message.tab === 'sessions') this.postSessions();
+        break;
+      case 'listSessions':
+        this.sessionDay = message.day;
+        this.postSessions();
+        break;
+      case 'openSession':
+        await this.navigate({ sessionId: message.sessionId, day: this.sessionDay });
+        break;
+      case 'closeSession':
+        this.hooks.sessions.close();
+        void this.panel?.webview.postMessage({ type: 'session', view: null });
         break;
       case 'acknowledge':
         this.hooks.acknowledge(message.heuristicId);
@@ -107,6 +166,7 @@ export class DetailPanel implements vscode.Disposable {
   private html(webview: vscode.Webview, mediaRoot: vscode.Uri): string {
     const nonce = crypto.randomBytes(16).toString('base64');
     const script = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'detail.js'));
+    const sessionsScript = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'sessions.js'));
     const style = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'detail.css'));
     return `<!DOCTYPE html>
 <html lang="en">
@@ -121,6 +181,7 @@ export class DetailPanel implements vscode.Disposable {
 <main id="app" aria-live="polite"><p class="muted">Loading…</p></main>
 <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
 <script nonce="${nonce}" src="${script}"></script>
+<script nonce="${nonce}" src="${sessionsScript}"></script>
 </body>
 </html>`;
   }

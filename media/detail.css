@@ -155,3 +155,51 @@ input[type="search"] { min-width: 220px; }
 @media (forced-colors: active) {
   .s1, .s2, .s3 { forced-color-adjust: none; }
 }
+
+/* Tabs */
+.title-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-bottom: 4px; }
+.title-row h1 { margin: 0; }
+.tabs { display: flex; gap: 4px; }
+.tab { border-radius: 4px 4px 0 0; border-bottom: 2px solid transparent; background: none; }
+.tab[aria-selected="true"] { border-bottom-color: var(--vscode-focusBorder, var(--series-1)); color: var(--ink); font-weight: 600; }
+
+/* Sessions tab */
+.spacer { flex: 1; }
+.list-wrap { max-height: 260px; overflow: auto; }
+.session-list tbody tr { cursor: pointer; }
+.session-list tbody tr:hover { background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12)); }
+.session-list tbody tr.selected { background: var(--vscode-list-activeSelectionBackground, rgba(128, 128, 128, 0.2)); color: var(--vscode-list-activeSelectionForeground, var(--ink)); }
+.session-view { margin-top: 18px; }
+.session-head { display: flex; align-items: center; gap: 8px; }
+.crumbs { font-size: 1.05em; }
+.tree-host, .timeline-host { width: 100%; }
+.tree, .context-chart { width: 100%; display: block; }
+.tree .node { fill: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.14)); stroke: var(--rule); stroke-width: 1; }
+.tree .node-sub { fill: rgba(128, 128, 128, 0.35); }
+.tree .node-selected { fill: var(--vscode-list-activeSelectionBackground, rgba(57, 135, 229, 0.25)); stroke: var(--vscode-focusBorder, var(--series-1)); }
+.tree .tree-node { cursor: pointer; }
+.tree .tree-node:hover .node, .tree .tree-node:focus .node { stroke: var(--vscode-focusBorder, var(--series-1)); }
+.tree .tree-node:focus { outline: none; }
+.node-label { fill: var(--ink); font-size: 12px; }
+.node-sub-label { fill: var(--ink-muted); font-size: 11px; }
+.warn-mark { fill: var(--warn); }
+.info-mark { fill: var(--info); }
+.timeline-panel { margin-top: 12px; border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px; }
+.panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.context-chart .grid { stroke: var(--rule); stroke-width: 1; shape-rendering: crispEdges; }
+.context-chart .axis-label { fill: var(--ink-muted); font-size: 11px; }
+.context-chart .hit { fill: transparent; }
+.context-chart .hit:hover { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15)); }
+.turn-band { fill: var(--vscode-editor-selectionHighlightBackground, rgba(57, 135, 229, 0.12)); }
+.mark-line { stroke: var(--ink); stroke-width: 1.25; opacity: 0.6; shape-rendering: crispEdges; }
+.prompt-rule { cursor: pointer; }
+.prompt-rule line { stroke: var(--ink); stroke-width: 1; opacity: 0.5; shape-rendering: crispEdges; }
+.prompt-rule:hover line, .prompt-rule:focus line { opacity: 1; stroke-width: 2; }
+.prompt-rule:focus { outline: none; }
+.prompt-label { fill: var(--ink); font-size: 11px; }
+.compaction-line { stroke: var(--warn); stroke-width: 1.5; }
+.finding-bracket { stroke: var(--warn); stroke-width: 2; }
+.lane { fill: rgba(128, 128, 128, 0.45); }
+.brush { fill: var(--vscode-editor-selectionBackground, rgba(57, 135, 229, 0.25)); }
+.session-view.expanded .tree-host { margin-bottom: 4px; }
+.context-chart .mark-label { fill: var(--ink); }

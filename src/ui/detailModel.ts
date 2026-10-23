@@ -54,7 +54,11 @@ export type DetailMessage =
   | { type: 'ready' }
   | { type: 'acknowledge'; heuristicId: string }
   | { type: 'setMuted'; heuristicId: string; muted: boolean }
-  | { type: 'openFile'; target: string };
+  | { type: 'openFile'; target: string }
+  | { type: 'tab'; tab: 'overview' | 'sessions' }
+  | { type: 'listSessions'; day?: string }
+  | { type: 'openSession'; sessionId: string }
+  | { type: 'closeSession' };
 
 export function isDetailMessage(value: unknown): value is DetailMessage {
   if (typeof value !== 'object' || value === null) return false;
@@ -68,6 +72,14 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
       return typeof m.heuristicId === 'string' && typeof m.muted === 'boolean';
     case 'openFile':
       return typeof m.target === 'string';
+    case 'tab':
+      return m.tab === 'overview' || m.tab === 'sessions';
+    case 'listSessions':
+      return m.day === undefined || (typeof m.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m.day));
+    case 'openSession':
+      return typeof m.sessionId === 'string';
+    case 'closeSession':
+      return true;
     default:
       return false;
   }

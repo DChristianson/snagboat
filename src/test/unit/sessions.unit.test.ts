@@ -3,6 +3,11 @@ import * as path from 'path';
 import { SessionIndex } from '../../core/sessions';
 import { NormalizedEvent } from '../../core/types';
 import { buildSessionView, callContext } from '../../ui/sessionModel';
+import { SessionController } from '../../ui/sessionController';
+import { EventLog } from '../../core/eventLog';
+import { isDetailMessage } from '../../ui/detailModel';
+import * as fs from 'fs';
+import * as os from 'os';
 import { sessionEvents } from '../../scripts/replayHeuristics';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 22, 10, min)).toISOString();
@@ -121,6 +126,50 @@ async function main() {
     const view = buildSessionView(s, events, {});
     assert.strictEqual(view.tree.tokens, s.tokens);
     assert.strictEqual(view.tree.children.filter((p) => p.turnId).length, s.prompts);
+  });
+
+  test('the controller lists a day, loads a session from its days\' files, and keeps it live', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-sessions-'));
+    const log = new EventLog(dir);
+    await log.init();
+    const idx = new SessionIndex();
+    const events = [...sampleSession(), call(5, 'p9', 70, { sessionId: 'S1', ts: '2026-10-23T09:00:00.000Z' })];
+    for (const ev of events) {
+      log.append(ev);
+      idx.ingest(ev);
+    }
+    idx.ingest(call(1, 'q', 10, { sessionId: 'S2' }));
+    const controller = new SessionController(idx, log, () => ({}), () => []);
+
+    const list = controller.list(undefined, '2026-10-23');
+    assert.strictEqual(list.day, '2026-10-23', "defaults to today when it has sessions");
+    assert.deepStrictEqual(list.days, ['2026-10-23', '2026-10-22']);
+    assert.deepStrictEqual(controller.list('2026-10-22', '2026-10-23').sessions.map((x) => x.sessionId).sort(), ['S1', 'S2']);
+
+    const view = await controller.open('S1');
+    assert.strictEqual(view?.calls.length, 5, 'events from both days, only this session');
+    assert.strictEqual(await controller.open('nope'), undefined);
+    await controller.open('S1');
+
+    const live = call(30, 'p9', 50, { sessionId: 'S1', ts: '2026-10-23T09:30:00.000Z' });
+    idx.ingest(live);
+    assert.strictEqual(controller.ingest(live), true);
+    assert.strictEqual(controller.ingest(live), false, 'duplicates ignored');
+    assert.strictEqual(controller.ingest(call(1, 'q', 10, { sessionId: 'S2' })), false, 'other sessions ignored');
+    assert.strictEqual(controller.view()?.calls.length, 6);
+    controller.close();
+    assert.strictEqual(controller.view(), undefined);
+  });
+
+  test('session messages from the page are validated', () => {
+    assert.ok(isDetailMessage({ type: 'tab', tab: 'sessions' }));
+    assert.ok(!isDetailMessage({ type: 'tab', tab: 'other' }));
+    assert.ok(isDetailMessage({ type: 'listSessions' }));
+    assert.ok(isDetailMessage({ type: 'listSessions', day: '2026-10-22' }));
+    assert.ok(!isDetailMessage({ type: 'listSessions', day: '../../etc' }));
+    assert.ok(isDetailMessage({ type: 'openSession', sessionId: 'abc' }));
+    assert.ok(!isDetailMessage({ type: 'openSession' }));
+    assert.ok(isDetailMessage({ type: 'closeSession' }));
   });
 
   let failures = 0;
