@@ -4,6 +4,14 @@ Snagboat is a VS Code extension that watches AI coding agents (Claude Code and G
 
 ![The Sessions tab: a Copilot session's turn tree, split by prompt, agent, and tool category, above its context timeline](docs/images/sessions-tab.png)
 
+## Why
+
+**The name.** In the 1800s, snagboats pulled sunken trees, called snags, out of rivers like the Mississippi. You couldn't see a snag from the deck, and snags were the steamboat's deadliest hazard. Henry Shreve built the first snagboat, the *Heliopolis*, in 1829. This Snagboat watches for the hazards you can't see in your agent sessions: loops, churn, a context quietly filling up.
+
+I built it for myself. I spend long stretches in agent sessions and wanted to see them top down: which prompt kicked off what, where the tokens went, and when things started going sideways. What's here is basic, but I get more use out of it every week.
+
+**Build your own.** This is the age of AI. Why download a plugin and live with someone else's choices? Point your agent at this repo, or at an empty one, and build the version with the views and heuristics you actually want. Snagboat is a starting point, not a product. (Yes, "X, not Y" is the most AI sentence there is. It stays.)
+
 ## Status
 
 Working, but early (version `0.0.1`), not yet published to the Marketplace or Open VSX, and installed from source. macOS and Linux only: Claude Code hooks go through a POSIX shell script. See [what's not built yet](#not-built-yet).
