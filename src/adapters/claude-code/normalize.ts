@@ -416,7 +416,8 @@ export function normalizeHookPayload(payload: unknown, turnFallback?: (sessionId
     const target = payload.tool_input?.file_path ?? payload.tool_input?.command;
     const status: NormalizedEvent['status'] = payload.tool_response?.error ? 'failure' : 'success';
     return {
-      eventId: crypto.randomUUID(),
+      // Keyed by the call's tool_use_id, as tool calls rebuilt from transcripts are, so the two never both count.
+      eventId: payload.tool_use_id ? `tool:${payload.tool_use_id}` : crypto.randomUUID(),
       sessionId,
       agent: 'claude-code',
       ts,

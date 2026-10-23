@@ -112,7 +112,7 @@ The replay works the same way as the live engine:
 - On ticks it skips heuristics marked `onlyChangesWithEvents`, whose verdict can't change without a new event.
 - It records each stretch a heuristic kept reporting as one episode, and a heuristic reporting again within 2 minutes of clearing continues the same episode.
 
-Past findings are only as complete as the stored events. History read back from transcripts, from before a window ran Snagboat, has prompts, model calls, and compactions but no tool calls, because Claude Code's tool calls arrive through hooks. `tool-churn`, `backtracking`, and the tool-call half of `runaway-turn` can't fire there until the planned backfill rebuilds tool calls from the transcripts. Sessions logged before turn ends were recorded are skipped by `stalled`, since every turn would look unfinished.
+Past findings are only as complete as the stored events. History read back from transcripts, from before a window ran Snagboat, has prompts, model calls, and compactions but no tool calls, because Claude Code's tool calls arrive through hooks. `tool-churn`, `backtracking`, and the tool-call half of `runaway-turn` can't fire there until **Snagboat: Backfill Sessions from Transcripts...** rebuilds tool calls from the transcripts. After a backfill, a stored session's past findings match a replay of its transcripts. Sessions logged before turn ends were recorded are skipped by `stalled`, since every turn would look unfinished.
 
 A replayed episode still reporting at the end that shares events with a live finding of the same heuristic is shown once, as active. Muted heuristics are left out. The largest real session (2,209 events over 11 days) replays in about 0.2 seconds. `npm run replay:heuristics` uses the same code.
 

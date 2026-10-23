@@ -115,6 +115,28 @@ export class EventLog {
     await fs.promises.rm(path.join(this.eventsDir, `${day}.jsonl`), { force: true });
   }
 
+  /**
+   * Replaces a day's events with transform(current events), ordered after any
+   * appends already queued, so none can land between the read and the write.
+   * The file is replaced atomically (temp file, then rename). A day with no
+   * file is left alone unless create is set. Rejects if the rewrite fails;
+   * the day is then unchanged.
+   */
+  rewriteDay(day: string, transform: (events: NormalizedEvent[]) => NormalizedEvent[], opts: { create?: boolean } = {}): Promise<void> {
+    const file = path.join(this.eventsDir, `${day}.jsonl`);
+    const op = this.writeQueue.then(async () => {
+      if (!fs.existsSync(file) && !opts.create) return;
+      const events = transform(await this.readDay(day));
+      if (events.length === 0 && !fs.existsSync(file)) return;
+      this.knownDays.add(day);
+      const temp = `${file}.${process.pid}.tmp`;
+      await fs.promises.writeFile(temp, events.map((e) => JSON.stringify(e) + '\n').join(''), 'utf8');
+      await fs.promises.rename(temp, file);
+    });
+    this.writeQueue = op.catch((err) => console.error(`snagboat: failed to rewrite ${day}`, err));
+    return op;
+  }
+
   /** Removes every daily file, ordered after any appends already queued. */
   clear(): Promise<void> {
     this.knownDays.clear();

@@ -10,11 +10,12 @@ import { DailyHistory } from './core/dailyHistory';
 import { SessionIndex } from './core/sessions';
 import { SessionController } from './ui/sessionController';
 import { FindingReplay } from './heuristics/replay';
+import { runBackfill } from './backfill/command';
 import { ContextLimits, ModelContextMarks } from './core/contextLimits';
-import { AggregateStore, EventSink, RetentionPolicy, applyRetention } from './core/retention';
+import { AggregateStore, EventSink, RetentionPolicy, applyRetention, oldestKeptDay } from './core/retention';
 import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
-import { AgentAdapter, NormalizedEventKind } from './core/types';
+import { AgentAdapter, NormalizedEvent, NormalizedEventKind } from './core/types';
 import { renderStatusBar } from './ui/statusBar';
 import { buildBreakdownLines, formatCount } from './ui/format';
 import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
@@ -171,7 +172,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   };
   const sink = new EventSink(eventLog, aggregateStore, retentionPolicy, todayKey, enqueueStorageOp);
 
-  bus.onEvent((event) => {
+  // While the log is reloaded from disk (after a backfill), live events wait
+  // here, so none is counted twice or missed by the half-rebuilt state.
+  let heldEvents: NormalizedEvent[] | undefined;
+  const reloadFromLog = async () => {
+    heldEvents = [];
+    try {
+      const openSession = sessions.openSessionId;
+      aggregate.reset();
+      todayAggregate.reset();
+      dailyHistory.reset();
+      sessionIndex.reset();
+      eventStore.reset();
+      loggedIds.clear();
+      await aggregate.rehydrateFrom(eventLog, aggregateStore);
+      await todayAggregate.rehydrateFrom(eventLog);
+      await dailyHistory.rehydrateFrom(eventLog, aggregateStore);
+      for (const event of await eventLog.readAll()) {
+        sessionIndex.ingest(event);
+        loggedIds.add(event.eventId);
+        contextLimits.observe(event);
+      }
+      await eventStore.rehydrateFrom(eventLog);
+      if (openSession) await sessions.open(openSession);
+    } finally {
+      const held = heldEvents;
+      heldEvents = undefined;
+      for (const event of held) handleEvent(event);
+      runHeuristics();
+      refresh();
+    }
+  };
+
+  const handleEvent = (event: NormalizedEvent) => {
+    if (heldEvents) {
+      heldEvents.push(event);
+      return;
+    }
     if (loggedIds.has(event.eventId)) return;
     loggedIds.add(event.eventId);
     contextLimits.observe(event);
@@ -187,7 +224,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     eventStore.ingest(event);
     runHeuristics(event.kind);
     refresh();
-  });
+  };
+  bus.onEvent(handleEvent);
 
   // Catch a stalled/over-budget condition immediately on activation (e.g. the
   // workspace was already idle before this window opened), rather than
@@ -260,6 +298,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('snagboat.backfill', () =>
+      runBackfill({
+        eventLog,
+        runStorageOp: (op) => {
+          const run = retentionQueue.then(op);
+          retentionQueue = run.catch(() => undefined);
+          return run;
+        },
+        reloadFromLog,
+        oldestRawDay: () => oldestKeptDay(todayKey(), retentionPolicy().rawDays),
+        captureContent: captureContentEnabled,
+        output: outputChannel,
+      })
+    ),
     vscode.commands.registerCommand('snagboat.clearLog', async () => {
       const choice = await vscode.window.showWarningMessage(
         'Delete all Snagboat event logs and daily aggregates for this workspace? This cannot be undone.',
