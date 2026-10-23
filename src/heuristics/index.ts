@@ -1,14 +1,5 @@
 import * as vscode from 'vscode';
-import { Heuristic } from './types';
-import { stalledHeuristic } from './stalled';
-import { tokenBudgetHeuristic } from './tokenBudget';
-import { toolChurnHeuristic } from './toolChurn';
-import { backtrackingHeuristic } from './backtracking';
-import { verbalHedgeHeuristic } from './verbalHedge';
-
-export function builtInHeuristics(): Heuristic[] {
-  return [stalledHeuristic, tokenBudgetHeuristic, toolChurnHeuristic, backtrackingHeuristic, verbalHedgeHeuristic];
-}
+export { builtInHeuristics } from './builtIns';
 
 // Most heuristic settings live under `snagboat.heuristics.<id>.*` with `id`
 // used verbatim, but two heuristics need an override: `token-budget`'s

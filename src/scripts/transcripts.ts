@@ -103,10 +103,14 @@ function defaultTranscripts(): string[] {
   const sanitized = process.cwd().replace(/[^a-zA-Z0-9]/g, '-');
   const dir = path.join(os.homedir(), '.claude', 'projects', sanitized);
   try {
-    return fs
+    const top = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')).map((f) => path.join(dir, f));
+    // Subagent transcripts: <dir>/<session>/subagents/*.jsonl
+    const subagents = fs
       .readdirSync(dir)
-      .filter((f) => f.endsWith('.jsonl'))
-      .map((f) => path.join(dir, f));
+      .map((session) => path.join(dir, session, 'subagents'))
+      .filter((sub) => fs.existsSync(sub))
+      .flatMap((sub) => fs.readdirSync(sub).filter((f) => f.endsWith('.jsonl')).map((f) => path.join(sub, f)));
+    return [...top, ...subagents];
   } catch {
     return [];
   }

@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
+import * as path from 'path';
 import { EventBus } from './core/eventBus';
 import { EventLog } from './core/eventLog';
 import { Aggregate, AggregateSnapshot, TodayAggregate } from './core/aggregate';
 import { EventStore, ReadonlyEventStore } from './core/eventStore';
 import { CheckpointStore } from './core/checkpointStore';
 import { DailyHistory } from './core/dailyHistory';
+import { ContextLimits, ModelContextMarks } from './core/contextLimits';
 import { AggregateStore, EventSink, RetentionPolicy, applyRetention } from './core/retention';
 import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
@@ -52,6 +54,7 @@ export interface SnagboatTestApi {
   getAggregateSnapshot(): AggregateSnapshot;
   getTodaySnapshot(): AggregateSnapshot;
   getEventStore(): ReadonlyEventStore;
+  getContextLimits(): Record<string, ModelContextMarks>;
   getFindings(): Finding[];
 }
 
@@ -84,6 +87,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
 
   const eventStore = new EventStore({ windowMs: EVENT_STORE_WINDOW_MS, maxEvents: EVENT_STORE_MAX_EVENTS });
   await eventStore.rehydrateFrom(eventLog);
+
+  // Shared by every workspace, so it lives in global storage, not this workspace's.
+  const contextLimits = new ContextLimits(context.globalStorageUri.fsPath);
+  await contextLimits.load();
+  // Seed from recent history already in memory (new events update it as they arrive).
+  for (const event of eventStore.query()) contextLimits.observe(event);
+  context.subscriptions.push({ dispose: () => void contextLimits.dispose() });
 
   const health = new HealthRegistry();
 
@@ -141,6 +151,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const sink = new EventSink(eventLog, aggregateStore, retentionPolicy, todayKey, enqueueStorageOp);
 
   bus.onEvent((event) => {
+    contextLimits.observe(event);
     // An event older than all retention isn't stored, so it's left out of the
     // all-time totals and chart too; they'd otherwise drop on the next reload.
     if (sink.write(event)) {
@@ -192,6 +203,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     vscode.commands.registerCommand('snagboat.showBreakdown', () => {
       outputChannel.clear();
       outputChannel.appendLine(buildBreakdownLines(aggregate.snapshot(), health.list(), findings.visible(), todayAggregate.snapshot()).join('\n'));
+      const limits = Object.entries(contextLimits.all()).sort(([a], [b]) => a.localeCompare(b));
+      if (limits.length > 0) {
+        outputChannel.appendLine('\nContext by model (all workspaces):');
+        for (const [model, marks] of limits) {
+          const parts = [marks.largestSeen !== undefined ? `largest seen ${marks.largestSeen.toLocaleString()}` : undefined, marks.limit !== undefined ? `limit ${marks.limit.toLocaleString()} (auto-compaction)` : undefined].filter(Boolean);
+          outputChannel.appendLine(`  ${model}: ${parts.join(', ')}`);
+        }
+      }
       outputChannel.show();
     }),
     vscode.commands.registerCommand('snagboat.openDetail', () => detailPanel.show())
@@ -229,7 +248,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     })
   );
 
-  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter()];
+  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter(path.join(context.globalStorageUri.fsPath, 'copilot-structure'))];
   for (const adapter of adapters) {
     const adapterCtx = makeAdapterContext(adapter.agentId, bus, checkpoints, health, captureContentEnabled);
     await adapter.init(adapterCtx);
@@ -268,6 +287,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     getTodaySnapshot: () => todayAggregate.snapshot(),
     getEventStore: () => eventStore,
     getFindings: () => findings.list(),
+    getContextLimits: () => contextLimits.all(),
   };
 }
 

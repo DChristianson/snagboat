@@ -1,14 +1,16 @@
 import * as http from 'http';
 import * as zlib from 'zlib';
 import { AdapterContext } from '../../core/types';
-import { normalizeOtlpTraces, normalizeOtlpMetrics } from './normalize';
+import { normalizeOtlpTraces } from './normalize';
 
 export class OtelReceiver {
   private server?: http.Server;
 
   constructor(
     private readonly ctx: AdapterContext,
-    private readonly port: number
+    private readonly port: number,
+    /** Called with every parsed payload when structure capture is on; decided per request so the setting applies live. */
+    private readonly capture?: () => ((url: string, payload: unknown) => void) | undefined
   ) {}
 
   start(): void {
@@ -61,15 +63,11 @@ export class OtelReceiver {
       return;
     }
 
-    const events = url.includes('/v1/metrics')
-      ? normalizeOtlpMetrics(json)
-      : url.includes('/v1/traces')
-        ? normalizeOtlpTraces(json, { captureContent: this.ctx.captureContent() })
-        : [];
+    this.capture?.()?.(url, json);
 
-    if (events.length === 0) {
-      console.log(`snagboat: OTel receiver got a request on ${url} that produced no events (${body.length} bytes)`);
-    }
+    // Metrics and logs are accepted but not turned into events: the per-call
+    // spans carry the same token counts, and counting both would double them.
+    const events = url.includes('/v1/traces') ? normalizeOtlpTraces(json, { captureContent: this.ctx.captureContent() }) : [];
     for (const event of events) {
       this.ctx.publish(event);
     }

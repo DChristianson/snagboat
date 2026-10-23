@@ -1,10 +1,20 @@
 import * as crypto from 'crypto';
 import { NormalizedEvent } from '../../core/types';
 import { makeExcerpt } from '../../core/excerpt';
+import { classifyTool } from '../../core/toolCategory';
 
 interface ClaudeTranscriptLine {
   type?: string;
+  subtype?: string;
   uuid?: string;
+  parentUuid?: string | null;
+  promptId?: string;
+  agentId?: string;
+  isSidechain?: boolean;
+  isMeta?: boolean;
+  isCompactSummary?: boolean;
+  toolUseResult?: unknown;
+  compactMetadata?: { trigger?: string; preTokens?: number; postTokens?: number };
   sessionId?: string;
   timestamp?: string;
   message?: {
@@ -83,6 +93,75 @@ export function normalizeTranscriptLine(
 }
 
 /**
+ * A prompt you typed: a main-session `user` line carrying text rather than a
+ * tool result, and not a meta, compact-summary, or subagent line (a
+ * subagent's opening `user` line is the main agent's instructions to it).
+ */
+export function isUserPrompt(line: ClaudeTranscriptLine): boolean {
+  if (line.type !== 'user' || line.toolUseResult || line.isMeta || line.isCompactSummary) return false;
+  if (line.isSidechain || line.agentId) return false;
+  const content = line.message?.content;
+  if (typeof content === 'string') return content.trim().length > 0;
+  return Array.isArray(content) && content.some((b) => b?.type === 'text') && !content.some((b) => b?.type === 'tool_result');
+}
+
+/**
+ * Attributes transcript lines to turns. A prompt line starts a turn (its
+ * promptId); every other line inherits its parent's turn through parentUuid.
+ * Subagent lines carry the spawning turn's promptId directly. Lines whose
+ * parent is unknown (e.g. after a restart) fall back to the file's most
+ * recent turn, which is persisted in the adapter checkpoint.
+ */
+export class TurnTracker {
+  private turnByUuid = new Map<string, string>();
+  private lastTurnByFile = new Map<string, string>();
+  private lastTurnBySession = new Map<string, string>();
+  private lastModelByFile = new Map<string, string>();
+
+  constructor(initialLastTurnByFile: Record<string, string> = {}, private readonly limit = 20_000) {
+    for (const [file, turn] of Object.entries(initialLastTurnByFile)) {
+      if (typeof turn === 'string') this.lastTurnByFile.set(file, turn);
+    }
+  }
+
+  /** Records a line and returns the turn it belongs to, if any can be determined. */
+  observe(file: string, line: ClaudeTranscriptLine): string | undefined {
+    let turn: string | undefined;
+    if (isUserPrompt(line)) {
+      turn = line.promptId ?? line.uuid;
+    } else if (line.agentId && line.promptId) {
+      turn = line.promptId;
+    } else {
+      turn = (line.parentUuid ? this.turnByUuid.get(line.parentUuid) : undefined) ?? this.lastTurnByFile.get(file);
+    }
+    if (turn) {
+      if (line.uuid) {
+        this.turnByUuid.set(line.uuid, turn);
+        if (this.turnByUuid.size > this.limit) this.turnByUuid.delete(this.turnByUuid.keys().next().value as string);
+      }
+      this.lastTurnByFile.set(file, turn);
+      if (line.sessionId && !line.agentId) this.lastTurnBySession.set(line.sessionId, turn);
+    }
+    const model = line.message?.model;
+    if (line.type === 'assistant' && model && model !== '<synthetic>') this.lastModelByFile.set(file, model);
+    return turn;
+  }
+
+  /** The current turn of a session, for events (hooks) that don't name one. */
+  latestTurnForSession(sessionId: string): string | undefined {
+    return this.lastTurnBySession.get(sessionId);
+  }
+
+  lastModel(file: string): string | undefined {
+    return this.lastModelByFile.get(file);
+  }
+
+  snapshot(): Record<string, string> {
+    return Object.fromEntries(this.lastTurnByFile);
+  }
+}
+
+/**
  * Remembers the most recent message ids seen per transcript file, so a message
  * whose lines straddle two reads (or a restart) is still counted once. Lines of
  * a message are always consecutive, so a short per-file history is plenty.
@@ -132,34 +211,67 @@ export function normalizeTranscriptChunk(
   rawLines: string[],
   filePath: string,
   chunkStartOffset: number,
-  opts: { captureContent?: boolean; seen: SeenMessages }
+  opts: { captureContent?: boolean; seen: SeenMessages; turns?: TurnTracker }
 ): NormalizedEvent[] {
+  const turns = opts.turns ?? new TurnTracker();
   const events: NormalizedEvent[] = [];
-  let group: { first: ClaudeTranscriptLine; id: string; texts: Array<string | undefined> } | undefined;
+  let group: { first: ClaudeTranscriptLine; id: string; texts: Array<string | undefined>; turnId?: string } | undefined;
+
+  const withAttribution = (event: NormalizedEvent, line: ClaudeTranscriptLine, turnId: string | undefined): NormalizedEvent => {
+    if (turnId) event.turnId = turnId;
+    if (line.agentId) event.agentId = line.agentId;
+    return event;
+  };
 
   const flushGroup = () => {
     if (!group) return;
     events.push(
-      toEvent(group.first, filePath, chunkStartOffset, {
-        withTokens: true,
-        textExcerpt: opts.captureContent ? makeExcerpt(group.texts) : undefined,
-      })
+      withAttribution(
+        toEvent(group.first, filePath, chunkStartOffset, {
+          withTokens: true,
+          textExcerpt: opts.captureContent ? makeExcerpt(group.texts) : undefined,
+        }),
+        group.first,
+        group.turnId
+      )
     );
     group = undefined;
   };
 
   for (const rawLine of rawLines) {
-    const line = parseAssistantLine(rawLine);
-    if (!line) continue;
-    const id = line.message?.id;
+    let line: ClaudeTranscriptLine;
+    try {
+      line = JSON.parse(rawLine);
+    } catch {
+      continue;
+    }
+    if (!line || typeof line !== 'object') continue;
+    const turnId = turns.observe(filePath, line);
+
+    if (isUserPrompt(line)) {
+      flushGroup();
+      events.push(promptEvent(line, filePath, chunkStartOffset, turnId));
+      continue;
+    }
+    if (line.type === 'system' && line.subtype === 'compact_boundary') {
+      flushGroup();
+      events.push(compactionEvent(line, filePath, chunkStartOffset, turnId, turns.lastModel(filePath)));
+      continue;
+    }
+    if (line.type !== 'assistant' || !line.message?.usage) continue;
+    const id = line.message.id;
 
     if (!id) {
       flushGroup();
       events.push(
-        toEvent(line, filePath, chunkStartOffset, {
-          withTokens: true,
-          textExcerpt: opts.captureContent ? makeExcerpt(textBlocks(line)) : undefined,
-        })
+        withAttribution(
+          toEvent(line, filePath, chunkStartOffset, {
+            withTokens: true,
+            textExcerpt: opts.captureContent ? makeExcerpt(textBlocks(line)) : undefined,
+          }),
+          line,
+          turnId
+        )
       );
       continue;
     }
@@ -172,14 +284,56 @@ export function normalizeTranscriptChunk(
     flushGroup();
     if (opts.seen.has(filePath, id)) {
       const textExcerpt = opts.captureContent ? makeExcerpt(textBlocks(line)) : undefined;
-      if (textExcerpt) events.push(toEvent(line, filePath, chunkStartOffset, { withTokens: false, textExcerpt }));
+      if (textExcerpt) events.push(withAttribution(toEvent(line, filePath, chunkStartOffset, { withTokens: false, textExcerpt }), line, turnId));
       continue;
     }
     opts.seen.add(filePath, id);
-    group = { first: line, id, texts: textBlocks(line) };
+    group = { first: line, id, texts: textBlocks(line), turnId };
   }
   flushGroup();
   return events;
+}
+
+function promptEvent(line: ClaudeTranscriptLine, filePath: string, chunkStartOffset: number, turnId: string | undefined): NormalizedEvent {
+  return {
+    eventId: line.uuid ?? `claude-code:${filePath}:${chunkStartOffset}:prompt`,
+    sessionId: line.sessionId ?? 'unknown-session',
+    agent: 'claude-code',
+    ts: line.timestamp ?? new Date().toISOString(),
+    kind: 'user_prompt',
+    status: 'unknown',
+    turnId,
+    raw: { adapter: 'claude-code', ref: `${filePath}#offset~${chunkStartOffset}` },
+  };
+}
+
+function compactionEvent(
+  line: ClaudeTranscriptLine,
+  filePath: string,
+  chunkStartOffset: number,
+  turnId: string | undefined,
+  model: string | undefined
+): NormalizedEvent {
+  const meta = line.compactMetadata ?? {};
+  const trigger = meta.trigger === 'auto' || meta.trigger === 'manual' ? meta.trigger : 'unknown';
+  const event: NormalizedEvent = {
+    eventId: line.uuid ?? `claude-code:${filePath}:${chunkStartOffset}:compaction`,
+    sessionId: line.sessionId ?? 'unknown-session',
+    agent: 'claude-code',
+    ts: line.timestamp ?? new Date().toISOString(),
+    kind: 'compaction',
+    status: 'unknown',
+    model,
+    turnId,
+    compaction: {
+      trigger,
+      preTokens: typeof meta.preTokens === 'number' ? meta.preTokens : undefined,
+      postTokens: typeof meta.postTokens === 'number' ? meta.postTokens : undefined,
+    },
+    raw: { adapter: 'claude-code', ref: `${filePath}#offset~${chunkStartOffset}` },
+  };
+  if (line.agentId) event.agentId = line.agentId;
+  return event;
 }
 
 /** The reply's text blocks only: never thinking, tool_use inputs, or anything the user wrote. */
@@ -192,6 +346,11 @@ function textBlocks(line: ClaudeTranscriptLine): string[] {
 
 interface ClaudeHookPayload {
   session_id?: string;
+  /** The prompt (turn) the hook fired in; documented on every hook event. */
+  prompt_id?: string;
+  /** Set when the hook fired inside a subagent. */
+  agent_id?: string;
+  tool_use_id?: string;
   hook_event_name?: string;
   tool_name?: string;
   tool_input?: { file_path?: string; command?: string };
@@ -209,11 +368,19 @@ function isClaudeHookPayload(value: unknown): value is ClaudeHookPayload {
  * here -- only the transcript path populates `tokens`, so the two redundant
  * paths (hooks + transcript) never double-count.
  */
-export function normalizeHookPayload(payload: unknown): NormalizedEvent | undefined {
+/**
+ * `turnFallback` supplies the session's current turn (from the transcript)
+ * for payloads that don't carry prompt_id, e.g. from older Claude Code.
+ */
+export function normalizeHookPayload(payload: unknown, turnFallback?: (sessionId: string) => string | undefined): NormalizedEvent | undefined {
   if (!isClaudeHookPayload(payload)) return undefined;
 
   const sessionId = payload.session_id ?? 'unknown-session';
   const ts = new Date().toISOString();
+  const attribution: Pick<NormalizedEvent, 'turnId' | 'agentId'> = {};
+  const turnId = payload.prompt_id ?? turnFallback?.(sessionId);
+  if (turnId) attribution.turnId = turnId;
+  if (payload.agent_id) attribution.agentId = payload.agent_id;
 
   if (payload.hook_event_name === 'PostToolUse') {
     const target = payload.tool_input?.file_path ?? payload.tool_input?.command;
@@ -226,6 +393,9 @@ export function normalizeHookPayload(payload: unknown): NormalizedEvent | undefi
       kind: 'tool_call',
       target,
       status,
+      toolName: payload.tool_name,
+      toolCategory: classifyTool(payload.tool_name, payload.tool_input?.command),
+      ...attribution,
       raw: { adapter: 'claude-code', ref: `hook:PostToolUse:${payload.tool_name ?? 'unknown'}` },
     };
   }
@@ -238,6 +408,7 @@ export function normalizeHookPayload(payload: unknown): NormalizedEvent | undefi
       ts,
       kind: 'turn_stop',
       status: 'unknown',
+      ...attribution,
       raw: { adapter: 'claude-code', ref: 'hook:Stop' },
     };
   }

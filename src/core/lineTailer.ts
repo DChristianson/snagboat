@@ -50,6 +50,20 @@ export class LineTailer {
     }, this.options.rescanIntervalMs ?? RESCAN_INTERVAL_MS);
   }
 
+  /**
+   * Stops watching once every file present now has been read through. For
+   * folders that only need catching up: call right after start().
+   */
+  stopAfterCatchUp(): void {
+    clearInterval(this.rescanTimer);
+    this.rescanTimer = undefined;
+    this.watcher?.close();
+    this.watcher = undefined;
+    // start() already queued a read of every file; mark stopped once they finish.
+    const waitIdle = () => (this.inFlight.size === 0 && this.rerun.size === 0 ? (this.stopped = true) : setTimeout(waitIdle, 50));
+    setTimeout(waitIdle, 0);
+  }
+
   stop(): void {
     this.stopped = true;
     clearInterval(this.rescanTimer);

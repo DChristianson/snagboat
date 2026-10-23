@@ -5,6 +5,7 @@ import { DailyTokens } from '../core/dailyHistory';
 import { NormalizedEvent } from '../core/types';
 import { FindingView } from '../heuristics/findingsRegistry';
 import { agentEventTotal } from './format';
+import { toolCategoryLabel } from '../core/toolCategory';
 
 /** Newest events sent to the timeline; the store's own window caps it further (24h). */
 export const TIMELINE_LIMIT = 1000;
@@ -19,6 +20,8 @@ export interface TimelineEvent {
   target?: string;
   tokens?: number;
   textExcerpt?: string;
+  /** Tool calls only: e.g. "Tests and builds", "MCP: github". */
+  toolLabel?: string;
   /** True when target resolves to a file on disk, so the view can offer jump-to-file. */
   openable: boolean;
 }
@@ -125,6 +128,7 @@ export function buildDetailState(inputs: {
         target: e.target,
         tokens: eventTokens(e),
         textExcerpt: e.textExcerpt,
+        toolLabel: e.toolCategory ? toolCategoryLabel(e.toolCategory, e.toolName) : undefined,
         openable: e.target !== undefined && inputs.isOpenable(e.target),
       })),
     },

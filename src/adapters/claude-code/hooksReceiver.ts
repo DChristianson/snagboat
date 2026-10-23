@@ -3,6 +3,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { AdapterContext } from '../../core/types';
 import { normalizeHookPayload } from './normalize';
+import { isWithinFolders } from '../../core/paths';
 
 function tokensMatch(header: string | undefined, token: string): boolean {
   const given = Buffer.from(header?.replace(/^Bearer\s+/i, '') ?? '');
@@ -10,13 +11,6 @@ function tokensMatch(header: string | undefined, token: string): boolean {
   return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }
 
-/** Whether dir is one of the folders or inside one. */
-export function isWithinFolders(dir: string, folders: string[]): boolean {
-  return folders.some((folder) => {
-    const rel = path.relative(folder, dir);
-    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-  });
-}
 
 /**
  * The project dir the routing script routed on. Header values arrive as raw
@@ -41,7 +35,7 @@ export class HooksReceiver {
 
   constructor(
     private readonly ctx: AdapterContext,
-    private readonly opts: { token: string; workspaceFolders: string[]; port?: number }
+    private readonly opts: { token: string; workspaceFolders: string[]; port?: number; turnFallback?: (sessionId: string) => string | undefined }
   ) {}
 
   /** Resolves with the bound port once listening; rejects if it can't listen. */
@@ -76,7 +70,7 @@ export class HooksReceiver {
           console.warn(`snagboat: failed to parse hook payload as JSON (${raw.length} bytes)`);
           return;
         }
-        const event = normalizeHookPayload(payload);
+        const event = normalizeHookPayload(payload, this.opts.turnFallback);
         if (event) {
           this.ctx.publish(event);
         } else {

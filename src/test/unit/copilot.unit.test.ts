@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { normalizeOtlpTraces, normalizeOtlpMetrics } from '../../adapters/copilot/normalize';
+import { normalizeOtlpTraces } from '../../adapters/copilot/normalize';
 
 // Hand-built per the OTLP/HTTP JSON wire format spec (a stable, documented
 // protobuf-JSON mapping), with span/metric/attribute names doc-verified against
@@ -49,57 +49,6 @@ const TRACES_PAYLOAD = {
   ],
 };
 
-const METRICS_PAYLOAD_SUM = {
-  resourceMetrics: [
-    {
-      resource: { attributes: [{ key: 'session.id', value: { stringValue: 'sess-1' } }] },
-      scopeMetrics: [
-        {
-          metrics: [
-            {
-              name: 'gen_ai.client.token.usage',
-              sum: {
-                dataPoints: [
-                  {
-                    attributes: [
-                      { key: 'gen_ai.token.type', value: { stringValue: 'input' } },
-                      { key: 'gen_ai.request.model', value: { stringValue: 'gpt-4o' } },
-                    ],
-                    asInt: '120',
-                  },
-                  {
-                    attributes: [{ key: 'gen_ai.token.type', value: { stringValue: 'output' } }],
-                    asInt: '45',
-                  },
-                ],
-              },
-            },
-          ],
-        },
-      ],
-    },
-  ],
-};
-
-const METRICS_PAYLOAD_HISTOGRAM = {
-  resourceMetrics: [
-    {
-      scopeMetrics: [
-        {
-          metrics: [
-            {
-              name: 'gen_ai.client.token.usage',
-              histogram: {
-                dataPoints: [{ attributes: [{ key: 'gen_ai.token.type', value: { stringValue: 'input' } }], sum: 77 }],
-              },
-            },
-          ],
-        },
-      ],
-    },
-  ],
-};
-
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
   const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
@@ -137,27 +86,34 @@ async function main() {
     assert.deepStrictEqual(normalizeOtlpTraces('not an object'), []);
   });
 
-  test('normalizeOtlpMetrics maps Sum-shaped gen_ai.client.token.usage data points to turn_stop events with tokens', () => {
-    const events = normalizeOtlpMetrics(METRICS_PAYLOAD_SUM);
-    assert.strictEqual(events.length, 2);
-    assert.strictEqual(events[0].kind, 'turn_stop');
-    assert.deepStrictEqual(events[0].tokens, { input: 120 });
-    assert.strictEqual(events[0].model, 'gpt-4o');
-    assert.strictEqual(events[0].sessionId, 'sess-1', 'session.id must be read from the resource, not the data point');
-    assert.deepStrictEqual(events[1].tokens, { output: 45 });
-  });
-
-  test('normalizeOtlpMetrics also handles a Histogram-shaped metric via its sum field', () => {
-    const events = normalizeOtlpMetrics(METRICS_PAYLOAD_HISTOGRAM);
-    assert.strictEqual(events.length, 1);
-    assert.deepStrictEqual(events[0].tokens, { input: 77 });
-  });
-
-  test('normalizeOtlpMetrics ignores metrics with an unrelated name', () => {
-    const events = normalizeOtlpMetrics({
-      resourceMetrics: [{ scopeMetrics: [{ metrics: [{ name: 'some.other.metric', sum: { dataPoints: [] } }] }] }],
+  test('chat <model> spans outside an agent turn become inline model calls with cache split out and the reported limit', () => {
+    const events = normalizeOtlpTraces({
+      resourceSpans: [{ resource: { attributes: [{ key: 'session.id', value: { stringValue: 'sess-1' } }] }, scopeSpans: [{ spans: [
+        { spanId: 'n1', name: 'chat copilot-nes-x', attributes: [
+          { key: 'gen_ai.usage.input_tokens', value: { intValue: '1640' } },
+          { key: 'gen_ai.usage.cache_read.input_tokens', value: { intValue: '1536' } },
+          { key: 'gen_ai.usage.output_tokens', value: { intValue: '10' } },
+          { key: 'gen_ai.response.model', value: { stringValue: 'copilot-nes-x' } },
+          { key: 'copilot_chat.request.max_prompt_tokens', value: { intValue: '12285' } },
+        ] },
+      ] }] }],
     });
-    assert.deepStrictEqual(events, []);
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].channel, 'inline');
+    assert.deepStrictEqual(events[0].tokens, { input: 104, output: 10, cacheRead: 1536 });
+    assert.strictEqual(events[0].contextLimit, 12285);
+    assert.strictEqual(events[0].model, 'copilot-nes-x');
+    assert.strictEqual(events[0].eventId, 'copilot-span:n1');
+  });
+
+  test('chat spans inside an invoke_agent span are skipped (the agent span carries the totals)', () => {
+    const events = normalizeOtlpTraces({
+      resourceSpans: [{ scopeSpans: [{ spans: [
+        { spanId: 'a', name: 'invoke_agent', attributes: [{ key: 'gen_ai.usage.input_tokens', value: { intValue: '500' } }] },
+        { spanId: 'c', parentSpanId: 'a', name: 'chat gpt-x', attributes: [{ key: 'gen_ai.usage.input_tokens', value: { intValue: '300' } }] },
+      ] }] }],
+    });
+    assert.deepStrictEqual(events.map((e) => [e.kind, e.channel, e.tokens?.input]), [['turn_stop', undefined, 500]]);
   });
 
   let failures = 0;
