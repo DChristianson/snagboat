@@ -10,6 +10,17 @@ body {
   --ink: var(--vscode-foreground);
   --ink-muted: var(--vscode-descriptionForeground);
   --rule: var(--vscode-editorWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  /* Turn tree: two alternating turn shades (blue ramp 100/200; 500/650 dark),
+     picked to keep >= 3.4:1 against the default theme text, and the five
+     category groups (reference palette slots 2, 3, 7, 4, 5, in that order,
+     validated as neighbors and next-but-one neighbors in both themes). */
+  --turn-0: #cde2fb;
+  --turn-1: #9ec5f4;
+  --cat-1: #eb6834;
+  --cat-2: #1baf7a;
+  --cat-3: #6250d6;
+  --cat-4: #eda100;
+  --cat-5: #e87ba4;
   --warn: var(--vscode-editorWarning-foreground, #bf8803);
   --info: var(--vscode-editorInfo-foreground, #3794ff);
 
@@ -26,6 +37,13 @@ body.vscode-high-contrast {
   --series-1: #3987e5;
   --series-2: #d95926;
   --series-3: #199e70;
+  --turn-0: #256abf;
+  --turn-1: #104281;
+  --cat-1: #d95926;
+  --cat-2: #199e70;
+  --cat-3: #9085e9;
+  --cat-4: #c98500;
+  --cat-5: #d55181;
 }
 
 main { max-width: 1100px; }
@@ -153,14 +171,14 @@ input[type="search"] { min-width: 220px; }
 .tooltip .total { border-top: 1px solid var(--rule); margin-top: 4px; padding-top: 4px; font-weight: 600; }
 
 @media (forced-colors: active) {
-  .s1, .s2, .s3 { forced-color-adjust: none; }
+  .s1, .s2, .s3, .tree rect, .tree-legend .swatch { forced-color-adjust: none; }
 }
 
 /* Tabs */
 .title-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-bottom: 4px; }
 .title-row h1 { margin: 0; }
 .tabs { display: flex; gap: 4px; }
-.tab { border-radius: 4px 4px 0 0; border-bottom: 2px solid transparent; background: none; }
+.tab { border-radius: 4px 4px 0 0; border-bottom: 2px solid transparent; background: none; color: var(--ink-muted); }
 .tab[aria-selected="true"] { border-bottom-color: var(--vscode-focusBorder, var(--series-1)); color: var(--ink); font-weight: 600; }
 
 /* Sessions tab */
@@ -175,8 +193,28 @@ input[type="search"] { min-width: 220px; }
 .tree-host, .timeline-host { width: 100%; }
 .tree, .context-chart { width: 100%; display: block; }
 .tree .node { fill: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.14)); stroke: var(--rule); stroke-width: 1; }
-.tree .node-sub { fill: rgba(128, 128, 128, 0.35); }
-.tree .node-selected { fill: var(--vscode-list-activeSelectionBackground, rgba(57, 135, 229, 0.25)); stroke: var(--vscode-focusBorder, var(--series-1)); }
+.tree .turn-0 { fill: var(--turn-0); }
+.tree .turn-1 { fill: var(--turn-1); }
+.tree .node-agent { fill-opacity: 0.6; }
+.tree .node-sub { fill-opacity: 0.3; }
+.tree .node-unlinked { fill: rgba(128, 128, 128, 0.3); stroke-dasharray: 4 3; }
+.tree .cat { fill-opacity: 0.22; }
+.tree .cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.tree .node-selected { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.tree .cat-1 { fill: var(--cat-1); }
+.swatch.cat-1 { background: var(--cat-1); }
+.tree .cat-2 { fill: var(--cat-2); }
+.swatch.cat-2 { background: var(--cat-2); }
+.tree .cat-3 { fill: var(--cat-3); }
+.swatch.cat-3 { background: var(--cat-3); }
+.tree .cat-4 { fill: var(--cat-4); }
+.swatch.cat-4 { background: var(--cat-4); }
+.tree .cat-5 { fill: var(--cat-5); }
+.swatch.cat-5 { background: var(--cat-5); }
+.swatch.cat-0 { background: rgba(128, 128, 128, 0.5); }
+.swatch.swatch-unlinked { background: rgba(128, 128, 128, 0.3); outline: 1px dashed var(--rule); }
+.tree .cat-stripe { pointer-events: none; }
+.tree-legend { margin: 6px 0 0; }
 .tree .tree-node { cursor: pointer; }
 .tree .tree-node:hover .node, .tree .tree-node:focus .node { stroke: var(--vscode-focusBorder, var(--series-1)); }
 .tree .tree-node:focus { outline: none; }

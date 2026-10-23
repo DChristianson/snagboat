@@ -30,6 +30,10 @@ export interface TreeNode {
   approximate?: boolean;
   turnId?: string;
   agentId?: string;
+  /** Which of two alternating shades the node's turn takes, so neighboring turns contrast. Unset for Unlinked. */
+  shade?: 0 | 1;
+  /** Category nodes: color slot from CATEGORY_COLOR_GROUPS (1-5), or 0 for the neutral rest. */
+  colorGroup?: number;
   /** Finding badges on this node: heuristic ids with their worst severity. */
   findings?: Array<{ heuristicId: string; severity: 'info' | 'warn' }>;
   children: TreeNode[];
@@ -56,6 +60,8 @@ export interface SessionView {
   marks: Record<string, ModelContextMarks>;
   findings: SessionFindingMark[];
   tree: TreeNode;
+  /** Legend labels for colorGroup 1-5. */
+  categoryGroups: string[];
 }
 
 interface FindingInput {
@@ -63,6 +69,25 @@ interface FindingInput {
   severity: 'info' | 'warn';
   summary: string;
   eventRefs: string[];
+}
+
+/**
+ * Tool categories folded into five colors, in the order they're drawn within a
+ * block. Only five hues stay distinct, including for colorblind readers, when
+ * any two can end up side by side (one missing category puts non-neighbors
+ * together); the order was validated for neighbors and next-but-one neighbors
+ * in both themes. Everything else is neutral and drawn last.
+ */
+export const CATEGORY_COLOR_GROUPS: Array<{ label: string; categories: ToolCategory[] }> = [
+  { label: 'File edit', categories: ['file-edit'] },
+  { label: 'Read and search', categories: ['file-read', 'search'] },
+  { label: 'Script', categories: ['script'] },
+  { label: 'Tests and builds', categories: ['tests-builds'] },
+  { label: 'Shell and version control', categories: ['shell', 'version-control'] },
+];
+
+export function categoryColorGroup(category: ToolCategory): number {
+  return CATEGORY_COLOR_GROUPS.findIndex((g) => g.categories.includes(category)) + 1;
 }
 
 /** Display name for a subagent: Claude Code ids are long hashes, so keep a short prefix. */
@@ -76,21 +101,25 @@ function agentLabel(agentId: string): string {
  * crediting needs links from tool calls to the model call that requested
  * them, which not every source provides); always flagged as approximate.
  */
-function categoryChildren(parentId: string, tokens: number, tools: NormalizedEvent[]): TreeNode[] {
+function categoryChildren(parentId: string, tokens: number, tools: NormalizedEvent[], shade: 0 | 1 | undefined): TreeNode[] {
   if (tokens <= 0) return [];
   if (tools.length === 0) {
-    return [{ id: `${parentId}/reply`, label: 'Replies only', kind: 'category', tokens, approximate: true, children: [] }];
+    return [{ id: `${parentId}/reply`, label: 'Replies only', kind: 'category', tokens, approximate: true, shade, colorGroup: 0, children: [] }];
   }
+  // Fixed color-group order (neutral last), then largest first within a group.
+  const rank = (c: ToolCategory) => categoryColorGroup(c) || CATEGORY_COLOR_GROUPS.length + 1;
   const counts = new Map<ToolCategory, number>();
   for (const t of tools) counts.set(t.toolCategory ?? 'other', (counts.get(t.toolCategory ?? 'other') ?? 0) + 1);
   return [...counts]
-    .sort((a, b) => b[1] - a[1])
+    .sort((a, b) => rank(a[0]) - rank(b[0]) || b[1] - a[1])
     .map(([category, n]) => ({
       id: `${parentId}/${category}`,
       label: TOOL_CATEGORY_LABELS[category],
       kind: 'category' as const,
       tokens: Math.round((tokens * n) / tools.length),
       approximate: true,
+      shade,
+      colorGroup: categoryColorGroup(category),
       children: [],
     }));
 }
@@ -165,7 +194,8 @@ export function buildSessionView(
   for (const turnId of turnKeys) {
     const inTurn = (e: NormalizedEvent) => (turnId === undefined ? !e.turnId || !promptIndex.has(e.turnId) : e.turnId === turnId);
     const turnTokens = tokensBy(inTurn);
-    const pid = turnId === undefined ? 's/before' : `s/p${promptIndex.get(turnId)}`;
+    const pid = turnId === undefined ? 's/unlinked' : `s/p${promptIndex.get(turnId)}`;
+    const shade = turnId === undefined ? undefined : ((promptIndex.get(turnId)! % 2) as 0 | 1);
     const agentIds = [undefined, ...new Set(events.filter((e) => inTurn(e) && e.agentId).map((e) => e.agentId!))];
     const agentNodes: TreeNode[] = [];
     for (const agentId of agentIds) {
@@ -180,17 +210,19 @@ export function buildSessionView(
         tokens,
         turnId,
         agentId,
-        children: categoryChildren(aid, tokens, events.filter((e) => inAgent(e) && e.kind === 'tool_call')),
+        shade,
+        children: categoryChildren(aid, tokens, events.filter((e) => inAgent(e) && e.kind === 'tool_call'), shade),
       });
     }
     const badges = new Map<string, 'info' | 'warn'>();
     for (const f of findings) if (turnId && f.turnIds.includes(turnId)) badges.set(f.heuristicId, f.severity === 'warn' || badges.get(f.heuristicId) === 'warn' ? 'warn' : 'info');
     promptNodes.push({
       id: pid,
-      label: turnId === undefined ? 'Before first prompt' : `P${promptIndex.get(turnId)}`,
+      label: turnId === undefined ? 'Unlinked' : `P${promptIndex.get(turnId)}`,
       kind: 'prompt',
       tokens: turnTokens,
       turnId,
+      shade,
       findings: badges.size ? [...badges].map(([heuristicId, severity]) => ({ heuristicId, severity })) : undefined,
       children: agentNodes,
     });
@@ -203,7 +235,7 @@ export function buildSessionView(
     children: promptNodes,
   };
 
-  return { summary, prompts, calls, compactions, subagents, marks: sessionMarks, findings, tree };
+  return { summary, prompts, calls, compactions, subagents, marks: sessionMarks, findings, tree, categoryGroups: CATEGORY_COLOR_GROUPS.map((g) => g.label) };
 }
 
 /** Context sent by a timeline call (for tooltips and limit comparisons). */

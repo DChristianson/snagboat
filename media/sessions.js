@@ -197,9 +197,9 @@
         const w = x1 - x0;
         if (w < 0.5) continue;
         const selected = node.turnId && node.turnId === ui.selectedTurn && node.kind === 'prompt';
-        const cls = node.kind === 'agent' && node.agentId ? 'node node-sub' : selected ? 'node node-selected' : 'node';
         const g = svg('g', { class: 'tree-node', tabindex: 0, role: 'button' });
-        g.append(svg('rect', { class: cls, x: x0 + 1, y, width: Math.max(w - 2, 0.5), height: rowH, rx: 3 }));
+        g.append(svg('rect', { class: nodeClass(node, selected), x: x0 + 1, y, width: Math.max(w - 2, 0.5), height: rowH, rx: 3 }));
+        if (node.colorGroup) g.append(svg('rect', { class: `cat-stripe cat-${node.colorGroup}`, x: x0 + 1, y, width: Math.max(w - 2, 0.5), height: 4, rx: 2 }));
         if (w > 36) {
           const t = svg('text', { class: 'node-label', x: x0 + 7, y: y + 16 });
           t.textContent = fit(node.kind === 'session' ? `Session ${short(v.summary.sessionId)}` : node.label, w - (node.findings ? 14 : 0));
@@ -221,7 +221,29 @@
         root$.append(g);
       }
     });
-    treeHost.replaceChildren(root$);
+    treeHost.replaceChildren(root$, ui.expanded ? '' : treeLegend(v, levels));
+  }
+
+  // Turns alternate two shades so neighbors contrast; categories take their color group (tinted, with a solid top stripe).
+  function nodeClass(node, selected) {
+    const parts = ['node'];
+    if (node.kind === 'category') parts.push(`cat cat-${node.colorGroup || 0}`);
+    else if (node.kind === 'prompt' || node.kind === 'agent') parts.push(node.shade === undefined ? 'node-unlinked' : `turn-${node.shade}`);
+    if (node.kind === 'agent') parts.push(node.agentId ? 'node-sub' : 'node-agent');
+    if (selected) parts.push('node-selected');
+    return parts.join(' ');
+  }
+
+  function treeLegend(v, levels) {
+    const shown = levels.flat().map((l) => l.node);
+    const groups = new Set(shown.filter((n) => n.kind === 'category').map((n) => n.colorGroup || 0));
+    if (!groups.size) return '';
+    const key = (cls, text) => el('span', { class: 'key' }, [el('span', { class: `swatch ${cls}` }), text]);
+    return el('div', { class: 'legend tree-legend small' }, [
+      ...v.categoryGroups.map((label, i) => (groups.has(i + 1) ? key(`cat-${i + 1}`, label) : '')),
+      groups.has(0) ? key('cat-0', 'Other and replies only') : null,
+      shown.some((n) => n.kind === 'prompt' && n.shade === undefined) ? key('swatch-unlinked', 'Unlinked') : null,
+    ]);
   }
 
   // ---------- context timeline ----------

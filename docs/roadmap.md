@@ -49,6 +49,15 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
   Separately, zero Claude tokens in a window had a different cause, now fixed: a window opened before its project's first Claude session never noticed the transcripts folder appearing. The tailer now checks for a missing folder every 15 minutes.
 
 - **Conversation-aware view (phases 1 and 2 built; phase 3, turn-based heuristics, next).** Prompts, turns, compactions, subagents, and context size per call; a context timeline and a turn tree; turn-based heuristics calibrated by replaying real transcripts. Also fixes subagent tokens not being counted. See [design/conversation-view.md](design/conversation-view.md).
+- **Backfill sessions from transcripts.** Events logged before turns were recorded have no turn, so their sessions show up mostly as "Unlinked" in the turn tree. A **Snagboat: Backfill Sessions from Transcripts...** command would:
+  1. find the days with Unlinked calls, or with the Copilot metric events no longer mapped, and offer them, all selected;
+  2. re-read each source file the events came from (Claude Code transcripts and their subagent files, Copilot `events.jsonl`) from the start with fresh parser state, leaving the live tailers and their checkpoints alone;
+  3. show a dry run per day (linked and unlinked calls, token totals before and after) and ask before writing;
+  4. replace each chosen day's transcript-derived events by event id (each line's own id, so deterministic), drop the old Copilot metric events, keep hook tool calls and file saves (adding a category from tool name and target, and a turn from the session's prompt times), and rewrite the file atomically through the event log's write queue;
+  5. rebuild the session index, daily history, and recent-events store;
+  6. leave alone, and report, days whose source files are gone (Claude Code deletes transcripts after 30 days by default) or that are past raw retention.
+
+  Tested with a unit test of the replace step on a mixed-source fixture day, and an integration test on a temporary transcript folder.
 - **Terminal and git signals.** Complete the generic file-system adapter: terminal shell-integration exit codes as `test_run` events, and `git status`/`git diff` polling to tell real edits from no-op saves (rows already in [schema.md](schema.md)).
 - **Cross-workspace token budget.** A global budget across all workspaces, plus a treemap of where tokens go. Needs storage shared between workspaces; today each workspace's storage is isolated.
 - **Extension points.** `snagboat.adapters` and `snagboat.heuristics` contribution points so other extensions can add sources and heuristics without forking.

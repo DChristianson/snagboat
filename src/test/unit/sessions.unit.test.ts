@@ -90,17 +90,37 @@ async function main() {
     assert.deepStrictEqual(tree.children.map((p) => [p.label, p.tokens]), [['P1', 3600], ['P2', 400]]);
     const [main, sub] = tree.children[0].children;
     assert.deepStrictEqual([main.label, main.tokens, sub.label, sub.tokens], ['main agent', 3000, 'subagent abcdef1', 600]);
-    assert.deepStrictEqual(main.children.map((c) => [c.label, c.tokens, c.approximate]), [['Script', 2000, true], ['File edit', 1000, true]]);
+    assert.deepStrictEqual(main.children.map((c) => [c.label, c.tokens, c.approximate]), [['File edit', 1000, true], ['Script', 2000, true]]);
     assert.deepStrictEqual(sub.children.map((c) => c.label), ['Replies only']);
   });
 
-  test('calls before any prompt get their own bucket instead of disappearing', () => {
+  test('calls not linked to a prompt get an Unlinked bucket instead of disappearing', () => {
     const idx = new SessionIndex();
     const events = [call(0, undefined, 300), ...sampleSession()];
     events.forEach((ev) => idx.ingest(ev));
     const { tree } = buildSessionView(idx.list()[0], events, {});
-    assert.strictEqual(tree.children[0].label, 'Before first prompt');
+    assert.strictEqual(tree.children[0].label, 'Unlinked');
+    assert.strictEqual(tree.children[0].shade, undefined, 'Unlinked takes neither turn shade');
     assert.strictEqual(tree.tokens, idx.list()[0].tokens);
+  });
+
+  test('neighboring turns alternate shades, and categories keep a fixed color order', () => {
+    const idx = new SessionIndex();
+    const events = [
+      ...sampleSession(),
+      e({ kind: 'tool_call', ts: at(11), turnId: 'p2', toolCategory: 'shell' }),
+      e({ kind: 'tool_call', ts: at(11), turnId: 'p2', toolCategory: 'shell' }),
+      e({ kind: 'tool_call', ts: at(11), turnId: 'p2', toolCategory: 'web' }),
+      e({ kind: 'tool_call', ts: at(11), turnId: 'p2', toolCategory: 'file-read' }),
+    ];
+    events.forEach((ev) => idx.ingest(ev));
+    const { tree, categoryGroups } = buildSessionView(idx.list()[0], events, {});
+    const [p1, p2] = tree.children;
+    assert.notStrictEqual(p1.shade, p2.shade);
+    assert.strictEqual(p2.children[0].shade, p2.shade, 'agents and categories inherit their turn shade');
+    // By color group (read and search before shell), not by size; neutral last.
+    assert.deepStrictEqual(p2.children[0].children.map((c) => [c.label, c.colorGroup]), [['File read', 2], ['Shell command', 5], ['Web', 0]]);
+    assert.strictEqual(categoryGroups.length, 5);
   });
 
   test("marks are limited to this session's models, and findings map to turns and times", () => {
