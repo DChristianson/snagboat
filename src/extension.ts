@@ -7,13 +7,15 @@ import { Aggregate, AggregateSnapshot, TodayAggregate } from './core/aggregate';
 import { EventStore, ReadonlyEventStore } from './core/eventStore';
 import { CheckpointStore } from './core/checkpointStore';
 import { DailyHistory } from './core/dailyHistory';
+import { SessionIndex } from './core/sessions';
+import { SessionController } from './ui/sessionController';
 import { ContextLimits, ModelContextMarks } from './core/contextLimits';
 import { AggregateStore, EventSink, RetentionPolicy, applyRetention } from './core/retention';
 import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
 import { AgentAdapter, NormalizedEventKind } from './core/types';
 import { renderStatusBar } from './ui/statusBar';
-import { buildBreakdownLines } from './ui/format';
+import { buildBreakdownLines, formatCount } from './ui/format';
 import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
 import { DetailPanel } from './ui/detailPanel';
 import { EditTrackerAdapter } from './adapters/edit-tracker';
@@ -55,6 +57,7 @@ export interface SnagboatTestApi {
   getTodaySnapshot(): AggregateSnapshot;
   getEventStore(): ReadonlyEventStore;
   getContextLimits(): Record<string, ModelContextMarks>;
+  getSessions(): SessionController;
   getFindings(): Finding[];
 }
 
@@ -84,6 +87,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   await todayAggregate.rehydrateFrom(eventLog);
   const dailyHistory = new DailyHistory();
   await dailyHistory.rehydrateFrom(eventLog, aggregateStore);
+  // Sessions in the retained raw log. (Another full read at startup; folding
+  // the startup reads into one pass is a known follow-up.)
+  const sessionIndex = new SessionIndex();
+  for (const event of await eventLog.readAll()) sessionIndex.ingest(event);
 
   const eventStore = new EventStore({ windowMs: EVENT_STORE_WINDOW_MS, maxEvents: EVENT_STORE_MAX_EVENTS });
   await eventStore.rehydrateFrom(eventLog);
@@ -113,6 +120,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const outputChannel = vscode.window.createOutputChannel('Snagboat');
   context.subscriptions.push(outputChannel);
 
+  const sessions = new SessionController(
+    sessionIndex,
+    eventLog,
+    () => contextLimits.all(),
+    () => findings.list()
+  );
   const detailPanel = new DetailPanel(context.extensionUri, {
     buildState: (isOpenable) =>
       buildDetailState({
@@ -125,6 +138,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         daily: dailyHistory.tokensByDay(),
         isOpenable,
       }),
+    sessions,
+    today: todayKey,
     acknowledge: (heuristicId) => findings.acknowledge(heuristicId),
     setMuted: (heuristicId, muted) => {
       findings.setMuted(heuristicId, muted);
@@ -157,6 +172,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     if (sink.write(event)) {
       aggregate.apply(event);
       dailyHistory.apply(event);
+      sessionIndex.ingest(event);
+      sessions.ingest(event);
     }
     todayAggregate.apply(event);
     eventStore.ingest(event);
@@ -213,7 +230,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       }
       outputChannel.show();
     }),
-    vscode.commands.registerCommand('snagboat.openDetail', () => detailPanel.show())
+    vscode.commands.registerCommand('snagboat.openDetail', () => detailPanel.show()),
+    vscode.commands.registerCommand('snagboat.openSession', async () => {
+      const recent = sessionIndex.list().slice(0, 40);
+      if (recent.length === 0) {
+        void vscode.window.showInformationMessage('Snagboat: no agent sessions recorded yet.');
+        return;
+      }
+      const agentName = (a: string) => (a === 'claude-code' ? 'Claude Code' : a === 'copilot' ? 'Copilot' : a);
+      const pick = await vscode.window.showQuickPick(
+        recent.map((s) => ({
+          label: `${agentName(s.agent)} \u00b7 ${new Date(s.firstTs).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+          description: `${s.prompts} prompts \u00b7 ${formatCount(s.tokens)} tokens`,
+          detail: `${s.models.join(', ') || 'no model calls'} \u00b7 session ${s.sessionId.slice(0, 8)}`,
+          sessionId: s.sessionId,
+        })),
+        { placeHolder: 'Open a session (most recent first)', matchOnDescription: true, matchOnDetail: true }
+      );
+      if (pick) detailPanel.show({ sessionId: pick.sessionId });
+    })
   );
 
   context.subscriptions.push(
@@ -233,6 +268,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         aggregate.reset();
         todayAggregate.reset();
         dailyHistory.reset();
+        sessionIndex.reset();
+        sessions.close();
         eventStore.reset();
       });
       retentionQueue = clearOp.catch(() => undefined);
@@ -288,6 +325,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     getEventStore: () => eventStore,
     getFindings: () => findings.list(),
     getContextLimits: () => contextLimits.all(),
+    getSessions: () => sessions,
   };
 }
 

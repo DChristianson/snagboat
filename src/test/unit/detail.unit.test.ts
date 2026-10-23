@@ -165,6 +165,24 @@ async function main() {
     assert.deepStrictEqual(state.muted, ['tool-churn']);
   });
 
+  test("a finding links to the session most of its events belong to", () => {
+    const events = ['a1', 'a2', 'b1'].map((id) => makeEvent({ eventId: id, sessionId: id.startsWith('a') ? 'session-a' : 'session-b' }));
+    const registry = new FindingsRegistry();
+    registry.report('tool-churn', [makeFinding({ heuristicId: 'tool-churn', eventRefs: ['a1', 'a2', 'b1'] })]);
+    registry.report('stalled', [makeFinding({ eventRefs: [] })]);
+    const state = buildDetailState({
+      now: '2026-01-01T12:00:00.000Z',
+      capture: { enabled: false, retentionDays: 90 },
+      today: new Aggregate().snapshot(),
+      recentEvents: events,
+      findings: registry.views(),
+      muted: [],
+      daily: [],
+      isOpenable: () => false,
+    });
+    assert.deepStrictEqual(state.findings.map((f) => [f.heuristicId, f.sessionId]), [['tool-churn', 'session-a'], ['stalled', undefined]]);
+  });
+
   test('isDetailMessage accepts only well-formed messages', () => {
     assert.ok(isDetailMessage({ type: 'ready' }));
     assert.ok(isDetailMessage({ type: 'acknowledge', heuristicId: 'stalled' }));

@@ -252,6 +252,19 @@ suite('Snagboat core plumbing', () => {
     assert.strictEqual(api.getAggregateSnapshot().perAgent['copilot'].tokens.output, before + 17);
   });
 
+  test('live events reach the Sessions list and an open session view', async () => {
+    const sessions = api.getSessions();
+    await vscode.commands.executeCommand('snagboat._emitTestEvent');
+    const today = new Date().toISOString().slice(0, 10);
+    await waitFor(() => sessions.list(undefined, today).sessions.some((s) => s.sessionId === 'dev-test-session'));
+    const view = await sessions.open('dev-test-session');
+    assert.ok(view && view.calls.length >= 1, 'the open session has its model calls');
+    const before = view!.calls.length;
+    await vscode.commands.executeCommand('snagboat._emitTestEvent');
+    await waitFor(() => (sessions.view()?.calls.length ?? 0) > before);
+    sessions.close();
+  });
+
   test('the detail view opens as a webview tab and the today snapshot tracks new events', async () => {
     const beforeToday = api.getTodaySnapshot().totalTokens;
     await vscode.commands.executeCommand('snagboat._emitTestEvent');

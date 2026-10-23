@@ -1,6 +1,6 @@
 # Design: conversation-aware view
 
-Status: **accepted**, nothing built yet. Mockups use synthetic data. Decisions from the first review are recorded under [Decisions](#decisions).
+Status: **accepted**; phase 1 (data) and phase 2 (views) built. Mockups use synthetic data. Decisions from the first review are recorded under [Decisions](#decisions).
 
 ## Summary
 
@@ -227,6 +227,17 @@ Open: reply excerpts for Copilot (for `verbal-hedge`) aren't mapped yet; `assist
    Useful on its own: it fixes the missing subagent tokens and lets heuristics be calibrated.
 2. **Views:** the Sessions tab with the session list, the turn tree above the expandable context timeline, the links from the Overview, and on-demand loading of older sessions (see [Navigation](#navigation)).
 3. **Heuristics:** the new turn-based heuristics and the changes above, with thresholds from replay.
+
+## Implementation notes (phase 2)
+
+Where the build differs from, or adds to, the design above:
+
+- **Turns, not prompt messages, are the unit.** A message sent while the agent is still working shares the running turn's `promptId` (6 of 66 prompts in one real session). The tree has one node per turn, prompt markers in the same turn share its number, and the session list's "prompts" counts turns.
+- **Tool-category crediting is simpler than designed.** Each turn's (or subagent's) tokens are split across tool categories in proportion to how many calls of each category it made, instead of crediting output and context growth per call. The per-call rule needs a link from each tool call to the model call that requested it, which not every source provides. Values stay marked ≈.
+- **The timeline zooms to a turn by default.** Real sessions span days with idle nights, so the full time range is mostly empty. The timeline shows the selected turn (or the latest), "Show whole session" zooms out, and expanded mode adds drag-to-zoom. Steps are capped at 3 minutes, so idle gaps read as gaps.
+- **Only the main agent's context is plotted.** Subagents run in separate contexts, so they appear as lanes (expanded) rather than stacked onto the main context.
+- **Unlinked calls get their own bucket.** Model calls with no turn, or whose turn's prompt isn't in the loaded events, go in a first "Unlinked" node, so the tree's total still matches the session's. Mostly these are events logged before turns were recorded; see the backfill task in the [roadmap](../roadmap.md#planned-tasks).
+- **Tree colors separate turns by lightness and give categories meaning.** Only about 6–12 hues stay distinguishable (Healey 1996; Ware, *Information Visualization*), and a session can have 90 turns, so turns don't get hues. Instead neighboring turns alternate two shades of blue, and each turn's agent and category blocks inherit its shade. Category blocks take one of five colors, grouping related categories (read with search, shell with version control); web, MCP, subagent, other, and replies only are neutral. Five is the most that passed the palette check (colorblind and normal-vision separation, in both themes) when any two could sit side by side. Categories are drawn in that fixed color order, not by size, so the check holds and a category sits in the same place in every turn. Blocks are tinted with a solid top stripe, keeping labels in the normal text color. Unlinked is gray and dashed.
 
 ## Decisions
 

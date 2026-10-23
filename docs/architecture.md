@@ -123,6 +123,8 @@ Implemented as `Snagboat: Open Detail View` (also the status bar's click action)
 - a filterable timeline (agent, kind, status, target/session text) of the newest 1,000 events from `EventStore`'s 24-hour window
 - jump-to-file on any target that resolves to an existing file, absolute or relative to a workspace folder; the extension re-resolves the target itself rather than trusting the webview
 
+The page has two tabs. **Overview** is the above. **Sessions** (`media/sessions.js`) lists sessions per UTC day and opens one as a turn tree above an expandable context timeline (see [design/conversation-view.md](design/conversation-view.md)). The extension side is `SessionIndex` (summaries of every session in the retained raw log, built at startup and updated live), `buildSessionView` (vscode-free: timeline series and turn tree), and `SessionController`, which loads an opened session from its days' raw files once and keeps it current from live events. Links into a session come from findings, the Overview timeline, the daily chart, and `Snagboat: Open Session...`.
+
 The global, cross-workspace token budget treemap is still deferred: it needs shared storage across workspaces.
 
 ## Longer-horizon rollups

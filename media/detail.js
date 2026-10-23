@@ -25,8 +25,9 @@
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const DAY_MS = 24 * 60 * 60 * 1000;
 
-  function persist() {
-    vscode.setState({ range: ui.range, agent: ui.agent, kind: ui.kind, status: ui.status, search: ui.search });
+  // Shared with sessions.js, which keeps its own keys in the same saved state.
+  function persist(extra) {
+    vscode.setState({ ...(vscode.getState() || {}), range: ui.range, agent: ui.agent, kind: ui.kind, status: ui.status, search: ui.search, ...(extra || {}) });
   }
 
   function el(tag, props, children) {
@@ -120,8 +121,28 @@
   const timelineCount = el('p', { class: 'muted small' });
   const timelineBody = el('tbody');
 
-  app.replaceChildren(
-    el('header', {}, [el('h1', { text: 'Snagboat' }), updatedNote, captureNote, tiles]),
+  // ---------- tabs: Overview (this script) and Sessions (sessions.js) ----------
+  const overviewRoot = el('div', { id: 'overview-root', role: 'tabpanel', 'aria-labelledby': 'tab-overview' });
+  const sessionsRoot = el('div', { id: 'sessions-root', role: 'tabpanel', 'aria-labelledby': 'tab-sessions', hidden: true });
+  const tabButtons = {};
+  function selectTab(tab, notify) {
+    for (const [name, btn] of Object.entries(tabButtons)) btn.setAttribute('aria-selected', String(name === tab));
+    overviewRoot.hidden = tab !== 'overview';
+    sessionsRoot.hidden = tab !== 'sessions';
+    persist({ tab });
+    if (notify) vscode.postMessage({ type: 'tab', tab });
+    if (tab === 'sessions' && window.snagboatSessions) window.snagboatSessions.shown();
+  }
+  for (const [name, label] of [['overview', 'Overview'], ['sessions', 'Sessions']]) {
+    const btn = el('button', { id: `tab-${name}`, class: 'tab', role: 'tab', text: label });
+    btn.addEventListener('click', () => selectTab(name, true));
+    tabButtons[name] = btn;
+  }
+  const tabBar = el('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Snagboat views' }, Object.values(tabButtons));
+
+  app.replaceChildren(el('div', { class: 'title-row' }, [el('h1', { text: 'Snagboat' }), tabBar]), overviewRoot, sessionsRoot);
+  overviewRoot.append(
+    el('header', {}, [updatedNote, captureNote, tiles]),
     el('section', { 'aria-labelledby': 'findings-h' }, [el('h2', { id: 'findings-h', text: 'Findings' }), findingsList, mutedRow]),
     el('section', { 'aria-labelledby': 'usage-h' }, [
       el('h2', { id: 'usage-h', text: 'Token usage per day' }),
@@ -141,6 +162,7 @@
             el('tr', {}, [
               el('th', { text: 'Time' }),
               el('th', { text: 'Agent' }),
+              el('th', { text: 'Session' }),
               el('th', { text: 'Kind' }),
               el('th', { text: 'Status' }),
               el('th', { text: 'Target' }),
@@ -152,6 +174,9 @@
       ]),
     ])
   );
+
+  // Helpers for sessions.js (same document, same CSP nonce).
+  window.snagboat = { vscode, el, svg, compact, fmt, formatTime, persist, sessionsRoot, selectTab, tooltip };
 
   // ---------- header ----------
 
@@ -202,6 +227,14 @@
                     ui.finding = { heuristicId: f.heuristicId, summary: f.summary, refs: new Set(f.eventRefs) };
                     renderTimeline();
                     document.getElementById('timeline-h').scrollIntoView({ behavior: 'smooth' });
+                  },
+                }),
+              f.sessionId &&
+                el('button', {
+                  text: 'Show in session',
+                  onclick: () => {
+                    persist({ sessionId: f.sessionId });
+                    vscode.postMessage({ type: 'openSession', sessionId: f.sessionId });
                   },
                 }),
               !f.acknowledged &&
@@ -324,6 +357,14 @@
       hit.addEventListener('mousemove', show);
       hit.addEventListener('focus', show);
       hit.addEventListener('mouseleave', hideTooltip);
+      // A day's column opens the Sessions list for that day.
+      if (row.total > 0) {
+        hit.style.cursor = 'pointer';
+        hit.addEventListener('click', () => {
+          selectTab('sessions', true);
+          vscode.postMessage({ type: 'listSessions', day: row.date });
+        });
+      }
       hit.addEventListener('blur', hideTooltip);
       root.insertBefore(hit, root.firstChild);
     });
@@ -436,6 +477,19 @@
         el('tr', { class: ui.finding ? 'highlight' : undefined }, [
           el('td', { text: formatTime(e.ts), title: e.ts }),
           el('td', { text: e.agent }),
+          el('td', {}, [
+            e.agent === 'generic-fs'
+              ? el('span', { class: 'muted', text: '\u2014' })
+              : el('button', {
+              class: 'link',
+              text: e.sessionId.slice(0, 8),
+              title: 'Open this session',
+              onclick: () => {
+                persist({ sessionId: e.sessionId });
+                vscode.postMessage({ type: 'openSession', sessionId: e.sessionId });
+              },
+            }),
+          ]),
           el('td', { text: e.toolLabel ? `${e.kind} \u00b7 ${e.toolLabel}` : e.kind }),
           el('td', { class: e.status === 'failure' ? 'status-failure' : undefined, text: e.status }),
           el('td', {}, [
@@ -472,8 +526,18 @@
     if (evt.data && evt.data.type === 'state') {
       state = evt.data.state;
       render();
+    } else if (evt.data && evt.data.type === 'navigate') {
+      selectTab(evt.data.tab, false);
     }
   });
+  // Restore the tab from the last session of this panel.
+  const savedTab = (vscode.getState() || {}).tab;
+  if (savedTab === 'sessions') {
+    selectTab('sessions', false);
+    vscode.postMessage({ type: 'tab', tab: 'sessions' });
+  } else {
+    selectTab('overview', false);
+  }
   let resizeTimer;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);

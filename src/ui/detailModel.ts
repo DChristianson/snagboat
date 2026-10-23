@@ -33,6 +33,8 @@ export interface FindingItem {
   suggestedAction?: string;
   detectedAt: string;
   eventRefs: string[];
+  /** The session most of its events belong to, for "Show in session". */
+  sessionId?: string;
   acknowledged: boolean;
   muted: boolean;
 }
@@ -54,7 +56,11 @@ export type DetailMessage =
   | { type: 'ready' }
   | { type: 'acknowledge'; heuristicId: string }
   | { type: 'setMuted'; heuristicId: string; muted: boolean }
-  | { type: 'openFile'; target: string };
+  | { type: 'openFile'; target: string }
+  | { type: 'tab'; tab: 'overview' | 'sessions' }
+  | { type: 'listSessions'; day?: string }
+  | { type: 'openSession'; sessionId: string }
+  | { type: 'closeSession' };
 
 export function isDetailMessage(value: unknown): value is DetailMessage {
   if (typeof value !== 'object' || value === null) return false;
@@ -68,6 +74,14 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
       return typeof m.heuristicId === 'string' && typeof m.muted === 'boolean';
     case 'openFile':
       return typeof m.target === 'string';
+    case 'tab':
+      return m.tab === 'overview' || m.tab === 'sessions';
+    case 'listSessions':
+      return m.day === undefined || (typeof m.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m.day));
+    case 'openSession':
+      return typeof m.sessionId === 'string';
+    case 'closeSession':
+      return true;
     default:
       return false;
   }
@@ -97,6 +111,15 @@ function eventTokens(event: NormalizedEvent): number | undefined {
   return input + output + cacheRead + cacheCreation;
 }
 
+function dominantSession(refs: string[], sessionOf: Map<string, string>): string | undefined {
+  const counts = new Map<string, number>();
+  for (const id of refs) {
+    const s = sessionOf.get(id);
+    if (s) counts.set(s, (counts.get(s) ?? 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+}
+
 export function buildDetailState(inputs: {
   now: string;
   capture: { enabled: boolean; retentionDays: number };
@@ -108,6 +131,7 @@ export function buildDetailState(inputs: {
   isOpenable: (target: string) => boolean;
 }): DetailState {
   const newest = inputs.recentEvents.slice(-TIMELINE_LIMIT).reverse();
+  const sessionOf = new Map(inputs.recentEvents.map((e) => [e.eventId, e.sessionId]));
   return {
     generatedAt: inputs.now,
     capture: inputs.capture,
@@ -133,6 +157,7 @@ export function buildDetailState(inputs: {
       })),
     },
     findings: inputs.findings.map(({ finding, acknowledged, muted }) => ({
+      sessionId: dominantSession(finding.eventRefs, sessionOf),
       heuristicId: finding.heuristicId,
       severity: finding.severity,
       summary: finding.summary,
