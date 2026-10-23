@@ -152,6 +152,29 @@ async function main() {
     assert.deepStrictEqual(readBack, checkpoint);
   });
 
+  test('CheckpointStore: a burst of unawaited writes leaves the latest, intact, with no temp files', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-checkpoint-'));
+    const store = new CheckpointStore(dir);
+    await store.init();
+    // Shrinking payloads, as when overlapping plain writes would leave a longer one's tail behind.
+    const writes: Array<Promise<void>> = [];
+    for (let i = 300; i > 0; i--) writes.push(store.write('claude-code', { updatedAt: String(i), state: { pad: 'x'.repeat(i * 50) } }));
+    await Promise.all(writes);
+    assert.deepStrictEqual(await store.read('claude-code'), { updatedAt: '1', state: { pad: 'x'.repeat(50) } });
+    assert.deepStrictEqual(fs.readdirSync(path.join(dir, 'checkpoints')), ['claude-code.json']);
+  });
+
+  test('EventLog.readDay keeps one copy of an event logged twice', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-dupes-'));
+    const log = new EventLog(dir);
+    await log.init();
+    const a = makeEvent({ eventId: 'a', ts: '2026-01-01T00:00:00.000Z' });
+    const b = makeEvent({ eventId: 'b', ts: '2026-01-01T00:01:00.000Z' });
+    for (const e of [a, b, a, b]) log.append(e);
+    await log.flush();
+    assert.deepStrictEqual((await log.readDay('2026-01-01')).map((e) => e.eventId), ['a', 'b']);
+  });
+
   test('makeAdapterContext wires publish/checkpoint calls to the right agent id', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-adapterctx-'));
     const store = new CheckpointStore(dir);

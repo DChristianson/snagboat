@@ -90,7 +90,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   // Sessions in the retained raw log. (Another full read at startup; folding
   // the startup reads into one pass is a known follow-up.)
   const sessionIndex = new SessionIndex();
-  for (const event of await eventLog.readAll()) sessionIndex.ingest(event);
+  // Ids already logged, so an event delivered again (a source re-read after a
+  // lost checkpoint) isn't logged or counted twice.
+  const loggedIds = new Set<string>();
+  for (const event of await eventLog.readAll()) {
+    sessionIndex.ingest(event);
+    loggedIds.add(event.eventId);
+  }
 
   const eventStore = new EventStore({ windowMs: EVENT_STORE_WINDOW_MS, maxEvents: EVENT_STORE_MAX_EVENTS });
   await eventStore.rehydrateFrom(eventLog);
@@ -166,6 +172,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const sink = new EventSink(eventLog, aggregateStore, retentionPolicy, todayKey, enqueueStorageOp);
 
   bus.onEvent((event) => {
+    if (loggedIds.has(event.eventId)) return;
+    loggedIds.add(event.eventId);
     contextLimits.observe(event);
     // An event older than all retention isn't stored, so it's left out of the
     // all-time totals and chart too; they'd otherwise drop on the next reload.
@@ -271,6 +279,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         sessionIndex.reset();
         sessions.close();
         eventStore.reset();
+        loggedIds.clear();
       });
       retentionQueue = clearOp.catch(() => undefined);
       try {

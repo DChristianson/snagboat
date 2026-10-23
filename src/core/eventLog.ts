@@ -85,10 +85,15 @@ export class EventLog {
       return [];
     }
     const events: NormalizedEvent[] = [];
+    // An event logged twice (a source re-read after a lost checkpoint) counts once.
+    const ids = new Set<string>();
     for (const line of contents.split('\n')) {
       if (!line.trim()) continue;
       try {
-        events.push(JSON.parse(line) as NormalizedEvent);
+        const event = JSON.parse(line) as NormalizedEvent;
+        if (ids.has(event.eventId)) continue;
+        ids.add(event.eventId);
+        events.push(event);
       } catch {
         console.warn(`snagboat: skipping malformed event log line in ${file}`);
       }
