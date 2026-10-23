@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AdapterContext } from '../../core/types';
 import { LineTailer } from '../../core/lineTailer';
-import { normalizeTranscriptChunk, SeenMessages } from './normalize';
+import { normalizeTranscriptChunk, SeenMessages, TurnTracker } from './normalize';
 
 /**
  * How often to look for a transcripts folder that doesn't exist yet (a project
@@ -43,6 +43,7 @@ export class TranscriptTailer {
   private subagentDiscovery?: NodeJS.Timeout;
   // Watched subagent folders, keyed by path.
   private subagentTailers = new Map<string, LineTailer>();
+  private readonly turns: TurnTracker;
   // Inactive folders already caught up, with the newest file time at that point.
   private caughtUp = new Map<string, number>();
 
@@ -53,8 +54,10 @@ export class TranscriptTailer {
     private readonly seen: SeenMessages,
     private readonly persistCheckpoint: () => void,
     private readonly folderCheckIntervalMs = FOLDER_CHECK_INTERVAL_MS,
-    private readonly subagentOpts: { discoveryIntervalMs?: number; activeWindowMs?: number; rescanIntervalMs?: number } = {}
-  ) {}
+    private readonly subagentOpts: { discoveryIntervalMs?: number; activeWindowMs?: number; rescanIntervalMs?: number; turns?: TurnTracker } = {}
+  ) {
+    this.turns = subagentOpts.turns ?? new TurnTracker();
+  }
 
   start(): void {
     const dir = this.dir;
@@ -149,6 +152,7 @@ export class TranscriptTailer {
           const events = normalizeTranscriptChunk(lines, filePath, chunkStartOffset, {
             captureContent: this.ctx.captureContent(),
             seen: this.seen,
+            turns: this.turns,
           });
           for (const event of events) this.ctx.publish(event);
         } catch (err) {

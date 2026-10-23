@@ -4,7 +4,7 @@ import { HooksReceiver } from './hooksReceiver';
 import { buildHookCommand, ensureHooksConfigured } from './hooksConfig';
 import { resolveTranscriptsDir, resolveWorkspaceFolders } from './workspace';
 import { installHookScript, newToken, pruneStaleRoutes, removeRoutes, snagboatHome, withRealPaths, writeRoutes } from './hookRoutes';
-import { SeenMessages } from './normalize';
+import { SeenMessages, TurnTracker } from './normalize';
 import { CheckpointStateV2, readCheckpointState } from './checkpointState';
 
 export class ClaudeCodeAdapter implements AgentAdapter {
@@ -13,6 +13,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   private ctx?: AdapterContext;
   private offsets = new Map<string, number>();
   private seen = new SeenMessages();
+  private turns = new TurnTracker();
   private transcriptTailer?: TranscriptTailer;
   private hooksReceiver?: HooksReceiver;
   private routedFolders: string[] = [];
@@ -20,15 +21,16 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   async init(ctx: AdapterContext): Promise<void> {
     this.ctx = ctx;
     const checkpoint = await ctx.readCheckpoint();
-    const { offsets, seen } = readCheckpointState(checkpoint?.state);
+    const { offsets, seen, turns } = readCheckpointState(checkpoint?.state);
     this.offsets = offsets;
     this.seen = seen;
+    this.turns = turns;
   }
 
   async start(): Promise<void> {
     if (!this.ctx) throw new Error('ClaudeCodeAdapter.start() called before init()');
 
-    this.transcriptTailer = new TranscriptTailer(this.ctx, resolveTranscriptsDir(), this.offsets, this.seen, () => this.persistCheckpoint());
+    this.transcriptTailer = new TranscriptTailer(this.ctx, resolveTranscriptsDir(), this.offsets, this.seen, () => this.persistCheckpoint(), undefined, { turns: this.turns });
     this.transcriptTailer.start();
 
     await this.startHooks(this.ctx);
@@ -51,7 +53,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       pruneStaleRoutes(home);
       const scriptPath = installHookScript(home);
       const token = newToken();
-      this.hooksReceiver = new HooksReceiver(ctx, { token, workspaceFolders: folders });
+      this.hooksReceiver = new HooksReceiver(ctx, { token, workspaceFolders: folders, turnFallback: (sessionId) => this.turns.latestTurnForSession(sessionId) });
       const port = await this.hooksReceiver.start();
       writeRoutes(home, folders, { port, token, pid: process.pid });
       this.routedFolders = folders;
@@ -75,6 +77,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       version: 2,
       offsets: Object.fromEntries(this.offsets),
       recentMessageIds: this.seen.snapshot(),
+      lastTurnByFile: this.turns.snapshot(),
     };
     void this.ctx?.writeCheckpoint({ updatedAt: new Date().toISOString(), state: { ...state } });
   }

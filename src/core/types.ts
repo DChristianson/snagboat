@@ -1,7 +1,15 @@
 export type BuiltInAgentId = 'claude-code' | 'copilot' | 'generic-fs';
 export type AgentId = BuiltInAgentId | `custom:${string}`;
 
-export type NormalizedEventKind = 'tool_call' | 'edit' | 'turn_start' | 'turn_stop';
+export type NormalizedEventKind =
+  | 'tool_call'
+  | 'edit'
+  | 'turn_start'
+  | 'turn_stop'
+  /** You submitted a prompt. A marker only: prompt text is never stored. */
+  | 'user_prompt'
+  /** The conversation's context was compacted. */
+  | 'compaction';
 
 export interface EventTokens {
   input?: number;
@@ -22,6 +30,18 @@ export interface NormalizedEvent {
   tokens?: EventTokens;
   /** The agent's own reply text, truncated; present only when snagboat.captureContent is on. */
   textExcerpt?: string;
+  /** The prompt (turn) this event belongs to: Claude Code's promptId. */
+  turnId?: string;
+  /** Set for work done by a subagent; absent for the main agent. */
+  agentId?: string;
+  /** For compaction events. */
+  compaction?: {
+    trigger: 'auto' | 'manual' | 'unknown';
+    /** Context size that set it off. */
+    preTokens?: number;
+    /** Context size afterwards. */
+    postTokens?: number;
+  };
   raw: {
     adapter: string;
     ref: string;

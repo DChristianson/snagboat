@@ -41,7 +41,7 @@ export class HooksReceiver {
 
   constructor(
     private readonly ctx: AdapterContext,
-    private readonly opts: { token: string; workspaceFolders: string[]; port?: number }
+    private readonly opts: { token: string; workspaceFolders: string[]; port?: number; turnFallback?: (sessionId: string) => string | undefined }
   ) {}
 
   /** Resolves with the bound port once listening; rejects if it can't listen. */
@@ -76,7 +76,7 @@ export class HooksReceiver {
           console.warn(`snagboat: failed to parse hook payload as JSON (${raw.length} bytes)`);
           return;
         }
-        const event = normalizeHookPayload(payload);
+        const event = normalizeHookPayload(payload, this.opts.turnFallback);
         if (event) {
           this.ctx.publish(event);
         } else {

@@ -12,7 +12,7 @@ export const stalledHeuristic: Heuristic = {
   // Every kind, not a subset: any new event should promptly clear an active
   // "stalled" finding on the push path, rather than waiting up to
   // POLL_INTERVAL_MS for the next timer tick to notice activity resumed.
-  appliesTo: ['tool_call', 'edit', 'turn_start', 'turn_stop'],
+  appliesTo: ['tool_call', 'edit', 'turn_start', 'turn_stop', 'user_prompt', 'compaction'],
 
   evaluate(ctx: HeuristicContext): Finding[] {
     const latestTs = ctx.store.latestTs();

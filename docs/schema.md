@@ -12,7 +12,7 @@ interface NormalizedEvent {
   agent: AgentId;
   ts: string;
   kind: 'tool_call' | 'tool_result' | 'edit' | 'test_run'
-    | 'turn_start' | 'turn_stop';
+    | 'turn_start' | 'turn_stop' | 'user_prompt' | 'compaction';
   target?: string;
   status: 'success' | 'failure' | 'unknown';
   model?: string;
@@ -23,6 +23,9 @@ interface NormalizedEvent {
     cacheCreation?: number;
   };
   textExcerpt?: string;
+  turnId?: string;   // the prompt (turn) this event belongs to
+  agentId?: string;  // set for subagent work
+  compaction?: { trigger: 'auto' | 'manual' | 'unknown'; preTokens?: number; postTokens?: number };
   confidence?: number;
   raw: {
     adapter: string;
@@ -44,8 +47,13 @@ Every adapter should document how each raw signal maps into the shared schema.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `PostToolUse` hook payload | Claude Code | `tool_call` | `tool_input.file_path` or `.command` | Derived from `tool_response.error` | — | — | Hooks provide structure but not usage. |
 | `Stop` hook payload | Claude Code | `turn_stop` | — | `unknown` | — | — | Marks turn boundaries for windowed heuristics. |
+| `prompt_id`, `agent_id` on any hook payload | Claude Code | Decorates the hook's event | — | — | — | — | Become `turnId` and `agentId`. Payloads without `prompt_id` (older Claude Code) take the session's current turn from the transcript. |
 | Transcript message with usage block | Claude Code JSONL | `turn_stop` | — | `unknown` | Direct map from `input_tokens`, `output_tokens`, and cache fields, **once per `message.id`** | See next row | Primary token-accounting source. Claude Code writes one line per content block (thinking, text, tool_use), each repeating the whole message's `usage`; consecutive lines sharing a `message.id` are merged into one event. |
 | Transcript message text | Claude Code JSONL | Decorates the owning `turn_stop` event | — | `unknown` | — | `text` content blocks only, truncated to 500 characters, when `snagboat.captureContent` is on | Heuristics mine this captured text later; adapters do not need to invent a separate hedge event. |
+| Prompt line (`user` line with text, not a tool result, meta, compact summary, or subagent line) | Claude Code JSONL | `user_prompt` | — | `unknown` | — | — (never stored) | `turnId` is its `promptId`. A marker only: the prompt's text is not stored. |
+| Any transcript line's `parentUuid` | Claude Code JSONL | Decorates model calls | — | — | — | — | Each line inherits its parent's turn, so every model call gets the `turnId` of the prompt that started it. |
+| `system` line, subtype `compact_boundary` | Claude Code JSONL | `compaction` | — | `unknown` | — | — | `compactMetadata.trigger`, `preTokens`, `postTokens`; `model` is the session's last model. |
+| Subagent transcript (`<session>/subagents/*.jsonl`) | Claude Code JSONL | Same as the main transcript | — | — | Same | Same | Lines carry `agentId` (becomes `agentId`) and the spawning turn's `promptId`. |
 | `gen_ai.output.messages` on `invoke_agent` | Copilot OTel | Decorates the span's `turn_stop` event | — | — | — | Assistant `text` parts only, truncated to 500 characters, when both `snagboat.captureContent` and Copilot's `captureContent` are on | JSON string per the OpenTelemetry GenAI output-messages schema: `[{role, parts: [{type, content}], finish_reason}]`. |
 | `execute_tool` span | Copilot OTel | `tool_call` | Span attributes for tool name or args | Span status code | — | — | Higher-fidelity tool activity path. |
 | `execute_hook` span | Copilot OTel | `tool_call` | `hook_type` attribute | `hook_result_kind` mapping | — | — | Annotation-oriented signal. |
