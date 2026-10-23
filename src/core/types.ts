@@ -46,6 +46,12 @@ export interface NormalizedEvent {
    * agent turn: their tokens count, but they aren't turns.
    */
   channel?: 'inline';
+  /**
+   * Set on the event that ends a turn: the main agent's model call that
+   * finished without requesting a tool, Claude Code's Stop hook, or a user
+   * interruption. Until one arrives, the turn is still open.
+   */
+  endsTurn?: true;
   /** The model's prompt budget for this call, when the source reports it. */
   contextLimit?: number;
   /** For compaction events. */

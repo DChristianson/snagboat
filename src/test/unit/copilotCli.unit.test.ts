@@ -61,6 +61,17 @@ async function main() {
     assert.ok(!JSON.stringify(events).includes('run the tests please'), 'prompt text is never stored');
   });
 
+  test('a reply that requests no tools ends the turn; one that requests tools does not', () => {
+    const lines = [
+      ...session('/w/proj').slice(0, 4),
+      ev('assistant.message', 'm1', 'e3', 3, { interactionId: 'I1', toolRequests: [{ toolCallId: 't1', name: 'bash' }] }),
+      ev('assistant.message', 'm2', 'e5', 6, { interactionId: 'I1', toolRequests: [] }),
+    ];
+    const events = normalizeCopilotCliChunk(lines, 'f', 0, new CopilotCliState());
+    const ends = events.filter((e) => e.endsTurn);
+    assert.deepStrictEqual(ends.map((e) => [e.kind, e.turnId, e.eventId, e.tokens]), [['turn_stop', 'I1', 'm2:end', undefined]]);
+  });
+
   test('usage records split cached tokens out of inputTokens and carry the reported limit', () => {
     const call = normalizeCopilotCliChunk(session('/w/proj'), 'f', 0, new CopilotCliState())[1];
     assert.deepStrictEqual(call.tokens, { input: 4, output: 114, cacheRead: 15169, cacheCreation: 13399 });

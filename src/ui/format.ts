@@ -36,6 +36,9 @@ const FINDING_GLYPHS: Record<string, string> = {
   'token-budget': '$(dashboard)',
   stalled: '$(clock)',
   'verbal-hedge': '$(comment-discussion)',
+  'runaway-turn': '$(run-all)',
+  'context-pressure': '$(fold)',
+  'cache-thrash': '$(flame)',
 };
 
 function findingGlyph(heuristicId: string): string {

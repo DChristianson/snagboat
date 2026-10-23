@@ -118,6 +118,9 @@ export function normalizeCopilotCliChunk(
         tokens: { input, output: num(u.outputTokens) ?? 0, cacheRead, cacheCreation: cacheWrite },
         contextLimit: num(u.maxPromptTokens),
       });
+    } else if (e.type === 'assistant.message' && Array.isArray(data.toolRequests) && data.toolRequests.length === 0 && !str(data.parentToolCallId)) {
+      // A reply that requests no tools finishes the turn.
+      events.push({ ...base, eventId: `${e.id ?? `${filePath}:${chunkStartOffset}`}:end`, kind: 'turn_stop', status: 'unknown', endsTurn: true });
     } else if (e.type === 'tool.execution_start' && str(data.toolCallId)) {
       state.recordToolStart(data.toolCallId, str(data.toolName), data.arguments && typeof data.arguments === 'object' ? data.arguments : undefined);
     } else if (e.type === 'tool.execution_complete') {

@@ -9,6 +9,7 @@ import { CheckpointStore } from './core/checkpointStore';
 import { DailyHistory } from './core/dailyHistory';
 import { SessionIndex } from './core/sessions';
 import { SessionController } from './ui/sessionController';
+import { FindingReplay } from './heuristics/replay';
 import { ContextLimits, ModelContextMarks } from './core/contextLimits';
 import { AggregateStore, EventSink, RetentionPolicy, applyRetention } from './core/retention';
 import { HealthRegistry } from './core/health';
@@ -90,7 +91,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   // Sessions in the retained raw log. (Another full read at startup; folding
   // the startup reads into one pass is a known follow-up.)
   const sessionIndex = new SessionIndex();
-  for (const event of await eventLog.readAll()) sessionIndex.ingest(event);
+  // Ids already logged, so an event delivered again (a source re-read after a
+  // lost checkpoint) isn't logged or counted twice.
+  const loggedIds = new Set<string>();
+  for (const event of await eventLog.readAll()) {
+    sessionIndex.ingest(event);
+    loggedIds.add(event.eventId);
+  }
 
   const eventStore = new EventStore({ windowMs: EVENT_STORE_WINDOW_MS, maxEvents: EVENT_STORE_MAX_EVENTS });
   await eventStore.rehydrateFrom(eventLog);
@@ -105,7 +112,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const health = new HealthRegistry();
 
   const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []));
-  const engine = new HeuristicsEngine(builtInHeuristics(), eventStore, heuristicSettings);
+  const engine = new HeuristicsEngine(builtInHeuristics(), eventStore, heuristicSettings, (model) => (model ? contextLimits.get(model)?.limit : undefined));
   const runHeuristics = (kind?: NormalizedEventKind) => {
     const now = new Date().toISOString();
     const results = kind ? engine.tickFor(kind, now) : engine.tick(now);
@@ -120,12 +127,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const outputChannel = vscode.window.createOutputChannel('Snagboat');
   context.subscriptions.push(outputChannel);
 
-  const sessions = new SessionController(
-    sessionIndex,
-    eventLog,
-    () => contextLimits.all(),
-    () => findings.list()
-  );
+  const sessions = new SessionController(sessionIndex, eventLog, () => contextLimits.all(), {
+    active: () => findings.list(),
+    newReplay: () => new FindingReplay(builtInHeuristics(), heuristicSettings, (model) => (model ? contextLimits.get(model)?.limit : undefined)),
+    muted: () => findings.mutedHeuristics(),
+  });
   const detailPanel = new DetailPanel(context.extensionUri, {
     buildState: (isOpenable) =>
       buildDetailState({
@@ -166,6 +172,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const sink = new EventSink(eventLog, aggregateStore, retentionPolicy, todayKey, enqueueStorageOp);
 
   bus.onEvent((event) => {
+    if (loggedIds.has(event.eventId)) return;
+    loggedIds.add(event.eventId);
     contextLimits.observe(event);
     // An event older than all retention isn't stored, so it's left out of the
     // all-time totals and chart too; they'd otherwise drop on the next reload.
@@ -271,6 +279,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         sessionIndex.reset();
         sessions.close();
         eventStore.reset();
+        loggedIds.clear();
       });
       retentionQueue = clearOp.catch(() => undefined);
       try {

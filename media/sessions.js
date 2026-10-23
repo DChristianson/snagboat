@@ -5,7 +5,7 @@
 (function () {
   const S = window.snagboat;
   if (!S) return;
-  const { vscode, el, svg, compact, fmt, persist, sessionsRoot, tooltip } = S;
+  const { vscode, el, svg, compact, fmt, formatTime, persist, sessionsRoot, tooltip } = S;
   const saved = vscode.getState() || {};
 
   const ui = {
@@ -49,11 +49,13 @@
     timelineHost,
     timelineNote,
   ]);
+  const findingsSection = el('section', { class: 'session-findings', 'aria-label': 'Findings in this session' });
   const sessionSection = el('section', { class: 'session-view', hidden: true }, [
     el('div', { class: 'session-head' }, [crumbs, el('span', { class: 'spacer' }), closeBtn]),
     sessionMeta,
     treeHost,
     timelinePanel,
+    findingsSection,
   ]);
   sessionsRoot.append(listSection, sessionSection);
 
@@ -394,7 +396,7 @@
       root.append(t);
     }
 
-    // Findings: badge at the first triggering event, bracket over the rest.
+    // Findings: badge where it starts, bracket over its span. Active ones are filled, earlier ones outlined.
     v.findings.forEach((f, i) => {
       if (!f.fromTs) return;
       const a = ms(f.fromTs);
@@ -403,13 +405,18 @@
       const yy = m.t + 10 + (i % 3) * 14;
       const xa = Math.max(m.l, x(a));
       const xb = Math.min(m.l + pw, x(b));
-      if (xb - xa > 4) root.append(svg('line', { class: 'finding-bracket', x1: xa, x2: xb, y1: yy + 3, y2: yy + 3 }));
-      root.append(svg('path', { class: f.severity === 'warn' ? 'warn-mark' : 'info-mark', d: `M${xa},${yy} l5,-9 l5,9 z` }));
+      const g = svg('g', { class: `finding-mark${f.active ? '' : ' past'}` });
+      if (xb - xa > 4) g.append(svg('line', { class: `finding-bracket ${f.severity}`, x1: xa, x2: xb, y1: yy + 3, y2: yy + 3 }));
+      g.append(svg('path', { class: f.severity === 'warn' ? 'warn-mark' : 'info-mark', d: `M${xa},${yy} l5,-9 l5,9 z` }));
       if (ui.expanded) {
         const t = svg('text', { class: 'axis-label', x: xa + 13, y: yy });
         t.textContent = f.heuristicId;
-        root.append(t);
+        g.append(t);
       }
+      g.append(svg('rect', { class: 'hit', x: xa - 4, y: yy - 12, width: Math.max(xb - xa, 10) + 8, height: 18 }));
+      g.addEventListener('mousemove', (e) => showTip(e, findingTip(f)));
+      g.addEventListener('mouseleave', hideTip);
+      root.append(g);
     });
 
     // Output strip (expanded): own scale.
@@ -490,6 +497,60 @@
   }
 
   // ---------- wiring ----------
+  // ---------- findings in this session ----------
+  const findingState = (f) => (f.active ? 'Active now' : 'Earlier');
+  function findingTip(f) {
+    return [
+      `\u25b2 ${f.heuristicId} (${f.severity === 'warn' ? 'warning' : 'info'})`,
+      f.summary,
+      ['State', findingState(f)],
+      ['Started', formatTime(f.startedTs || f.fromTs)],
+    ];
+  }
+
+  function showFinding(f) {
+    // Select its turn (or zoom to its span) and bring the timeline into view.
+    if (f.turnIds.length) {
+      ui.selectedTurn = f.turnIds[0];
+      ui.zoom = null;
+    } else {
+      const pad = 5 * 60 * 1000;
+      ui.zoom = [ms(f.fromTs) - pad, ms(f.toTs || f.fromTs) + pad];
+    }
+    ui.focusId = 's';
+    render();
+    timelinePanel.scrollIntoView({ block: 'nearest' });
+  }
+
+  function renderFindings() {
+    const list = ui.view.findings.filter((f) => f.fromTs);
+    findingsSection.hidden = list.length === 0;
+    if (!list.length) return findingsSection.replaceChildren();
+    const turnLabel = (f) => f.turnIds.map((t) => ui.view.prompts.find((p) => p.turnId === t)).filter(Boolean).map((p) => `P${p.index}`).join(', ');
+    findingsSection.replaceChildren(
+      el('h2', { text: `Findings in this session (${list.length})` }),
+      el('p', { class: 'muted small', text: 'Earlier findings are what the heuristics would have reported at the time, replayed with your current settings.' }),
+      el('table', { class: 'findings-table' }, [
+        el('thead', {}, [el('tr', {}, ['When', 'Heuristic', 'Severity', 'State', 'Turn', 'Summary', ''].map((h) => el('th', { text: h })))]),
+        el(
+          'tbody',
+          {},
+          list.map((f) =>
+            el('tr', { class: f.active ? 'active' : 'past' }, [
+              el('td', { class: 'nowrap', text: formatTime(f.startedTs || f.fromTs) }),
+              el('td', { class: 'nowrap' }, [el('span', { class: `sev ${f.severity}`, text: '\u25b2 ' }), f.heuristicId]),
+              el('td', { text: f.severity === 'warn' ? 'Warning' : 'Info' }),
+              el('td', { text: findingState(f) }),
+              el('td', { text: turnLabel(f) }),
+              el('td', { text: f.summary }),
+              el('td', { class: 'nowrap' }, [el('button', { class: 'link', text: 'Show', onclick: () => showFinding(f) })]),
+            ])
+          )
+        ),
+      ])
+    );
+  }
+
   function render() {
     renderList();
     const v = ui.view;
@@ -500,6 +561,7 @@
     renderCrumbs();
     renderTree();
     renderTimeline();
+    renderFindings();
   }
 
   window.addEventListener('message', (evt) => {

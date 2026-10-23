@@ -20,6 +20,7 @@ interface ClaudeTranscriptLine {
   message?: {
     id?: string;
     model?: string;
+    stop_reason?: string | null;
     content?: Array<{ type?: string; text?: string }> | string;
     usage?: {
       input_tokens?: number;
@@ -65,6 +66,8 @@ function toEvent(
         }
       : undefined,
     textExcerpt: opts.textExcerpt,
+    // Every line of a message repeats its stop_reason; a subagent finishing doesn't end the turn.
+    endsTurn: opts.withTokens && line.message?.stop_reason === 'end_turn' && !line.agentId && !line.isSidechain ? true : undefined,
     raw: { adapter: 'claude-code', ref: `${filePath}#offset~${chunkStartOffset}` },
   };
 }
@@ -97,9 +100,17 @@ export function normalizeTranscriptLine(
  * tool result, and not a meta, compact-summary, or subagent line (a
  * subagent's opening `user` line is the main agent's instructions to it).
  */
+/** Claude Code's "[Request interrupted by user]" line (also "... for tool use"): a turn end, not a prompt. */
+export function isInterruption(line: ClaudeTranscriptLine): boolean {
+  if (line.type !== 'user' || line.isSidechain || line.agentId) return false;
+  const content = line.message?.content;
+  const texts = typeof content === 'string' ? [content] : Array.isArray(content) ? content.filter((b) => b?.type === 'text').map((b) => b.text ?? '') : [];
+  return texts.length > 0 && texts.every((t) => t.startsWith('[Request interrupted by user'));
+}
+
 export function isUserPrompt(line: ClaudeTranscriptLine): boolean {
   if (line.type !== 'user' || line.toolUseResult || line.isMeta || line.isCompactSummary) return false;
-  if (line.isSidechain || line.agentId) return false;
+  if (line.isSidechain || line.agentId || isInterruption(line)) return false;
   const content = line.message?.content;
   if (typeof content === 'string') return content.trim().length > 0;
   return Array.isArray(content) && content.some((b) => b?.type === 'text') && !content.some((b) => b?.type === 'tool_result');
@@ -253,6 +264,11 @@ export function normalizeTranscriptChunk(
       events.push(promptEvent(line, filePath, chunkStartOffset, turnId));
       continue;
     }
+    if (isInterruption(line)) {
+      flushGroup();
+      events.push(interruptionEvent(line, filePath, chunkStartOffset, turnId));
+      continue;
+    }
     if (line.type === 'system' && line.subtype === 'compact_boundary') {
       flushGroup();
       events.push(compactionEvent(line, filePath, chunkStartOffset, turnId, turns.lastModel(filePath)));
@@ -303,6 +319,20 @@ function promptEvent(line: ClaudeTranscriptLine, filePath: string, chunkStartOff
     kind: 'user_prompt',
     status: 'unknown',
     turnId,
+    raw: { adapter: 'claude-code', ref: `${filePath}#offset~${chunkStartOffset}` },
+  };
+}
+
+function interruptionEvent(line: ClaudeTranscriptLine, filePath: string, chunkStartOffset: number, turnId: string | undefined): NormalizedEvent {
+  return {
+    eventId: line.uuid ?? `claude-code:${filePath}:${chunkStartOffset}:interrupt`,
+    sessionId: line.sessionId ?? 'unknown-session',
+    agent: 'claude-code',
+    ts: line.timestamp ?? new Date().toISOString(),
+    kind: 'turn_stop',
+    status: 'unknown',
+    turnId,
+    endsTurn: true,
     raw: { adapter: 'claude-code', ref: `${filePath}#offset~${chunkStartOffset}` },
   };
 }
@@ -408,6 +438,7 @@ export function normalizeHookPayload(payload: unknown, turnFallback?: (sessionId
       ts,
       kind: 'turn_stop',
       status: 'unknown',
+      endsTurn: true,
       ...attribution,
       raw: { adapter: 'claude-code', ref: 'hook:Stop' },
     };

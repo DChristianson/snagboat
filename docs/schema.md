@@ -31,6 +31,7 @@ interface NormalizedEvent {
   compaction?: { trigger: 'auto' | 'manual' | 'unknown'; preTokens?: number; postTokens?: number };
   channel?: 'inline';    // model calls from editor features, not agent turns
   contextLimit?: number; // the model's prompt budget for this call, when reported
+  endsTurn?: true;       // this event ends its turn (see below)
   confidence?: number;
   raw: {
     adapter: string;
@@ -51,11 +52,13 @@ Every adapter should document how each raw signal maps into the shared schema.
 | Raw signal | Source | `kind` | `target` | `status` | `tokens` | `textExcerpt` | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `PostToolUse` hook payload | Claude Code | `tool_call` | `tool_input.file_path` or `.command` | Derived from `tool_response.error` | — | — | Hooks provide structure but not usage. |
-| `Stop` hook payload | Claude Code | `turn_stop` | — | `unknown` | — | — | Marks turn boundaries for windowed heuristics. |
+| `Stop` hook payload | Claude Code | `turn_stop` with `endsTurn` | — | `unknown` | — | — | Marks the end of a turn. |
 | `prompt_id`, `agent_id` on any hook payload | Claude Code | Decorates the hook's event | — | — | — | — | Become `turnId` and `agentId`. Payloads without `prompt_id` (older Claude Code) take the session's current turn from the transcript. |
 | Transcript message with usage block | Claude Code JSONL | `turn_stop` | — | `unknown` | Direct map from `input_tokens`, `output_tokens`, and cache fields, **once per `message.id`** | See next row | Primary token-accounting source. Claude Code writes one line per content block (thinking, text, tool_use), each repeating the whole message's `usage`; consecutive lines sharing a `message.id` are merged into one event. |
 | Transcript message text | Claude Code JSONL | Decorates the owning `turn_stop` event | — | `unknown` | — | `text` content blocks only, truncated to 500 characters, when `snagboat.captureContent` is on | Heuristics mine this captured text later; adapters do not need to invent a separate hedge event. |
 | Prompt line (`user` line with text, not a tool result, meta, compact summary, or subagent line) | Claude Code JSONL | `user_prompt` | — | `unknown` | — | — (never stored) | `turnId` is its `promptId`. A marker only: the prompt's text is not stored. |
+| Interruption line (`user` line whose text starts "[Request interrupted by user") | Claude Code JSONL | `turn_stop` with `endsTurn`, no tokens | — | `unknown` | — | — | Ends the interrupted turn; not a prompt. |
+| `stop_reason: end_turn` on a main-agent message | Claude Code JSONL | Decorates the message's `turn_stop` with `endsTurn` | — | — | — | — | The model finished without requesting a tool. A subagent finishing doesn't end the turn. |
 | Any transcript line's `parentUuid` | Claude Code JSONL | Decorates model calls | — | — | — | — | Each line inherits its parent's turn, so every model call gets the `turnId` of the prompt that started it. |
 | `system` line, subtype `compact_boundary` | Claude Code JSONL | `compaction` | — | `unknown` | — | — | `compactMetadata.trigger`, `preTokens`, `postTokens`; `model` is the session's last model. |
 | Subagent transcript (`<session>/subagents/*.jsonl`) | Claude Code JSONL | Same as the main transcript | — | — | Same | Same | Lines carry `agentId` (becomes `agentId`) and the spawning turn's `promptId`. |
@@ -65,6 +68,7 @@ Every adapter should document how each raw signal maps into the shared schema.
 | `chat <model>` span outside `invoke_agent` | Copilot OTel | `turn_stop` with `channel: 'inline'` | — | Span status code | `input_tokens` minus `cache_read.input_tokens`; `output_tokens`; cache read | — | Editor features (inline and next-edit suggestions, chat titles). `max_prompt_tokens` becomes `contextLimit`. Metrics are no longer mapped: the spans carry the same counts. |
 | `user.message` | Copilot CLI session log | `user_prompt` | — | `unknown` | — | — (never stored) | `turnId` is its `interactionId`. |
 | `session.usage_record` | Copilot CLI session log | `turn_stop` | — | `unknown` | `inputTokens` minus cache read and write; `outputTokens`; `cacheReadTokens`; `cacheWriteTokens` as cache creation | — | One model call. `maxPromptTokens` becomes `contextLimit`; turn from the `parentId` chain. |
+| `assistant.message` with empty `toolRequests` | Copilot CLI session log | `turn_stop` with `endsTurn`, no tokens | — | `unknown` | — | — | The reply that finishes the turn. Event id is the message's id plus `:end`. |
 | `tool.execution_start` + `tool.execution_complete` | Copilot CLI session log | `tool_call` | `arguments.command` or a path argument | `success` / non-zero `shellExecution.exitCode` | — | — | `toolName` and `toolCategory` as for Claude Code. |
 | `onDidSaveTextDocument` | Generic FS | `edit` | File path | `unknown` | — | — | Provides churn and backtracking input even without agent data. |
 | Terminal exit code | Generic FS | `test_run` | Command string | `success` when exit code is 0, else `failure` | — | — | Shell-integration driven. |

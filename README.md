@@ -59,18 +59,25 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
   - a per-day token chart by agent over 7, 30, or 90 days, with a table view;
   - a filterable timeline of the last 24 hours, where file targets open the file and reply excerpts can be expanded.
 
-  Its **Sessions** tab lists each day's agent sessions. Opening one shows a **turn tree** (where the session's tokens went: by prompt, then main agent or subagent, then an approximate split by tool category; click to zoom; calls that can't be tied to a prompt, such as ones logged by older Snagboat versions, are grouped as **Unlinked**) above a **context timeline** (how much context each model call sent, split into cache read, cache creation, and fresh input, with your prompts, compactions, findings, and each model's largest-seen and limit lines). Expand the timeline for output tokens, subagent lanes, and drag-to-zoom. Findings ("Show in session"), session ids in the Overview timeline, and the daily chart's bars all link into it, as does **Snagboat: Open Session...**.
+  Its **Sessions** tab lists each day's agent sessions. Opening one shows a **turn tree** (where the session's tokens went: by prompt, then main agent or subagent, then an approximate split by tool category; click to zoom; calls that can't be tied to a prompt, such as ones logged by older Snagboat versions, are grouped as **Unlinked**) above a **context timeline** (how much context each model call sent, split into cache read, cache creation, and fresh input, with your prompts, compactions, findings, and each model's largest-seen and limit lines), and a list of the session's findings. Findings include earlier ones, found by replaying the session through the heuristics when you open it, as well as active ones. Expand the timeline for output tokens, subagent lanes, and drag-to-zoom. Findings ("Show in session"), session ids in the Overview timeline, and the daily chart's bars all link into it, as does **Snagboat: Open Session...**.
 - **Commands:** **Snagboat: Show Token/Event Breakdown** prints the breakdown to an output channel; **Snagboat: Clear Event Log** deletes this workspace's logged events after confirming.
 
 ### Findings
 
+Most heuristics judge each session's current turn (everything since your latest prompt), so they clear when you prompt again.
+
 | Heuristic | Fires when | Status bar glyph |
 | --- | --- | --- |
-| `backtracking` | The same file or command is touched several times in a short window with no success in between | `$(history)` |
-| `tool-churn` | Many tool calls in a short window land on very few distinct targets | `$(sync)` |
-| `stalled` | No agent activity for a while | `$(clock)` |
+| `runaway-turn` | One prompt has driven 100 or more model calls or tool calls | `$(run-all)` |
+| `context-pressure` | Context was compacted automatically during the turn (warning), or is near the model's limit (info) | `$(fold)` |
+| `cache-thrash` | Calls in one turn keep rewriting the prompt cache instead of reusing it | `$(flame)` |
+| `backtracking` | One target fails repeatedly, or one file is edited over and over, within a turn | `$(history)` |
+| `tool-churn` | A burst of tool calls in one session mostly hits the same one or two targets | `$(sync)` |
+| `stalled` | An unfinished turn has had no agent activity for a while: a long-running tool, a permission prompt, or a stuck agent. A finished turn going quiet never fires. | `$(clock)` |
 | `token-budget` | A session, or today's total for this workspace, crosses a budget you set | `$(dashboard)` |
 | `verbal-hedge` | Replies in one session repeatedly hedge or self-correct ("I think", "let me try again", "my mistake"). Informational, and a warning only alongside repeated or failing tool activity. Needs `snagboat.captureContent`. | `$(comment-discussion)` |
+
+Default thresholds come from replaying real sessions; `npm run replay:heuristics` replays yours.
 
 With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself shows `$(warning)`. Details: [docs/heuristics.md](docs/heuristics.md).
 
@@ -85,12 +92,18 @@ With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself s
 | `snagboat.tokenBudget.day` | unset | Warn when this workspace's tokens for the day cross this total. |
 | `snagboat.copilot.otlpPort` | `4318` | Local port for Copilot's telemetry. |
 | `snagboat.copilot.captureStructure` | `false` | Development aid: record the structure of Copilot's telemetry (span names, links, attribute names, numbers; every text value replaced by its length) to help map it. Summarize with `npm run summarize:copilot`. |
-| `snagboat.heuristics.backtracking.window` | `10` (minutes) | Window backtracking looks back over. |
-| `snagboat.heuristics.backtracking.minRepeats` | `3` | Touches of one target within the window before backtracking fires. |
+| `snagboat.heuristics.runawayTurn.maxModelCalls` | `100` | Model calls in one turn (main agent and subagents) before runaway-turn fires. |
+| `snagboat.heuristics.runawayTurn.maxToolCalls` | `100` | Tool calls in one turn before runaway-turn fires. |
+| `snagboat.heuristics.contextPressure.percent` | `90` | Share of the model's context limit at which context-pressure reports. |
+| `snagboat.heuristics.cacheThrash.minTokens` | `50000` | Cache tokens a call must write (and more than it reads) to count as a rewrite. |
+| `snagboat.heuristics.cacheThrash.minCalls` | `2` | Rewrites in one turn before cache-thrash fires. |
+| `snagboat.heuristics.backtracking.minFailures` | `3` | Failures on one target within a turn before backtracking fires. |
+| `snagboat.heuristics.backtracking.minEdits` | `10` | Edits to one file within a turn before backtracking fires. |
 | `snagboat.heuristics.toolChurn.window` | `5` (minutes) | Window tool-churn looks back over. |
-| `snagboat.heuristics.toolChurn.minCalls` | `8` | Tool calls within the window before tool-churn can fire. |
-| `snagboat.heuristics.toolChurn.maxDistinctTargets` | `2` | Tool-churn fires only if those calls hit at most this many targets. |
-| `snagboat.heuristics.stalled.minutes` | `15` | Minutes without activity before stalled fires. |
+| `snagboat.heuristics.toolChurn.minCalls` | `8` | Targeted tool calls in one session within the window before tool-churn can fire. |
+| `snagboat.heuristics.toolChurn.minShare` | `0.9` | Share of those calls the two most-hit targets must take. |
+| `snagboat.heuristics.stalled.minutes` | `15` | Quiet minutes in an unfinished turn before stalled fires. |
+| `snagboat.heuristics.stalled.maxMinutes` | `180` | Quiet minutes after which the turn counts as abandoned and stalled stops. |
 | `snagboat.heuristics.verbalHedge.window` | `10` (minutes) | Window verbal-hedge looks back over. |
 | `snagboat.heuristics.verbalHedge.minTurns` | `2` | Hedging replies in one session within the window before verbal-hedge fires. |
 
