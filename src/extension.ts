@@ -15,7 +15,7 @@ import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
 import { AgentAdapter, NormalizedEventKind } from './core/types';
 import { renderStatusBar } from './ui/statusBar';
-import { buildBreakdownLines } from './ui/format';
+import { buildBreakdownLines, formatCount } from './ui/format';
 import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
 import { DetailPanel } from './ui/detailPanel';
 import { EditTrackerAdapter } from './adapters/edit-tracker';
@@ -230,7 +230,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       }
       outputChannel.show();
     }),
-    vscode.commands.registerCommand('snagboat.openDetail', () => detailPanel.show())
+    vscode.commands.registerCommand('snagboat.openDetail', () => detailPanel.show()),
+    vscode.commands.registerCommand('snagboat.openSession', async () => {
+      const recent = sessionIndex.list().slice(0, 40);
+      if (recent.length === 0) {
+        void vscode.window.showInformationMessage('Snagboat: no agent sessions recorded yet.');
+        return;
+      }
+      const agentName = (a: string) => (a === 'claude-code' ? 'Claude Code' : a === 'copilot' ? 'Copilot' : a);
+      const pick = await vscode.window.showQuickPick(
+        recent.map((s) => ({
+          label: `${agentName(s.agent)} \u00b7 ${new Date(s.firstTs).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+          description: `${s.prompts} prompts \u00b7 ${formatCount(s.tokens)} tokens`,
+          detail: `${s.models.join(', ') || 'no model calls'} \u00b7 session ${s.sessionId.slice(0, 8)}`,
+          sessionId: s.sessionId,
+        })),
+        { placeHolder: 'Open a session (most recent first)', matchOnDescription: true, matchOnDetail: true }
+      );
+      if (pick) detailPanel.show({ sessionId: pick.sessionId });
+    })
   );
 
   context.subscriptions.push(

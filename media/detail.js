@@ -162,6 +162,7 @@
             el('tr', {}, [
               el('th', { text: 'Time' }),
               el('th', { text: 'Agent' }),
+              el('th', { text: 'Session' }),
               el('th', { text: 'Kind' }),
               el('th', { text: 'Status' }),
               el('th', { text: 'Target' }),
@@ -226,6 +227,14 @@
                     ui.finding = { heuristicId: f.heuristicId, summary: f.summary, refs: new Set(f.eventRefs) };
                     renderTimeline();
                     document.getElementById('timeline-h').scrollIntoView({ behavior: 'smooth' });
+                  },
+                }),
+              f.sessionId &&
+                el('button', {
+                  text: 'Show in session',
+                  onclick: () => {
+                    persist({ sessionId: f.sessionId });
+                    vscode.postMessage({ type: 'openSession', sessionId: f.sessionId });
                   },
                 }),
               !f.acknowledged &&
@@ -348,6 +357,14 @@
       hit.addEventListener('mousemove', show);
       hit.addEventListener('focus', show);
       hit.addEventListener('mouseleave', hideTooltip);
+      // A day's column opens the Sessions list for that day.
+      if (row.total > 0) {
+        hit.style.cursor = 'pointer';
+        hit.addEventListener('click', () => {
+          selectTab('sessions', true);
+          vscode.postMessage({ type: 'listSessions', day: row.date });
+        });
+      }
       hit.addEventListener('blur', hideTooltip);
       root.insertBefore(hit, root.firstChild);
     });
@@ -460,6 +477,19 @@
         el('tr', { class: ui.finding ? 'highlight' : undefined }, [
           el('td', { text: formatTime(e.ts), title: e.ts }),
           el('td', { text: e.agent }),
+          el('td', {}, [
+            e.agent === 'generic-fs'
+              ? el('span', { class: 'muted', text: '\u2014' })
+              : el('button', {
+              class: 'link',
+              text: e.sessionId.slice(0, 8),
+              title: 'Open this session',
+              onclick: () => {
+                persist({ sessionId: e.sessionId });
+                vscode.postMessage({ type: 'openSession', sessionId: e.sessionId });
+              },
+            }),
+          ]),
           el('td', { text: e.toolLabel ? `${e.kind} \u00b7 ${e.toolLabel}` : e.kind }),
           el('td', { class: e.status === 'failure' ? 'status-failure' : undefined, text: e.status }),
           el('td', {}, [

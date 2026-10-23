@@ -43,6 +43,10 @@
         "title": "Snagboat: Open Detail View"
       },
       {
+        "command": "snagboat.openSession",
+        "title": "Snagboat: Open Session..."
+      },
+      {
         "command": "snagboat.showBreakdown",
         "title": "Snagboat: Show Token/Event Breakdown"
       },
