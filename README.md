@@ -10,7 +10,7 @@ Snagboat is a VS Code extension that watches AI coding agents (Claude Code and G
 
 I built it for myself. I spend long stretches in agent sessions and wanted to see them top down: which prompt kicked off what, where the tokens went, and when things started going sideways. What's here is basic, but I get more use out of it every week.
 
-**Build your own.** This is the age of AI. Why download a plugin and live with someone else's choices? Point your agent at this repo, or at an empty one, and build the version with the views and heuristics you actually want. Snagboat is a starting point, not a product. (Yes, "X, not Y" is the most AI sentence there is. It stays.)
+**Build your own.** This is the age of AI. Why download a plugin and live with someone else's choices? Point your agent at this repo, or at an empty one, and build the version with the views and heuristics you actually want. Snagboat is a starting point, not a product. (Yes, "X, not Y" is the most AI sentence there is.)
 
 ## Status
 
