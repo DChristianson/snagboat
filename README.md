@@ -59,8 +59,11 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
   - a per-day token chart by agent over 7, 30, or 90 days, with a table view;
   - a filterable timeline of the last 24 hours, where file targets open the file and reply excerpts can be expanded.
 
-  Its **Sessions** tab lists each day's agent sessions. Opening one shows a **turn tree** (where the session's tokens went: by prompt, then main agent or subagent, then an approximate split by tool category; click to zoom; calls that can't be tied to a prompt, such as ones logged by older Snagboat versions, are grouped as **Unlinked**) above a **context timeline** (how much context each model call sent, split into cache read, cache creation, and fresh input, with your prompts, compactions, findings, and each model's largest-seen and limit lines), and a list of the session's findings. Findings include earlier ones, found by replaying the session through the heuristics when you open it, as well as active ones. Expand the timeline for output tokens, subagent lanes, and drag-to-zoom. Findings ("Show in session"), session ids in the Overview timeline, and the daily chart's bars all link into it, as does **Snagboat: Open Session...**.
-- **Commands:** **Snagboat: Show Token/Event Breakdown** prints the breakdown to an output channel; **Snagboat: Clear Event Log** deletes this workspace's logged events after confirming.
+  Its **Sessions** tab lists each day's agent sessions. Opening one shows a **turn tree** (where the session's tokens went: by prompt, then main agent or subagent, then an approximate split by tool category; click to zoom; calls that can't be tied to a prompt, such as ones logged by older Snagboat versions, are grouped as **Unlinked** until a backfill) above a **context timeline** (how much context each model call sent, split into cache read, cache creation, and fresh input, with your prompts, compactions, findings, and each model's largest-seen and limit lines), and a list of the session's findings. Findings include earlier ones, found by replaying the session through the heuristics when you open it, as well as active ones. Expand the timeline for output tokens, subagent lanes, and drag-to-zoom. Findings ("Show in session"), session ids in the Overview timeline, and the daily chart's bars all link into it, as does **Snagboat: Open Session...**.
+- **Commands:**
+  - **Snagboat: Show Token/Event Breakdown** prints the breakdown to an output channel.
+  - **Snagboat: Backfill Sessions from Transcripts...** re-reads the transcripts behind days logged by older versions and rewrites those days, so their sessions get turns, turn ends, and tool calls, and their past findings are complete. It shows what will change and asks first.
+  - **Snagboat: Clear Event Log** deletes this workspace's logged events after confirming.
 
 ### Findings
 
@@ -185,7 +188,6 @@ From the [roadmap](docs/roadmap.md):
 - a token budget across all workspaces, with a treemap view
 - extension points for third-party adapters and heuristics
 - log export to CSV and SQLite
-- CI
 
 ## Repository docs
 

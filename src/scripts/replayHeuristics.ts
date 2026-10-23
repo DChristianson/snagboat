@@ -21,68 +21,14 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { normalizeTranscriptChunk, SeenMessages, TurnTracker } from '../adapters/claude-code/normalize';
-import { classifyTool } from '../core/toolCategory';
+import { normalizeTranscriptSession, sessionFiles } from '../adapters/claude-code/transcriptSession';
 import { NormalizedEvent } from '../core/types';
 import { FindingReplay } from '../heuristics/replay';
 import { builtInHeuristics } from '../heuristics/builtIns';
 
-/** Tool calls rebuilt from tool_use blocks and their tool_results. */
-function toolCallEvents(lines: any[], file: string, turns: TurnTracker): NormalizedEvent[] {
-  const results = new Map<string, { failed: boolean; ts: string }>();
-  for (const d of lines) {
-    if (d?.type !== 'user' || !Array.isArray(d.message?.content)) continue;
-    for (const b of d.message.content) {
-      if (b?.type === 'tool_result' && b.tool_use_id) results.set(b.tool_use_id, { failed: b.is_error === true, ts: d.timestamp });
-    }
-  }
-  const events: NormalizedEvent[] = [];
-  for (const d of lines) {
-    if (d?.type !== 'assistant' || !Array.isArray(d.message?.content)) continue;
-    const turnId = turns.observe(file, d); // re-observing is idempotent
-    for (const b of d.message.content) {
-      if (b?.type !== 'tool_use') continue;
-      const result = results.get(b.id);
-      const input = b.input ?? {};
-      events.push({
-        eventId: `tool:${b.id}`,
-        sessionId: d.sessionId ?? 'unknown-session',
-        agent: 'claude-code',
-        ts: result?.ts ?? d.timestamp,
-        kind: 'tool_call',
-        target: input.file_path ?? input.command,
-        status: result ? (result.failed ? 'failure' : 'success') : 'unknown',
-        toolName: b.name,
-        toolCategory: classifyTool(b.name, input.command),
-        turnId,
-        agentId: d.agentId,
-        raw: { adapter: 'replay', ref: 'n/a' },
-      });
-    }
-  }
-  return events;
-}
-
 export function sessionEvents(mainFile: string): NormalizedEvent[] {
-  const files = [mainFile];
-  const subDir = path.join(path.dirname(mainFile), path.basename(mainFile, '.jsonl'), 'subagents');
-  if (fs.existsSync(subDir)) for (const f of fs.readdirSync(subDir)) if (f.endsWith('.jsonl')) files.push(path.join(subDir, f));
-  const turns = new TurnTracker();
-  const seen = new SeenMessages();
-  const events: NormalizedEvent[] = [];
-  for (const file of files) {
-    const raw = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
-    events.push(...normalizeTranscriptChunk(raw, file, 0, { captureContent: true, seen, turns }));
-    const parsed = raw.map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch {
-        return undefined;
-      }
-    });
-    events.push(...toolCallEvents(parsed, file, turns));
-  }
-  return events.filter((e) => !Number.isNaN(Date.parse(e.ts))).sort((a, b) => a.ts.localeCompare(b.ts));
+  const files = sessionFiles(mainFile, (dir) => fs.readdirSync(dir)).map((file) => ({ file, lines: fs.readFileSync(file, 'utf8').split('\n') }));
+  return normalizeTranscriptSession(files, { captureContent: true });
 }
 
 export interface Episode {

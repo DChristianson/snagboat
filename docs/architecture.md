@@ -71,6 +71,23 @@ Every new adapter should add or update its row in the transformation matrix docu
 - Optional SQLite side index: rebuilt from JSONL if missing or corrupt so JSONL remains the source of truth.
 - Retention (implemented): raw days past `snagboat.retention.rawDays` are rolled up into per-day `DailyAggregate` JSON files under `aggregates/` (written atomically before the raw file is deleted), and those are pruned past `snagboat.retention.aggregateDays`. `Aggregate` rehydrates from daily aggregates plus surviving raw days, preferring raw when both exist for a day, so the status bar's all-time totals survive rollup. `EventStore` is unaffected: its window is far shorter than any retention period.
 
+## Backfill
+
+**Snagboat: Backfill Sessions from Transcripts...** ([src/backfill/](../src/backfill/)) brings history logged by older builds up to date: turns and turn ends, tool calls (which live tailing only gets from hooks, so history read back from transcripts never had them), and the removal of Copilot metric events that older builds counted as agent turns.
+
+1. **Choose days.** It offers every raw day with events from a re-readable session log (a Claude Code transcript or a Copilot CLI `events.jsonl`, named in the event's `raw.ref`) or old Copilot metric events. Days with unlinked calls, no tool calls, no turn ends, or metric events are preselected.
+2. **Re-read.** Each source is read from the top with fresh parser state, a Claude Code session with all its subagent transcripts, through the same code as `npm run replay:heuristics` ([transcriptSession.ts](../src/adapters/claude-code/transcriptSession.ts)). The live tailers and their checkpoints are untouched.
+3. **Plan** ([rebuild.ts](../src/backfill/rebuild.ts), [merge.ts](../src/backfill/merge.ts)). Rebuilt events are filed under their own day. Older builds filed events under the day they were written, so the days those misfiled events belong to are rewritten too, unless they're past raw retention, in which case the misfiled events stay put. Per day:
+   - events from a re-read source are replaced by the rebuilt ones;
+   - events logged after the re-read began are kept;
+   - old Copilot metric events are dropped;
+   - hook events are kept, gaining a tool category, the Stop hook's turn end, and a turn from the session's prompt times;
+   - a rebuilt tool call already logged by a hook is left out. Hook tool calls are now keyed by `tool_use_id` like rebuilt ones; older ones match on session, tool, target, and time.
+4. **Dry run.** The plan's before and after (model calls linked to a prompt, tool calls, turn ends, tokens) is shown, with per-day detail in the output channel, before anything is written.
+5. **Write.** Each day is rewritten atomically (`EventLog.rewriteDay`: temp file, then rename) on the event log's write queue, so no live append interleaves, inside the storage queue shared with retention. Then every in-memory view (totals, daily history, session index, recent events, an open session) is reloaded from disk while live events wait, so none is counted twice or missed.
+
+Sources that are gone (Claude Code deletes old transcripts) leave their events as they are, and are reported.
+
 ## Event query interface: `EventStore`
 
 Implemented as part of v1's heuristics engine. `EventStore` is the single well-defined query interface heuristics are allowed to use for event data — direct access to `EventLog` or `Aggregate` is not permitted, an explicit design requirement so heuristics can't quietly grow ad hoc coupling to storage internals.
