@@ -253,6 +253,68 @@ async function main() {
     }
   });
 
+  const fast = { discoveryIntervalMs: 150, activeWindowMs: 60 * 60 * 1000, rescanIntervalMs: 200 };
+
+  test("an old session's subagent transcripts are read once, without a watcher", async () => {
+    const dir = await tempDir();
+    const sub = path.join(dir, 'session-1', 'subagents');
+    await fs.promises.mkdir(sub, { recursive: true });
+    const file = path.join(sub, 'agent-a.jsonl');
+    await fs.promises.writeFile(file, assistantLine('sa1') + assistantLine('sa2'));
+    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    await fs.promises.utimes(file, old, old);
+    const { ctx, published } = fakeCtx();
+    const tailer = new TranscriptTailer(ctx, dir, new Map(), new SeenMessages(), () => undefined, 60_000, fast);
+    tailer.start();
+    try {
+      await waitFor(() => published.length === 2);
+      assert.strictEqual((tailer as any).subagentTailers.size, 0, 'inactive folder is not kept watched');
+      await new Promise((r) => setTimeout(r, 500)); // several discovery ticks
+      assert.strictEqual(published.length, 2, 'not re-read on later discovery ticks');
+    } finally {
+      tailer.stop();
+    }
+  });
+
+  test('a subagent folder that appears in an active session is discovered and followed', async () => {
+    const dir = await tempDir();
+    await fs.promises.writeFile(path.join(dir, 'session-1.jsonl'), assistantLine('m1'));
+    const { ctx, published } = fakeCtx();
+    const tailer = new TranscriptTailer(ctx, dir, new Map(), new SeenMessages(), () => undefined, 60_000, fast);
+    tailer.start();
+    try {
+      await waitFor(() => published.length === 1);
+      const sub = path.join(dir, 'session-1', 'subagents');
+      await fs.promises.mkdir(sub, { recursive: true });
+      await fs.promises.writeFile(path.join(sub, 'agent-a.jsonl'), assistantLine('s1'));
+      await waitFor(() => published.some((e) => e.eventId === 's1'));
+      assert.strictEqual((tailer as any).subagentTailers.size, 1, 'active folder is watched');
+      await fs.promises.appendFile(path.join(sub, 'agent-a.jsonl'), assistantLine('s2'));
+      await waitFor(() => published.some((e) => e.eventId === 's2'));
+    } finally {
+      tailer.stop();
+    }
+  });
+
+  test('a subagent folder that goes quiet stops being watched', async () => {
+    const dir = await tempDir();
+    const sub = path.join(dir, 'session-1', 'subagents');
+    await fs.promises.mkdir(sub, { recursive: true });
+    const file = path.join(sub, 'agent-a.jsonl');
+    await fs.promises.writeFile(file, assistantLine('q1'));
+    const { ctx, published } = fakeCtx();
+    const tailer = new TranscriptTailer(ctx, dir, new Map(), new SeenMessages(), () => undefined, 60_000, fast);
+    tailer.start();
+    try {
+      await waitFor(() => published.length === 1 && (tailer as any).subagentTailers.size === 1);
+      const old = new Date(Date.now() - 3 * 60 * 60 * 1000); // older than the 1h test window
+      await fs.promises.utimes(file, old, old);
+      await waitFor(() => (tailer as any).subagentTailers.size === 0);
+    } finally {
+      tailer.stop();
+    }
+  });
+
   test('no workspace folder is reported as a health issue', () => {
     const { ctx, health } = fakeCtx();
     new TranscriptTailer(ctx, undefined, new Map(), new SeenMessages(), () => undefined).start();
