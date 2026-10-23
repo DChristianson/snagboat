@@ -237,6 +237,18 @@ input[type="search"] { min-width: 220px; }
 .prompt-label { fill: var(--ink); font-size: 11px; }
 .compaction-line { stroke: var(--warn); stroke-width: 1.5; }
 .finding-bracket { stroke: var(--warn); stroke-width: 2; }
+.finding-bracket.info { stroke: var(--info); }
+.finding-mark .hit { fill: transparent; }
+.finding-mark { cursor: default; }
+/* Earlier findings: outlined badge, dashed bracket. */
+.finding-mark.past .warn-mark { fill: var(--surface); stroke: var(--warn); stroke-width: 1.5; }
+.finding-mark.past .info-mark { fill: var(--surface); stroke: var(--info); stroke-width: 1.5; }
+.finding-mark.past .finding-bracket { stroke-dasharray: 3 3; }
+.session-findings { margin-top: 18px; }
+.findings-table td, .findings-table th { padding: 4px 8px 4px 0; text-align: left; vertical-align: top; }
+.findings-table .nowrap { white-space: nowrap; }
+.findings-table .sev.warn { color: var(--warn); }
+.findings-table .sev.info { color: var(--info); }
 .lane { fill: rgba(128, 128, 128, 0.45); }
 .brush { fill: var(--vscode-editor-selectionBackground, rgba(57, 135, 229, 0.25)); }
 .session-view.expanded .tree-host { margin-bottom: 4px; }

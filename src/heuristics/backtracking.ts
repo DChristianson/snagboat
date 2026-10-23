@@ -1,52 +1,57 @@
-import { Heuristic, Finding, HeuristicContext } from './types';
+import { currentTurnsIn } from '../core/turns';
 import { NormalizedEvent } from '../core/types';
+import { Heuristic, Finding, HeuristicContext } from './types';
+import { positiveNumberOr } from './settings';
 
-const DEFAULT_WINDOW_MINUTES = 10;
-const DEFAULT_MIN_REPEATS = 3;
+// In your own history, no turn failed 3 times on one target, and 99% of turns edited one file at most 8 times.
+const DEFAULT_MIN_FAILURES = 3;
+const DEFAULT_MIN_EDITS = 10;
 
-function positiveNumberOr(value: unknown, fallback: number): number {
-  return typeof value === 'number' && value > 0 ? value : fallback;
-}
-
+/**
+ * Within the current turn, the same target failing repeatedly, or the same
+ * file being edited over and over. A success in between doesn't clear it:
+ * fix-break-fix loops are the point. Clears on the next prompt.
+ */
 export const backtrackingHeuristic: Heuristic = {
   id: 'backtracking',
-  appliesTo: ['edit', 'tool_call'],
+  appliesTo: ['tool_call', 'user_prompt'],
+  onlyChangesWithEvents: true,
 
   evaluate(ctx: HeuristicContext): Finding[] {
-    const windowMinutes = positiveNumberOr(ctx.settings.window, DEFAULT_WINDOW_MINUTES);
-    const minRepeats = positiveNumberOr(ctx.settings.minRepeats, DEFAULT_MIN_REPEATS);
-
-    const since = new Date(new Date(ctx.now).getTime() - windowMinutes * 60_000).toISOString();
-    const events = ctx.store.query({ since, kinds: ['edit', 'tool_call'] });
-
-    const byTarget = new Map<string, NormalizedEvent[]>();
-    for (const event of events) {
-      if (!event.target) continue; // no target means nothing to group repeats by
-      const group = byTarget.get(event.target) ?? [];
-      group.push(event);
-      byTarget.set(event.target, group);
-    }
-
+    const minFailures = positiveNumberOr(ctx.settings.minFailures, DEFAULT_MIN_FAILURES);
+    const minEdits = positiveNumberOr(ctx.settings.minEdits, DEFAULT_MIN_EDITS);
     const findings: Finding[] = [];
-    for (const [target, group] of byTarget) {
-      if (group.length < minRepeats) continue;
-
-      // group is in ascending ts order, since query() preserves that order.
-      const first = group[0];
-      const last = group[group.length - 1];
-      const hadInterveningSuccess = group.some((e) => e !== first && e !== last && e.status === 'success');
-      if (hadInterveningSuccess) continue; // legitimate iteration, not looping
-
-      findings.push({
-        heuristicId: 'backtracking',
-        severity: 'warn',
-        summary: `${target} touched ${group.length} times in the last ${windowMinutes} minutes with no success in between`,
-        eventRefs: group.map((e) => e.eventId),
-        suggestedAction: `Review recent changes to ${target}`,
-        detectedAt: ctx.now,
-      });
+    for (const turn of currentTurnsIn(ctx.store)) {
+      const failures = new Map<string, NormalizedEvent[]>();
+      const edits = new Map<string, NormalizedEvent[]>();
+      for (const e of turn.events) {
+        if (e.kind !== 'tool_call' || !e.target) continue;
+        if (e.status === 'failure') failures.set(e.target, [...(failures.get(e.target) ?? []), e]);
+        if (e.toolCategory === 'file-edit') edits.set(e.target, [...(edits.get(e.target) ?? []), e]);
+      }
+      for (const [target, group] of failures) {
+        if (group.length < minFailures) continue;
+        findings.push({
+          heuristicId: 'backtracking',
+          severity: 'warn',
+          summary: `${target} failed ${group.length} times in this turn`,
+          eventRefs: group.map((e) => e.eventId),
+          suggestedAction: `Look at why ${target} keeps failing before the agent tries again`,
+          detectedAt: ctx.now,
+        });
+      }
+      for (const [target, group] of edits) {
+        if (group.length < minEdits) continue;
+        findings.push({
+          heuristicId: 'backtracking',
+          severity: 'warn',
+          summary: `${target} edited ${group.length} times in this turn`,
+          eventRefs: group.map((e) => e.eventId),
+          suggestedAction: `Review recent changes to ${target}`,
+          detectedAt: ctx.now,
+        });
+      }
     }
-
     return findings;
   },
 };

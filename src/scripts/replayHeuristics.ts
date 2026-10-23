@@ -3,10 +3,10 @@
  * reports, per session, what would have fired and when. For calibrating
  * thresholds against real history. Dev tooling only; never shipped.
  *
- *   npm run replay:heuristics [-- [--settings '<json>'] <session.jsonl> ...]
+ *   npm run replay:heuristics [-- [--settings '<json>'] [--all-projects | <session.jsonl> ...]]
  *
  * Defaults to this project's transcripts under ~/.claude/projects (with their
- * subagent transcripts). --settings overrides heuristic settings by id, e.g.
+ * subagent transcripts); --all-projects replays every project's. --settings overrides heuristic settings by id, e.g.
  * '{"tool-churn":{"minCalls":5},"token-budget":{"session":20000000}}'.
  *
  * Prints counts and times only: never prompt or reply text, commands, file
@@ -23,12 +23,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { normalizeTranscriptChunk, SeenMessages, TurnTracker } from '../adapters/claude-code/normalize';
 import { classifyTool } from '../core/toolCategory';
-import { EventStore } from '../core/eventStore';
 import { NormalizedEvent } from '../core/types';
-import { HeuristicsEngine } from '../heuristics/engine';
+import { FindingReplay } from '../heuristics/replay';
 import { builtInHeuristics } from '../heuristics/builtIns';
-
-const TICK_MS = 30_000; // the extension's poll interval
 
 /** Tool calls rebuilt from tool_use blocks and their tool_results. */
 function toolCallEvents(lines: any[], file: string, turns: TurnTracker): NormalizedEvent[] {
@@ -97,45 +94,35 @@ export interface Episode {
 
 /** Replays events in time order with 30-second ticks between them, as the extension would. */
 export function replay(events: NormalizedEvent[], settings: Record<string, Record<string, unknown>>): Episode[] {
-  const store = new EventStore({ windowMs: 24 * 60 * 60 * 1000, maxEvents: 100_000 });
-  const engine = new HeuristicsEngine(builtInHeuristics(), store, (id) => settings[id] ?? {});
-  const start = Date.parse(events[0].ts);
-  const open = new Map<string, Episode>();
-  const episodes: Episode[] = [];
-  const minutes = (ms: number) => Math.round(((ms - start) / 60_000) * 10) / 10;
-  const apply = (results: Map<string, Array<{ severity: string }>>, nowMs: number) => {
-    for (const [id, findings] of results) {
-      const current = open.get(id);
-      if (findings.length > 0 && !current) {
-        const severity = findings.some((f) => f.severity === 'warn') ? 'warn' : 'info';
-        const ep = { heuristic: id, severity, startMin: minutes(nowMs), endMin: minutes(nowMs) };
-        open.set(id, ep);
-        episodes.push(ep);
-      } else if (findings.length > 0 && current) {
-        current.endMin = minutes(nowMs);
-        if (findings.some((f) => f.severity === 'warn')) current.severity = 'warn';
-      } else if (findings.length === 0 && current) {
-        open.delete(id);
-      }
-    }
+  // Context limits as the extension learns them: reported per call, or an auto-compaction's size.
+  const limits = new Map<string, number>();
+  const learnLimit = (e: NormalizedEvent) => {
+    const limit = e.contextLimit ?? (e.kind === 'compaction' && e.compaction?.trigger === 'auto' ? e.compaction.preTokens : undefined);
+    if (e.model && limit && limit < (limits.get(e.model) ?? Infinity)) limits.set(e.model, limit);
   };
-  let lastTick = start;
+  const replayer = new FindingReplay(builtInHeuristics(), (id) => settings[id] ?? {}, (model) => (model ? limits.get(model) : undefined));
   for (const event of events) {
-    const t = Date.parse(event.ts);
-    for (let tick = lastTick + TICK_MS; tick < t; tick += TICK_MS) {
-      apply(engine.tick(new Date(tick).toISOString()), tick);
-      lastTick = tick;
-    }
-    store.ingest(event);
-    apply(engine.tickFor(event.kind, event.ts), t);
+    learnLimit(event);
+    replayer.ingest(event);
   }
-  return episodes;
+  const start = Date.parse(events[0].ts);
+  const minutes = (ts: string) => Math.round(((Date.parse(ts) - start) / 60_000) * 10) / 10;
+  return replayer.episodes().map((e) => ({ heuristic: e.heuristicId, severity: e.severity, startMin: minutes(e.startTs), endMin: minutes(e.endTs) }));
 }
 
-function defaultSessions(): string[] {
-  const dir = path.join(os.homedir(), '.claude', 'projects', process.cwd().replace(/[^a-zA-Z0-9]/g, '-'));
+function sessionsIn(dir: string): string[] {
   try {
     return fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')).map((f) => path.join(dir, f));
+  } catch {
+    return [];
+  }
+}
+
+function defaultSessions(allProjects: boolean): string[] {
+  const root = path.join(os.homedir(), '.claude', 'projects');
+  if (!allProjects) return sessionsIn(path.join(root, process.cwd().replace(/[^a-zA-Z0-9]/g, '-')));
+  try {
+    return fs.readdirSync(root).flatMap((d) => sessionsIn(path.join(root, d)));
   } catch {
     return [];
   }
@@ -149,7 +136,9 @@ function main(): number {
     settings = JSON.parse(args[settingsAt + 1]);
     args.splice(settingsAt, 2);
   }
-  const sessions = args.length > 0 ? args : defaultSessions();
+  const allAt = args.indexOf('--all-projects');
+  if (allAt >= 0) args.splice(allAt, 1);
+  const sessions = args.length > 0 ? args : defaultSessions(allAt >= 0);
   if (sessions.length === 0) {
     console.error('No transcripts found. Pass session .jsonl paths explicitly.');
     return 1;
@@ -167,7 +156,7 @@ function main(): number {
       const mine = episodes.filter((e) => e.heuristic === id);
       totals.set(id, (totals.get(id) ?? 0) + mine.length);
       const when = mine.slice(0, 6).map((e) => `${e.startMin}m${e.endMin > e.startMin ? `-${e.endMin}m` : ''}${e.severity === 'warn' ? '' : ' (info)'}`);
-      console.log(`  ${id.padEnd(14)} ${String(mine.length).padStart(3)} episode(s)${when.length ? `  at ${when.join(', ')}${mine.length > 6 ? ', …' : ''}` : ''}`);
+      console.log(`  ${id.padEnd(16)} ${String(mine.length).padStart(3)} episode(s)${when.length ? `  at ${when.join(', ')}${mine.length > 6 ? ', …' : ''}` : ''}`);
     }
   }
   console.log('\nTotal episodes: ' + ids.map((id) => `${id} ${totals.get(id)}`).join(', '));

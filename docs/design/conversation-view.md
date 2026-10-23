@@ -239,6 +239,15 @@ Where the build differs from, or adds to, the design above:
 - **Unlinked calls get their own bucket.** Model calls with no turn, or whose turn's prompt isn't in the loaded events, go in a first "Unlinked" node, so the tree's total still matches the session's. Mostly these are events logged before turns were recorded; see the backfill task in the [roadmap](../roadmap.md#planned-tasks).
 - **Tree colors separate turns by lightness and give categories meaning.** Only about 6–12 hues stay distinguishable (Healey 1996; Ware, *Information Visualization*), and a session can have 90 turns, so turns don't get hues. Instead neighboring turns alternate two shades of blue, and each turn's agent and category blocks inherit its shade. Category blocks take one of five colors, grouping related categories (read with search, shell with version control); web, MCP, subagent, other, and replies only are neutral. Five is the most that passed the palette check (colorblind and normal-vision separation, in both themes) when any two could sit side by side. Categories are drawn in that fixed color order, not by size, so the check holds and a category sits in the same place in every turn. Blocks are tinted with a solid top stripe, keeping labels in the normal text color. Unlinked is gray and dashed.
 
+## Implementation notes (phase 3)
+
+- **Turn ends are recorded.** "Open turn" needs a turn end, which phase 1 didn't keep. Events now carry `endsTurn`, set by a main-agent `end_turn` model call, the Stop hook, an interruption, or a Copilot reply with no tool requests. 784 of 794 real turns end this way.
+- **Interruptions aren't prompts.** Claude Code writes "[Request interrupted by user]" as a user line, which phase 1 counted as a prompt (27 times in real history). It now ends the turn instead.
+- **Scoped to the current turn.** `runaway-turn`, `context-pressure`, `cache-thrash`, and `backtracking` judge each session's latest turn, so they clear on your next prompt. `stalled` needs an open turn; `tool-churn` stays a rolling window, per session.
+- **Thresholds from replay.** Defaults and before/after episode counts are in [heuristics.md](../heuristics.md#calibration). `cache-thrash` and the failure half of `backtracking` never fired on real history; they're kept because the failure modes are real.
+- **Past findings in the session view.** Live findings only cover the last 24 hours, so opening a session replays its events through the heuristics (see [heuristics.md](../heuristics.md#past-findings)). The turn tree's badges and the timeline show both past and active findings: active ones filled, earlier ones outlined with a dashed bracket. A findings list under the timeline gives each one's start, severity, state, turn, and summary, and "Show" selects its turn.
+- **`stalled` is capped.** Past `maxMinutes` (default 180) a quiet open turn counts as abandoned: an agent closed mid-turn never records an end.
+
 ## Decisions
 
 From the first review:

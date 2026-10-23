@@ -9,6 +9,8 @@ import { isDetailMessage } from '../../ui/detailModel';
 import * as fs from 'fs';
 import * as os from 'os';
 import { sessionEvents } from '../../scripts/replayHeuristics';
+import { FindingReplay } from '../../heuristics/replay';
+import { builtInHeuristics } from '../../heuristics/builtIns';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 22, 10, min)).toISOString();
 let n = 0;
@@ -129,8 +131,8 @@ async function main() {
     events.forEach((ev) => idx.ingest(ev));
     const refs = events.filter((ev) => ev.kind === 'tool_call').map((ev) => ev.eventId);
     const view = buildSessionView(idx.list()[0], events, { opus: { largestSeen: 900_000 }, other: { largestSeen: 1 } }, [
-      { heuristicId: 'backtracking', severity: 'warn', summary: 's', eventRefs: refs },
-      { heuristicId: 'stalled', severity: 'warn', summary: 'elsewhere', eventRefs: ['not-in-this-session'] },
+      { heuristicId: 'backtracking', severity: 'warn', summary: 's', eventRefs: refs, active: true },
+      { heuristicId: 'stalled', severity: 'warn', summary: 'elsewhere', eventRefs: ['not-in-this-session'], active: true },
     ]);
     assert.deepStrictEqual(Object.keys(view.marks), ['opus']);
     assert.deepStrictEqual(view.findings.map((f) => [f.heuristicId, f.turnIds, f.fromTs, f.toTs]), [['backtracking', ['p1'], at(1), at(2)]]);
@@ -159,7 +161,7 @@ async function main() {
       idx.ingest(ev);
     }
     idx.ingest(call(1, 'q', 10, { sessionId: 'S2' }));
-    const controller = new SessionController(idx, log, () => ({}), () => []);
+    const controller = new SessionController(idx, log, () => ({}), { active: () => [] });
 
     const list = controller.list(undefined, '2026-10-23');
     assert.strictEqual(list.day, '2026-10-23', "defaults to today when it has sessions");
@@ -179,6 +181,41 @@ async function main() {
     assert.strictEqual(controller.view()?.calls.length, 6);
     controller.close();
     assert.strictEqual(controller.view(), undefined);
+  });
+
+  test('the controller shows past findings from a replay, merges the live one, and leaves out muted heuristics', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-sessions-'));
+    const log = new EventLog(dir);
+    await log.init();
+    const idx = new SessionIndex();
+    const events = sampleSession(); // p1 makes 3 model calls, p2 makes 1
+    for (const ev of events) {
+      log.append(ev);
+      idx.ingest(ev);
+    }
+    const settings: Record<string, Record<string, unknown>> = { 'runaway-turn': { maxModelCalls: 3 } };
+    let muted: string[] = [];
+    const controller = new SessionController(idx, log, () => ({}), {
+      active: () => [],
+      newReplay: () => new FindingReplay(builtInHeuristics(), (id) => settings[id] ?? {}),
+      muted: () => muted,
+    });
+    const view = await controller.open('S1');
+    const runaway = view!.findings.filter((f) => f.heuristicId === 'runaway-turn');
+    assert.deepStrictEqual(runaway.map((f) => [f.turnIds, f.active]), [[['p1'], false]], 'p1 ran away earlier; p2 cleared it');
+    assert.ok(view!.tree.children[0].findings?.some((b) => b.heuristicId === 'runaway-turn'));
+
+    muted = ['runaway-turn'];
+    assert.ok(!controller.view()!.findings.some((f) => f.heuristicId === 'runaway-turn'));
+
+    // A live finding sharing events with a replayed episode that's still reporting shows once, as active.
+    muted = [];
+    settings['runaway-turn'] = { maxModelCalls: 1 }; // now p1 and p2 both qualify; p2's is still reporting
+    const p2Prompt = events.find((e) => e.kind === 'user_prompt' && e.turnId === 'p2')!.eventId;
+    const live = { heuristicId: 'runaway-turn', severity: 'warn' as const, summary: 'live', eventRefs: [p2Prompt] };
+    const merged = new SessionController(idx, log, () => ({}), { active: () => [live], newReplay: () => new FindingReplay(builtInHeuristics(), (id) => settings[id] ?? {}) });
+    const runaways = (await merged.open('S1'))!.findings.filter((f) => f.heuristicId === 'runaway-turn');
+    assert.deepStrictEqual(runaways.map((f) => [f.turnIds, f.active, f.summary === 'live']), [[['p1'], false, false], [['p2'], true, true]]);
   });
 
   test('session messages from the page are validated', () => {

@@ -12,6 +12,9 @@ const SETTINGS_SECTION: Record<string, string> = {
   'token-budget': 'snagboat.tokenBudget',
   'tool-churn': 'snagboat.heuristics.toolChurn',
   'verbal-hedge': 'snagboat.heuristics.verbalHedge',
+  'runaway-turn': 'snagboat.heuristics.runawayTurn',
+  'context-pressure': 'snagboat.heuristics.contextPressure',
+  'cache-thrash': 'snagboat.heuristics.cacheThrash',
 };
 
 /**

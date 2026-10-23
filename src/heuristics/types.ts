@@ -6,6 +6,8 @@ export interface HeuristicContext {
   readonly now: string;
   readonly store: ReadonlyEventStore;
   readonly settings: Record<string, unknown>;
+  /** The lowest context limit seen for a model, across workspaces; undefined until one is encountered. */
+  readonly contextLimit?: (model: string | undefined) => number | undefined;
 }
 
 export interface Heuristic {
@@ -17,6 +19,12 @@ export interface Heuristic {
    * regardless, since some (e.g. "stalled") depend on the *absence* of events.
    */
   readonly appliesTo: NormalizedEvent['kind'][];
+  /**
+   * True when the verdict depends only on the stored events, not on the
+   * current time, so it can't change between events. Lets a replay skip
+   * re-running it on timer ticks.
+   */
+  readonly onlyChangesWithEvents?: boolean;
   evaluate(ctx: HeuristicContext): Finding[];
 }
 

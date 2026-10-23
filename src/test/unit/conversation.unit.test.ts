@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import { isUserPrompt, normalizeHookPayload, normalizeTranscriptChunk, SeenMessages, TurnTracker } from '../../adapters/claude-code/normalize';
+import { isInterruption, isUserPrompt, normalizeHookPayload, normalizeTranscriptChunk, SeenMessages, TurnTracker } from '../../adapters/claude-code/normalize';
 import { readCheckpointState } from '../../adapters/claude-code/checkpointState';
 
 // Line shapes follow real Claude Code transcripts (structure only): a prompt
@@ -104,6 +104,35 @@ async function main() {
       'f2', 0, { seen: new SeenMessages() }
     );
     assert.strictEqual(manual[0].compaction?.trigger, 'manual');
+  });
+
+  test('turn ends: a main-agent end_turn, an interruption (not a prompt), and the Stop hook', () => {
+    const endTurn = (uuid: string, parent: string, msgId: string, n: number, extra: Record<string, unknown> = {}) => {
+      const line = JSON.parse(assistant(uuid, parent, msgId, n, extra));
+      line.message.stop_reason = 'end_turn';
+      return JSON.stringify(line);
+    };
+    const interrupt = JSON.stringify({ type: 'user', uuid: 'x1', parentUuid: 'a1', sessionId: S, timestamp: at(3), message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] } });
+    assert.ok(isInterruption(JSON.parse(interrupt)) && !isUserPrompt(JSON.parse(interrupt)));
+    const events = normalizeTranscriptChunk(
+      [prompt('u1', 'p1', 0), assistant('a1', 'u1', 'msg1', 1), interrupt, prompt('u2', 'p2', 4), endTurn('a2', 'u2', 'msg2', 5), endTurn('s1', 'u2', 'msg3', 6, { agentId: 'agent-z', isSidechain: true })],
+      'f',
+      0,
+      { seen: new SeenMessages(), turns: new TurnTracker() }
+    );
+    assert.deepStrictEqual(
+      events.map((e) => [e.kind, e.turnId, e.endsTurn ?? false, !!e.tokens]),
+      [
+        ['user_prompt', 'p1', false, false],
+        ['turn_stop', 'p1', false, true],
+        ['turn_stop', 'p1', true, false], // the interruption ends p1
+        ['user_prompt', 'p2', false, false],
+        ['turn_stop', 'p2', true, true],
+        ['turn_stop', 'p2', false, true], // a subagent finishing doesn't end the turn
+      ]
+    );
+    const stop = normalizeHookPayload({ session_id: S, hook_event_name: 'Stop', prompt_id: 'p2' });
+    assert.strictEqual(stop?.endsTurn, true);
   });
 
   test('hook events take prompt_id and agent_id from the payload, else the session\'s current turn', () => {

@@ -100,7 +100,12 @@
         "snagboat.heuristics.stalled.minutes": {
           "type": "number",
           "default": 15,
-          "description": "Warn when no events have arrived for this many minutes."
+          "description": "Warn when an unfinished turn (prompted, no turn end yet) has had no agent activity for this many minutes. A finished turn going quiet never fires."
+        },
+        "snagboat.heuristics.stalled.maxMinutes": {
+          "type": "number",
+          "default": 180,
+          "description": "Stop warning after this many quiet minutes: the turn is treated as abandoned (an agent closed mid-turn never records a turn end)."
         },
         "snagboat.tokenBudget.session": {
           "type": "number",
@@ -120,15 +125,12 @@
           "default": 8,
           "description": "Minimum tool calls within the window before tool-churn can fire."
         },
-        "snagboat.heuristics.toolChurn.maxDistinctTargets": {
+        "snagboat.heuristics.toolChurn.minShare": {
           "type": "number",
-          "default": 2,
-          "description": "tool-churn only fires when calls within the window hit at most this many distinct targets."
-        },
-        "snagboat.heuristics.backtracking.window": {
-          "type": "number",
-          "default": 10,
-          "description": "Rolling window, in minutes, that backtracking looks back over."
+          "default": 0.9,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "tool-churn fires when the two most-hit targets account for at least this share of a session's targeted tool calls within the window."
         },
         "snagboat.heuristics.verbalHedge.window": {
           "type": "number",
@@ -140,10 +142,42 @@
           "default": 2,
           "description": "Minimum replies in one session within the window that hedge or self-correct before verbal-hedge fires."
         },
-        "snagboat.heuristics.backtracking.minRepeats": {
+        "snagboat.heuristics.backtracking.minFailures": {
           "type": "number",
           "default": 3,
-          "description": "Minimum times the same target must be touched within the window before backtracking can fire."
+          "description": "Failed tool calls on the same target within one turn before backtracking fires."
+        },
+        "snagboat.heuristics.backtracking.minEdits": {
+          "type": "number",
+          "default": 10,
+          "description": "Edits to the same file within one turn before backtracking fires."
+        },
+        "snagboat.heuristics.runawayTurn.maxModelCalls": {
+          "type": "number",
+          "default": 100,
+          "description": "runaway-turn fires when one prompt drives this many model calls (main agent and subagents) without another prompt."
+        },
+        "snagboat.heuristics.runawayTurn.maxToolCalls": {
+          "type": "number",
+          "default": 100,
+          "description": "runaway-turn fires when one prompt drives this many tool calls without another prompt."
+        },
+        "snagboat.heuristics.contextPressure.percent": {
+          "type": "number",
+          "default": 90,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "context-pressure reports (info) when the current turn's context reaches this percentage of the model's limit. An automatic compaction always warns."
+        },
+        "snagboat.heuristics.cacheThrash.minTokens": {
+          "type": "number",
+          "default": 50000,
+          "description": "A model call counts as a cache rewrite when it writes at least this many tokens to the prompt cache and more than it reads from it."
+        },
+        "snagboat.heuristics.cacheThrash.minCalls": {
+          "type": "number",
+          "default": 2,
+          "description": "Cache rewrites within one turn before cache-thrash fires."
         }
       }
     }

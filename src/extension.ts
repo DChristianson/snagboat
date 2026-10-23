@@ -9,6 +9,7 @@ import { CheckpointStore } from './core/checkpointStore';
 import { DailyHistory } from './core/dailyHistory';
 import { SessionIndex } from './core/sessions';
 import { SessionController } from './ui/sessionController';
+import { FindingReplay } from './heuristics/replay';
 import { ContextLimits, ModelContextMarks } from './core/contextLimits';
 import { AggregateStore, EventSink, RetentionPolicy, applyRetention } from './core/retention';
 import { HealthRegistry } from './core/health';
@@ -111,7 +112,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const health = new HealthRegistry();
 
   const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []));
-  const engine = new HeuristicsEngine(builtInHeuristics(), eventStore, heuristicSettings);
+  const engine = new HeuristicsEngine(builtInHeuristics(), eventStore, heuristicSettings, (model) => (model ? contextLimits.get(model)?.limit : undefined));
   const runHeuristics = (kind?: NormalizedEventKind) => {
     const now = new Date().toISOString();
     const results = kind ? engine.tickFor(kind, now) : engine.tick(now);
@@ -126,12 +127,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const outputChannel = vscode.window.createOutputChannel('Snagboat');
   context.subscriptions.push(outputChannel);
 
-  const sessions = new SessionController(
-    sessionIndex,
-    eventLog,
-    () => contextLimits.all(),
-    () => findings.list()
-  );
+  const sessions = new SessionController(sessionIndex, eventLog, () => contextLimits.all(), {
+    active: () => findings.list(),
+    newReplay: () => new FindingReplay(builtInHeuristics(), heuristicSettings, (model) => (model ? contextLimits.get(model)?.limit : undefined)),
+    muted: () => findings.mutedHeuristics(),
+  });
   const detailPanel = new DetailPanel(context.extensionUri, {
     buildState: (isOpenable) =>
       buildDetailState({

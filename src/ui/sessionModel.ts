@@ -43,10 +43,14 @@ export interface SessionFindingMark {
   heuristicId: string;
   severity: 'info' | 'warn';
   summary: string;
-  /** Earliest and latest time of the events behind it, when known. */
+  /** Span of the finding: the events behind it, plus when it was reporting, when known. */
   fromTs?: string;
   toTs?: string;
   turnIds: string[];
+  /** When it started reporting, if known (replayed episodes); else fromTs. */
+  startedTs?: string;
+  /** Reporting now (from the live engine); otherwise found by replaying the session. */
+  active: boolean;
 }
 
 export interface SessionView {
@@ -64,11 +68,15 @@ export interface SessionView {
   categoryGroups: string[];
 }
 
-interface FindingInput {
+export interface FindingInput {
   heuristicId: string;
   severity: 'info' | 'warn';
   summary: string;
   eventRefs: string[];
+  /** When it was reporting (replayed episodes). */
+  startTs?: string;
+  endTs?: string;
+  active: boolean;
 }
 
 /**
@@ -128,7 +136,7 @@ export function buildSessionView(
   summary: SessionSummary,
   sessionEvents: NormalizedEvent[],
   marks: Record<string, ModelContextMarks>,
-  activeFindings: FindingInput[] = []
+  sessionFindings: FindingInput[] = []
 ): SessionView {
   const events = sessionEvents.filter((e) => e.sessionId === summary.sessionId && isConversationEvent(e)).sort((a, b) => a.ts.localeCompare(b.ts));
 
@@ -171,10 +179,10 @@ export function buildSessionView(
   // Findings that point at this session's events.
   const byId = new Map(events.map((e) => [e.eventId, e]));
   const findings: SessionFindingMark[] = [];
-  for (const f of activeFindings) {
+  for (const f of sessionFindings) {
     const refs = f.eventRefs.map((id) => byId.get(id)).filter((e): e is NormalizedEvent => !!e);
     if (refs.length === 0) continue;
-    const times = refs.map((e) => e.ts).sort();
+    const times = [...refs.map((e) => e.ts), ...(f.startTs ? [f.startTs] : []), ...(f.endTs ? [f.endTs] : [])].sort();
     findings.push({
       heuristicId: f.heuristicId,
       severity: f.severity,
@@ -182,8 +190,11 @@ export function buildSessionView(
       fromTs: times[0],
       toTs: times[times.length - 1],
       turnIds: [...new Set(refs.map((e) => e.turnId).filter((t): t is string => !!t))],
+      startedTs: f.startTs,
+      active: f.active,
     });
   }
+  findings.sort((a, b) => (a.startedTs ?? a.fromTs ?? '').localeCompare(b.startedTs ?? b.fromTs ?? ''));
 
   // Tree: session -> prompts -> agents -> tool categories.
   const tokensBy = (pred: (e: NormalizedEvent) => boolean) => callEvents.filter(pred).reduce((sum, e) => sum + eventTokens(e), 0);

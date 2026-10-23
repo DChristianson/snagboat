@@ -6,7 +6,8 @@ export class HeuristicsEngine {
   constructor(
     private readonly heuristics: Heuristic[],
     private readonly store: ReadonlyEventStore,
-    private readonly settingsFor: (id: string) => Record<string, unknown>
+    private readonly settingsFor: (id: string) => Record<string, unknown>,
+    private readonly contextLimit?: (model: string | undefined) => number | undefined
   ) {}
 
   /** Runs every heuristic. Used by the timer tick, since some heuristics (e.g. "stalled") depend on the absence of events. */
@@ -25,7 +26,7 @@ export class HeuristicsEngine {
   private runAll(heuristics: Heuristic[], now: string): Map<string, Finding[]> {
     const results = new Map<string, Finding[]>();
     for (const heuristic of heuristics) {
-      results.set(heuristic.id, heuristic.evaluate({ now, store: this.store, settings: this.settingsFor(heuristic.id) }));
+      results.set(heuristic.id, heuristic.evaluate({ now, store: this.store, settings: this.settingsFor(heuristic.id), contextLimit: this.contextLimit }));
     }
     return results;
   }
