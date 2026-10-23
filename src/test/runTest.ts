@@ -3,7 +3,21 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { runTests } from '@vscode/test-electron';
 
+/**
+ * When npm test is started by a process running inside VS Code's extension
+ * host (an AI agent in VS Code, say), it inherits ELECTRON_RUN_AS_NODE=1 and
+ * VS Code's internal VSCODE_* variables. ELECTRON_RUN_AS_NODE makes the test
+ * VS Code start as plain Node, which then fails with "Cannot find module
+ * <workspace folder>". Clear them so the test instance always starts as an app.
+ */
+function clearInheritedVsCodeEnv(): void {
+  for (const name of Object.keys(process.env)) {
+    if (name === 'ELECTRON_RUN_AS_NODE' || name === 'ELECTRON_NO_ATTACH_CONSOLE' || name.startsWith('VSCODE_')) delete process.env[name];
+  }
+}
+
 async function main() {
+  clearInheritedVsCodeEnv();
   const extensionDevelopmentPath = path.resolve(__dirname, '../../');
   const extensionTestsPath = path.resolve(__dirname, './suite/index');
 
