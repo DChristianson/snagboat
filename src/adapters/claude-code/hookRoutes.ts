@@ -25,24 +25,6 @@ export function routeKey(folder: string): string {
   return folder.replace(/\//g, '-');
 }
 
-/**
- * Each folder plus its resolved real path when different (on macOS /tmp and
- * /var are symlinks into /private), so a route is found and a payload's cwd
- * accepted whichever spelling Claude Code reports.
- */
-export function withRealPaths(folders: string[]): string[] {
-  const all = new Set<string>();
-  for (const folder of folders) {
-    all.add(folder);
-    try {
-      all.add(fs.realpathSync(folder));
-    } catch {
-      // folder missing; keep the path as given
-    }
-  }
-  return [...all];
-}
-
 export function newToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }

@@ -231,6 +231,27 @@ suite('Snagboat core plumbing', () => {
     assert.strictEqual(api.getAggregateSnapshot().perAgent['copilot'].tokens.input, before + 9);
   });
 
+  test('a Copilot agent session started in this workspace is read from its session log', async () => {
+    const base = process.env.SNAGBOAT_COPILOT_SESSIONS_DIR;
+    assert.ok(base, 'SNAGBOAT_COPILOT_SESSIONS_DIR must be set by runTest.ts');
+    const folder = vscode.workspace.workspaceFolders![0].uri.fsPath;
+    const before = api.getAggregateSnapshot().perAgent['copilot']?.tokens.output ?? 0;
+    const at = new Date().toISOString();
+    const line = (type: string, id: string, parentId: string | null, data: Record<string, unknown>) => JSON.stringify({ type, id, parentId, timestamp: at, data });
+    fs.mkdirSync(path.join(base!, 'it-session'), { recursive: true });
+    fs.writeFileSync(
+      path.join(base!, 'it-session', 'events.jsonl'),
+      [
+        line('session.start', 'c0', null, { sessionId: 'it-session', context: { cwd: folder } }),
+        line('user.message', 'c1', 'c0', { content: 'x', interactionId: 'I1' }),
+        line('session.usage_record', 'c2', 'c1', { usage: { model: 'm', inputTokens: 100, outputTokens: 17, cacheReadTokens: 60, cacheWriteTokens: 0, maxPromptTokens: 200000 } }),
+      ].join('\n') + '\n'
+    );
+    // runTest.ts sets a 500ms discovery interval (the default is 60s).
+    await waitFor(() => (api.getAggregateSnapshot().perAgent['copilot']?.tokens.output ?? 0) > before);
+    assert.strictEqual(api.getAggregateSnapshot().perAgent['copilot'].tokens.output, before + 17);
+  });
+
   test('the detail view opens as a webview tab and the today snapshot tracks new events', async () => {
     const beforeToday = api.getTodaySnapshot().totalTokens;
     await vscode.commands.executeCommand('snagboat._emitTestEvent');

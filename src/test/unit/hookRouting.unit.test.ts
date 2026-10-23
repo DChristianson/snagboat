@@ -3,14 +3,14 @@ import * as childProcess from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { HooksReceiver, isWithinFolders } from '../../adapters/claude-code/hooksReceiver';
+import { HooksReceiver } from '../../adapters/claude-code/hooksReceiver';
+import { isWithinFolders, withRealPaths } from '../../core/paths';
 import {
   installHookScript,
   newToken,
   pruneStaleRoutes,
   removeRoutes,
   routeKey,
-  withRealPaths,
   writeRoutes,
 } from '../../adapters/claude-code/hookRoutes';
 import { AdapterContext, NormalizedEvent } from '../../core/types';

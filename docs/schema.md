@@ -29,6 +29,8 @@ interface NormalizedEvent {
   toolCategory?: 'file-read' | 'file-edit' | 'search' | 'script' | 'tests-builds'
     | 'version-control' | 'shell' | 'web' | 'mcp' | 'subagent' | 'other';
   compaction?: { trigger: 'auto' | 'manual' | 'unknown'; preTokens?: number; postTokens?: number };
+  channel?: 'inline';    // model calls from editor features, not agent turns
+  contextLimit?: number; // the model's prompt budget for this call, when reported
   confidence?: number;
   raw: {
     adapter: string;
@@ -60,8 +62,10 @@ Every adapter should document how each raw signal maps into the shared schema.
 | `gen_ai.output.messages` on `invoke_agent` | Copilot OTel | Decorates the span's `turn_stop` event | — | — | — | Assistant `text` parts only, truncated to 500 characters, when both `snagboat.captureContent` and Copilot's `captureContent` are on | JSON string per the OpenTelemetry GenAI output-messages schema: `[{role, parts: [{type, content}], finish_reason}]`. |
 | `execute_tool` span | Copilot OTel | `tool_call` | Span attributes for tool name or args | Span status code | — | — | Higher-fidelity tool activity path. |
 | `execute_hook` span | Copilot OTel | `tool_call` | `hook_type` attribute | `hook_result_kind` mapping | — | — | Annotation-oriented signal. |
-| `gen_ai.client.token.usage` metric | Copilot OTel | Attached to nearest `turn_stop` | — | — | Input/output totals joined by time window and session id | — | Metric stream rather than span data. |
-| Session log line | Copilot log-scrape | `tool_call` or `turn_stop` | Best effort from log fields | Best effort | Estimated only | Present when the log stores it | Lower-fidelity fallback path. |
+| `chat <model>` span outside `invoke_agent` | Copilot OTel | `turn_stop` with `channel: 'inline'` | — | Span status code | `input_tokens` minus `cache_read.input_tokens`; `output_tokens`; cache read | — | Editor features (inline and next-edit suggestions, chat titles). `max_prompt_tokens` becomes `contextLimit`. Metrics are no longer mapped: the spans carry the same counts. |
+| `user.message` | Copilot CLI session log | `user_prompt` | — | `unknown` | — | — (never stored) | `turnId` is its `interactionId`. |
+| `session.usage_record` | Copilot CLI session log | `turn_stop` | — | `unknown` | `inputTokens` minus cache read and write; `outputTokens`; `cacheReadTokens`; `cacheWriteTokens` as cache creation | — | One model call. `maxPromptTokens` becomes `contextLimit`; turn from the `parentId` chain. |
+| `tool.execution_start` + `tool.execution_complete` | Copilot CLI session log | `tool_call` | `arguments.command` or a path argument | `success` / non-zero `shellExecution.exitCode` | — | — | `toolName` and `toolCategory` as for Claude Code. |
 | `onDidSaveTextDocument` | Generic FS | `edit` | File path | `unknown` | — | — | Provides churn and backtracking input even without agent data. |
 | Terminal exit code | Generic FS | `test_run` | Command string | `success` when exit code is 0, else `failure` | — | — | Shell-integration driven. |
 | `git diff` polling | Generic FS | Supplementary `edit` context | File path | — | — | — | Separates real content changes from no-op saves. |

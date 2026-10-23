@@ -200,13 +200,18 @@ A call's **output** tokens are split evenly across the tools it requested. The *
 
 ## Copilot
 
-Copilot data collection is **in phase 1**. Copilot's OTel spans have parent span ids, and an `invoke_agent` span corresponds to a turn, so turns and their tool calls can be attributed. What isn't confirmed is which spans carry per-call usage (context size), and whether compaction or subagent equivalents appear at all. Phase 1 therefore starts with a capture step:
+Copilot data collection is **in phase 1**, and the capture step changed the plan. A structure-only capture of real Copilot traffic (`snagboat.copilot.captureStructure`, summarized by `npm run summarize:copilot`) showed:
 
-1. Record a few real Copilot Chat sessions' OTLP traffic locally, structure only. *Built:* the `snagboat.copilot.captureStructure` setting saves span names, links, timings, attribute names and numeric values, with every text value replaced by its length. `npm run summarize:copilot` prints the span tree and shows where token counts live.
-2. Document the span tree: which span is a turn, a model call and a tool call, and which attributes carry tokens, model and parent links.
-3. Map it to `user_prompt`, `turnId`, model-call usage and tool calls, the same events as Claude Code, and add fixtures shaped after the capture.
+- **Agent mode emits no OpenTelemetry.** In current VS Code, Agent mode runs in VS Code's built-in agent host through the Copilot CLI (`provider: "copilotcli"` in the agent host log). Nothing reached the receiver over IPv4 or IPv6 while agent turns with tool calls ran.
+- **The Copilot CLI writes a per-session event log** at `~/.copilot/session-state/<session>/events.jsonl`, structured much like Claude Code's transcripts: `user.message` (with `interactionId`), `session.usage_record` per model call (model, input/output/cache read/cache write/reasoning tokens, and `maxPromptTokens`, the context limit), `tool.execution_start`/`complete` (tool name, arguments, success, exit code), turn start/end events, and an `id`/`parentId` chain. `session.start` records the session's `cwd`. On four real sessions, every event attributes to a prompt, and `inputTokens` always includes the cache tokens.
+- **Copilot's OpenTelemetry covers editor features only:** each `chat <model>` span is one model call for inline and next-edit suggestions or helper calls (chat titles, intent), with per-call usage and `copilot_chat.request.max_prompt_tokens`. Snagboat had been turning the token-usage *metric* into Copilot "turns", which counted inline suggestions as agent turns.
 
-The views show whatever Copilot provides and mark missing data as missing, never as zero.
+So Copilot uses two sources:
+
+1. **Agent mode:** the Copilot CLI session logs, tailed like Claude Code transcripts and filtered to sessions whose `cwd` is inside the window's workspace. They provide the same `user_prompt`, model-call (with `contextLimit`), and `tool_call` events, with `turnId` from `interactionId`.
+2. **Editor features:** OTel `chat` spans as model calls with `channel: 'inline'`, counted as tokens but not as turns. Metrics are no longer mapped, since the spans carry the same counts.
+
+Open: reply excerpts for Copilot (for `verbal-hedge`) aren't mapped yet; `assistant.message` carries the reply and can be joined to its usage record by `apiCallId`.
 
 ## Phases
 
@@ -215,7 +220,7 @@ The views show whatever Copilot provides and mark missing data as missing, never
    - `turnId` and `agentId` attribution, tool classification, and linking tool calls to turns;
    - subagent tailing;
    - the observed context-limit table;
-   - the Copilot capture, span mapping, and fixtures;
+   - Copilot: the structure capture, then agent sessions from the Copilot CLI session logs and editor-feature calls from OTel spans;
    - schema and privacy doc updates;
    - the heuristic replay script.
 

@@ -12,7 +12,8 @@ Working, but early (version `0.0.1`), not yet published to the Marketplace or Op
 | --- | --- | --- |
 | Claude Code | Tails the session transcripts in `~/.claude/projects/<project>/` | Token usage per API message (input, output, cache read/creation), model, and, if you opt in, reply excerpts |
 | Claude Code | `PostToolUse` and `Stop` hooks, added to the project's `.claude/settings.json` automatically | Tool calls with their target (file path or shell command) and success or failure; turn boundaries |
-| GitHub Copilot Chat | Copilot's OpenTelemetry export to a local receiver | Turns with token usage and model; tool calls; reply excerpts if both Copilot and Snagboat capture content |
+| GitHub Copilot (Agent mode) | Reads the Copilot CLI's session logs in `~/.copilot/session-state/`, which VS Code's agent host writes for every Agent-mode session | Prompts, every model call with token usage, model, and the model's context limit, and tool calls with their commands and outcomes |
+| GitHub Copilot (editor features) | Copilot's optional OpenTelemetry export to a local receiver | Token usage of inline and next-edit suggestions and other editor-side model calls, kept separate from agent turns |
 | VS Code | File saves | Edits per file, for agent-independent signals |
 
 ## Install
@@ -35,7 +36,9 @@ Nothing to configure. Snagboat finds the project's transcripts on its own and, o
 
 ### Copilot setup
 
-Copilot only sends telemetry if you turn it on. In your VS Code settings:
+Agent mode needs no setup: Snagboat reads its session logs, picking the sessions started inside each window's workspace.
+
+To also count the tokens used by Copilot's inline and next-edit suggestions, turn on Copilot's telemetry in your VS Code settings:
 
 ```json
 {
@@ -45,7 +48,7 @@ Copilot only sends telemetry if you turn it on. In your VS Code settings:
 }
 ```
 
-The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Code window can listen on it; see [known limitations](#known-limitations).
+The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Code window can listen on it; see [known limitations](#known-limitations). In current VS Code, Agent mode runs in VS Code's built-in agent host through the Copilot CLI, which doesn't send this telemetry, so it only covers editor features.
 
 ## Using it
 
@@ -100,7 +103,8 @@ flowchart LR
   subgraph Sources
     Transcripts[Claude Code transcripts]
     Hooks[Claude Code hooks]
-    Copilot[Copilot Chat OTel export]
+    CopilotCli[Copilot agent session logs]
+    Copilot[Copilot editor telemetry]
     Saves[VS Code file saves]
   end
 
@@ -124,6 +128,7 @@ flowchart LR
 
   Transcripts --> ClaudeAdapter
   Hooks -->|snagboat-hook routes to this window| ClaudeAdapter
+  CopilotCli --> CopilotAdapter
   Copilot --> CopilotAdapter
   Saves --> EditTracker
   ClaudeAdapter & CopilotAdapter & EditTracker --> EventLog
@@ -151,7 +156,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 
 ## Known limitations
 
-- **Copilot telemetry is collected by one window.** Copilot in every window exports to the same port, so the first window to claim it records all Copilot activity and the others show a "failed to listen on port" health warning. Claude Code doesn't have this problem.
+- **Copilot editor telemetry is collected by one window.** Copilot in every window exports to the same port, so the first window to claim it records all inline-suggestion usage and the others show a "failed to listen on port" health warning. Copilot agent sessions and Claude Code don't have this problem.
 - **The Copilot receiver doesn't authenticate requests**, so another local process could submit fake Copilot events. Claude Code hooks are token-protected. See [SECURITY.md](SECURITY.md).
 - **Workspace folders added to a window after it opens** start receiving Claude Code hooks only after a reload.
 - **Windows is unsupported**: the hook script needs a POSIX shell.

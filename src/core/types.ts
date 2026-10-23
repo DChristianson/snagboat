@@ -40,6 +40,14 @@ export interface NormalizedEvent {
   toolName?: string;
   /** For tool calls: high-level category (see toolCategory.ts). */
   toolCategory?: ToolCategory;
+  /**
+   * 'inline' marks model calls made by editor features (Copilot's inline and
+   * next-edit suggestions, chat titles, intent detection) rather than an
+   * agent turn: their tokens count, but they aren't turns.
+   */
+  channel?: 'inline';
+  /** The model's prompt budget for this call, when the source reports it. */
+  contextLimit?: number;
   /** For compaction events. */
   compaction?: {
     trigger: 'auto' | 'manual' | 'unknown';

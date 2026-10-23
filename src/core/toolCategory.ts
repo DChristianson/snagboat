@@ -62,10 +62,21 @@ const BY_NAME: Record<string, ToolCategory> = {
   list_dir: 'search',
   fetch_webpage: 'web',
   runSubagent: 'subagent',
+  // Copilot CLI (Copilot agent mode in VS Code's agent host)
+  view: 'file-read',
+  edit: 'file-edit',
+  create: 'file-edit',
+  str_replace: 'file-edit',
+  str_replace_editor: 'file-edit',
+  rg: 'search',
+  grep: 'search',
+  glob: 'search',
+  web_fetch: 'web',
+  task: 'subagent',
 };
 
 /** Tools whose input is a shell command line. */
-const SHELL_TOOLS = new Set(['Bash', 'run_in_terminal']);
+const SHELL_TOOLS = new Set(['Bash', 'run_in_terminal', 'bash']);
 
 const INTERPRETERS = new Set(['python', 'python3', 'node', 'bash', 'sh', 'zsh', 'ruby', 'perl', 'deno', 'bun', 'tsx', 'ts-node']);
 const TEST_RUNNERS = new Set(['pytest', 'jest', 'vitest', 'mocha', 'tox', 'nox', 'rspec', 'phpunit']);

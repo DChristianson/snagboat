@@ -24,6 +24,7 @@ async function main() {
   const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-workspace-'));
   const transcriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-transcripts-'));
   const snagboatHome = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-home-'));
+  const copilotSessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-copilot-sessions-'));
 
   try {
     await runTests({
@@ -36,6 +37,8 @@ async function main() {
       extensionTestsEnv: {
         SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR: transcriptsDir,
         SNAGBOAT_HOME: snagboatHome,
+        SNAGBOAT_COPILOT_SESSIONS_DIR: copilotSessionsDir,
+        SNAGBOAT_COPILOT_DISCOVERY_MS: '500',
         SNAGBOAT_COPILOT_OTLP_PORT: '4319',
       },
     });

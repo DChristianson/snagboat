@@ -16,13 +16,15 @@ Each observed action becomes one normalized event (see [docs/schema.md](docs/sch
 | Claude Code hooks, Copilot OTel | `toolName`, `toolCategory` | The tool's name and a high-level category (e.g. "Tests and builds"). The category is derived from the command already stored in `target`, so it adds no new information. |
 | Claude Code transcript and hooks | `turnId`, `agentId` | Which prompt each model call and tool call belongs to, and which subagent (by Claude Code's id) did the work |
 | Copilot OTel | `target` | The tool or hook name only, not its arguments |
+| Copilot CLI session logs (Agent mode) | `target` | Like Claude Code: the tool's file path, or the **full shell command string** for shell tools |
+| Copilot CLI session logs (Agent mode) | `user_prompt`, model calls | When you sent each prompt (never its text), and each model call's model, token counts, and the model's prompt budget |
 | Edit tracker | `target`, `raw.ref` | The saved file's path and URI, not its contents |
 | Claude Code transcript, only with `snagboat.captureContent` | `textExcerpt` | The reply's `text` blocks, truncated to 500 characters. Never thinking blocks or tool inputs. |
 | Copilot OTel, only with `snagboat.captureContent` **and** Copilot's `github.copilot.chat.otel.captureContent` | `textExcerpt` | The assistant `text` parts of `gen_ai.output.messages`, truncated to 500 characters. Never reasoning parts, prompts, tool arguments, or tool results. |
 
 Never captured: file contents, edit diffs, tool output, search patterns, and the text of your prompts.
 
-Snagboat reads subagent transcripts (`<session>/subagents/*.jsonl` under Claude Code's project folder) the same way as main session transcripts.
+Snagboat reads subagent transcripts (`<session>/subagents/*.jsonl` under Claude Code's project folder) the same way as main session transcripts, and the Copilot CLI's session logs (`~/.copilot/session-state/*/events.jsonl`) for sessions started inside the open workspace. It never modifies either.
 
 ### Captured text
 

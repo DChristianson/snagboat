@@ -2,8 +2,9 @@ import { AgentAdapter, AdapterContext } from '../../core/types';
 import { TranscriptTailer } from './transcriptTail';
 import { HooksReceiver } from './hooksReceiver';
 import { buildHookCommand, ensureHooksConfigured } from './hooksConfig';
+import { withRealPaths } from '../../core/paths';
 import { resolveTranscriptsDir, resolveWorkspaceFolders } from './workspace';
-import { installHookScript, newToken, pruneStaleRoutes, removeRoutes, snagboatHome, withRealPaths, writeRoutes } from './hookRoutes';
+import { installHookScript, newToken, pruneStaleRoutes, removeRoutes, snagboatHome, writeRoutes } from './hookRoutes';
 import { SeenMessages, TurnTracker } from './normalize';
 import { CheckpointStateV2, readCheckpointState } from './checkpointState';
 

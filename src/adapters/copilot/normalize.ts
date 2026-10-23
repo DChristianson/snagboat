@@ -59,6 +59,7 @@ interface OtlpResource {
 
 interface OtlpSpan {
   spanId?: string;
+  parentSpanId?: string;
   name?: string;
   attributes?: OtlpAttribute[];
   status?: { code?: number };
@@ -126,9 +127,41 @@ export function normalizeOtlpTraces(payload: unknown, opts: { captureContent?: b
   const resourceSpans = (payload as OtlpTracesPayload)?.resourceSpans ?? [];
   for (const rs of resourceSpans) {
     const resourceAttrs = attrsToRecord(rs.resource?.attributes);
+    const agentSpanIds = new Set(
+      (rs.scopeSpans ?? []).flatMap((ss) => (ss.spans ?? []).filter((s) => s.name === 'invoke_agent' && s.spanId).map((s) => s.spanId!))
+    );
     for (const ss of rs.scopeSpans ?? []) {
       for (const span of ss.spans ?? []) {
         const attrs = { ...resourceAttrs, ...attrsToRecord(span.attributes) };
+
+        // "chat <model>": one model call. Outside an agent turn these are editor
+        // features (inline / next-edit suggestions, chat titles, intent
+        // detection). Inside an invoke_agent span (older VS Code, where Agent
+        // mode ran in the extension) they're skipped: invoke_agent carries the
+        // turn's totals. Current Agent mode is read from Copilot CLI session
+        // logs instead (cliSessions.ts).
+        if (span.name?.startsWith('chat ') || span.name === 'chat') {
+          if (span.parentSpanId && agentSpanIds.has(span.parentSpanId)) continue;
+          const inputTotal = pickNumber(attrs['gen_ai.usage.input_tokens']);
+          const cacheRead = pickNumber(attrs['gen_ai.usage.cache_read.input_tokens']) ?? 0;
+          const output = pickNumber(attrs['gen_ai.usage.output_tokens']);
+          if (inputTotal === undefined && output === undefined) continue;
+          events.push({
+            eventId: `copilot-span:${span.spanId ?? crypto.randomUUID()}`,
+            sessionId: sessionIdFrom(attrs),
+            agent: 'copilot',
+            ts: new Date().toISOString(),
+            kind: 'turn_stop',
+            status: spanStatus(span),
+            channel: 'inline',
+            model: pickString(attrs['gen_ai.response.model']) ?? modelFrom(attrs),
+            // input_tokens includes cached tokens, as in the GenAI conventions.
+            tokens: { input: Math.max((inputTotal ?? 0) - cacheRead, 0), output: output ?? 0, cacheRead },
+            contextLimit: pickNumber(attrs['copilot_chat.request.max_prompt_tokens']),
+            raw: { adapter: 'copilot', ref: `otlp:span:${span.spanId ?? 'unknown'}` },
+          });
+          continue;
+        }
 
         if (span.name === 'invoke_agent') {
           const tokens: EventTokens = {};
@@ -168,79 +201,6 @@ export function normalizeOtlpTraces(payload: unknown, opts: { captureContent?: b
             ...(span.name === 'execute_tool' ? { toolName: target, toolCategory: classifyTool(target) } : {}),
             model: modelFrom(attrs),
             raw: { adapter: 'copilot', ref: `otlp:span:${span.spanId ?? 'unknown'}` },
-          });
-        }
-      }
-    }
-  }
-  return events;
-}
-
-interface OtlpNumberDataPoint {
-  attributes?: OtlpAttribute[];
-  asInt?: string | number;
-  asDouble?: number;
-}
-
-interface OtlpHistogramDataPoint {
-  attributes?: OtlpAttribute[];
-  sum?: number;
-}
-
-interface OtlpMetric {
-  name?: string;
-  sum?: { dataPoints?: OtlpNumberDataPoint[] };
-  gauge?: { dataPoints?: OtlpNumberDataPoint[] };
-  histogram?: { dataPoints?: OtlpHistogramDataPoint[] };
-}
-
-interface OtlpMetricsPayload {
-  resourceMetrics?: Array<{ resource?: OtlpResource; scopeMetrics?: Array<{ metrics?: OtlpMetric[] }> }>;
-}
-
-function numberFromDataPoint(dp: OtlpNumberDataPoint): number {
-  if (dp.asInt !== undefined) return Number(dp.asInt);
-  if (dp.asDouble !== undefined) return dp.asDouble;
-  return 0;
-}
-
-/**
- * Maps `gen_ai.client.token.usage` metric data points (confirmed a Histogram
- * in the real docs, but Sum/Gauge are handled defensively too) to turn_stop
- * events with tokens. This is a secondary token source alongside `invoke_agent`
- * spans -- both are kept since docs/architecture.md's redundant-path design
- * (used for claude-code hooks vs transcript) applies equally well here.
- */
-export function normalizeOtlpMetrics(payload: unknown): NormalizedEvent[] {
-  const events: NormalizedEvent[] = [];
-  const resourceMetrics = (payload as OtlpMetricsPayload)?.resourceMetrics ?? [];
-  for (const rm of resourceMetrics) {
-    const resourceAttrs = attrsToRecord(rm.resource?.attributes);
-    for (const sm of rm.scopeMetrics ?? []) {
-      for (const metric of sm.metrics ?? []) {
-        if (metric.name !== 'gen_ai.client.token.usage') continue;
-
-        const points: Array<{ attrs?: OtlpAttribute[]; value: number }> = [
-          ...(metric.sum?.dataPoints ?? []).map((dp) => ({ attrs: dp.attributes, value: numberFromDataPoint(dp) })),
-          ...(metric.gauge?.dataPoints ?? []).map((dp) => ({ attrs: dp.attributes, value: numberFromDataPoint(dp) })),
-          ...(metric.histogram?.dataPoints ?? []).map((dp) => ({ attrs: dp.attributes, value: dp.sum ?? 0 })),
-        ];
-
-        for (const point of points) {
-          const attrs = { ...resourceAttrs, ...attrsToRecord(point.attrs) };
-          const tokenType = pickString(attrs['gen_ai.token.type']);
-          const tokens: EventTokens = tokenType === 'output' ? { output: point.value } : { input: point.value };
-
-          events.push({
-            eventId: crypto.randomUUID(),
-            sessionId: sessionIdFrom(attrs),
-            agent: 'copilot',
-            ts: new Date().toISOString(),
-            kind: 'turn_stop',
-            status: 'unknown',
-            model: modelFrom(attrs),
-            tokens,
-            raw: { adapter: 'copilot', ref: 'otlp:metric:gen_ai.client.token.usage' },
           });
         }
       }

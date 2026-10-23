@@ -5,16 +5,17 @@ import { NormalizedEvent } from './types';
 /**
  * Two live marks per model (see docs/design/conversation-view.md):
  * - largestSeen: the biggest context any call to the model has sent;
- * - limit: set only when a limit is actually encountered, i.e. an automatic
- *   compaction (its preTokens). The lowest value encountered wins. Manual
- *   compactions don't count: you chose when they happened.
+ * - limit: set only when a limit is actually encountered: an automatic
+ *   compaction (its preTokens), or a limit the source reports with the call
+ *   (Copilot's maxPromptTokens / max_prompt_tokens). The lowest value wins.
+ *   Manual compactions don't count: you chose when they happened.
  */
 export interface ModelContextMarks {
   largestSeen?: number;
   largestSeenAt?: string;
   limit?: number;
   limitAt?: string;
-  limitSource?: 'auto-compaction';
+  limitSource?: 'auto-compaction' | 'reported';
 }
 
 interface StoredLimits {
@@ -72,6 +73,7 @@ export class ContextLimits {
     if (event.kind === 'turn_stop') {
       const size = contextSize(event);
       if (size !== undefined) update = { largestSeen: size, largestSeenAt: event.ts };
+      if (event.contextLimit) update = { ...update, limit: event.contextLimit, limitAt: event.ts, limitSource: 'reported' };
     } else if (event.kind === 'compaction' && event.compaction?.trigger === 'auto' && event.compaction.preTokens) {
       update = { limit: event.compaction.preTokens, limitAt: event.ts, limitSource: 'auto-compaction' };
     }
