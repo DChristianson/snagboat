@@ -142,6 +142,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 | `npm run watch` | Rebuilds on change |
 | `npm run test:unit` | Unit tests, no VS Code needed |
 | `npm test` | Compiles and bundles, then runs the integration suite in a real VS Code instance via `@vscode/test-electron` |
+| `npm run replay:heuristics` | Replays your local Claude Code transcripts through every heuristic and reports what would have fired; prints counts and times only |
 | `npm run verify:transcripts` | Replays your own local Claude Code transcripts for this project through the adapter and checks token totals; prints totals only |
 | `npm run package` | Builds the `.vsix` |
 | `npm run licenses` | Regenerates `THIRD_PARTY_LICENSES.md` from the bundled dependencies (`-- --check` verifies it, as CI does) |

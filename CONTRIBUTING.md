@@ -42,6 +42,7 @@ Press F5 in VS Code to launch an Extension Development Host. The **Run Extension
 | --- | --- |
 | `npm run test:unit` | Every unit test file, no VS Code needed. This is what CI runs. |
 | `npm test` | The integration suite in a real VS Code instance (`@vscode/test-electron`, mocha TDD style). Uses a private `SNAGBOAT_HOME`, transcripts folder, and Copilot port, so it doesn't disturb your own windows. |
+| `npm run replay:heuristics` | Replays your own Claude Code transcripts for this project through every heuristic and reports what would have fired, and when. For calibrating thresholds; `--settings '<json>'` overrides them. Prints counts and times only. |
 | `npm run verify:transcripts` | Replays your own Claude Code transcripts for this project through the adapter and checks token totals. Prints totals only. |
 
 Unit tests are plain Node scripts: each file collects `test(name, fn)` cases, runs them, prints `PASS`/`FAIL`, and exits non-zero on failure. No test framework is involved. A new test file must be added to the `test:unit` script in `package.json`. Keep code under test free of the `vscode` module; if something needs VS Code, pass the value in (as `TranscriptTailer` takes its folder) rather than importing it.

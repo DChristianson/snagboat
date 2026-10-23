@@ -4,6 +4,7 @@ import * as path from 'path';
 import { normalizeTranscriptChunk, SeenMessages } from '../../adapters/claude-code/normalize';
 import { readCheckpointState } from '../../adapters/claude-code/checkpointState';
 import { expectedTotals, replayTotals } from '../../scripts/transcripts';
+import { replay, sessionEvents } from '../../scripts/replayHeuristics';
 
 // Real Claude Code writes one transcript line per content block of a response,
 // all sharing message.id and each repeating the whole message's usage.
@@ -107,6 +108,16 @@ async function main() {
     for (let seed = 1; seed <= 20; seed++) {
       assert.deepStrictEqual(replayTotals(lines, 'fixture.jsonl', seed).totals, expected.totals, `seed ${seed}`);
     }
+  });
+
+  test('replay:heuristics runs the real heuristics over a redacted real transcript', () => {
+    const events = sessionEvents(FIXTURE);
+    assert.ok(events.some((e) => e.kind === 'user_prompt') && events.some((e) => e.kind === 'turn_stop') && events.some((e) => e.kind === 'tool_call'));
+    assert.deepStrictEqual([...events].sort((a, b) => a.ts.localeCompare(b.ts)).map((e) => e.eventId), events.map((e) => e.eventId), 'time ordered');
+    const episodes = replay(events, { 'token-budget': { session: 1 } });
+    assert.ok(episodes.some((e) => e.heuristic === 'token-budget'), 'settings overrides reach the heuristics');
+    const known = new Set(['stalled', 'token-budget', 'tool-churn', 'backtracking', 'verbal-hedge']);
+    assert.deepStrictEqual(episodes.filter((e) => !known.has(e.heuristic) || e.endMin < e.startMin), []);
   });
 
   let failures = 0;

@@ -194,6 +194,8 @@ A call's **output** tokens are split evenly across the tools it requested. The *
 - **`backtracking`:** count failures and repeated edits to the same file within a turn. A successful tool call no longer clears the finding.
 - **`tool-churn`:** evaluate per session, and use the share of calls on few targets rather than an absolute two-target cap.
 
+**Baseline (phase 1 replay, before any changes):** four real sessions totalling about six days and 268 prompts. `stalled` fired 93 times, at every break, including overnight. `tool-churn` fired 3 times, `backtracking` once, and `token-budget` never (no budgets set). `verbal-hedge` fired 0 times, with reply text available: only 5 of 818 replies contained any hedge phrase (one of them a reply *listing* the phrases), and never two within 10 minutes.
+
 **Calibration:** a `npm run replay:heuristics` dev script, like `verify:transcripts`, that replays local transcripts through every heuristic and reports, per session, what fired and when. It prints counts and times only, never content. Thresholds are then set so findings are rare but real on your own history.
 
 ## Copilot
