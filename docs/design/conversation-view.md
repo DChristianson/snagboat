@@ -1,6 +1,6 @@
 # Design: conversation-aware view
 
-Status: **accepted**, nothing built yet. Mockups use synthetic data. Decisions from the first review are recorded under [Decisions](#decisions).
+Status: **accepted**; phase 1 (data) and phase 2 (views) built. Mockups use synthetic data. Decisions from the first review are recorded under [Decisions](#decisions).
 
 ## Summary
 
@@ -227,6 +227,15 @@ Open: reply excerpts for Copilot (for `verbal-hedge`) aren't mapped yet; `assist
    Useful on its own: it fixes the missing subagent tokens and lets heuristics be calibrated.
 2. **Views:** the Sessions tab with the session list, the turn tree above the expandable context timeline, the links from the Overview, and on-demand loading of older sessions (see [Navigation](#navigation)).
 3. **Heuristics:** the new turn-based heuristics and the changes above, with thresholds from replay.
+
+## Implementation notes (phase 2)
+
+Where the build differs from, or adds to, the design above:
+
+- **Turns, not prompt messages, are the unit.** A message sent while the agent is still working shares the running turn's `promptId` (6 of 66 prompts in one real session). The tree has one node per turn, prompt markers in the same turn share its number, and the session list's "prompts" counts turns.
+- **Tool-category crediting is simpler than designed.** Each turn's (or subagent's) tokens are split across tool categories in proportion to how many calls of each category it made, instead of crediting output and context growth per call. The per-call rule needs a link from each tool call to the model call that requested it, which not every source provides. Values stay marked ≈.
+- **The timeline zooms to a turn by default.** Real sessions span days with idle nights, so the full time range is mostly empty. The timeline shows the selected turn (or the latest), "Show whole session" zooms out, and expanded mode adds drag-to-zoom. Steps are capped at 3 minutes, so idle gaps read as gaps.
+- **Only the main agent's context is plotted.** Subagents run in separate contexts, so they appear as lanes (expanded) rather than stacked onto the main context.
 
 ## Decisions
 

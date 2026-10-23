@@ -53,11 +53,13 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
 ## Using it
 
 - **Status bar:** today's tokens, agent events, and local edits (resetting at local midnight), plus the most important active finding. Hover for a breakdown by agent, all-time totals, active findings, and any health problems with Snagboat itself (shown as ⚠).
-- **Detail view:** click the status bar item, or run **Snagboat: Open Detail View**. It shows:
+- **Detail view:** click the status bar item, or run **Snagboat: Open Detail View**. Its **Overview** tab shows:
   - today's totals;
   - active findings, each of which you can **acknowledge** (hidden from the status bar until that problem clears) or **mute** (hidden for this workspace until unmuted), or use to filter the timeline to the events behind it;
   - a per-day token chart by agent over 7, 30, or 90 days, with a table view;
   - a filterable timeline of the last 24 hours, where file targets open the file and reply excerpts can be expanded.
+
+  Its **Sessions** tab lists each day's agent sessions. Opening one shows a **turn tree** (where the session's tokens went: by prompt, then main agent or subagent, then an approximate split by tool category; click to zoom) above a **context timeline** (how much context each model call sent, split into cache read, cache creation, and fresh input, with your prompts, compactions, findings, and each model's largest-seen and limit lines). Expand the timeline for output tokens, subagent lanes, and drag-to-zoom. Findings ("Show in session"), session ids in the Overview timeline, and the daily chart's bars all link into it, as does **Snagboat: Open Session...**.
 - **Commands:** **Snagboat: Show Token/Event Breakdown** prints the breakdown to an output channel; **Snagboat: Clear Event Log** deletes this workspace's logged events after confirming.
 
 ### Findings
