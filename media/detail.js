@@ -436,7 +436,7 @@
         el('tr', { class: ui.finding ? 'highlight' : undefined }, [
           el('td', { text: formatTime(e.ts), title: e.ts }),
           el('td', { text: e.agent }),
-          el('td', { text: e.kind }),
+          el('td', { text: e.toolLabel ? `${e.kind} \u00b7 ${e.toolLabel}` : e.kind }),
           el('td', { class: e.status === 'failure' ? 'status-failure' : undefined, text: e.status }),
           el('td', {}, [
             e.target === undefined

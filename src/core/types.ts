@@ -1,3 +1,5 @@
+import type { ToolCategory } from './toolCategory';
+
 export type BuiltInAgentId = 'claude-code' | 'copilot' | 'generic-fs';
 export type AgentId = BuiltInAgentId | `custom:${string}`;
 
@@ -34,6 +36,10 @@ export interface NormalizedEvent {
   turnId?: string;
   /** Set for work done by a subagent; absent for the main agent. */
   agentId?: string;
+  /** For tool calls: the tool's name as the agent reported it. */
+  toolName?: string;
+  /** For tool calls: high-level category (see toolCategory.ts). */
+  toolCategory?: ToolCategory;
   /** For compaction events. */
   compaction?: {
     trigger: 'auto' | 'manual' | 'unknown';

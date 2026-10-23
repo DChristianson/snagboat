@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import { NormalizedEvent, EventTokens } from '../../core/types';
 import { makeExcerpt } from '../../core/excerpt';
+import { classifyTool } from '../../core/toolCategory';
 
 /**
  * Parses the OTLP/HTTP JSON wire format (a stable, documented protobuf-JSON
@@ -163,6 +164,8 @@ export function normalizeOtlpTraces(payload: unknown, opts: { captureContent?: b
             kind: 'tool_call',
             target,
             status: spanStatus(span),
+            // Copilot's tool arguments aren't captured, so terminal commands classify as plain shell.
+            ...(span.name === 'execute_tool' ? { toolName: target, toolCategory: classifyTool(target) } : {}),
             model: modelFrom(attrs),
             raw: { adapter: 'copilot', ref: `otlp:span:${span.spanId ?? 'unknown'}` },
           });

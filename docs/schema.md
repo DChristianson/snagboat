@@ -25,6 +25,9 @@ interface NormalizedEvent {
   textExcerpt?: string;
   turnId?: string;   // the prompt (turn) this event belongs to
   agentId?: string;  // set for subagent work
+  toolName?: string;     // tool calls: the tool's name as reported
+  toolCategory?: 'file-read' | 'file-edit' | 'search' | 'script' | 'tests-builds'
+    | 'version-control' | 'shell' | 'web' | 'mcp' | 'subagent' | 'other';
   compaction?: { trigger: 'auto' | 'manual' | 'unknown'; preTokens?: number; postTokens?: number };
   confidence?: number;
   raw: {
@@ -83,3 +86,7 @@ The schema is designed so sensitive content remains optional:
 - when the source is file-backed, it should prefer a file path or URI plus a line or byte offset so humans and tools can resolve it directly
 
 Examples include `transcripts/session.jsonl#L128`, `file:///.../copilot.log#offset=4096`, or another adapter-specific reference that can be mapped back to a single raw record.
+
+## Tool categories
+
+`toolCategory` is a high-level label for what a tool call ran, computed in the adapter by `src/core/toolCategory.ts` from the tool's name and, for shell tools, the command line: interpreter runs (a script file, or inline code such as `python3 - <<EOF`) are `script`; test runners, build tools, and package-manager `test`/`build`/`lint` scripts are `tests-builds`; `git`/`gh` are `version-control`; other commands are `shell`. Chains are classified by their first meaningful segment (`cd src && npm test` is `tests-builds`). It's pattern matching and will mislabel some calls; see [design/conversation-view.md](design/conversation-view.md#tool-classification). Copilot doesn't export tool arguments, so its terminal tool is always `shell`.

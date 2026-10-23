@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import { NormalizedEvent } from '../../core/types';
 import { makeExcerpt } from '../../core/excerpt';
+import { classifyTool } from '../../core/toolCategory';
 
 interface ClaudeTranscriptLine {
   type?: string;
@@ -392,6 +393,8 @@ export function normalizeHookPayload(payload: unknown, turnFallback?: (sessionId
       kind: 'tool_call',
       target,
       status,
+      toolName: payload.tool_name,
+      toolCategory: classifyTool(payload.tool_name, payload.tool_input?.command),
       ...attribution,
       raw: { adapter: 'claude-code', ref: `hook:PostToolUse:${payload.tool_name ?? 'unknown'}` },
     };

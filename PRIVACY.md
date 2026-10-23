@@ -13,6 +13,7 @@ Each observed action becomes one normalized event (see [docs/schema.md](docs/sch
 | Claude Code transcript | `raw.ref` | The transcript file path and byte offset the event came from |
 | Claude Code transcript | `user_prompt` events | **When** you sent each prompt, and its id. Never the prompt's text. |
 | Claude Code transcript | `compaction` events | When the context was compacted, whether automatically or by you, and the context size before and after |
+| Claude Code hooks, Copilot OTel | `toolName`, `toolCategory` | The tool's name and a high-level category (e.g. "Tests and builds"). The category is derived from the command already stored in `target`, so it adds no new information. |
 | Claude Code transcript and hooks | `turnId`, `agentId` | Which prompt each model call and tool call belongs to, and which subagent (by Claude Code's id) did the work |
 | Copilot OTel | `target` | The tool or hook name only, not its arguments |
 | Edit tracker | `target`, `raw.ref` | The saved file's path and URI, not its contents |
