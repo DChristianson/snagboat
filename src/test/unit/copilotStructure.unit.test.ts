@@ -51,6 +51,20 @@ async function main() {
     assert.ok(!lines.includes('rm -rf'));
   });
 
+  test('logs are captured with event names and attribute names, never their text', () => {
+    const LOGS = { resourceLogs: [{ scopeLogs: [{ logRecords: [
+      { eventName: 'gen_ai.client.inference.operation.details', spanId: 'b', body: { stringValue: 'secret prompt body' },
+        attributes: [attr('gen_ai.input.messages', { stringValue: 'secret messages' }), attr('gen_ai.usage.input_tokens', { intValue: '150' })] },
+    ] }] }] };
+    const structure: any = payloadStructure('/v1/logs', LOGS);
+    assert.ok(!JSON.stringify(structure).includes('secret'));
+    const record = structure.resources[0].records[0];
+    assert.strictEqual(record.eventName, 'gen_ai.client.inference.operation.details');
+    assert.strictEqual(record.attributes['gen_ai.usage.input_tokens'], 150);
+    const lines = summarize([{ structure: payloadStructure('/v1/traces', TRACE) }, { structure }]).join('\n');
+    assert.match(lines, /log "gen_ai.client.inference.operation.details" ×1; attached to spans: chat/);
+  });
+
   let failures = 0;
   for (const [name, fn] of tests) {
     try {

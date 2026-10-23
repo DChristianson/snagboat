@@ -68,6 +68,25 @@ export function payloadStructure(url: string, payload: any): unknown {
       })),
     };
   }
+  if (url.includes('/v1/logs')) {
+    return {
+      signal: 'logs',
+      resources: (payload?.resourceLogs ?? []).map((rl: any) => ({
+        resource: redactAttributes(rl?.resource?.attributes),
+        records: (rl?.scopeLogs ?? []).flatMap((sl: any) =>
+          (sl?.logRecords ?? []).map((r: any) => ({
+            eventName: typeof r?.eventName === 'string' ? r.eventName : undefined,
+            severityText: typeof r?.severityText === 'string' ? r.severityText : undefined,
+            traceId: r?.traceId,
+            spanId: r?.spanId,
+            timeUnixNano: r?.timeUnixNano ?? r?.observedTimeUnixNano,
+            body: redactValue(r?.body),
+            attributes: redactAttributes(r?.attributes),
+          }))
+        ),
+      })),
+    };
+  }
   return { signal: 'other', url };
 }
 

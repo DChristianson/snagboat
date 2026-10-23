@@ -39,6 +39,7 @@ export function summarize(records: any[]): string[] {
   const spans: SpanRecord[] = [];
   const resourceKeys = new Map<string, number>();
   const metrics = new Map<string, Set<string>>();
+  const logs: any[] = [];
   for (const r of records) {
     const s = r?.structure;
     if (s?.signal === 'traces') {
@@ -46,6 +47,8 @@ export function summarize(records: any[]): string[] {
         for (const k of Object.keys(res.resource ?? {})) resourceKeys.set(k, (resourceKeys.get(k) ?? 0) + 1);
         spans.push(...(res.spans ?? []));
       }
+    } else if (s?.signal === 'logs') {
+      for (const res of s.resources ?? []) logs.push(...(res.records ?? []));
     } else if (s?.signal === 'metrics') {
       for (const res of s.resources ?? [])
         for (const m of res.metrics ?? []) {
@@ -75,6 +78,25 @@ export function summarize(records: any[]): string[] {
       const nums = values.filter((v): v is number => typeof v === 'number');
       const kind = nums.length === values.length ? `number ${Math.min(...nums)}–${Math.max(...nums)}` : typeof values[0] === 'boolean' ? 'boolean' : 'text (lengths only)';
       out.push(`    ${k}: ${kind}, on ${values.length}/${mine.length}`);
+    }
+  }
+
+  if (logs.length > 0) {
+    out.push('', `Log records: ${logs.length}`);
+    const byEvent = new Map<string, any[]>();
+    for (const r of logs) {
+      const key = r.eventName ?? `(no event name; body ${typeof r.body === 'string' ? 'text' : typeof r.body})`;
+      byEvent.set(key, [...(byEvent.get(key) ?? []), r]);
+    }
+    for (const [name, records] of byEvent) {
+      const linked = records.filter((r) => r.spanId && byId.has(r.spanId)).map((r) => byId.get(r.spanId)!.name);
+      out.push(`  log "${name}" ×${records.length}${linked.length ? `; attached to spans: ${[...new Set(linked)].join(', ')}` : ''}`);
+      const keys = new Map<string, unknown[]>();
+      for (const r of records) for (const [k, v] of Object.entries(r.attributes ?? {})) keys.set(k, [...(keys.get(k) ?? []), v]);
+      for (const [k, values] of [...keys].sort(([a], [b]) => a.localeCompare(b))) {
+        const nums = values.filter((v): v is number => typeof v === 'number');
+        out.push(`    ${k}: ${nums.length === values.length ? `number ${Math.min(...nums)}–${Math.max(...nums)}` : 'text (lengths only)'}, on ${values.length}/${records.length}`);
+      }
     }
   }
 
