@@ -79,6 +79,7 @@ With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself s
 | `snagboat.tokenBudget.session` | unset | Warn when one session's tokens cross this total. |
 | `snagboat.tokenBudget.day` | unset | Warn when this workspace's tokens for the day cross this total. |
 | `snagboat.copilot.otlpPort` | `4318` | Local port for Copilot's telemetry. |
+| `snagboat.copilot.captureStructure` | `false` | Development aid: record the structure of Copilot's telemetry (span names, links, attribute names, numbers; every text value replaced by its length) to help map it. Summarize with `npm run summarize:copilot`. |
 | `snagboat.heuristics.backtracking.window` | `10` (minutes) | Window backtracking looks back over. |
 | `snagboat.heuristics.backtracking.minRepeats` | `3` | Touches of one target within the window before backtracking fires. |
 | `snagboat.heuristics.toolChurn.window` | `5` (minutes) | Window tool-churn looks back over. |
@@ -143,6 +144,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 | `npm run test:unit` | Unit tests, no VS Code needed |
 | `npm test` | Compiles and bundles, then runs the integration suite in a real VS Code instance via `@vscode/test-electron` |
 | `npm run replay:heuristics` | Replays your local Claude Code transcripts through every heuristic and reports what would have fired; prints counts and times only |
+| `npm run summarize:copilot` | Summarizes a Copilot structure capture: span tree, attributes, and where token counts live |
 | `npm run verify:transcripts` | Replays your own local Claude Code transcripts for this project through the adapter and checks token totals; prints totals only |
 | `npm run package` | Builds the `.vsix` |
 | `npm run licenses` | Regenerates `THIRD_PARTY_LICENSES.md` from the bundled dependencies (`-- --check` verifies it, as CI does) |

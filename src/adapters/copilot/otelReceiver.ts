@@ -8,7 +8,9 @@ export class OtelReceiver {
 
   constructor(
     private readonly ctx: AdapterContext,
-    private readonly port: number
+    private readonly port: number,
+    /** Called with every parsed payload when structure capture is on; decided per request so the setting applies live. */
+    private readonly capture?: () => ((url: string, payload: unknown) => void) | undefined
   ) {}
 
   start(): void {
@@ -60,6 +62,8 @@ export class OtelReceiver {
       console.warn(`snagboat: failed to parse OTLP payload as JSON (${body.length} bytes)`);
       return;
     }
+
+    this.capture?.()?.(url, json);
 
     const events = url.includes('/v1/metrics')
       ? normalizeOtlpMetrics(json)

@@ -202,7 +202,7 @@ A call's **output** tokens are split evenly across the tools it requested. The *
 
 Copilot data collection is **in phase 1**. Copilot's OTel spans have parent span ids, and an `invoke_agent` span corresponds to a turn, so turns and their tool calls can be attributed. What isn't confirmed is which spans carry per-call usage (context size), and whether compaction or subagent equivalents appear at all. Phase 1 therefore starts with a capture step:
 
-1. Record a few real Copilot Chat sessions' OTLP traffic locally (structure only, with content capture off). That means a dev option on the receiver to save the span tree and attribute names, never values.
+1. Record a few real Copilot Chat sessions' OTLP traffic locally, structure only. *Built:* the `snagboat.copilot.captureStructure` setting saves span names, links, timings, attribute names and numeric values, with every text value replaced by its length. `npm run summarize:copilot` prints the span tree and shows where token counts live.
 2. Document the span tree: which span is a turn, a model call and a tool call, and which attributes carry tokens, model and parent links.
 3. Map it to `user_prompt`, `turnId`, model-call usage and tool calls, the same events as Claude Code, and add fixtures shaped after the capture.
 

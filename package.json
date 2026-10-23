@@ -83,6 +83,11 @@
           "minimum": -1,
           "description": "Days of daily aggregates to keep, counting today. -1 keeps them indefinitely; 0 keeps none, so raw days past snagboat.retention.rawDays are deleted without being rolled up."
         },
+        "snagboat.copilot.captureStructure": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Development aid: record the *structure* of the telemetry Copilot sends (span names, parent links, timings, attribute names, and numeric values such as token counts) to Snagboat's global storage, for mapping Copilot's spans to Snagboat events. Every text value is replaced by its length, so no prompts, replies, arguments, or paths are recorded. Summarize with `npm run summarize:copilot` in the Snagboat repo."
+        },
         "snagboat.copilot.otlpPort": {
           "type": "number",
           "default": 4318,
@@ -148,9 +153,10 @@
     "compile-tests": "tsc -p . --outDir out",
     "verify:transcripts": "npm run compile-tests && node ./out/scripts/transcripts.js verify",
     "replay:heuristics": "npm run compile-tests && node ./out/scripts/replayHeuristics.js",
+    "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js"
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
