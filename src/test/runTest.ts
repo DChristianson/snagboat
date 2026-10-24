@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { runTests } from '@vscode/test-electron';
+import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
 
 /**
  * When npm test is started by a process running inside VS Code's extension
@@ -16,6 +16,19 @@ function clearInheritedVsCodeEnv(): void {
   }
 }
 
+/** Downloads the VS Code to test with, retrying network failures (CI runners hit them now and then); the tests themselves aren't retried. */
+async function downloadVSCode(version: string, attempts = 3): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await downloadAndUnzipVSCode(version);
+    } catch (err) {
+      if (attempt >= attempts) throw err;
+      console.warn(`Downloading VS Code ${version} failed (attempt ${attempt} of ${attempts}); retrying in ${attempt * 10}s`, err);
+      await new Promise((resolve) => setTimeout(resolve, attempt * 10_000));
+    }
+  }
+}
+
 async function main() {
   clearInheritedVsCodeEnv();
   const extensionDevelopmentPath = path.resolve(__dirname, '../../');
@@ -27,7 +40,10 @@ async function main() {
   const copilotSessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-copilot-sessions-'));
 
   try {
+    // CI also tests the minimum supported VS Code (engines.vscode); default is the latest stable.
+    const vscodeExecutablePath = await downloadVSCode(process.env.SNAGBOAT_TEST_VSCODE_VERSION || 'stable');
     await runTests({
+      vscodeExecutablePath,
       extensionDevelopmentPath,
       extensionTestsPath,
       launchArgs: [workspaceDir, '--disable-extensions'],

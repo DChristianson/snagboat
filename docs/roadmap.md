@@ -16,19 +16,17 @@ The minimum supported VS Code is 1.119 (Node 22.22), which Copilot's telemetry e
 
 ## CI/CD
 
-In place ([.github/workflows/ci.yml](../.github/workflows/ci.yml)), on pushes to `main` and pull requests, on Ubuntu and macOS:
+In place ([.github/workflows/ci.yml](../.github/workflows/ci.yml)), on pushes to `main` and pull requests:
 
-- `npm ci`
-- unit tests (`npm run test:unit`, which also type-checks via `tsc`)
-- production bundle
-- third-party license check (`npm run licenses -- --check`)
-- `.vsix` packaging
+- on Ubuntu and macOS: `npm ci`, unit tests (`npm run test:unit`, which also type-checks via `tsc`), the production bundle, the third-party license check (`npm run licenses -- --check`), and `.vsix` packaging
+- the integration suite (`npm test`) in a real VS Code: latest stable on Ubuntu (under a virtual display) and macOS, plus the minimum supported version (1.119) on Ubuntu
 - Dependabot updates for npm and GitHub Actions
+
+Releases ([.github/workflows/release.yml](../.github/workflows/release.yml)): pushing a `v*` tag that matches `package.json`'s version runs all of the above, then builds the `.vsix` and publishes a GitHub release with it attached.
 
 Planned:
 
-- the integration suite (`npm test`) in CI, which needs a virtual display on Linux
-- on `v*` tags: build the `.vsix`, attach it to a GitHub release, and publish to the VS Code Marketplace and Open VSX
+- publishing to the VS Code Marketplace and Open VSX from the release workflow (needs a token for each, stored as repository secrets)
 - a weekly replay of the redacted transcript fixture against the heuristics engine
 
 ## Session-level meta-characters

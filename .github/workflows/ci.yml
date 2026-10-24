@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The release workflow runs these checks before building a release.
+  workflow_call:
 
 permissions:
   contents: read
@@ -31,3 +33,33 @@ jobs:
         run: npm run licenses -- --check
       - name: Package the extension
         run: npm run package
+
+  integration:
+    name: Integration tests (${{ matrix.os }}, VS Code ${{ matrix.vscode }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, vscode: stable }
+          # The minimum supported version (engines.vscode in package.json).
+          - { os: ubuntu-latest, vscode: 1.119.0 }
+          - { os: macos-latest, vscode: stable }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Cache the downloaded VS Code
+        uses: actions/cache@v6
+        with:
+          path: .vscode-test
+          key: vscode-${{ runner.os }}-${{ matrix.vscode }}-${{ matrix.vscode == 'stable' && github.run_id || 'pinned' }}
+          restore-keys: vscode-${{ runner.os }}-${{ matrix.vscode }}-
+      - name: Run the integration suite in VS Code
+        env:
+          SNAGBOAT_TEST_VSCODE_VERSION: ${{ matrix.vscode }}
+        # Linux runners have no display, so VS Code runs under a virtual one.
+        run: ${{ runner.os == 'Linux' && 'xvfb-run -a ' || '' }}npm test

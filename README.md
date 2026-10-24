@@ -14,7 +14,7 @@ I built it for myself. I spend long stretches in agent sessions and wanted to se
 
 ## Status
 
-Working, but early (version `0.0.1`), not yet published to the Marketplace or Open VSX, and installed from source. macOS and Linux only: Claude Code hooks go through a POSIX shell script. See [what's not built yet](#not-built-yet).
+Working, but early (version `0.0.1`). Install it from a [GitHub release](https://github.com/DChristianson/snagboat/releases); it's not yet on the Marketplace or Open VSX. macOS and Linux only: Claude Code hooks go through a POSIX shell script. See [what's not built yet](#not-built-yet).
 
 ## What it watches
 
@@ -28,7 +28,15 @@ Working, but early (version `0.0.1`), not yet published to the Marketplace or Op
 
 ## Install
 
-Requires VS Code 1.119 or later, and Node.js 22 or later to build.
+Requires VS Code 1.119 or later.
+
+Download `snagboat-<version>.vsix` from the [latest release](https://github.com/DChristianson/snagboat/releases/latest), then:
+
+```bash
+code --install-extension snagboat-0.0.1.vsix
+```
+
+Or build it yourself (needs Node.js 22 or later):
 
 ```bash
 git clone https://github.com/DChristianson/snagboat.git
