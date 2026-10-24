@@ -28,6 +28,8 @@ async function main() {
 
   try {
     await runTests({
+      // CI also tests the minimum supported VS Code (engines.vscode); default is the latest stable.
+      version: process.env.SNAGBOAT_TEST_VSCODE_VERSION || 'stable',
       extensionDevelopmentPath,
       extensionTestsPath,
       launchArgs: [workspaceDir, '--disable-extensions'],
