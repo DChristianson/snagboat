@@ -76,7 +76,7 @@ An open turn with no agent activity in its session for `snagboat.heuristics.stal
 
 ### `verbal-hedge`
 
-Looks for hedge or self-correction phrases ("I think", "should work", "let me try", "actually,", "my mistake", "that didn't work", …) in the `textExcerpt` of `turn_stop` events. It fires per session when at least `snagboat.heuristics.verbalHedge.minTurns` (default `2`) replies hedge within `.window` minutes (default `10`). It is `info` on its own and escalates to `warn` only when the same session shows a behavioral signal in the window: a target touched 3 or more times, or a failed tool call. Hedging alone never escalates. It is silent unless `snagboat.captureContent` is on, since no other path populates `textExcerpt`. Phrases favor multi-word or punctuated forms ("actually," rather than "actually") to avoid matching ordinary prose.
+Looks for hedge or self-correction phrases ("I think", "should work", "let me try", "actually,", "my mistake", "that didn't work", …) in the `textExcerpt` of `turn_stop` events. It fires per session when at least `snagboat.heuristics.verbalHedge.minTurns` (default `2`) replies hedge within `.window` minutes (default `10`). It is `info` on its own and escalates to `warn` only when the same session shows a behavioral signal in the window: a target touched 3 or more times, or a failed tool call. Hedging alone never escalates. It is silent when `snagboat.captureContent` is off (it's on by default), since no other path populates `textExcerpt`. Phrases favor multi-word or punctuated forms ("actually," rather than "actually") to avoid matching ordinary prose.
 
 ### `token-budget`
 

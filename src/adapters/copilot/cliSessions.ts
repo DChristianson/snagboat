@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { NormalizedEvent } from '../../core/types';
 import { classifyTool } from '../../core/toolCategory';
+import { makePromptText, redactSecrets } from '../../core/excerpt';
+import { sessionNameId } from '../../core/sessions';
 
 /**
  * Copilot agent sessions, read from the Copilot CLI's own event log at
@@ -32,6 +34,8 @@ export class CopilotCliState {
   sessionId?: string;
   cwd?: string;
   lastTurn?: string;
+  /** The session name last published, so a name is published again only when it changes. */
+  lastName?: string;
   private turnById = new Map<string, string>();
   private toolStarts = new Map<string, { name?: string; args?: Record<string, unknown> }>();
 
@@ -74,7 +78,8 @@ export function normalizeCopilotCliChunk(
   rawLines: string[],
   filePath: string,
   chunkStartOffset: number,
-  state: CopilotCliState
+  state: CopilotCliState,
+  opts: { captureContent?: boolean } = {}
 ): NormalizedEvent[] {
   const events: NormalizedEvent[] = [];
   const fallbackSession = path.basename(path.dirname(filePath));
@@ -102,7 +107,8 @@ export function normalizeCopilotCliChunk(
     };
 
     if (e.type === 'user.message') {
-      events.push({ ...base, eventId: e.id ?? `${filePath}:${chunkStartOffset}:prompt`, kind: 'user_prompt', status: 'unknown' });
+      const promptText = opts.captureContent ? makePromptText([str(data.content)]) : undefined;
+      events.push({ ...base, eventId: e.id ?? `${filePath}:${chunkStartOffset}:prompt`, kind: 'user_prompt', status: 'unknown', ...(promptText ? { promptText } : {}) });
     } else if (e.type === 'session.usage_record') {
       const u = data.usage ?? {};
       const cacheRead = num(u.cacheReadTokens) ?? 0;
@@ -168,4 +174,43 @@ export function readSessionCwd(eventsFile: string): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * The session's name from the workspace.yaml Copilot keeps beside events.jsonl:
+ * a generated title, or one you set (user_named). A minimal reader for the
+ * top-level scalar keys it needs, not a YAML parser.
+ */
+export function readSessionName(eventsFile: string): { name: string; userNamed: boolean; updatedAt?: string } | undefined {
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(path.dirname(eventsFile), 'workspace.yaml'), 'utf8');
+  } catch {
+    return undefined;
+  }
+  const field = (key: string) => {
+    const m = new RegExp(`^${key}:[ \\t]*(.*)$`, 'm').exec(text);
+    if (!m) return undefined;
+    const raw = m[1].trim();
+    const quoted = /^(["'])(.*)\1$/.exec(raw);
+    return quoted ? quoted[2] : raw;
+  };
+  const name = field('name');
+  if (!name || name === '~' || name === 'null') return undefined;
+  return { name, userNamed: field('user_named') === 'true', updatedAt: field('updated_at') };
+}
+
+/** A session_name event for a Copilot session, keyed like Claude Code's so a repeat is dropped as already logged. */
+export function copilotSessionNameEvent(sessionId: string, name: string, eventsFile: string, ts: string | undefined): NormalizedEvent {
+  const parsed = ts ? Date.parse(ts) : NaN;
+  return {
+    eventId: sessionNameId('copilot', sessionId, name),
+    sessionId,
+    agent: 'copilot',
+    ts: Number.isNaN(parsed) ? new Date().toISOString() : new Date(parsed).toISOString(),
+    kind: 'session_name',
+    status: 'unknown',
+    sessionName: redactSecrets(name),
+    raw: { adapter: 'copilot-cli', ref: `${eventsFile}#workspace.yaml` },
+  };
 }

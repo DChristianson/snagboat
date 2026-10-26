@@ -24,6 +24,8 @@ export class Aggregate {
   private totalTokens = 0;
 
   apply(event: NormalizedEvent): void {
+    // A session's name is metadata about the session, not agent activity.
+    if (event.kind === 'session_name') return;
     let agentAgg = this.perAgent.get(event.agent);
     if (!agentAgg) {
       agentAgg = emptyAgentAggregate();

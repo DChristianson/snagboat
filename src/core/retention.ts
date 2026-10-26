@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AgentAggregate, Aggregate } from './aggregate';
 import { EventLog, eventDay } from './eventLog';
+import { hasCapturedText, withoutCapturedText } from './excerpt';
 import { NormalizedEvent } from './types';
 
 const AGGREGATE_FILE_PATTERN = /^(\d{4}-\d{2}-\d{2})\.json$/;
@@ -12,6 +13,17 @@ export interface RetentionPolicy {
   rawDays: number;
   /** Days of daily aggregates kept, counting today. -1 keeps them forever; 0 keeps none. */
   aggregateDays: number;
+  /**
+   * Days captured text (reply excerpts, prompt text) is kept, counting today.
+   * Older raw days keep their events with the text removed. Never longer
+   * than rawDays; at least 1.
+   */
+  textDays: number;
+}
+
+/** The oldest day whose raw events may still carry captured text. */
+export function oldestTextDay(today: string, policy: RetentionPolicy): string {
+  return oldestKeptDay(today, Math.max(1, Math.min(Math.floor(policy.textDays), Math.floor(policy.rawDays))));
 }
 
 /** One day's worth of raw events, rolled up into the same per-agent shape Aggregate exposes. */
@@ -26,6 +38,8 @@ export interface DailyAggregate {
 export interface RetentionResult {
   /** Days whose raw file was rolled up and deleted. */
   rolledUp: string[];
+  /** Raw days whose captured text was removed. */
+  textRemoved: string[];
   /**
    * Totals that left on-disk history entirely this run (aggregates pruned, or
    * raw days dropped without an aggregate because aggregateDays excluded them),
@@ -144,7 +158,7 @@ export async function applyRetention(
   policy: RetentionPolicy,
   today: string
 ): Promise<RetentionResult> {
-  const result: RetentionResult = { rolledUp: [], dropped: [] };
+  const result: RetentionResult = { rolledUp: [], textRemoved: [], dropped: [] };
   const rawCutoff = oldestKeptDay(today, Math.max(1, Math.floor(policy.rawDays)));
   const aggregateInWindow = (day: string) => aggregateWindowIncludes(day, policy, today);
 
@@ -161,6 +175,15 @@ export async function applyRetention(
     }
     await eventLog.deleteDay(day);
     result.rolledUp.push(day);
+  }
+
+  // Captured text has its own, shorter retention: older raw days keep their events without it.
+  const textCutoff = oldestTextDay(today, policy);
+  for (const day of await eventLog.listDays()) {
+    if (day >= textCutoff) break;
+    if (!(await eventLog.readDay(day)).some(hasCapturedText)) continue;
+    await eventLog.rewriteDay(day, (events) => events.map(withoutCapturedText));
+    result.textRemoved.push(day);
   }
 
   const rawDays = new Set(await eventLog.listDays());
@@ -203,10 +226,12 @@ export class EventSink {
   ) {}
 
   /** Stores the event; returns false if it's older than all retention and so wasn't kept. */
-  write(event: NormalizedEvent): boolean {
-    const day = eventDay(event);
+  write(incoming: NormalizedEvent): boolean {
+    const day = eventDay(incoming);
     const policy = this.policy();
     const today = this.today();
+    // Catching up on an old transcript: text already past its retention isn't stored at all.
+    const event = day < oldestTextDay(today, policy) ? withoutCapturedText(incoming) : incoming;
     if (this.aggregates.hasDay(day)) {
       this.queueMerge(day, event);
       return true;

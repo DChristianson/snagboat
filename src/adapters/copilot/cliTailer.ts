@@ -3,7 +3,7 @@ import * as path from 'path';
 import { AdapterContext } from '../../core/types';
 import { LineTailer } from '../../core/lineTailer';
 import { isWithinFolders } from '../../core/paths';
-import { CopilotCliState, normalizeCopilotCliChunk, readSessionCwd } from './cliSessions';
+import { CopilotCliState, copilotSessionNameEvent, normalizeCopilotCliChunk, readSessionCwd, readSessionName } from './cliSessions';
 
 export const DISCOVERY_INTERVAL_MS = 60_000;
 /** Sessions written to within this window are watched; older ones are read once to catch up. */
@@ -133,7 +133,16 @@ export class CopilotCliTailer {
         this.persistCheckpoint();
       },
       onLines: (f, lines, offset) => {
-        for (const event of normalizeCopilotCliChunk(lines, f, offset, this.stateFor(f))) this.ctx.publish(event);
+        const state = this.stateFor(f);
+        const captureContent = this.ctx.captureContent();
+        for (const event of normalizeCopilotCliChunk(lines, f, offset, state, { captureContent })) this.ctx.publish(event);
+        if (!captureContent) return;
+        // The session's name lives in workspace.yaml beside the log; check it whenever the log grows.
+        const named = readSessionName(f);
+        if (named && named.name !== state.lastName) {
+          state.lastName = named.name;
+          this.ctx.publish(copilotSessionNameEvent(state.sessionId ?? path.basename(path.dirname(f)), named.name, f, named.updatedAt));
+        }
       },
       onReadResult: (f, err) =>
         this.ctx.reportHealth(`copilot-session:${path.basename(path.dirname(f))}`, err ? `failed reading a Copilot session: ${err instanceof Error ? err.message : String(err)}` : undefined),

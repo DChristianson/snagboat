@@ -1,10 +1,13 @@
 import * as crypto from 'crypto';
 import { NormalizedEvent } from '../../core/types';
-import { makeExcerpt } from '../../core/excerpt';
+import { makeExcerpt, makePromptText, redactSecrets } from '../../core/excerpt';
+import { sessionNameId } from '../../core/sessions';
 import { classifyTool } from '../../core/toolCategory';
 
 interface ClaudeTranscriptLine {
   type?: string;
+  /** ai-title lines: Claude Code's generated session title. */
+  aiTitle?: string;
   subtype?: string;
   uuid?: string;
   parentUuid?: string | null;
@@ -100,6 +103,26 @@ export function normalizeTranscriptLine(
  * tool result, and not a meta, compact-summary, or subagent line (a
  * subagent's opening `user` line is the main agent's instructions to it).
  */
+/**
+ * Text blocks in a prompt line that Claude Code or the IDE injected, not
+ * what you typed: open files, selections, task notifications, command output.
+ */
+const INJECTED_BLOCK = /^\s*<(ide_[a-z_]+|system-reminder|task-notification|local-command-[a-z-]+|command-message|command-args)[\s>]/;
+
+/** The prompt's own words: its text blocks minus injected context; a slash command becomes "/name args". */
+export function promptFragments(line: ClaudeTranscriptLine): string[] {
+  const content = line.message?.content;
+  const texts = typeof content === 'string' ? [content] : Array.isArray(content) ? content.filter((b) => b?.type === 'text').map((b) => b.text ?? '') : [];
+  return texts.flatMap((t) => {
+    const command = /<command-name>([^<]*)<\/command-name>/.exec(t);
+    if (command) {
+      const args = /<command-args>([^<]*)<\/command-args>/.exec(t)?.[1]?.trim();
+      return [args ? `${command[1].trim()} ${args}` : command[1].trim()];
+    }
+    return INJECTED_BLOCK.test(t) ? [] : [t];
+  });
+}
+
 /** Claude Code's "[Request interrupted by user]" line (also "... for tool use"): a turn end, not a prompt. */
 export function isInterruption(line: ClaudeTranscriptLine): boolean {
   if (line.type !== 'user' || line.isSidechain || line.agentId) return false;
@@ -165,6 +188,25 @@ export class TurnTracker {
 
   lastModel(file: string): string | undefined {
     return this.lastModelByFile.get(file);
+  }
+
+  private titleByFile = new Map<string, string>();
+  private lastTsByFile = new Map<string, string>();
+
+  /** Records a line's timestamp, for lines (ai-title) that carry none. */
+  noteTimestamp(file: string, ts: string | undefined): void {
+    if (ts) this.lastTsByFile.set(file, ts);
+  }
+
+  lastTimestamp(file: string): string | undefined {
+    return this.lastTsByFile.get(file);
+  }
+
+  /** True when the title differs from the file's last one: Claude Code repeats ai-title lines throughout a transcript. */
+  titleChanged(file: string, title: string): boolean {
+    if (this.titleByFile.get(file) === title) return false;
+    this.titleByFile.set(file, title);
+    return true;
   }
 
   snapshot(): Record<string, string> {
@@ -257,11 +299,20 @@ export function normalizeTranscriptChunk(
       continue;
     }
     if (!line || typeof line !== 'object') continue;
+    turns.noteTimestamp(filePath, line.timestamp);
+    if (line.type === 'ai-title') {
+      const title = typeof line.aiTitle === 'string' ? line.aiTitle.trim() : '';
+      if (opts.captureContent && title && turns.titleChanged(filePath, title)) {
+        flushGroup();
+        events.push(sessionNameEvent(line, title, filePath, chunkStartOffset, turns.lastTimestamp(filePath)));
+      }
+      continue;
+    }
     const turnId = turns.observe(filePath, line);
 
     if (isUserPrompt(line)) {
       flushGroup();
-      events.push(promptEvent(line, filePath, chunkStartOffset, turnId));
+      events.push(promptEvent(line, filePath, chunkStartOffset, turnId, opts.captureContent));
       continue;
     }
     if (isInterruption(line)) {
@@ -310,8 +361,8 @@ export function normalizeTranscriptChunk(
   return events;
 }
 
-function promptEvent(line: ClaudeTranscriptLine, filePath: string, chunkStartOffset: number, turnId: string | undefined): NormalizedEvent {
-  return {
+function promptEvent(line: ClaudeTranscriptLine, filePath: string, chunkStartOffset: number, turnId: string | undefined, captureContent?: boolean): NormalizedEvent {
+  const event: NormalizedEvent = {
     eventId: line.uuid ?? `claude-code:${filePath}:${chunkStartOffset}:prompt`,
     sessionId: line.sessionId ?? 'unknown-session',
     agent: 'claude-code',
@@ -319,6 +370,23 @@ function promptEvent(line: ClaudeTranscriptLine, filePath: string, chunkStartOff
     kind: 'user_prompt',
     status: 'unknown',
     turnId,
+    raw: { adapter: 'claude-code', ref: `${filePath}#offset~${chunkStartOffset}` },
+  };
+  const promptText = captureContent ? makePromptText(promptFragments(line)) : undefined;
+  if (promptText) event.promptText = promptText;
+  return event;
+}
+
+function sessionNameEvent(line: ClaudeTranscriptLine, title: string, filePath: string, chunkStartOffset: number, ts: string | undefined): NormalizedEvent {
+  const sessionId = line.sessionId ?? 'unknown-session';
+  return {
+    eventId: sessionNameId('claude-code', sessionId, title),
+    sessionId,
+    agent: 'claude-code',
+    ts: ts ?? new Date().toISOString(),
+    kind: 'session_name',
+    status: 'unknown',
+    sessionName: redactSecrets(title),
     raw: { adapter: 'claude-code', ref: `${filePath}#offset~${chunkStartOffset}` },
   };
 }
