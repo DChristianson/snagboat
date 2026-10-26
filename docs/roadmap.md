@@ -28,6 +28,7 @@ Planned:
 
 - publishing to the VS Code Marketplace and Open VSX from the release workflow (needs a token for each, stored as repository secrets)
 - a weekly replay of the redacted transcript fixture against the heuristics engine
+- requiring the integration jobs in `main`'s ruleset; today only the unit-test jobs are required, so a failing integration run doesn't block a merge
 
 ## Session-level meta-characters
 
@@ -49,6 +50,10 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
 - **Conversation-aware view — done (phases 1–3).** Prompts, turns, compactions, subagents, and context size per call; a context timeline and a turn tree; turn-based heuristics calibrated by replaying real transcripts. Also fixes subagent tokens not being counted. See [design/conversation-view.md](design/conversation-view.md).
 - **Backfill sessions from transcripts — done.** **Snagboat: Backfill Sessions from Transcripts...** re-reads the session logs older days' events came from and rewrites those days, so history logged by older builds gets turns, turn ends, and tool calls. See [architecture.md](architecture.md#backfill).
 - **Prompt text and session names — done.** Text capture is on by default (`snagboat.captureContent`): your prompts (up to 2,000 characters, your own words without injected IDE context), reply excerpts, and session names (Claude Code's `ai-title`, Copilot's `workspace.yaml` name), with common secret formats redacted, prompts and replies kept for `textDays`, and **Snagboat: Remove Captured Text**. Names show in the session list, breadcrumb, and Overview; prompt text when you select a turn and in tooltips. See [PRIVACY.md](../PRIVACY.md#captured-text). Open: the advisor's use of prompts, gated per provider (see the advisor design).
+- **Copilot Agent reply excerpts.** Copilot Agent sessions store no reply text yet, so `verbal-hedge` never sees Copilot replies (Copilot's editor features already get excerpts from OTel). Each `assistant.message` in `events.jsonl` carries the reply and can be joined to its usage record by `apiCallId`; the redaction and capture code from prompt capture is already in that adapter. See [design/conversation-view.md](design/conversation-view.md#copilot).
+- **Split "Shell command" into finer categories.** For example package installs, network, and file system, chosen from which commands are actually common in your history (see [design/conversation-view.md](design/conversation-view.md#tool-attribution)). The model-fit heuristic below uses these to recognize simple work.
+- **Faster startup.** Activation reads the event log several times (today's totals, daily history, retention, the captured-text check). Read each day once and share the result.
+- **Hook routing for folders added after activation.** Publish and remove route files when workspace folders change, instead of waiting for the next reload.
 - **Model-fit heuristic (planned, not started; enabled by prompt text).** Flags expensive models doing simple work, such as a top-tier model running a one-line `git push` or `npm test`. Signals, per turn:
   - **the ask:** a short prompt that reads as an instruction to run something ("commit and push", "run the tests"), from `promptText`;
   - **the work:** few model calls, little output, and tool calls that are mostly shell, version control, or tests and builds;
@@ -57,11 +62,12 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
   It would report info-level, per session over a window ("9 simple turns on opus-5-5 today; a smaller model or a direct command would do"), with the tokens those turns cost. To calibrate by replay like the other heuristics, once enough history has prompt text. A candidate for the advisor's rule format later; prompt classification may need the advisor's model rather than keywords.
 - **Self-discovered heuristics and a trusted advisor (planned; design accepted, not started).** Snagboat proposes heuristics from your own history as declarative rules, scored by replay before you accept them, and an advisor running on a model you choose (local by default) explains sessions, proposes heuristics, nudges during a session, and writes a periodic review. See [design/trusted-advisor.md](design/trusted-advisor.md).
 - **Terminal and git signals.** Complete the generic file-system adapter: terminal shell-integration exit codes as `test_run` events, and `git status`/`git diff` polling to tell real edits from no-op saves (rows already in [schema.md](schema.md)).
-- **Cross-workspace token budget.** A global budget across all workspaces, plus a treemap of where tokens go. Needs storage shared between workspaces; today each workspace's storage is isolated.
+- **Cross-workspace token budget.** A global budget across all workspaces, plus a treemap of where tokens go. Needs storage shared between workspaces; today each workspace's storage is isolated. The advisor's all-projects review needs the same storage (see [design/trusted-advisor.md](design/trusted-advisor.md)).
 - **Extension points.** `snagboat.adapters` and `snagboat.heuristics` contribution points so other extensions can add sources and heuristics without forking.
 - **Log export.** A `snagboat.exportLog` command writing CSV or SQLite, with an optional SQLite side index rebuilt from the JSONL log.
 - **Housekeeping.** Prune checkpoint entries for transcripts that no longer exist, and offer a command to remove Snagboat's hook entries from a project's `.claude/settings.json`.
 - **Copilot OTel per-window routing.** Copilot still exports every window's telemetry to one fixed port (4318), so the first window to bind it collects all of it. It can't use the hook routing above, since Copilot's exporter takes a single endpoint URL; revisit once live traffic shows whether spans identify the workspace.
+- **Windows support.** The hook routing script needs a POSIX shell, so Claude Code hooks don't work on Windows; it needs a Windows equivalent of the script.
 
 ## Open questions
 
