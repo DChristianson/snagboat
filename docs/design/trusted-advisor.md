@@ -28,12 +28,12 @@ Snagboat's heuristics are hand-written and hand-tuned. This design adds two thin
 
 - **No autonomous action.** The advisor suggests; it never changes your code, settings, agent configuration, or heuristics on its own.
 - **No generated code.** Heuristics are declarative rules, evaluated by Snagboat. Generated TypeScript is out of scope (see [Decisions](#decisions)).
-- **No prompt text.** Snagboat never stores prompts, and this design doesn't change that.
+- **No prompt text sent without permission.** The planned [prompt and session-name capture](../roadmap.md#planned-tasks) stores prompts by default (with redaction and a short retention); this design only sends them to a provider you've allowed to receive them.
 - **No shared or crowd-sourced heuristics** across users, for now.
 
 ## What the advisor can see
 
-Everything comes from the existing event log. Per session: turns, model calls with token counts and context sizes, tool calls with categories, status and targets, compactions, subagents, turn ends, findings (past and active). Optional reply excerpts if `snagboat.captureContent` is on.
+Everything comes from the existing event log. Per session: turns, model calls with token counts and context sizes, tool calls with categories, status and targets, compactions, subagents, turn ends, findings (past and active). Optional reply excerpts if `snagboat.captureContent` is on. Once the planned prompt and session-name capture exists: session names and prompt text (both captured by default, under `snagboat.captureContent`). Prompts are the best context there is for "what was this turn trying to do", and also the most sensitive.
 
 Sensitive fields:
 
@@ -42,6 +42,8 @@ Sensitive fields:
 | Tool targets: shell commands | Can contain secrets, hostnames, tokens | Replaced by category plus command name (`npm test` → `tests-builds: npm`) |
 | Tool targets: file paths | Reveal project structure and names | Relative to the workspace, or hashed |
 | Reply excerpts | Agent text about your code | Not sent unless you opt in per provider |
+| Prompt text (once captured) | What you asked, in your words; can contain pasted code or secrets | Not sent unless you opt in per provider; off by default for hosted providers |
+| Session names (once captured) | Summarize what you worked on | Sent to local providers; opt-in for hosted ones |
 | Session ids, timestamps | Low risk | Sent |
 
 The **session digest** is the unit sent to a model: a compact, structured summary of a session or turn after these rules apply. It's the same digest whatever the provider, so you can read exactly what a model would see.
