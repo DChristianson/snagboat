@@ -11,6 +11,7 @@ import { SessionIndex } from './core/sessions';
 import { SessionController } from './ui/sessionController';
 import { FindingReplay } from './heuristics/replay';
 import { runBackfill } from './backfill/command';
+import { hasCapturedText, withoutCapturedText } from './core/excerpt';
 import { ContextLimits, ModelContextMarks } from './core/contextLimits';
 import { AggregateStore, EventSink, RetentionPolicy, applyRetention, oldestKeptDay } from './core/retention';
 import { HealthRegistry } from './core/health';
@@ -43,11 +44,12 @@ function retentionPolicy(): RetentionPolicy {
   return {
     rawDays: config.get<number>('rawDays', 90),
     aggregateDays: config.get<number>('aggregateDays', -1),
+    textDays: config.get<number>('textDays', 30),
   };
 }
 
 function captureContentEnabled(): boolean {
-  return vscode.workspace.getConfiguration('snagboat').get<boolean>('captureContent', false);
+  return vscode.workspace.getConfiguration('snagboat').get<boolean>('captureContent', true);
 }
 
 function todayKey(): string {
@@ -137,13 +139,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     buildState: (isOpenable) =>
       buildDetailState({
         now: new Date().toISOString(),
-        capture: { enabled: captureContentEnabled(), retentionDays: retentionPolicy().rawDays },
+        capture: { enabled: captureContentEnabled(), retentionDays: Math.max(1, Math.min(retentionPolicy().textDays, retentionPolicy().rawDays)) },
         today: todayAggregate.snapshot(),
         recentEvents: eventStore.lastN(TIMELINE_LIMIT + 1),
         findings: findings.views(),
         muted: findings.mutedHeuristics(),
         daily: dailyHistory.tokensByDay(),
         isOpenable,
+        sessionName: (id) => sessionIndex.get(id)?.name,
       }),
     sessions,
     today: todayKey,
@@ -169,6 +172,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   let retentionQueue: Promise<void> = Promise.resolve();
   const enqueueStorageOp = (op: () => Promise<void>) => {
     retentionQueue = retentionQueue.then(op).catch((err) => console.error('snagboat: storage operation failed', err));
+  };
+  // Like enqueueStorageOp, but the caller sees the operation's result or failure.
+  const runStorageOp = (op: () => Promise<void>): Promise<void> => {
+    const run = retentionQueue.then(op);
+    retentionQueue = run.catch(() => undefined);
+    return run;
   };
   const sink = new EventSink(eventLog, aggregateStore, retentionPolicy, todayKey, enqueueStorageOp);
 
@@ -249,6 +258,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
           dailyHistory.removeDay(daily.date);
         }
         if (result.dropped.length > 0) refresh();
+        // Text just aged out on disk may still be held in memory (the recent-events window, an open session).
+        if (result.textRemoved.length > 0) await reloadFromLog();
       })
       .catch((err) => console.error('snagboat: retention failed', err));
     return retentionQueue;
@@ -301,17 +312,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     vscode.commands.registerCommand('snagboat.backfill', () =>
       runBackfill({
         eventLog,
-        runStorageOp: (op) => {
-          const run = retentionQueue.then(op);
-          retentionQueue = run.catch(() => undefined);
-          return run;
-        },
+        runStorageOp,
         reloadFromLog,
         oldestRawDay: () => oldestKeptDay(todayKey(), retentionPolicy().rawDays),
         captureContent: captureContentEnabled,
         output: outputChannel,
       })
     ),
+    vscode.commands.registerCommand('snagboat.removeCapturedText', async () => {
+      const turnOff = 'Remove and Turn Off Capture';
+      const choice = await vscode.window.showWarningMessage(
+        "Remove all captured prompts and reply excerpts from this workspace's event log?",
+        { modal: true, detail: 'Every event is kept; only its prompt text and reply excerpt are removed. Session names are kept. This cannot be undone.' },
+        'Remove',
+        turnOff
+      );
+      if (!choice) return;
+      // Off first, so nothing new is captured while the log is being cleaned.
+      if (choice === turnOff) await vscode.workspace.getConfiguration('snagboat').update('captureContent', false, vscode.ConfigurationTarget.Global);
+      let days = 0;
+      try {
+        await runStorageOp(async () => {
+          await eventLog.flush();
+          for (const day of await eventLog.listDays()) {
+            if (!(await eventLog.readDay(day)).some(hasCapturedText)) continue;
+            await eventLog.rewriteDay(day, (events) => events.map(withoutCapturedText));
+            days += 1;
+          }
+          await reloadFromLog();
+        });
+      } catch (err) {
+        vscode.window.showErrorMessage(`Snagboat: failed to remove captured text: ${String(err)}`);
+        return;
+      }
+      vscode.window.showInformationMessage(`Snagboat: removed captured text from ${days} day(s) of events${choice === turnOff ? ' and turned capture off' : ''}.`);
+    }),
     vscode.commands.registerCommand('snagboat.clearLog', async () => {
       const choice = await vscode.window.showWarningMessage(
         'Delete all Snagboat event logs and daily aggregates for this workspace? This cannot be undone.',

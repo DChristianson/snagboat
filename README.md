@@ -20,9 +20,9 @@ Working, but early (version `0.0.1`). Install it from a [GitHub release](https:/
 
 | Source | How | What you get |
 | --- | --- | --- |
-| Claude Code | Tails the session transcripts in `~/.claude/projects/<project>/` | Token usage per API message (input, output, cache read/creation), model, and, if you opt in, reply excerpts |
+| Claude Code | Tails the session transcripts in `~/.claude/projects/<project>/` | Token usage per API message (input, output, cache read/creation), model, reply excerpts, your prompts' text, and the session's title |
 | Claude Code | `PostToolUse` and `Stop` hooks, added to the project's `.claude/settings.json` automatically | Tool calls with their target (file path or shell command) and success or failure; turn boundaries |
-| GitHub Copilot (Agent mode) | Reads the Copilot CLI's session logs in `~/.copilot/session-state/`, which VS Code's agent host writes for every Agent-mode session | Prompts, every model call with token usage, model, and the model's context limit, and tool calls with their commands and outcomes |
+| GitHub Copilot (Agent mode) | Reads the Copilot CLI's session logs in `~/.copilot/session-state/`, which VS Code's agent host writes for every Agent-mode session | Prompts and their text, the session's name, every model call with token usage, model, and the model's context limit, and tool calls with their commands and outcomes |
 | GitHub Copilot (editor features) | Copilot's optional OpenTelemetry export to a local receiver | Token usage of inline and next-edit suggestions and other editor-side model calls, kept separate from agent turns |
 | VS Code | File saves | Edits per file, for agent-independent signals |
 
@@ -75,12 +75,13 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
   - today's totals;
   - active findings, each of which you can **acknowledge** (hidden from the status bar until that problem clears) or **mute** (hidden for this workspace until unmuted), or use to filter the timeline to the events behind it;
   - a per-day token chart by agent over 7, 30, or 90 days, with a table view;
-  - a filterable timeline of the last 24 hours, where file targets open the file and reply excerpts can be expanded.
+  - a filterable timeline of the last 24 hours, where file targets open the file, prompts and reply excerpts can be expanded, and sessions show their names.
 
-  Its **Sessions** tab lists each day's agent sessions. Opening one shows a **turn tree** (where the session's tokens went: by prompt, then main agent or subagent, then an approximate split by tool category; click to zoom; calls that can't be tied to a prompt, such as ones logged by older Snagboat versions, are grouped as **Unlinked** until a backfill) above a **context timeline** (how much context each model call sent, split into cache read, cache creation, and fresh input, with your prompts, compactions, findings, and each model's largest-seen and limit lines), and a list of the session's findings. Findings include earlier ones, found by replaying the session through the heuristics when you open it, as well as active ones. Expand the timeline for output tokens, subagent lanes, and drag-to-zoom. Findings ("Show in session"), session ids in the Overview timeline, and the daily chart's bars all link into it, as does **Snagboat: Open Session...**.
+  Its **Sessions** tab lists each day's agent sessions by name. Opening one shows a **turn tree** (where the session's tokens went: by prompt, then main agent or subagent, then an approximate split by tool category; click to zoom; calls that can't be tied to a prompt, such as ones logged by older Snagboat versions, are grouped as **Unlinked** until a backfill) above a **context timeline** (how much context each model call sent, split into cache read, cache creation, and fresh input, with your prompts, compactions, findings, and each model's largest-seen and limit lines), and a list of the session's findings. Findings include earlier ones, found by replaying the session through the heuristics when you open it, as well as active ones. Select a prompt (in the tree or on the timeline) to read what you asked. Expand the timeline for output tokens, subagent lanes, and drag-to-zoom. Findings ("Show in session"), session ids in the Overview timeline, and the daily chart's bars all link into it, as does **Snagboat: Open Session...**.
 - **Commands:**
   - **Snagboat: Show Token/Event Breakdown** prints the breakdown to an output channel.
   - **Snagboat: Backfill Sessions from Transcripts...** re-reads the transcripts behind days logged by older versions and rewrites those days, so their sessions get turns, turn ends, and tool calls, and their past findings are complete. It shows what will change and asks first.
+  - **Snagboat: Remove Captured Text** deletes stored prompts and reply excerpts, keeping the events, and can turn capture off.
   - **Snagboat: Clear Event Log** deletes this workspace's logged events after confirming.
 
 ### Findings
@@ -96,7 +97,7 @@ Most heuristics judge each session's current turn (everything since your latest 
 | `tool-churn` | A burst of tool calls in one session mostly hits the same one or two targets | `$(sync)` |
 | `stalled` | An unfinished turn has had no agent activity for a while: a long-running tool, a permission prompt, or a stuck agent. A finished turn going quiet never fires. | `$(clock)` |
 | `token-budget` | A session, or today's total for this workspace, crosses a budget you set | `$(dashboard)` |
-| `verbal-hedge` | Replies in one session repeatedly hedge or self-correct ("I think", "let me try again", "my mistake"). Informational, and a warning only alongside repeated or failing tool activity. Needs `snagboat.captureContent`. | `$(comment-discussion)` |
+| `verbal-hedge` | Replies in one session repeatedly hedge or self-correct ("I think", "let me try again", "my mistake"). Informational, and a warning only alongside repeated or failing tool activity. Needs `snagboat.captureContent` (on by default). | `$(comment-discussion)` |
 
 Default thresholds come from replaying real sessions; `npm run replay:heuristics` replays yours.
 
@@ -106,8 +107,9 @@ With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself s
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `snagboat.captureContent` | `false` | Store up to 500 characters of each agent reply (never prompts, tool output, or file contents) for the verbal-hedge heuristic, kept as long as `rawDays`. Copilot also needs `github.copilot.chat.otel.captureContent`. |
+| `snagboat.captureContent` | `true` | Store your prompts (up to 2,000 characters), agent reply excerpts (up to 500), and session names, with common secrets redacted. Never tool output or file contents. Prompts and replies are kept for `textDays`. Copilot editor features' replies also need `github.copilot.chat.otel.captureContent`. |
 | `snagboat.retention.rawDays` | `90` | Days of raw events to keep, counting today. Older days are rolled up into daily totals. |
+| `snagboat.retention.textDays` | `30` | Days captured prompts and reply excerpts are kept, counting today. Older events keep everything else, without the text. |
 | `snagboat.retention.aggregateDays` | `-1` | Days of daily totals to keep; `-1` keeps them forever, `0` keeps none. |
 | `snagboat.tokenBudget.session` | unset | Warn when one session's tokens cross this total. |
 | `snagboat.tokenBudget.day` | unset | Warn when this workspace's tokens for the day cross this total. |
@@ -130,7 +132,7 @@ With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself s
 
 ## Privacy
 
-Nothing leaves your machine, and there is no telemetry on the extension's UI. Events are stored as daily JSONL files in VS Code's per-workspace storage, readable with `jq`, DuckDB, or a notebook. By default Snagboat stores structure, not content, with one exception worth knowing: for Claude Code's Bash tool, an event's target is the **full shell command**, which can contain secrets. Agent reply text is stored only if you turn on `snagboat.captureContent`. [PRIVACY.md](PRIVACY.md) lists exactly what each source records and every place Snagboat stores anything.
+Nothing leaves your machine, and there is no telemetry on the extension's UI. Events are stored as daily JSONL files in VS Code's per-workspace storage, readable with `jq`, DuckDB, or a notebook. Two things worth knowing. **Snagboat stores your prompts' text** by default, along with agent reply excerpts and session names: common secret formats are redacted first, prompts and replies are kept for 30 days (`snagboat.retention.textDays`), and **Snagboat: Remove Captured Text** deletes them on demand; turn `snagboat.captureContent` off to store no text at all. And for Claude Code's Bash tool, an event's target is the **full shell command**, which can contain secrets. [PRIVACY.md](PRIVACY.md) lists exactly what each source records and every place Snagboat stores anything.
 
 ## How it fits together
 
@@ -201,7 +203,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 
 From the [roadmap](docs/roadmap.md):
 
-- per-field retention (for example, keeping shell commands and reply excerpts for less time than other fields)
+- a shorter retention for shell commands and file paths (text already has one)
 - terminal exit codes and `git diff` polling, to tell real edits from no-op saves
 - a token budget across all workspaces, with a treemap view
 - extension points for third-party adapters and heuristics

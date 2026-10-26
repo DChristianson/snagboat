@@ -64,6 +64,11 @@
     for (const step of [1, 2, 5, 10]) if (step * pow >= v) return step * pow;
     return 10 * pow;
   }
+  /** Shortens text for a cell, keeping the full text for a tooltip. */
+  function clip(text, max) {
+    return text.length > max ? `${text.slice(0, max - 1)}\u2026` : text;
+  }
+
   function formatTime(ts) {
     const d = new Date(ts);
     const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -176,15 +181,15 @@
   );
 
   // Helpers for sessions.js (same document, same CSP nonce).
-  window.snagboat = { vscode, el, svg, compact, fmt, formatTime, persist, sessionsRoot, selectTab, tooltip };
+  window.snagboat = { vscode, el, svg, compact, fmt, formatTime, clip, persist, sessionsRoot, selectTab, tooltip };
 
   // ---------- header ----------
 
   function renderHeader() {
     updatedNote.textContent = `Updated ${new Date(state.generatedAt).toLocaleTimeString()}`;
     captureNote.textContent = state.capture.enabled
-      ? `Content capture is on: agent reply excerpts are stored in the local event log for ${state.capture.retentionDays} days.`
-      : 'Content capture is off: no reply text is stored. Turn on snagboat.captureContent to enable the verbal-hedge heuristic.';
+      ? `Text capture is on: your prompts, agent reply excerpts, and session names are stored locally, with common secrets redacted. Prompts and replies are kept for ${state.capture.retentionDays} days.`
+      : 'Text capture is off: no prompts, replies, or session names are stored. Turn on snagboat.captureContent for prompt text, session names, and the verbal-hedge heuristic.';
     tiles.replaceChildren(
       ...[
         ['Tokens today', state.today.tokens],
@@ -452,6 +457,8 @@
         (!needle ||
           (e.target || '').toLowerCase().includes(needle) ||
           e.sessionId.toLowerCase().includes(needle) ||
+          (e.sessionName || '').toLowerCase().includes(needle) ||
+          (e.promptText || '').toLowerCase().includes(needle) ||
           (e.textExcerpt || '').toLowerCase().includes(needle))
     );
 
@@ -482,8 +489,8 @@
               ? el('span', { class: 'muted', text: '\u2014' })
               : el('button', {
               class: 'link',
-              text: e.sessionId.slice(0, 8),
-              title: 'Open this session',
+              text: e.sessionName ? clip(e.sessionName, 28) : e.sessionId.slice(0, 8),
+              title: e.sessionName ? `Open this session: ${e.sessionName} (${e.sessionId.slice(0, 8)})` : 'Open this session',
               onclick: () => {
                 persist({ sessionId: e.sessionId });
                 vscode.postMessage({ type: 'openSession', sessionId: e.sessionId });
@@ -501,12 +508,12 @@
           ]),
           el('td', { class: 'num', text: e.tokens === undefined ? '' : fmt(e.tokens) }),
         ]),
-        e.textExcerpt &&
+        (e.textExcerpt || e.promptText) &&
           el('tr', { class: `excerpt${ui.finding ? ' highlight' : ''}` }, [
             el('td'),
             el('td', { colspan: 5 }, [el('details', { open: expanded.has(e.id) || undefined, ontoggle: (evt) => toggleExpanded(e.id, evt.currentTarget.open) }, [
-              el('summary', { text: 'Reply excerpt' }),
-              el('p', { class: 'excerpt-text', text: e.textExcerpt }),
+              el('summary', { text: e.promptText ? 'Prompt' : 'Reply excerpt' }),
+              el('p', { class: 'excerpt-text', text: e.promptText || e.textExcerpt }),
             ])]),
           ]),
       ].filter(Boolean))

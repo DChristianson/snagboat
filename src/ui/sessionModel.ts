@@ -56,7 +56,7 @@ export interface SessionFindingMark {
 export interface SessionView {
   summary: SessionSummary;
   /** Every prompt message; several can share a turn, and share its index. */
-  prompts: Array<{ turnId: string; ts: string; index: number }>;
+  prompts: Array<{ turnId: string; ts: string; index: number; text?: string }>;
   calls: TimelineCall[];
   compactions: Array<{ ts: string; trigger: string; preTokens?: number; postTokens?: number }>;
   subagents: Array<{ agentId: string; firstTs: string; lastTs: string; calls: number }>;
@@ -143,7 +143,9 @@ export function buildSessionView(
   // Turns in order of their first prompt; a later message in the same turn keeps its number.
   const promptIndex = new Map<string, number>();
   for (const e of events) if (e.kind === 'user_prompt' && e.turnId && !promptIndex.has(e.turnId)) promptIndex.set(e.turnId, promptIndex.size + 1);
-  const prompts = events.filter((e) => e.kind === 'user_prompt' && e.turnId).map((e) => ({ turnId: e.turnId!, ts: e.ts, index: promptIndex.get(e.turnId!)! }));
+  const prompts = events
+    .filter((e) => e.kind === 'user_prompt' && e.turnId)
+    .map((e) => ({ turnId: e.turnId!, ts: e.ts, index: promptIndex.get(e.turnId!)!, ...(e.promptText ? { text: e.promptText } : {}) }));
 
   const callEvents = events.filter((e) => e.kind === 'turn_stop' && e.tokens);
   const calls: TimelineCall[] = callEvents.map((e) => ({

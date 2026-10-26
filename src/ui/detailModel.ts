@@ -20,6 +20,10 @@ export interface TimelineEvent {
   target?: string;
   tokens?: number;
   textExcerpt?: string;
+  /** Prompts only: the prompt's text, when text capture is on. */
+  promptText?: string;
+  /** The session's name, when one was captured. */
+  sessionName?: string;
   /** Tool calls only: e.g. "Tests and builds", "MCP: github". */
   toolLabel?: string;
   /** True when target resolves to a file on disk, so the view can offer jump-to-file. */
@@ -129,8 +133,11 @@ export function buildDetailState(inputs: {
   muted: string[];
   daily: DailyTokens[];
   isOpenable: (target: string) => boolean;
+  sessionName?: (sessionId: string) => string | undefined;
 }): DetailState {
-  const newest = inputs.recentEvents.slice(-TIMELINE_LIMIT).reverse();
+  // A session's name is metadata, shown in the session column rather than as an event of its own.
+  const shown = inputs.recentEvents.filter((e) => e.kind !== 'session_name');
+  const newest = shown.slice(-TIMELINE_LIMIT).reverse();
   const sessionOf = new Map(inputs.recentEvents.map((e) => [e.eventId, e.sessionId]));
   return {
     generatedAt: inputs.now,
@@ -141,7 +148,7 @@ export function buildDetailState(inputs: {
       edits: inputs.today.localEditCount,
     },
     timeline: {
-      truncated: inputs.recentEvents.length > TIMELINE_LIMIT,
+      truncated: shown.length > TIMELINE_LIMIT,
       events: newest.map((e) => ({
         id: e.eventId,
         ts: e.ts,
@@ -152,6 +159,8 @@ export function buildDetailState(inputs: {
         target: e.target,
         tokens: eventTokens(e),
         textExcerpt: e.textExcerpt,
+        promptText: e.promptText,
+        sessionName: inputs.sessionName?.(e.sessionId),
         toolLabel: e.toolCategory ? toolCategoryLabel(e.toolCategory, e.toolName) : undefined,
         openable: e.target !== undefined && inputs.isOpenable(e.target),
       })),

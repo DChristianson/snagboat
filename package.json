@@ -55,6 +55,10 @@
         "title": "Snagboat: Backfill Sessions from Transcripts..."
       },
       {
+        "command": "snagboat.removeCapturedText",
+        "title": "Snagboat: Remove Captured Text"
+      },
+      {
         "command": "snagboat.clearLog",
         "title": "Snagboat: Clear Event Log"
       },
@@ -76,8 +80,8 @@
       "properties": {
         "snagboat.captureContent": {
           "type": "boolean",
-          "default": false,
-          "markdownDescription": "Store a truncated excerpt (up to 500 characters) of each agent reply on its event, for hedge-language detection. Only the agent's own reply text is captured: never your prompts, tool output, or file contents. Excerpts are kept in the local event log for as long as `#snagboat.retention.rawDays#` and are never sent off-machine. For Copilot, also requires `github.copilot.chat.otel.captureContent`."
+          "default": true,
+          "markdownDescription": "Store text from your agent sessions: your prompts (up to 2,000 characters each), agent reply excerpts (up to 500 characters), and session names. Common secret formats (API keys, tokens, private keys, passwords in `key=value` form) are redacted before anything is stored. Prompts and replies are kept for `#snagboat.retention.textDays#` days; session names for as long as the session's events (`#snagboat.retention.rawDays#`). Nothing is sent off-machine. **Snagboat: Remove Captured Text** deletes what's already stored. For Copilot editor features' reply text, also requires `github.copilot.chat.otel.captureContent`."
         },
         "snagboat.retention.rawDays": {
           "type": "number",
@@ -90,6 +94,12 @@
           "default": -1,
           "minimum": -1,
           "description": "Days of daily aggregates to keep, counting today. -1 keeps them indefinitely; 0 keeps none, so raw days past snagboat.retention.rawDays are deleted without being rolled up."
+        },
+        "snagboat.retention.textDays": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "markdownDescription": "Days captured prompts and reply excerpts are kept, counting today. Older events keep everything else, with the text removed. Capped at `#snagboat.retention.rawDays#`. The default matches how long Claude Code keeps its own transcripts."
         },
         "snagboat.copilot.captureStructure": {
           "type": "boolean",
@@ -198,7 +208,7 @@
     "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js"
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",

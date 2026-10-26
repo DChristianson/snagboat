@@ -5,7 +5,7 @@
 (function () {
   const S = window.snagboat;
   if (!S) return;
-  const { vscode, el, svg, compact, fmt, formatTime, persist, sessionsRoot, tooltip } = S;
+  const { vscode, el, svg, compact, fmt, formatTime, clip, persist, sessionsRoot, tooltip } = S;
   const saved = vscode.getState() || {};
 
   const ui = {
@@ -30,6 +30,7 @@
     persist({ sessionId: null });
   });
   const sessionMeta = el('p', { class: 'muted small' });
+  const promptPanel = el('section', { class: 'prompt-panel', 'aria-label': 'Prompt', hidden: true });
   const treeHost = el('div', { class: 'tree-host' });
   const expandBtn = el('button', {});
   expandBtn.addEventListener('click', () => {
@@ -54,6 +55,7 @@
     el('div', { class: 'session-head' }, [crumbs, el('span', { class: 'spacer' }), closeBtn]),
     sessionMeta,
     treeHost,
+    promptPanel,
     timelinePanel,
     findingsSection,
   ]);
@@ -123,7 +125,11 @@
         el('td', { class: 'num', text: fmt(s.modelCalls) }),
         el('td', { class: 'num', text: compact(s.tokens) }),
         el('td', { class: 'num', text: duration(s.firstTs, s.lastTs) }),
-        el('td', { class: 'muted', text: short(s.sessionId) }),
+        el(
+          'td',
+          { title: s.name ? `${s.name} (${s.sessionId})` : s.sessionId },
+          s.name ? [el('span', { text: clip(s.name, 48) }), el('span', { class: 'muted', text: ` ${short(s.sessionId)}` })] : [el('span', { class: 'muted', text: short(s.sessionId) })]
+        ),
       ]);
       const openIt = () => {
         persist({ sessionId: s.sessionId });
@@ -150,7 +156,7 @@
     const items = [el('button', { class: 'link', text: 'Sessions', onclick: () => vscode.postMessage({ type: 'closeSession' }) })];
     path.forEach((node, i) => {
       items.push(el('span', { class: 'muted', text: ' \u203a ' }));
-      const label = node.kind === 'session' ? short(v.summary.sessionId) : node.label;
+      const label = node.kind === 'session' ? sessionLabel(v.summary) : node.label;
       items.push(
         i === path.length - 1
           ? el('span', { text: label })
@@ -160,6 +166,20 @@
     crumbs.replaceChildren(...items);
     const s = v.summary;
     sessionMeta.textContent = `${agentName(s.agent)} \u00b7 ${s.models.map(modelShort).join(', ')} \u00b7 ${fmt(s.prompts)} prompts \u00b7 ${fmt(s.modelCalls)} model calls \u00b7 ${fmt(s.toolCalls)} tool calls \u00b7 ${compact(s.tokens)} tokens${s.subagents ? ` \u00b7 ${s.subagents} subagents` : ''}${isLive(s) ? ' \u00b7 live' : ''}`;
+  }
+
+  const sessionLabel = (s) => (s.name ? clip(s.name, 60) : short(s.sessionId));
+
+  // The selected turn's prompt text, when it was captured (several messages can share a turn).
+  function renderPromptPanel() {
+    const v = ui.view;
+    const messages = ui.selectedTurn ? v.prompts.filter((p) => p.turnId === ui.selectedTurn) : [];
+    promptPanel.hidden = messages.length === 0;
+    if (!messages.length) return promptPanel.replaceChildren();
+    promptPanel.replaceChildren(
+      el('div', { class: 'prompt-head' }, [el('strong', { text: `P${messages[0].index}` }), el('span', { class: 'muted small', text: ` ${formatTime(messages[0].ts)}` })]),
+      ...messages.map((p) => el('p', { class: p.text ? 'prompt-text' : 'prompt-text muted', text: p.text || 'Prompt text wasn\u2019t captured for this turn (text capture was off, or it\u2019s past text retention).' }))
+    );
   }
 
   function focus(id) {
@@ -204,7 +224,7 @@
         if (node.colorGroup) g.append(svg('rect', { class: `cat-stripe cat-${node.colorGroup}`, x: x0 + 1, y, width: Math.max(w - 2, 0.5), height: 4, rx: 2 }));
         if (w > 36) {
           const t = svg('text', { class: 'node-label', x: x0 + 7, y: y + 16 });
-          t.textContent = fit(node.kind === 'session' ? `Session ${short(v.summary.sessionId)}` : node.label, w - (node.findings ? 14 : 0));
+          t.textContent = fit(node.kind === 'session' ? `Session ${sessionLabel(v.summary)}` : node.label, w - (node.findings ? 14 : 0));
           const t2 = svg('text', { class: 'node-sub-label', x: x0 + 7, y: y + 31 });
           t2.textContent = fit(`${node.approximate ? '\u2248 ' : ''}${compact(node.tokens)}`, w);
           g.append(t, t2);
@@ -213,9 +233,10 @@
           const warn = node.findings.some((f) => f.severity === 'warn');
           g.append(svg('path', { class: warn ? 'warn-mark' : 'info-mark', d: `M${x1 - 12},${y + 15} l5,-9 l5,9 z` }));
         }
-        const label = node.kind === 'session' ? `Session ${short(v.summary.sessionId)}` : node.label;
+        const label = node.kind === 'session' ? `Session ${sessionLabel(v.summary)}` : node.label;
+        const promptText = node.kind === 'prompt' && node.turnId ? v.prompts.find((p) => p.turnId === node.turnId && p.text)?.text : undefined;
         g.addEventListener('mousemove', (e) =>
-          showTip(e, [label, ['Tokens', `${node.approximate ? '\u2248 ' : ''}${fmt(node.tokens)}`], ...(node.findings || []).map((f) => [`\u25b2 ${f.heuristicId}`, f.severity])])
+          showTip(e, [label, ...(promptText ? [clip(promptText, 240)] : []), ['Tokens', `${node.approximate ? '\u2248 ' : ''}${fmt(node.tokens)}`], ...(node.findings || []).map((f) => [`\u25b2 ${f.heuristicId}`, f.severity])])
         );
         g.addEventListener('mouseleave', hideTip);
         g.addEventListener('click', () => focus(node.id));
@@ -383,6 +404,8 @@
       };
       g.addEventListener('click', pick);
       g.addEventListener('keydown', (e) => e.key === 'Enter' && pick());
+      g.addEventListener('mousemove', (e) => showTip(e, [`P${p.index} \u00b7 ${formatTime(p.ts)}`, ...(p.text ? [clip(p.text, 240)] : [])]));
+      g.addEventListener('mouseleave', hideTip);
       root.append(g);
     }
 
@@ -560,6 +583,7 @@
     sessionSection.classList.toggle('expanded', ui.expanded);
     renderCrumbs();
     renderTree();
+    renderPromptPanel();
     renderTimeline();
     renderFindings();
   }

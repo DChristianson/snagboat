@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { eventDay } from './eventLog';
 import { NormalizedEvent } from './types';
 
@@ -17,6 +18,8 @@ export interface SessionSummary {
   subagents: number;
   /** UTC days (event-log files) holding this session's events, oldest first. */
   days: string[];
+  /** The session's latest name (a generated title, or one you set), when text capture recorded one. */
+  name?: string;
 }
 
 /** Whether an event belongs to a conversation, as opposed to editor-feature calls or file saves. */
@@ -24,6 +27,11 @@ export function isConversationEvent(event: NormalizedEvent): boolean {
   if (event.channel === 'inline') return false;
   if (event.agent === 'generic-fs') return false;
   return event.kind === 'user_prompt' || event.kind === 'turn_stop' || event.kind === 'tool_call' || event.kind === 'compaction';
+}
+
+/** Same session and name, same id: a name repeated (Claude Code repeats titles; a restart re-reads them) is dropped as already logged. */
+export function sessionNameId(agent: string, sessionId: string, name: string): string {
+  return `${agent}:session-name:${sessionId}:${crypto.createHash('sha256').update(name).digest('hex').slice(0, 16)}`;
 }
 
 export function eventTokens(event: NormalizedEvent): number {
@@ -52,8 +60,15 @@ interface MutableSummary {
  */
 export class SessionIndex {
   private sessions = new Map<string, MutableSummary>();
+  /** Latest name per session; kept apart, since a name alone doesn't make a session worth listing. */
+  private names = new Map<string, { name: string; ts: string }>();
 
   ingest(event: NormalizedEvent): void {
+    if (event.kind === 'session_name' && event.sessionName) {
+      const current = this.names.get(event.sessionId);
+      if (!current || event.ts >= current.ts) this.names.set(event.sessionId, { name: event.sessionName, ts: event.ts });
+      return;
+    }
     if (!isConversationEvent(event)) return;
     let s = this.sessions.get(event.sessionId);
     if (!s) {
@@ -75,6 +90,7 @@ export class SessionIndex {
 
   reset(): void {
     this.sessions.clear();
+    this.names.clear();
   }
 
   /** Sessions with any events on the given UTC day, most recent activity first. */
@@ -84,15 +100,20 @@ export class SessionIndex {
 
   get(sessionId: string): SessionSummary | undefined {
     const s = this.sessions.get(sessionId);
-    return s && (s.turns.size > 0 || s.modelCalls > 0) ? freeze(s) : undefined;
+    return s && (s.turns.size > 0 || s.modelCalls > 0) ? this.freeze(s) : undefined;
   }
 
   /** All sessions, most recent activity first. */
   list(): SessionSummary[] {
     return [...this.sessions.values()]
       .filter((s) => s.turns.size > 0 || s.modelCalls > 0)
-      .map(freeze)
+      .map((x) => this.freeze(x))
       .sort((a, b) => b.lastTs.localeCompare(a.lastTs));
+  }
+
+  private freeze(s: MutableSummary): SessionSummary {
+    const name = this.names.get(s.sessionId)?.name;
+    return name ? { ...freeze(s), name } : freeze(s);
   }
 
   /** Every UTC day that has at least one session, newest first (for the day picker). */

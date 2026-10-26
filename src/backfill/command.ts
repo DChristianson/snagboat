@@ -83,7 +83,7 @@ export async function runBackfill(deps: BackfillDeps): Promise<void> {
   }
   output.show(true);
 
-  const lostExcerpts = !deps.captureContent() && plan.days.some((d) => d.events.some((e) => e.textExcerpt && sourceFileOf(e)));
+  const lostExcerpts = !deps.captureContent() && plan.days.some((d) => d.events.some((e) => (e.textExcerpt || e.promptText) && sourceFileOf(e)));
   const detail = [
     `Model calls linked to a prompt: ${fmt(linked(before))} → ${fmt(linked(after))} (of ${fmt(sum(after, 'modelCalls'))})`,
     `Tool calls: ${fmt(sum(before, 'toolCalls'))} → ${fmt(sum(after, 'toolCalls'))}`,
@@ -91,7 +91,7 @@ export async function runBackfill(deps: BackfillDeps): Promise<void> {
     `Tokens: ${fmt(sum(before, 'tokens'))} → ${fmt(sum(after, 'tokens'))}`,
     moved.length ? `${moved.length} more day(s) receive events an older version filed under the wrong day.` : '',
     plan.rebuilt.missing.length ? `${plan.rebuilt.missing.length} source file(s) are gone; their events stay as they are.` : '',
-    lostExcerpts ? 'snagboat.captureContent is off, so stored reply excerpts on these days will be removed.' : '',
+    lostExcerpts ? 'snagboat.captureContent is off, so stored prompts and reply excerpts on these days will be removed.' : '',
     'Details are in the Snagboat output channel.',
   ]
     .filter(Boolean)

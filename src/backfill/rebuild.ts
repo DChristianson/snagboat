@@ -1,6 +1,7 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import { mainTranscriptOf, readTranscriptSession } from '../adapters/claude-code/transcriptSession';
-import { CopilotCliState, normalizeCopilotCliChunk } from '../adapters/copilot/cliSessions';
+import { CopilotCliState, copilotSessionNameEvent, normalizeCopilotCliChunk, readSessionName } from '../adapters/copilot/cliSessions';
 import { EventLog, eventDay } from '../core/eventLog';
 import { NormalizedEvent } from '../core/types';
 import { dayStats, DayStats, mergeDay, promptedTurns, sourceFileOf } from './merge';
@@ -55,7 +56,10 @@ export async function rebuildDays(dayEvents: Map<string, NormalizedEvent[]>, opt
       continue;
     }
     reread.add(file);
-    all.push(...normalizeCopilotCliChunk(lines, file, 0, new CopilotCliState()));
+    const state = new CopilotCliState();
+    all.push(...normalizeCopilotCliChunk(lines, file, 0, state, opts));
+    const named = opts.captureContent ? readSessionName(file) : undefined;
+    if (named) all.push(copilotSessionNameEvent(state.sessionId ?? path.basename(path.dirname(file)), named.name, file, named.updatedAt));
   }
 
   const byDay = new Map<string, NormalizedEvent[]>([...(targetDays ?? dayEvents.keys())].map((d) => [d, []]));

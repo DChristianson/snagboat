@@ -8,10 +8,12 @@ export type NormalizedEventKind =
   | 'edit'
   | 'turn_start'
   | 'turn_stop'
-  /** You submitted a prompt. A marker only: prompt text is never stored. */
+  /** You submitted a prompt. Its text is in promptText when text capture is on. */
   | 'user_prompt'
   /** The conversation's context was compacted. */
-  | 'compaction';
+  | 'compaction'
+  /** The session's name (a generated title, or one you set) changed; see sessionName. */
+  | 'session_name';
 
 export interface EventTokens {
   input?: number;
@@ -30,8 +32,12 @@ export interface NormalizedEvent {
   status: 'success' | 'failure' | 'unknown';
   model?: string;
   tokens?: EventTokens;
-  /** The agent's own reply text, truncated; present only when snagboat.captureContent is on. */
+  /** The agent's own reply text, truncated and redacted; present only when snagboat.captureContent is on. */
   textExcerpt?: string;
+  /** user_prompt events: the prompt's text, capped at 2,000 characters and redacted; present only when snagboat.captureContent is on. */
+  promptText?: string;
+  /** session_name events: the session's name. */
+  sessionName?: string;
   /** The prompt (turn) this event belongs to: Claude Code's promptId. */
   turnId?: string;
   /** Set for work done by a subagent; absent for the main agent. */

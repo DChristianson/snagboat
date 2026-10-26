@@ -12,7 +12,7 @@ interface NormalizedEvent {
   agent: AgentId;
   ts: string;
   kind: 'tool_call' | 'tool_result' | 'edit' | 'test_run'
-    | 'turn_start' | 'turn_stop' | 'user_prompt' | 'compaction';
+    | 'turn_start' | 'turn_stop' | 'user_prompt' | 'compaction' | 'session_name';
   target?: string;
   status: 'success' | 'failure' | 'unknown';
   model?: string;
@@ -22,7 +22,9 @@ interface NormalizedEvent {
     cacheRead?: number;
     cacheCreation?: number;
   };
-  textExcerpt?: string;
+  textExcerpt?: string;  // agent reply, up to 500 characters, redacted
+  promptText?: string;   // user_prompt: your prompt, up to 2,000 characters, redacted
+  sessionName?: string;  // session_name: the session's name
   turnId?: string;   // the prompt (turn) this event belongs to
   agentId?: string;  // set for subagent work
   toolName?: string;     // tool calls: the tool's name as reported
@@ -56,7 +58,8 @@ Every adapter should document how each raw signal maps into the shared schema.
 | `prompt_id`, `agent_id` on any hook payload | Claude Code | Decorates the hook's event | — | — | — | — | Become `turnId` and `agentId`. Payloads without `prompt_id` (older Claude Code) take the session's current turn from the transcript. |
 | Transcript message with usage block | Claude Code JSONL | `turn_stop` | — | `unknown` | Direct map from `input_tokens`, `output_tokens`, and cache fields, **once per `message.id`** | See next row | Primary token-accounting source. Claude Code writes one line per content block (thinking, text, tool_use), each repeating the whole message's `usage`; consecutive lines sharing a `message.id` are merged into one event. |
 | Transcript message text | Claude Code JSONL | Decorates the owning `turn_stop` event | — | `unknown` | — | `text` content blocks only, truncated to 500 characters, when `snagboat.captureContent` is on | Heuristics mine this captured text later; adapters do not need to invent a separate hedge event. |
-| Prompt line (`user` line with text, not a tool result, meta, compact summary, or subagent line) | Claude Code JSONL | `user_prompt` | — | `unknown` | — | — (never stored) | `turnId` is its `promptId`. A marker only: the prompt's text is not stored. |
+| Prompt line (`user` line with text, not a tool result, meta, compact summary, or subagent line) | Claude Code JSONL | `user_prompt` | — | `unknown` | — | Prompt text in `promptText` when `snagboat.captureContent` is on: your words only, injected context (`<ide_…>`, task notifications, command output) dropped, a slash command as `/name args`; up to 2,000 characters, redacted | `turnId` is its `promptId`. |
+| `ai-title` line | Claude Code JSONL | `session_name` | — | `unknown` | — | Title in `sessionName`, when capture is on | Claude Code repeats the title throughout a transcript; an event is emitted when it changes, with an id from the session and title, so repeats are dropped. No timestamp of its own: takes the transcript's latest. |
 | Interruption line (`user` line whose text starts "[Request interrupted by user") | Claude Code JSONL | `turn_stop` with `endsTurn`, no tokens | — | `unknown` | — | — | Ends the interrupted turn; not a prompt. |
 | `stop_reason: end_turn` on a main-agent message | Claude Code JSONL | Decorates the message's `turn_stop` with `endsTurn` | — | — | — | — | The model finished without requesting a tool. A subagent finishing doesn't end the turn. |
 | Any transcript line's `parentUuid` | Claude Code JSONL | Decorates model calls | — | — | — | — | Each line inherits its parent's turn, so every model call gets the `turnId` of the prompt that started it. |
@@ -66,7 +69,8 @@ Every adapter should document how each raw signal maps into the shared schema.
 | `execute_tool` span | Copilot OTel | `tool_call` | Span attributes for tool name or args | Span status code | — | — | Higher-fidelity tool activity path. |
 | `execute_hook` span | Copilot OTel | `tool_call` | `hook_type` attribute | `hook_result_kind` mapping | — | — | Annotation-oriented signal. |
 | `chat <model>` span outside `invoke_agent` | Copilot OTel | `turn_stop` with `channel: 'inline'` | — | Span status code | `input_tokens` minus `cache_read.input_tokens`; `output_tokens`; cache read | — | Editor features (inline and next-edit suggestions, chat titles). `max_prompt_tokens` becomes `contextLimit`. Metrics are no longer mapped: the spans carry the same counts. |
-| `user.message` | Copilot CLI session log | `user_prompt` | — | `unknown` | — | — (never stored) | `turnId` is its `interactionId`. |
+| `user.message` | Copilot CLI session log | `user_prompt` | — | `unknown` | — | Prompt text in `promptText` when capture is on, up to 2,000 characters, redacted | `turnId` is its `interactionId`. |
+| `name` in the session's `workspace.yaml` | Copilot CLI session folder | `session_name` | — | `unknown` | — | Name in `sessionName`, when capture is on | Read whenever the session's log grows; `user_named` says you set it. Time from `updated_at`. |
 | `session.usage_record` | Copilot CLI session log | `turn_stop` | — | `unknown` | `inputTokens` minus cache read and write; `outputTokens`; `cacheReadTokens`; `cacheWriteTokens` as cache creation | — | One model call. `maxPromptTokens` becomes `contextLimit`; turn from the `parentId` chain. |
 | `assistant.message` with empty `toolRequests` | Copilot CLI session log | `turn_stop` with `endsTurn`, no tokens | — | `unknown` | — | — | The reply that finishes the turn. Event id is the message's id plus `:end`. |
 | `tool.execution_start` + `tool.execution_complete` | Copilot CLI session log | `tool_call` | `arguments.command` or a path argument | `success` / non-zero `shellExecution.exitCode` | — | — | `toolName` and `toolCategory` as for Claude Code. |
@@ -81,8 +85,9 @@ This matrix is the adapter conformance spec. New adapters should not be accepted
 The schema is designed so sensitive content remains optional:
 
 - structural fields (`kind`, `status`, `target`, `tokens`) support most heuristics and reporting
-- `textExcerpt` is opt-in and, like every field, stored in the daily event log and retained for `snagboat.retention.rawDays`; per-field retention is planned (see [PRIVACY.md](../PRIVACY.md#retention))
-- `target` is structural for file paths but can carry sensitive content for shell commands, so it is a candidate for per-field retention too
+- `promptText` and `textExcerpt` are captured by default (`snagboat.captureContent`), redacted, and kept for `snagboat.retention.textDays` (default 30), after which they're removed from their events; `sessionName` stays with its session (see [PRIVACY.md](../PRIVACY.md#retention))
+- `session_name` events are metadata: they don't count as agent activity in totals or heuristics
+- `target` is structural for file paths but can carry sensitive content for shell commands, so it is a candidate for a shorter retention too
 - `raw.ref` points back to source material without copying entire payloads into the normalized record
 - `raw.event` is optional debug data and should be omitted unless an adapter has a clear inspection need
 
