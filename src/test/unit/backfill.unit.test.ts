@@ -92,6 +92,14 @@ async function main() {
     assert.strictEqual(byId.get('stop')?.endsTurn, true, 'the Stop hook ends the turn');
   });
 
+  test("mergeDay drops hook events logged under a Copilot session's id, which Copilot's own log covers", () => {
+    const C = 'copilot-sess';
+    const hook = (eventId: string, ref: string) => ev({ eventId, kind: ref === 'hook:Stop' ? 'turn_stop' : 'tool_call', sessionId: C, ts: at(2), raw: { adapter: 'claude-code', ref } });
+    const current = [hook('h1', 'hook:PostToolUse:Bash'), hook('h2', 'hook:Stop'), ev({ eventId: 'claude-hook', kind: 'tool_call', ts: at(3), raw: { adapter: 'claude-code', ref: 'hook:PostToolUse:Read' } })];
+    const rebuilt = [ev({ eventId: 'c1', kind: 'tool_call', sessionId: C, agent: 'copilot', ts: at(2), raw: { adapter: 'copilot-cli', ref: '/c/events.jsonl#offset~0' } })];
+    assert.deepStrictEqual(mergeDay(current, rebuilt, new Set(['/c/events.jsonl']), at(30)).map((e) => e.eventId), ['c1', 'claude-hook']);
+  });
+
   test('mergeDay leaves events from a source that could not be re-read alone', () => {
     const current = [ev({ eventId: 'm1', kind: 'turn_stop', tokens: { input: 1 } })];
     assert.deepStrictEqual(mergeDay(current, [], new Set(), at(30)), current);

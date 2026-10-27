@@ -36,7 +36,14 @@ export class HooksReceiver {
 
   constructor(
     private readonly ctx: AdapterContext,
-    private readonly opts: { token: string; workspaceFolders: string[]; port?: number; turnFallback?: (sessionId: string) => string | undefined }
+    private readonly opts: {
+      token: string;
+      workspaceFolders: string[];
+      port?: number;
+      turnFallback?: (sessionId: string) => string | undefined;
+      /** Sessions whose hooks another adapter already covers (Copilot runs .claude/settings.json hooks too); dropped. */
+      ignoreSession?: (sessionId: string) => boolean;
+    }
   ) {
     this.workspaceFolders = opts.workspaceFolders;
   }
@@ -79,6 +86,7 @@ export class HooksReceiver {
           return;
         }
         const event = normalizeHookPayload(payload, this.opts.turnFallback);
+        if (event && this.opts.ignoreSession?.(event.sessionId)) return;
         if (event) {
           this.ctx.publish(event);
         } else {

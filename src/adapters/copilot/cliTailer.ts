@@ -15,12 +15,16 @@ export interface CopilotCliCheckpoint {
   lastTurnByFile: Record<string, string>;
 }
 
-export function readCliCheckpoint(state: Record<string, unknown> | undefined): { offsets: Map<string, number>; lastTurns: Map<string, string> } {
+/** keep drops entries for session logs that no longer exist (see keepCheckpointEntry); by default everything is kept. */
+export function readCliCheckpoint(
+  state: Record<string, unknown> | undefined,
+  keep: (file: string) => boolean = () => true
+): { offsets: Map<string, number>; lastTurns: Map<string, string> } {
   const offsets = new Map<string, number>();
   const lastTurns = new Map<string, string>();
   if (state?.version === 1) {
-    for (const [f, o] of Object.entries((state.offsets as Record<string, unknown>) ?? {})) if (typeof o === 'number') offsets.set(f, o);
-    for (const [f, t] of Object.entries((state.lastTurnByFile as Record<string, unknown>) ?? {})) if (typeof t === 'string') lastTurns.set(f, t);
+    for (const [f, o] of Object.entries((state.offsets as Record<string, unknown>) ?? {})) if (typeof o === 'number' && keep(f)) offsets.set(f, o);
+    for (const [f, t] of Object.entries((state.lastTurnByFile as Record<string, unknown>) ?? {})) if (typeof t === 'string' && keep(f)) lastTurns.set(f, t);
   }
   return { offsets, lastTurns };
 }

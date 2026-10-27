@@ -63,7 +63,7 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
 - **Cross-workspace token budget.** A global budget across all workspaces, plus a treemap of where tokens go. Needs storage shared between workspaces; today each workspace's storage is isolated. The advisor's all-projects review needs the same storage (see [design/trusted-advisor.md](design/trusted-advisor.md)).
 - **Extension points.** `snagboat.adapters` and `snagboat.heuristics` contribution points so other extensions can add sources and heuristics without forking.
 - **Log export.** A `snagboat.exportLog` command writing CSV or SQLite, with an optional SQLite side index rebuilt from the JSONL log.
-- **Housekeeping.** Prune checkpoint entries for transcripts that no longer exist, and offer a command to remove Snagboat's hook entries from a project's `.claude/settings.json`.
+- **Housekeeping — done.** Checkpoint entries for transcripts and Copilot session logs that no longer exist are dropped at activation (only while their folder exists, so an unmounted drive's entries survive). **Snagboat: Remove Claude Code Hooks from Project...** removes Snagboat's entries from a folder's `.claude/settings.json` and turns off `snagboat.claudeCode.configureHooks` for it.
 - **Copilot OTel per-window routing.** Copilot still exports every window's telemetry to one fixed port (4318), so the first window to bind it collects all of it. It can't use the hook routing above, since Copilot's exporter takes a single endpoint URL; revisit once live traffic shows whether spans identify the workspace.
 - **Windows support.** The hook routing script needs a POSIX shell, so Claude Code hooks don't work on Windows; it needs a Windows equivalent of the script.
 

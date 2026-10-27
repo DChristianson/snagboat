@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { normalizeTranscriptChunk, SeenMessages } from '../../adapters/claude-code/normalize';
 import { readCheckpointState } from '../../adapters/claude-code/checkpointState';
+import { readCliCheckpoint } from '../../adapters/copilot/cliTailer';
+import { keepCheckpointEntry } from '../../core/paths';
 import { expectedTotals, replayTotals } from '../../scripts/transcripts';
 import { replay, sessionEvents } from '../../scripts/replayHeuristics';
 
@@ -99,6 +101,30 @@ async function main() {
     assert.deepStrictEqual([...v2.offsets], [['/t/a.jsonl', 300]]);
     assert.ok(v2.seen.has('/t/a.jsonl', 'msg_A'));
     assert.strictEqual(readCheckpointState(undefined).offsets.size, 0);
+  });
+
+  test('checkpoint entries for deleted files are dropped, but only while their source folder exists', () => {
+    const present = new Set(['/t', '/t/a.jsonl']);
+    const exists = (p: string) => present.has(p);
+    const keep = keepCheckpointEntry('/t', exists);
+    const state = {
+      version: 2,
+      offsets: { '/t/a.jsonl': 300, '/t/gone.jsonl': 50 },
+      recentMessageIds: { '/t/a.jsonl': ['msg_A'], '/t/gone.jsonl': ['msg_G'] },
+      lastTurnByFile: { '/t/a.jsonl': 'p1', '/t/gone.jsonl': 'p2' },
+    };
+    const pruned = readCheckpointState(state, keep);
+    assert.deepStrictEqual([...pruned.offsets], [['/t/a.jsonl', 300]]);
+    assert.deepStrictEqual(pruned.seen.snapshot(), { '/t/a.jsonl': ['msg_A'] });
+    assert.deepStrictEqual(pruned.turns.snapshot(), { '/t/a.jsonl': 'p1' });
+    assert.deepStrictEqual([...readCheckpointState({ '/t/a.jsonl': 1, '/t/gone.jsonl': 2 }, keep).offsets.keys()], ['/t/a.jsonl'], 'legacy shape too');
+
+    const cli = readCliCheckpoint({ version: 1, offsets: { '/t/a.jsonl': 10, '/t/gone.jsonl': 20 }, lastTurnByFile: { '/t/gone.jsonl': 'I1' } }, keep);
+    assert.deepStrictEqual([[...cli.offsets], [...cli.lastTurns]], [[['/t/a.jsonl', 10]], []]);
+
+    // Source folder missing (unmounted, or not created yet): keep everything.
+    assert.strictEqual(readCheckpointState(state, keepCheckpointEntry('/elsewhere', exists)).offsets.size, 2);
+    assert.strictEqual(readCheckpointState(state, keepCheckpointEntry(undefined, exists)).offsets.size, 2);
   });
 
   test('redacted real transcript: replay under many chunkings and restarts matches the per-message total', () => {

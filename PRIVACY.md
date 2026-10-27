@@ -55,7 +55,7 @@ All under the extension's per-workspace storage folder unless noted:
 | --- | --- | --- |
 | `events/<date>.jsonl` | Every normalized event, including `target` and, when capture is on, `promptText`, `textExcerpt`, and `sessionName` | `snagboat.retention.rawDays` (default 90 days, counting today); `promptText` and `textExcerpt` only `snagboat.retention.textDays` (default 30) |
 | `aggregates/<date>.json` | Per-day, per-agent token and event counts. No targets or text. | `snagboat.retention.aggregateDays` (default `-1`, kept indefinitely; `0` keeps none) |
-| `checkpoints/<adapter>.json` | Read offsets into Claude Code transcript files (including subagent transcripts), the last few API message ids seen in each, and each file's most recent prompt id, keyed by transcript path | Until cleared manually; not covered by `Clear Event Log` |
+| `checkpoints/<adapter>.json` | Read offsets into Claude Code transcript files (including subagent transcripts), the last few API message ids seen in each, and each file's most recent prompt id, keyed by transcript path (Copilot's: offsets and last turn per session log) | Until the transcript or session log is deleted (its entry is dropped at the next activation), or cleared manually; not covered by `Clear Event Log` |
 | VS Code workspace state | The list of muted heuristics | Until unmuted |
 | VS Code webview state | The detail view's filters, including the timeline search text | Managed by VS Code |
 | VS Code extension host log | Diagnostic messages: file paths, port errors, and, for hook or OTLP requests Snagboat couldn't parse or map, only their size and hook/tool names, never payload contents | Managed by VS Code |
@@ -63,7 +63,7 @@ All under the extension's per-workspace storage folder unless noted:
 | VS Code global storage: `context-limits.json` | Per model name: the largest context seen, and the context at which an automatic compaction happened, with when. Shared by all workspaces. No content. | Until Snagboat is uninstalled |
 | `~/.snagboat/routes/<folder>` | One file per open workspace folder: the local port, a random auth token, and the VS Code process id, so hooks reach the right window. Owner-only (`0600`). | Removed when the window closes; leftovers from crashed windows are removed on the next activation |
 | `~/.snagboat/bin/snagboat-hook` | The hook forwarder script that Claude Code runs | Rewritten on every activation |
-| `<project>/.claude/settings.json` | Outside Snagboat's storage: the `PostToolUse`/`Stop` hook entries Snagboat adds so Claude Code runs `snagboat-hook` | Until removed by hand |
+| `<project>/.claude/settings.json` | Outside Snagboat's storage: the `PostToolUse`/`Stop` hook entries Snagboat adds so Claude Code runs `snagboat-hook` | Until removed with `Snagboat: Remove Claude Code Hooks from Project...` or by hand |
 
 Snagboat also reads data it doesn't own: Claude Code transcripts (`~/.claude/projects/…`), Copilot CLI session logs and their `workspace.yaml` (`~/.copilot/session-state/…`), and Copilot's OTel export. It never modifies or deletes them.
 
@@ -83,6 +83,7 @@ Events are filed under the day they happened, so history caught up from an old t
 
 - `Snagboat: Clear Event Log` (`snagboat.clearLog`) deletes all raw logs and daily aggregates after a confirmation prompt. Adapter checkpoints are kept so already-seen transcript history is not re-imported.
 - `Snagboat: Remove Captured Text` (`snagboat.removeCapturedText`) removes every stored prompt and reply excerpt after a confirmation prompt, keeping the events, and can turn capture off too.
+- `Snagboat: Remove Claude Code Hooks from Project...` (`snagboat.removeClaudeHooks`) removes Snagboat's hook entries from a folder's `.claude/settings.json` and turns off `snagboat.claudeCode.configureHooks` for it, so they aren't added back.
 - `snagboat.captureContent` (on by default) turns all text capture on or off; `snagboat.retention.textDays` sets how long prompts and replies are kept. The detail view shows whether capture is on and for how long text is kept.
 
 ## Design guardrails

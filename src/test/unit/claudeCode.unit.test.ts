@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { normalizeTranscriptLine, normalizeHookPayload } from '../../adapters/claude-code/normalize';
 import { readNewLines } from '../../core/lineTailer';
-import { ensureHooksConfigured, buildHookCommand } from '../../adapters/claude-code/hooksConfig';
+import { ensureHooksConfigured, buildHookCommand, removeHooksConfigured } from '../../adapters/claude-code/hooksConfig';
 
 // Shaped after a real assistant transcript line captured from this machine's own
 // ~/.claude/projects/.../*.jsonl transcript during the design of this extension.
@@ -165,6 +165,52 @@ async function main() {
       'old entry rewritten in place, duplicate group dropped, user hook untouched'
     );
     assert.deepStrictEqual(after.hooks.Stop[0].hooks[0].command, CMD);
+  });
+
+  test('removeHooksConfigured removes only Snagboat entries, then whatever that leaves empty', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-hooksremove-'));
+    const settingsPath = path.join(dir, '.claude', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        model: 'opus',
+        hooks: {
+          PostToolUse: [
+            { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo mine' }, { type: 'command', command: CMD }] },
+            { matcher: '*', hooks: [{ type: 'command', command: CMD }] },
+          ],
+          PreToolUse: [{ matcher: 'Edit', hooks: [] }],
+        },
+      })
+    );
+    await ensureHooksConfigured(dir, CMD); // adds Stop
+
+    assert.strictEqual(await removeHooksConfigured(dir), true);
+    const after = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    assert.deepStrictEqual(after, {
+      model: 'opus',
+      hooks: {
+        PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo mine' }] }],
+        PreToolUse: [{ matcher: 'Edit', hooks: [] }],
+      },
+    }, "the user's hooks, including an empty group of theirs, are kept; Snagboat's group and the Stop list go");
+
+    const mtime = fs.statSync(settingsPath).mtimeMs;
+    assert.strictEqual(await removeHooksConfigured(dir), false, 'nothing left to remove');
+    assert.strictEqual(fs.statSync(settingsPath).mtimeMs, mtime, 'and the file is not rewritten');
+
+    const onlyOurs = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-hooksremove-only-'));
+    await ensureHooksConfigured(onlyOurs, CMD);
+    assert.strictEqual(await removeHooksConfigured(onlyOurs), true);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(onlyOurs, '.claude', 'settings.json'), 'utf8')), {}, 'an emptied hooks object is removed');
+
+    const none = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-hooksremove-none-'));
+    assert.strictEqual(await removeHooksConfigured(none), false, 'no settings file');
+    assert.ok(!fs.existsSync(path.join(none, '.claude')), 'and none is created');
+
+    fs.writeFileSync(settingsPath, '{ not json');
+    await assert.rejects(removeHooksConfigured(dir), /could not read/);
   });
 
   test('buildHookCommand writes the default location with a literal $HOME and never fails', () => {

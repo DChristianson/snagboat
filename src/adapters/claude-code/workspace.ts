@@ -24,6 +24,19 @@ export function onWorkspaceFoldersChanged(listener: () => void): vscode.Disposab
   return vscode.workspace.onDidChangeWorkspaceFolders(() => listener());
 }
 
+/** Calls back when snagboat.claudeCode.configureHooks changes for any folder. */
+export function onHooksSettingChanged(listener: () => void): vscode.Disposable {
+  return vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration('snagboat.claudeCode.configureHooks')) listener();
+  });
+}
+
+/** Whether Snagboat should add its hooks to this folder's .claude/settings.json (snagboat.claudeCode.configureHooks). */
+export function hooksEnabledFor(folder: string): boolean {
+  if (process.env.SNAGBOAT_CLAUDE_PROJECT_DIR) return true;
+  return vscode.workspace.getConfiguration('snagboat', vscode.Uri.file(folder)).get<boolean>('claudeCode.configureHooks', true);
+}
+
 export function sanitizeCwd(cwd: string): string {
   return cwd.replace(/[\\/]/g, '-');
 }

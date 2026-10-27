@@ -60,7 +60,9 @@ const SAME_CALL_WITHIN_MS = 10_000;
  *     those logged after the re-read began (live events the re-read missed);
  *     rebuilt events are filed under their own day, so an event an older
  *     build filed under the wrong day moves to the right one;
- *   - retired Copilot metric events are dropped;
+ *   - retired Copilot metric events are dropped, as are hook events logged
+ *     under a Copilot agent session's id (Copilot runs .claude/settings.json
+ *     hooks too; its own log already has those calls);
  *   - hook events are kept, gaining what older builds didn't record (tool
  *     category, the Stop hook's turn end, a turn from the session's prompt
  *     times);
@@ -76,8 +78,11 @@ export function mergeDay(
   keepOld: (event: NormalizedEvent) => boolean = () => false
 ): NormalizedEvent[] {
   const rebuiltIds = new Set(rebuilt.map((e) => e.eventId));
+  // Copilot runs the hooks in .claude/settings.json too, and older builds logged those as Claude Code events under the Copilot session's id.
+  const copilotSessions = new Set([...current, ...rebuilt].filter((e) => e.raw.adapter === 'copilot-cli').map((e) => e.sessionId));
   const kept = current.filter((e) => {
     if (isRetiredCopilotMetric(e)) return false;
+    if (e.agent === 'claude-code' && e.raw.ref.startsWith('hook:') && copilotSessions.has(e.sessionId)) return false;
     const source = sourceFileOf(e);
     if (!source || !rereadSources.has(source)) return true;
     if (keepOld(e)) return true;

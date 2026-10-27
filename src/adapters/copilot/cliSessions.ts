@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { NormalizedEvent } from '../../core/types';
 import { classifyTool } from '../../core/toolCategory';
@@ -23,6 +24,21 @@ import { sessionNameId } from '../../core/sessions';
  * Turns: a user.message's interactionId starts a turn; other events carry
  * interactionId themselves or inherit their parent's turn via parentId.
  */
+
+/** Where the Copilot CLI keeps its sessions. Test/CI seam: SNAGBOAT_COPILOT_SESSIONS_DIR. */
+export function resolveCopilotSessionsDir(): string {
+  return process.env.SNAGBOAT_COPILOT_SESSIONS_DIR ?? path.join(os.homedir(), '.copilot', 'session-state');
+}
+
+/**
+ * Whether a session id is a Copilot agent session: Copilot keeps a folder per
+ * session, and Claude Code session ids never have one. Copilot runs the hooks
+ * in a project's .claude/settings.json too, Snagboat's included, so the hook
+ * receiver uses this to leave those sessions to the Copilot adapter.
+ */
+export function isCopilotSession(sessionId: string, sessionsDir = resolveCopilotSessionsDir()): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(sessionId) && fs.existsSync(path.join(sessionsDir, sessionId, 'events.jsonl'));
+}
 
 interface CliEvent {
   type?: string;

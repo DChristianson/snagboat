@@ -2,11 +2,12 @@ import { AgentAdapter, AdapterContext } from '../../core/types';
 import { TranscriptTailer } from './transcriptTail';
 import { HooksReceiver } from './hooksReceiver';
 import { buildHookCommand, ensureHooksConfigured } from './hooksConfig';
-import { withRealPaths } from '../../core/paths';
-import { onWorkspaceFoldersChanged, resolveTranscriptsDir, resolveWorkspaceFolders } from './workspace';
+import { keepCheckpointEntry, withRealPaths } from '../../core/paths';
+import { hooksEnabledFor, onHooksSettingChanged, onWorkspaceFoldersChanged, resolveTranscriptsDir, resolveWorkspaceFolders } from './workspace';
 import { installHookScript, newToken, pruneStaleRoutes, removeRoutes, Route, snagboatHome, updateRoutes, writeRoutes } from './hookRoutes';
 import { SeenMessages, TurnTracker } from './normalize';
 import { CheckpointStateV2, readCheckpointState } from './checkpointState';
+import { isCopilotSession } from '../copilot/cliSessions';
 
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly agentId = 'claude-code' as const;
@@ -22,12 +23,14 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   private hookSetup?: { home: string; route: Route; command: string };
   private hookFolders: string[] = [];
   private folderWatch?: { dispose(): void };
+  private settingWatch?: { dispose(): void };
   private folderUpdates: Promise<void> = Promise.resolve();
 
   async init(ctx: AdapterContext): Promise<void> {
     this.ctx = ctx;
     const checkpoint = await ctx.readCheckpoint();
-    const { offsets, seen, turns } = readCheckpointState(checkpoint?.state);
+    // Entries for transcripts Claude Code has since deleted (its own cleanup) are dropped.
+    const { offsets, seen, turns } = readCheckpointState(checkpoint?.state, keepCheckpointEntry(resolveTranscriptsDir()));
     this.offsets = offsets;
     this.seen = seen;
     this.turns = turns;
@@ -42,6 +45,9 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     await this.startHooks(this.ctx);
     this.folderWatch = onWorkspaceFoldersChanged(() => {
       this.folderUpdates = this.folderUpdates.then(() => this.updateHookFolders());
+    });
+    this.settingWatch = onHooksSettingChanged(() => {
+      this.folderUpdates = this.folderUpdates.then(() => this.configureEnabledFolders());
     });
   }
 
@@ -62,7 +68,13 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       pruneStaleRoutes(home);
       const scriptPath = installHookScript(home);
       const token = newToken();
-      this.hooksReceiver = new HooksReceiver(ctx, { token, workspaceFolders: folders, turnFallback: (sessionId) => this.turns.latestTurnForSession(sessionId) });
+      this.hooksReceiver = new HooksReceiver(ctx, {
+        token,
+        workspaceFolders: folders,
+        turnFallback: (sessionId) => this.turns.latestTurnForSession(sessionId),
+        // Copilot runs these same hooks; its sessions come from its own log, with these tool calls and turn ends already in it.
+        ignoreSession: (sessionId) => isCopilotSession(sessionId),
+      });
       const port = await this.hooksReceiver.start();
       const route = { port, token, pid: process.pid };
       writeRoutes(home, folders, route);
@@ -70,7 +82,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       const command = buildHookCommand(scriptPath);
       this.hookSetup = { home, route, command };
       this.hookFolders = workspaceFolders;
-      for (const folder of workspaceFolders) await ensureHooksConfigured(folder, command);
+      for (const folder of workspaceFolders) if (hooksEnabledFor(folder)) await ensureHooksConfigured(folder, command);
       ctx.reportHealth('hooks', undefined);
     } catch (err) {
       ctx.reportHealth('hooks', `hook routing not set up: ${err instanceof Error ? err.message : String(err)}`);
@@ -99,15 +111,26 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       this.routedFolders = folders;
       const added = workspaceFolders.filter((f) => !this.hookFolders.includes(f));
       this.hookFolders = workspaceFolders;
-      for (const folder of added) await ensureHooksConfigured(folder, command);
+      for (const folder of added) if (hooksEnabledFor(folder)) await ensureHooksConfigured(folder, command);
       this.ctx.reportHealth('hooks', undefined);
     } catch (err) {
       this.ctx.reportHealth('hooks', `hook routing not updated for changed folders: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
+  /** Adds hooks to folders where snagboat.claudeCode.configureHooks was turned back on. */
+  private async configureEnabledFolders(): Promise<void> {
+    if (!this.hookSetup) return;
+    try {
+      for (const folder of this.hookFolders) if (hooksEnabledFor(folder)) await ensureHooksConfigured(folder, this.hookSetup.command);
+    } catch (err) {
+      this.ctx?.reportHealth('hooks', `hooks not added after a settings change: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   async stop(): Promise<void> {
     this.folderWatch?.dispose();
+    this.settingWatch?.dispose();
     this.transcriptTailer?.stop();
     removeRoutes(snagboatHome(), this.routedFolders, process.pid);
     this.routedFolders = [];
