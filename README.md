@@ -196,7 +196,6 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 
 - **Copilot editor telemetry is collected by one window.** Copilot in every window exports to the same port, so the first window to claim it records all inline-suggestion usage and the others show a "failed to listen on port" health warning. Copilot agent sessions and Claude Code don't have this problem.
 - **The Copilot receiver doesn't authenticate requests**, so another local process could submit fake Copilot events. Claude Code hooks are token-protected. See [SECURITY.md](SECURITY.md).
-- **Workspace folders added to a window after it opens** start receiving Claude Code hooks only after a reload.
 - **Windows is unsupported**: the hook script needs a POSIX shell.
 
 ## Not built yet

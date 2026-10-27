@@ -3,8 +3,8 @@ import { TranscriptTailer } from './transcriptTail';
 import { HooksReceiver } from './hooksReceiver';
 import { buildHookCommand, ensureHooksConfigured } from './hooksConfig';
 import { withRealPaths } from '../../core/paths';
-import { resolveTranscriptsDir, resolveWorkspaceFolders } from './workspace';
-import { installHookScript, newToken, pruneStaleRoutes, removeRoutes, snagboatHome, writeRoutes } from './hookRoutes';
+import { onWorkspaceFoldersChanged, resolveTranscriptsDir, resolveWorkspaceFolders } from './workspace';
+import { installHookScript, newToken, pruneStaleRoutes, removeRoutes, Route, snagboatHome, updateRoutes, writeRoutes } from './hookRoutes';
 import { SeenMessages, TurnTracker } from './normalize';
 import { CheckpointStateV2, readCheckpointState } from './checkpointState';
 
@@ -18,6 +18,11 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   private transcriptTailer?: TranscriptTailer;
   private hooksReceiver?: HooksReceiver;
   private routedFolders: string[] = [];
+  /** Set once hooks are routed: what a folder added later needs to be routed and configured. */
+  private hookSetup?: { home: string; route: Route; command: string };
+  private hookFolders: string[] = [];
+  private folderWatch?: { dispose(): void };
+  private folderUpdates: Promise<void> = Promise.resolve();
 
   async init(ctx: AdapterContext): Promise<void> {
     this.ctx = ctx;
@@ -35,6 +40,9 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     this.transcriptTailer.start();
 
     await this.startHooks(this.ctx);
+    this.folderWatch = onWorkspaceFoldersChanged(() => {
+      this.folderUpdates = this.folderUpdates.then(() => this.updateHookFolders());
+    });
   }
 
   /**
@@ -56,9 +64,12 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       const token = newToken();
       this.hooksReceiver = new HooksReceiver(ctx, { token, workspaceFolders: folders, turnFallback: (sessionId) => this.turns.latestTurnForSession(sessionId) });
       const port = await this.hooksReceiver.start();
-      writeRoutes(home, folders, { port, token, pid: process.pid });
+      const route = { port, token, pid: process.pid };
+      writeRoutes(home, folders, route);
       this.routedFolders = folders;
       const command = buildHookCommand(scriptPath);
+      this.hookSetup = { home, route, command };
+      this.hookFolders = workspaceFolders;
       for (const folder of workspaceFolders) await ensureHooksConfigured(folder, command);
       ctx.reportHealth('hooks', undefined);
     } catch (err) {
@@ -66,7 +77,37 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     }
   }
 
+  /**
+   * Re-routes hooks when workspace folders are added or removed, so a folder
+   * added to an open window gets its hooks without a reload. A removed
+   * folder's .claude/settings.json keeps its hook entry, which another window
+   * may still be using.
+   */
+  private async updateHookFolders(): Promise<void> {
+    if (!this.ctx) return;
+    if (!this.hookSetup) {
+      // No folder was open at activation, so hooks were never set up.
+      if (!this.hooksReceiver) await this.startHooks(this.ctx);
+      return;
+    }
+    const { home, route, command } = this.hookSetup;
+    const workspaceFolders = resolveWorkspaceFolders();
+    const folders = withRealPaths(workspaceFolders);
+    try {
+      this.hooksReceiver?.setWorkspaceFolders(folders);
+      updateRoutes(home, this.routedFolders, folders, route);
+      this.routedFolders = folders;
+      const added = workspaceFolders.filter((f) => !this.hookFolders.includes(f));
+      this.hookFolders = workspaceFolders;
+      for (const folder of added) await ensureHooksConfigured(folder, command);
+      this.ctx.reportHealth('hooks', undefined);
+    } catch (err) {
+      this.ctx.reportHealth('hooks', `hook routing not updated for changed folders: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   async stop(): Promise<void> {
+    this.folderWatch?.dispose();
     this.transcriptTailer?.stop();
     removeRoutes(snagboatHome(), this.routedFolders, process.pid);
     this.routedFolders = [];

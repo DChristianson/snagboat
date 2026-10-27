@@ -32,11 +32,19 @@ function projectDirHeader(value: string | string[] | undefined): string | undefi
  */
 export class HooksReceiver {
   private server?: http.Server;
+  private workspaceFolders: string[];
 
   constructor(
     private readonly ctx: AdapterContext,
     private readonly opts: { token: string; workspaceFolders: string[]; port?: number; turnFallback?: (sessionId: string) => string | undefined }
-  ) {}
+  ) {
+    this.workspaceFolders = opts.workspaceFolders;
+  }
+
+  /** Replaces the folders whose hooks are accepted, after workspace folders change. */
+  setWorkspaceFolders(folders: string[]): void {
+    this.workspaceFolders = folders;
+  }
 
   /** Resolves with the bound port once listening; rejects if it can't listen. */
   start(): Promise<number> {
@@ -51,7 +59,7 @@ export class HooksReceiver {
         return;
       }
       const projectDir = projectDirHeader(req.headers['x-snagboat-project-dir']);
-      if (!projectDir || !isWithinFolders(projectDir, this.opts.workspaceFolders)) {
+      if (!projectDir || !isWithinFolders(projectDir, this.workspaceFolders)) {
         res.writeHead(421).end(); // Misdirected Request: not this window's project
         req.resume();
         return;
