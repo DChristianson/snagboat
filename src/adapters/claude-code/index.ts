@@ -7,6 +7,7 @@ import { hooksEnabledFor, onHooksSettingChanged, onWorkspaceFoldersChanged, reso
 import { installHookScript, newToken, pruneStaleRoutes, removeRoutes, Route, snagboatHome, updateRoutes, writeRoutes } from './hookRoutes';
 import { SeenMessages, TurnTracker } from './normalize';
 import { CheckpointStateV2, readCheckpointState } from './checkpointState';
+import { isCopilotSession } from '../copilot/cliSessions';
 
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly agentId = 'claude-code' as const;
@@ -67,7 +68,13 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       pruneStaleRoutes(home);
       const scriptPath = installHookScript(home);
       const token = newToken();
-      this.hooksReceiver = new HooksReceiver(ctx, { token, workspaceFolders: folders, turnFallback: (sessionId) => this.turns.latestTurnForSession(sessionId) });
+      this.hooksReceiver = new HooksReceiver(ctx, {
+        token,
+        workspaceFolders: folders,
+        turnFallback: (sessionId) => this.turns.latestTurnForSession(sessionId),
+        // Copilot runs these same hooks; its sessions come from its own log, with these tool calls and turn ends already in it.
+        ignoreSession: (sessionId) => isCopilotSession(sessionId),
+      });
       const port = await this.hooksReceiver.start();
       const route = { port, token, pid: process.pid };
       writeRoutes(home, folders, route);

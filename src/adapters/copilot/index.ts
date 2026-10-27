@@ -1,19 +1,14 @@
-import * as os from 'os';
-import * as path from 'path';
 import * as vscode from 'vscode';
 import { AgentAdapter, AdapterContext } from '../../core/types';
 import { keepCheckpointEntry, withRealPaths } from '../../core/paths';
 import { resolveWorkspaceFolders } from '../claude-code/workspace';
 import { CopilotCliTailer, readCliCheckpoint } from './cliTailer';
+import { resolveCopilotSessionsDir } from './cliSessions';
 import { OtelReceiver } from './otelReceiver';
 import { StructureCapture } from './structureCapture';
 
 const DEFAULT_OTLP_PORT = 4318;
 
-/** Test/CI seam: override where Copilot CLI sessions are read from. */
-function resolveSessionsDir(): string {
-  return process.env.SNAGBOAT_COPILOT_SESSIONS_DIR ?? path.join(os.homedir(), '.copilot', 'session-state');
-}
 
 export class CopilotAdapter implements AgentAdapter {
   readonly agentId = 'copilot' as const;
@@ -44,7 +39,7 @@ export class CopilotAdapter implements AgentAdapter {
     this.otelReceiver.start();
 
     // Agent mode: the Copilot CLI's session logs (it exports no telemetry).
-    const sessionsDir = resolveSessionsDir();
+    const sessionsDir = resolveCopilotSessionsDir();
     // Entries for sessions Copilot has since deleted are dropped.
     const { offsets, lastTurns } = readCliCheckpoint((await this.ctx.readCheckpoint())?.state, keepCheckpointEntry(sessionsDir));
     const folders = withRealPaths(resolveWorkspaceFolders());

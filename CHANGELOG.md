@@ -8,6 +8,7 @@
 - **Copilot Agent reply excerpts**, so `verbal-hedge` works for Copilot agent sessions too.
 - **Workspace folders added to an open window** get Claude Code hooks right away, without a reload.
 - **Snagboat: Remove Claude Code Hooks from Project...** removes Snagboat's entries from a folder's `.claude/settings.json` and stops adding them there (`snagboat.claudeCode.configureHooks`, new, on by default).
+- **Fix:** a Copilot agent session could show as a Claude Code session, with its tool calls counted twice: Copilot runs the hooks in `.claude/settings.json`, Snagboat's included. Those hooks are now ignored for Copilot sessions, and **Snagboat: Backfill Sessions from Transcripts...** removes ones already logged.
 - **Faster startup:** the event log is read once on activation instead of about four times.
 - **Housekeeping:** checkpoint entries for transcripts and session logs that have since been deleted are dropped.
 

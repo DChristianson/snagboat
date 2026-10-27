@@ -227,6 +227,23 @@ async function main() {
     }
   });
 
+  test("hooks for sessions another adapter covers are accepted but not published", async () => {
+    const { home, script, projectA } = await setup();
+    const { ctx, published } = fakeCtx();
+    const token = newToken();
+    const receiver = new HooksReceiver(ctx, { token, workspaceFolders: [projectA], ignoreSession: (id) => id === 'copilot-sess' });
+    const port = await receiver.start();
+    writeRoutes(home, [projectA], { port, token, pid: process.pid });
+    try {
+      await runHook(home, script, projectA, { ...payload(projectA), session_id: 'copilot-sess' });
+      await runHook(home, script, projectA, payload(projectA));
+      await settle();
+      assert.deepStrictEqual(published.map((e) => e.sessionId), ['s1']);
+    } finally {
+      receiver.stop();
+    }
+  });
+
   test('removeRoutes deletes only routes this window still owns', async () => {
     const { home, projectA, projectB } = await setup();
     writeRoutes(home, [projectA, projectB], { port: 1000, token: 't', pid: process.pid });

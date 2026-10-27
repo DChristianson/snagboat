@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { CopilotCliState, normalizeCopilotCliChunk, readSessionCwd } from '../../adapters/copilot/cliSessions';
+import { CopilotCliState, isCopilotSession, normalizeCopilotCliChunk, readSessionCwd } from '../../adapters/copilot/cliSessions';
 import { CopilotCliTailer, readCliCheckpoint } from '../../adapters/copilot/cliTailer';
 import { contextSize } from '../../core/contextLimits';
 import { AdapterContext, NormalizedEvent } from '../../core/types';
@@ -110,6 +110,18 @@ async function main() {
     const { lastTurns } = readCliCheckpoint({ version: 1, offsets: { f: 10 }, lastTurnByFile: { f: 'I7' } });
     const events = normalizeCopilotCliChunk([ev('session.usage_record', 'x1', 'unknown-parent', 1, { usage: { inputTokens: 10, outputTokens: 1 } })], 'f', 10, new CopilotCliState(lastTurns.get('f')));
     assert.strictEqual(events[0].turnId, 'I7');
+  });
+
+  test('isCopilotSession recognizes sessions with a Copilot session log, and nothing that escapes its folder', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-cli-ids-'));
+    fs.mkdirSync(path.join(base, 'edcccaed-b39b'));
+    fs.writeFileSync(path.join(base, 'edcccaed-b39b', 'events.jsonl'), '');
+    fs.mkdirSync(path.join(base, 'no-log'));
+    assert.strictEqual(isCopilotSession('edcccaed-b39b', base), true);
+    assert.strictEqual(isCopilotSession('no-log', base), false, 'a folder without a session log');
+    assert.strictEqual(isCopilotSession('claude-session-id', base), false);
+    assert.strictEqual(isCopilotSession('../' + path.basename(base) + '/edcccaed-b39b', path.join(base, 'x')), false, 'path segments are refused');
+    assert.strictEqual(isCopilotSession('', base), false);
   });
 
   test('readSessionCwd finds the working directory from session.start', () => {
