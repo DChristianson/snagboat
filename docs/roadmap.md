@@ -21,6 +21,7 @@ In place ([.github/workflows/ci.yml](../.github/workflows/ci.yml)), on pushes to
 - on Ubuntu and macOS: `npm ci`, unit tests (`npm run test:unit`, which also type-checks via `tsc`), the production bundle, the third-party license check (`npm run licenses -- --check`), and `.vsix` packaging
 - the integration suite (`npm test`) in a real VS Code: latest stable on Ubuntu (under a virtual display) and macOS, plus the minimum supported version (1.119) on Ubuntu
 - Dependabot updates for npm and GitHub Actions
+- `main`'s ruleset requires every unit and integration job to pass before a merge (the 1.119 job's name includes the version, so raising the minimum means updating the ruleset)
 
 Releases ([.github/workflows/release.yml](../.github/workflows/release.yml)): pushing a `v*` tag that matches `package.json`'s version runs all of the above, then builds the `.vsix` and publishes a GitHub release with it attached.
 
@@ -28,7 +29,6 @@ Planned:
 
 - publishing to the VS Code Marketplace and Open VSX from the release workflow (needs a token for each, stored as repository secrets)
 - a weekly replay of the redacted transcript fixture against the heuristics engine
-- requiring the integration jobs in `main`'s ruleset; today only the unit-test jobs are required, so a failing integration run doesn't block a merge
 
 ## Session-level meta-characters
 
