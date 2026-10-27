@@ -24,6 +24,7 @@ Each observed action becomes one normalized event (see [docs/schema.md](docs/sch
 | Claude Code transcript, with text capture on (the default) | `sessionName` | Claude Code's generated session title (`ai-title` lines), secrets redacted |
 | Copilot CLI session logs, with text capture on (the default) | `sessionName` | The session's name from the `workspace.yaml` beside its log: a generated title, or one you set |
 | Claude Code transcript, with text capture on (the default) | `textExcerpt` | The reply's `text` blocks, truncated to 500 characters, secrets redacted. Never thinking blocks or tool inputs. |
+| Copilot CLI session logs, with text capture on (the default) | `textExcerpt` | The reply's text (`assistant.message` content), truncated to 500 characters, secrets redacted. Never reasoning text, tool arguments, or tool results. |
 | Copilot OTel, with text capture on **and** Copilot's `github.copilot.chat.otel.captureContent` | `textExcerpt` | The assistant `text` parts of `gen_ai.output.messages`, truncated to 500 characters, secrets redacted. Never reasoning parts, prompts, tool arguments, or tool results. |
 
 Never captured: file contents, edit diffs, tool output, search patterns, and context injected into prompts (open files, selections).

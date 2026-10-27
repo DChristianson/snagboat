@@ -211,7 +211,7 @@ So Copilot uses two sources:
 1. **Agent mode:** the Copilot CLI session logs, tailed like Claude Code transcripts and filtered to sessions whose `cwd` is inside the window's workspace. They provide the same `user_prompt`, model-call (with `contextLimit`), and `tool_call` events, with `turnId` from `interactionId`.
 2. **Editor features:** OTel `chat` spans as model calls with `channel: 'inline'`, counted as tokens but not as turns. Metrics are no longer mapped, since the spans carry the same counts.
 
-Open: reply excerpts for Copilot (for `verbal-hedge`) aren't mapped yet; `assistant.message` carries the reply and can be joined to its usage record by `apiCallId`.
+Reply excerpts for Copilot agent sessions (for `verbal-hedge`) come from each `assistant.message`'s `content`. Its usage record, with the same `apiCallId`, comes just before it in the log, so the excerpt rides on the reply's own tokenless `turn_stop` (the turn end, when the reply requests no tools) rather than being joined onto the usage record.
 
 ## Phases
 
