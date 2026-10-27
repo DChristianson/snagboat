@@ -15,7 +15,14 @@ export function eventDay(event: NormalizedEvent): string {
   return new Date(Number.isNaN(ms) ? Date.now() : ms).toISOString().slice(0, 10);
 }
 
-export class EventLog {
+/** What rehydrating from the raw log needs: an EventLog, or a snapshot of one read once. */
+export interface EventLogReader {
+  listDays(): Promise<string[]>;
+  readDay(day: string): Promise<NormalizedEvent[]>;
+  readAll(): Promise<NormalizedEvent[]>;
+}
+
+export class EventLog implements EventLogReader {
   private readonly eventsDir: string;
   private writeQueue: Promise<void> = Promise.resolve();
   // Days with a raw file on disk or queued to be written, kept in sync with
@@ -148,9 +155,38 @@ export class EventLog {
     return this.writeQueue;
   }
 
+  /**
+   * Every raw day read once into memory, for rehydrating several consumers
+   * (totals, history, sessions, the event store) without re-parsing the log
+   * for each. Waits for queued writes first; later appends aren't included.
+   */
+  async snapshot(): Promise<EventLogSnapshot> {
+    await this.flush();
+    const days = new Map<string, NormalizedEvent[]>();
+    for (const day of await this.listDays()) days.set(day, await this.readDay(day));
+    return new EventLogSnapshot(days);
+  }
+
   private enqueue(op: () => Promise<void>, failureMessage: string): void {
     this.writeQueue = this.writeQueue.then(op).catch((err) => {
       console.error(`snagboat: ${failureMessage}`, err);
     });
+  }
+}
+
+/** The raw log as read at one moment (EventLog.snapshot). Readers share its event objects, so they must not modify them. */
+export class EventLogSnapshot implements EventLogReader {
+  constructor(private readonly days: Map<string, NormalizedEvent[]>) {}
+
+  async listDays(): Promise<string[]> {
+    return [...this.days.keys()];
+  }
+
+  async readDay(day: string): Promise<NormalizedEvent[]> {
+    return this.days.get(day) ?? [];
+  }
+
+  async readAll(): Promise<NormalizedEvent[]> {
+    return [...this.days.values()].flat();
   }
 }

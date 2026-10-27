@@ -1,5 +1,5 @@
 import { Aggregate } from './aggregate';
-import { EventLog } from './eventLog';
+import type { EventLogReader } from './eventLog';
 import type { AggregateStore, DailyAggregate } from './retention';
 import { NormalizedEvent } from './types';
 
@@ -35,7 +35,7 @@ export class DailyHistory {
   }
 
   /** Same precedence as Aggregate.rehydrateFrom: a raw file wins over an aggregate for the same day. */
-  async rehydrateFrom(eventLog: EventLog, aggregates: AggregateStore): Promise<void> {
+  async rehydrateFrom(eventLog: EventLogReader, aggregates: AggregateStore): Promise<void> {
     const rawDays = new Set(await eventLog.listDays());
     for (const day of await aggregates.listDays()) {
       if (rawDays.has(day)) continue;

@@ -99,6 +99,27 @@ async function main() {
     assert.deepStrictEqual(rehydrated.snapshot(), live.snapshot());
   });
 
+  test('EventLog.snapshot reads the same days and events as the log, including queued appends', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-snapshot-'));
+    const log = new EventLog(dir);
+    await log.init();
+    log.append(makeEvent({ eventId: 'a', ts: '2026-01-09T12:00:00.000Z' }));
+    log.append(makeEvent({ eventId: 'b', ts: '2026-01-10T12:00:00.000Z' }));
+    log.append(makeEvent({ eventId: 'b', ts: '2026-01-10T12:00:00.000Z' }));
+    const snapshot = await log.snapshot();
+
+    assert.deepStrictEqual(await snapshot.listDays(), await log.listDays());
+    assert.deepStrictEqual(await snapshot.readAll(), await log.readAll());
+    assert.deepStrictEqual((await snapshot.readDay('2026-01-10')).map((e) => e.eventId), ['b'], 'a repeated id counts once');
+    assert.deepStrictEqual(await snapshot.readDay('2026-01-11'), []);
+
+    const rehydrated = new Aggregate();
+    await rehydrated.rehydrateFrom(snapshot);
+    const fromLog = new Aggregate();
+    await fromLog.rehydrateFrom(log);
+    assert.deepStrictEqual(rehydrated.snapshot(), fromLog.snapshot());
+  });
+
   test('TodayAggregate counts only events on the current local day and rolls over at local midnight', () => {
     // Local-time constructors keep this independent of the machine's timezone.
     const morning = new Date(2026, 0, 10, 9, 0, 0);
