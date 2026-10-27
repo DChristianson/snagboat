@@ -14,7 +14,7 @@ I built it for myself. I spend long stretches in agent sessions and wanted to se
 
 ## Status
 
-Working, but early (version `0.0.1`). Install it from a [GitHub release](https://github.com/DChristianson/snagboat/releases); it's not yet on the Marketplace or Open VSX. macOS and Linux only: Claude Code hooks go through a POSIX shell script. See [what's not built yet](#not-built-yet).
+Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md)). Install it from a [GitHub release](https://github.com/DChristianson/snagboat/releases); it's not yet on the Marketplace or Open VSX. macOS and Linux only: Claude Code hooks go through a POSIX shell script. See [what's not built yet](#not-built-yet).
 
 ## What it watches
 
@@ -33,7 +33,7 @@ Requires VS Code 1.119 or later.
 Download `snagboat-<version>.vsix` from the [latest release](https://github.com/DChristianson/snagboat/releases/latest), then:
 
 ```bash
-code --install-extension snagboat-0.0.1.vsix
+code --install-extension snagboat-0.0.2.vsix
 ```
 
 Or build it yourself (needs Node.js 22 or later):
@@ -42,15 +42,15 @@ Or build it yourself (needs Node.js 22 or later):
 git clone https://github.com/DChristianson/snagboat.git
 cd snagboat
 npm install
-npm run package                                     # builds and writes snagboat-0.0.1.vsix
-code --install-extension snagboat-0.0.1.vsix --force
+npm run package                                     # builds and writes snagboat-0.0.2.vsix
+code --install-extension snagboat-0.0.2.vsix --force
 ```
 
 Then reload each open VS Code window (**Developer: Reload Window**). Snagboat activates on startup.
 
 ### Claude Code setup
 
-Nothing to configure. Snagboat finds the project's transcripts on its own and, on activation, adds two hook entries to the project's `.claude/settings.json` that run `~/.snagboat/bin/snagboat-hook`. The hook entries never block or fail Claude Code, even if Snagboat isn't running. If `.claude/settings.json` is committed in your repo, the change will show up in `git status`; the entry is the same for every user and machine. To remove it, delete the hook entries whose command ends in `# snagboat-hook-receiver`.
+Nothing to configure. Snagboat finds the project's transcripts on its own and, on activation, adds two hook entries to the project's `.claude/settings.json` that run `~/.snagboat/bin/snagboat-hook`. The hook entries never block or fail Claude Code, even if Snagboat isn't running. If `.claude/settings.json` is committed in your repo, the change will show up in `git status`; the entry is the same for every user and machine. To remove them, run **Snagboat: Remove Claude Code Hooks from Project...**, which also turns off `snagboat.claudeCode.configureHooks` for the folder so they aren't added back (or delete the entries whose command ends in `# snagboat-hook-receiver`, and turn that setting off yourself).
 
 ### Copilot setup
 
@@ -82,6 +82,7 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
   - **Snagboat: Show Token/Event Breakdown** prints the breakdown to an output channel.
   - **Snagboat: Backfill Sessions from Transcripts...** re-reads the transcripts behind days logged by older versions and rewrites those days, so their sessions get turns, turn ends, and tool calls, and their past findings are complete. It shows what will change and asks first.
   - **Snagboat: Remove Captured Text** deletes stored prompts and reply excerpts, keeping the events, and can turn capture off.
+  - **Snagboat: Remove Claude Code Hooks from Project...** removes Snagboat's entries from a folder's `.claude/settings.json`, leaving your own hooks alone, and stops adding them there.
   - **Snagboat: Clear Event Log** deletes this workspace's logged events after confirming.
 
 ### Findings
@@ -108,6 +109,7 @@ With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself s
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `snagboat.captureContent` | `true` | Store your prompts (up to 2,000 characters), agent reply excerpts (up to 500), and session names, with common secrets redacted. Never tool output or file contents. Prompts and replies are kept for `textDays`. Copilot editor features' replies also need `github.copilot.chat.otel.captureContent`. |
+| `snagboat.claudeCode.configureHooks` | `true` | Add Snagboat's hooks to each workspace folder's `.claude/settings.json` (per folder). Off leaves the file alone; token usage still comes from transcripts, but tool calls and turn ends from hooks stop. |
 | `snagboat.retention.rawDays` | `90` | Days of raw events to keep, counting today. Older days are rolled up into daily totals. |
 | `snagboat.retention.textDays` | `30` | Days captured prompts and reply excerpts are kept, counting today. Older events keep everything else, without the text. |
 | `snagboat.retention.aggregateDays` | `-1` | Days of daily totals to keep; `-1` keeps them forever, `0` keeps none. |

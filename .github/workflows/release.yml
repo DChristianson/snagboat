@@ -43,7 +43,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          # This version's CHANGELOG.md section, then install steps; GitHub appends the PR list.
+          awk -v v="## ${VERSION}" '$0 == v { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "CHANGELOG.md has no section for ${VERSION}" >&2
+            exit 1
+          fi
+          printf '\nInstall: download `snagboat-%s.vsix` below, then run `code --install-extension snagboat-%s.vsix` and reload your VS Code windows. Requires VS Code 1.119 or later; macOS and Linux only.\n' "$VERSION" "$VERSION" >> notes.md
           gh release create "$GITHUB_REF_NAME" "snagboat-${VERSION}.vsix" \
             --title "Snagboat ${VERSION}" \
             --generate-notes \
-            --notes "Install: download \`snagboat-${VERSION}.vsix\` below, then run \`code --install-extension snagboat-${VERSION}.vsix\` and reload your VS Code windows. Requires VS Code 1.119 or later; macOS and Linux only."
+            --notes-file notes.md
