@@ -23,6 +23,7 @@ import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
 import { DetailPanel } from './ui/detailPanel';
 import { EditTrackerAdapter } from './adapters/edit-tracker';
 import { ClaudeCodeAdapter } from './adapters/claude-code';
+import { removeHooksConfigured } from './adapters/claude-code/hooksConfig';
 import { CopilotAdapter } from './adapters/copilot';
 import { FindingsRegistry } from './heuristics/findingsRegistry';
 import { HeuristicsEngine } from './heuristics/engine';
@@ -321,6 +322,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         output: outputChannel,
       })
     ),
+    vscode.commands.registerCommand('snagboat.removeClaudeHooks', async () => {
+      const folders = vscode.workspace.workspaceFolders ?? [];
+      if (folders.length === 0) {
+        vscode.window.showInformationMessage('Snagboat: no workspace folder is open.');
+        return;
+      }
+      let picked = [...folders];
+      if (folders.length > 1) {
+        const items = await vscode.window.showQuickPick(
+          folders.map((folder) => ({ label: folder.name, description: folder.uri.fsPath, folder })),
+          { canPickMany: true, placeHolder: "Folders to remove Snagboat's Claude Code hooks from" }
+        );
+        if (!items || items.length === 0) return;
+        picked = items.map((i) => i.folder);
+      }
+      const choice = await vscode.window.showWarningMessage(
+        `Remove Snagboat's Claude Code hooks from ${picked.map((f) => f.name).join(', ')}?`,
+        {
+          modal: true,
+          detail:
+            "Removes Snagboat's entries from .claude/settings.json, leaving other hooks and settings alone, and turns off snagboat.claudeCode.configureHooks for the folder so they aren't added back. Token usage still comes from transcripts; hook events (tool calls and turn ends) stop.",
+        },
+        'Remove'
+      );
+      if (choice !== 'Remove') return;
+      const removed: string[] = [];
+      const failed: string[] = [];
+      for (const folder of picked) {
+        try {
+          // Off first, so the adapter doesn't add the hooks back meanwhile.
+          await vscode.workspace.getConfiguration('snagboat', folder.uri).update('claudeCode.configureHooks', false, vscode.ConfigurationTarget.WorkspaceFolder);
+          if (await removeHooksConfigured(folder.uri.fsPath)) removed.push(folder.name);
+        } catch (err) {
+          failed.push(`${folder.name}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      if (failed.length > 0) vscode.window.showErrorMessage(`Snagboat: couldn't remove hooks from ${failed.join('; ')}`);
+      if (failed.length < picked.length) {
+        vscode.window.showInformationMessage(
+          removed.length > 0 ? `Snagboat: removed its Claude Code hooks from ${removed.join(', ')}.` : 'Snagboat: no Snagboat hooks were found; they won\'t be added to these folders.'
+        );
+      }
+    }),
     vscode.commands.registerCommand('snagboat.removeCapturedText', async () => {
       const turnOff = 'Remove and Turn Off Capture';
       const choice = await vscode.window.showWarningMessage(

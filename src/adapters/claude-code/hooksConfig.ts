@@ -46,16 +46,8 @@ export async function ensureHooksConfigured(projectDir: string, command: string)
   const settingsPath = path.join(settingsDir, 'settings.json');
   await fs.promises.mkdir(settingsDir, { recursive: true });
 
-  let settings: ClaudeSettings = {};
-  try {
-    const contents = await fs.promises.readFile(settingsPath, 'utf8');
-    settings = JSON.parse(contents) as ClaudeSettings;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.warn(`snagboat: could not parse ${settingsPath}, leaving it untouched`, err);
-      return;
-    }
-  }
+  const settings = await readSettings(settingsPath);
+  if (!settings) return;
 
   settings.hooks ??= {};
   let changed = false;
@@ -93,5 +85,47 @@ export async function ensureHooksConfigured(projectDir: string, command: string)
 
   if (changed) {
     await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
+  }
+}
+
+/**
+ * Removes every Snagboat hook entry (found by its marker) from the project's
+ * .claude/settings.json, then any matcher group, event list, or hooks object
+ * that leaves empty. Other hooks and settings are untouched, and a file with
+ * nothing of Snagboat's isn't rewritten. Returns whether anything was removed.
+ * Throws if the file exists but isn't valid JSON, so the caller can say so.
+ */
+export async function removeHooksConfigured(projectDir: string): Promise<boolean> {
+  const settingsPath = path.join(projectDir, '.claude', 'settings.json');
+  const settings = await readSettings(settingsPath, { throwOnInvalid: true });
+  if (!settings?.hooks) return false;
+  let removed = false;
+  for (const [eventName, matchers] of Object.entries(settings.hooks)) {
+    if (!Array.isArray(matchers)) continue;
+    const kept = matchers
+      .map((m) => {
+        const hooks = (m.hooks ?? []).filter((h) => !h.command?.includes(HOOK_COMMAND_MARKER));
+        if (hooks.length !== (m.hooks ?? []).length) removed = true;
+        return { ...m, hooks };
+      })
+      .filter((m, i) => m.hooks.length > 0 || (matchers[i].hooks ?? []).length === 0);
+    if (kept.length > 0) settings.hooks[eventName] = kept;
+    else delete settings.hooks[eventName];
+  }
+  if (!removed) return false;
+  if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
+  await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
+  return true;
+}
+
+/** The parsed settings file; {} when it doesn't exist; undefined (with a warning) when it can't be read or parsed, unless throwOnInvalid. */
+async function readSettings(settingsPath: string, opts: { throwOnInvalid?: boolean } = {}): Promise<ClaudeSettings | undefined> {
+  try {
+    return JSON.parse(await fs.promises.readFile(settingsPath, 'utf8')) as ClaudeSettings;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    if (opts.throwOnInvalid) throw new Error(`could not read ${settingsPath}: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`snagboat: could not parse ${settingsPath}, leaving it untouched`, err);
+    return undefined;
   }
 }

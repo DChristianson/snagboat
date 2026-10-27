@@ -2,7 +2,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AgentAdapter, AdapterContext } from '../../core/types';
-import { withRealPaths } from '../../core/paths';
+import { keepCheckpointEntry, withRealPaths } from '../../core/paths';
 import { resolveWorkspaceFolders } from '../claude-code/workspace';
 import { CopilotCliTailer, readCliCheckpoint } from './cliTailer';
 import { OtelReceiver } from './otelReceiver';
@@ -44,7 +44,9 @@ export class CopilotAdapter implements AgentAdapter {
     this.otelReceiver.start();
 
     // Agent mode: the Copilot CLI's session logs (it exports no telemetry).
-    const { offsets, lastTurns } = readCliCheckpoint((await this.ctx.readCheckpoint())?.state);
+    const sessionsDir = resolveSessionsDir();
+    // Entries for sessions Copilot has since deleted are dropped.
+    const { offsets, lastTurns } = readCliCheckpoint((await this.ctx.readCheckpoint())?.state, keepCheckpointEntry(sessionsDir));
     const folders = withRealPaths(resolveWorkspaceFolders());
     if (folders.length > 0) {
       const ctx = this.ctx;
@@ -52,7 +54,7 @@ export class CopilotAdapter implements AgentAdapter {
       const discoveryIntervalMs = process.env.SNAGBOAT_COPILOT_DISCOVERY_MS ? Number(process.env.SNAGBOAT_COPILOT_DISCOVERY_MS) : undefined;
       this.cliTailer = new CopilotCliTailer(
         ctx,
-        resolveSessionsDir(),
+        sessionsDir,
         folders,
         offsets,
         lastTurns,

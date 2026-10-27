@@ -59,6 +59,10 @@
         "title": "Snagboat: Remove Captured Text"
       },
       {
+        "command": "snagboat.removeClaudeHooks",
+        "title": "Snagboat: Remove Claude Code Hooks from Project..."
+      },
+      {
         "command": "snagboat.clearLog",
         "title": "Snagboat: Clear Event Log"
       },
@@ -82,6 +86,12 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Store text from your agent sessions: your prompts (up to 2,000 characters each), agent reply excerpts (up to 500 characters), and session names. Common secret formats (API keys, tokens, private keys, passwords in `key=value` form) are redacted before anything is stored. Prompts and replies are kept for `#snagboat.retention.textDays#` days; session names for as long as the session's events (`#snagboat.retention.rawDays#`). Nothing is sent off-machine. **Snagboat: Remove Captured Text** deletes what's already stored. For Copilot editor features' reply text, also requires `github.copilot.chat.otel.captureContent`."
+        },
+        "snagboat.claudeCode.configureHooks": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "Add Snagboat's `PostToolUse` and `Stop` hooks to each workspace folder's `.claude/settings.json`, for tool calls and turn ends. Turn off for a folder to leave its settings alone; **Snagboat: Remove Claude Code Hooks from Project...** removes existing entries and turns this off. Token usage still comes from transcripts either way."
         },
         "snagboat.retention.rawDays": {
           "type": "number",
