@@ -12,7 +12,7 @@ No runtime dependencies: the extension uses only Node.js and VS Code built-ins, 
 | Packaging | `@vscode/vsce` | MIT |
 | Types | `@types/vscode` (pinned to the minimum VS Code), `@types/node` (pinned to its Node major) | MIT |
 
-The minimum supported VS Code is 1.119 (Node 22.22), which Copilot's telemetry export needs anyway. [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md) is generated from what's actually bundled, and CI fails if anything bundled appears without being listed. Likely future additions: `ovsx` for publishing to Open VSX (publish-time only), and possibly a SQLite library if log export needs one.
+The minimum supported VS Code is 1.119 (Node 22.22), which Copilot's telemetry export needs anyway. [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md) is generated from what's actually bundled, and CI fails if anything bundled appears without being listed. One override in `package.json`: `@azure/msal-node` is forced to `^7.1.1` (fixing GHSA-xcx6-jx8p-x3h5) because `@vscode/vsce`'s `@azure/identity` still asks for `^6`; drop it once `@azure/identity` allows 7. Likely future additions: `ovsx` for publishing to Open VSX (publish-time only), and possibly a SQLite library if log export needs one.
 
 ## CI/CD
 
