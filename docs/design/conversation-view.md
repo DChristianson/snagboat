@@ -269,4 +269,4 @@ None outstanding from review.
 
 ## Later
 
-- **Split "Shell command" further** (package installs, network, file system, …) once real data shows which commands are common. The category list is otherwise agreed.
+- **Split "Shell command" further:** moved to the trusted advisor, which discovers sub-categories from your own history (see [trusted-advisor.md](trusted-advisor.md#discovered-tool-categories)). The category list is otherwise agreed.
