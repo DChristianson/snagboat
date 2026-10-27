@@ -18,6 +18,12 @@ export function resolveWorkspaceFolders(): string[] {
   return (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
 }
 
+/** Calls back when workspace folders are added or removed. Never under the test override, whose folder is fixed. */
+export function onWorkspaceFoldersChanged(listener: () => void): vscode.Disposable {
+  if (process.env.SNAGBOAT_CLAUDE_PROJECT_DIR) return new vscode.Disposable(() => undefined);
+  return vscode.workspace.onDidChangeWorkspaceFolders(() => listener());
+}
+
 export function sanitizeCwd(cwd: string): string {
   return cwd.replace(/[\\/]/g, '-');
 }

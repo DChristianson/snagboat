@@ -1,5 +1,5 @@
 import { AgentId, NormalizedEvent, NormalizedEventKind } from './types';
-import { EventLog } from './eventLog';
+import type { EventLogReader } from './eventLog';
 import type { AggregateStore, DailyAggregate } from './retention';
 
 export interface AgentAggregate {
@@ -81,7 +81,7 @@ export class Aggregate {
    * disk. A day present in both (a crash between writing its aggregate and
    * deleting its raw file) is counted from the raw file only.
    */
-  async rehydrateFrom(eventLog: EventLog, aggregates?: AggregateStore): Promise<void> {
+  async rehydrateFrom(eventLog: EventLogReader, aggregates?: AggregateStore): Promise<void> {
     const rawDays = new Set(await eventLog.listDays());
     if (aggregates) {
       for (const day of await aggregates.listDays()) {
@@ -143,7 +143,7 @@ export class TodayAggregate {
    * are keyed by UTC date, so local "today" spans at most the UTC days either
    * side of it.
    */
-  async rehydrateFrom(eventLog: EventLog, now: Date = new Date()): Promise<void> {
+  async rehydrateFrom(eventLog: EventLogReader, now: Date = new Date()): Promise<void> {
     this.rollTo(now);
     const DAY_MS = 24 * 60 * 60 * 1000;
     const utcDays = new Set([-1, 0, 1].map((offset) => new Date(now.getTime() + offset * DAY_MS).toISOString().slice(0, 10)));

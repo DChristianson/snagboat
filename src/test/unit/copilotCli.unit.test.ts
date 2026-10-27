@@ -72,6 +72,24 @@ async function main() {
     assert.deepStrictEqual(ends.map((e) => [e.kind, e.turnId, e.eventId, e.tokens]), [['turn_stop', 'I1', 'm2:end', undefined]]);
   });
 
+  test('reply text becomes an excerpt only when content capture is on, secrets redacted', () => {
+    const lines = [
+      ...session('/w/proj').slice(0, 4),
+      ev('assistant.message', 'm1', 'e3', 3, { interactionId: 'I1', apiCallId: 'c1', content: 'I think the tests need a fix.', toolRequests: [{ toolCallId: 't1', name: 'bash' }] }),
+      ev('assistant.message', 'm2', 'e3', 4, { interactionId: 'I1', apiCallId: 'c2', content: '', toolRequests: [{ toolCallId: 't2', name: 'bash' }] }),
+      ev('assistant.message', 'm3', 'e5', 6, { interactionId: 'I1', apiCallId: 'c3', content: 'Done. Token ghp_' + 'a'.repeat(36), toolRequests: [] }),
+    ];
+    const replies = (capture: boolean) =>
+      normalizeCopilotCliChunk(lines, 'f', 0, new CopilotCliState(), { captureContent: capture })
+        .filter((e) => e.eventId.startsWith('m'))
+        .map((e) => [e.eventId, e.tokens, e.endsTurn, e.textExcerpt]);
+    assert.deepStrictEqual(replies(true), [
+      ['m1:reply', undefined, undefined, 'I think the tests need a fix.'],
+      ['m3:end', undefined, true, 'Done. Token [redacted GitHub token]'],
+    ]);
+    assert.deepStrictEqual(replies(false), [['m3:end', undefined, true, undefined]]);
+  });
+
   test('usage records split cached tokens out of inputTokens and carry the reported limit', () => {
     const call = normalizeCopilotCliChunk(session('/w/proj'), 'f', 0, new CopilotCliState())[1];
     assert.deepStrictEqual(call.tokens, { input: 4, output: 114, cacheRead: 15169, cacheCreation: 13399 });

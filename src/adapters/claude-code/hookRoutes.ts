@@ -81,6 +81,20 @@ export function removeRoutes(home: string, folders: string[], pid: number): void
   }
 }
 
+/**
+ * Moves this window's routes from one set of workspace folders to another (a
+ * folder added or removed while the window is open). Routes for folders no
+ * longer open are removed if still this window's; folders kept are left
+ * alone, so a route another window has since claimed isn't taken back.
+ * Returns the folders newly routed.
+ */
+export function updateRoutes(home: string, before: string[], after: string[], route: Route): string[] {
+  removeRoutes(home, before.filter((f) => !after.includes(f)), route.pid);
+  const added = after.filter((f) => !before.includes(f));
+  writeRoutes(home, added, route);
+  return added;
+}
+
 /** Deletes route files left behind by windows that exited without deactivating (a crash, a force quit). */
 export function pruneStaleRoutes(home: string): void {
   let files: string[];

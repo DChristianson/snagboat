@@ -85,25 +85,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     console.error('snagboat: retention failed on activation', err);
   }
 
+  // The raw log is read once and shared by everything rehydrated from it.
+  const logged = await eventLog.snapshot();
   const aggregate = new Aggregate();
-  await aggregate.rehydrateFrom(eventLog, aggregateStore);
+  await aggregate.rehydrateFrom(logged, aggregateStore);
   const todayAggregate = new TodayAggregate();
-  await todayAggregate.rehydrateFrom(eventLog);
+  await todayAggregate.rehydrateFrom(logged);
   const dailyHistory = new DailyHistory();
-  await dailyHistory.rehydrateFrom(eventLog, aggregateStore);
-  // Sessions in the retained raw log. (Another full read at startup; folding
-  // the startup reads into one pass is a known follow-up.)
+  await dailyHistory.rehydrateFrom(logged, aggregateStore);
+  // Sessions in the retained raw log.
   const sessionIndex = new SessionIndex();
   // Ids already logged, so an event delivered again (a source re-read after a
   // lost checkpoint) isn't logged or counted twice.
   const loggedIds = new Set<string>();
-  for (const event of await eventLog.readAll()) {
+  for (const event of await logged.readAll()) {
     sessionIndex.ingest(event);
     loggedIds.add(event.eventId);
   }
 
   const eventStore = new EventStore({ windowMs: EVENT_STORE_WINDOW_MS, maxEvents: EVENT_STORE_MAX_EVENTS });
-  await eventStore.rehydrateFrom(eventLog);
+  await eventStore.rehydrateFrom(logged);
 
   // Shared by every workspace, so it lives in global storage, not this workspace's.
   const contextLimits = new ContextLimits(context.globalStorageUri.fsPath);
@@ -194,15 +195,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       sessionIndex.reset();
       eventStore.reset();
       loggedIds.clear();
-      await aggregate.rehydrateFrom(eventLog, aggregateStore);
-      await todayAggregate.rehydrateFrom(eventLog);
-      await dailyHistory.rehydrateFrom(eventLog, aggregateStore);
-      for (const event of await eventLog.readAll()) {
+      const logged = await eventLog.snapshot();
+      await aggregate.rehydrateFrom(logged, aggregateStore);
+      await todayAggregate.rehydrateFrom(logged);
+      await dailyHistory.rehydrateFrom(logged, aggregateStore);
+      for (const event of await logged.readAll()) {
         sessionIndex.ingest(event);
         loggedIds.add(event.eventId);
         contextLimits.observe(event);
       }
-      await eventStore.rehydrateFrom(eventLog);
+      await eventStore.rehydrateFrom(logged);
       if (openSession) await sessions.open(openSession);
     } finally {
       const held = heldEvents;

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { NormalizedEvent } from '../../core/types';
 import { classifyTool } from '../../core/toolCategory';
-import { makePromptText, redactSecrets } from '../../core/excerpt';
+import { makeExcerpt, makePromptText, redactSecrets } from '../../core/excerpt';
 import { sessionNameId } from '../../core/sessions';
 
 /**
@@ -14,8 +14,11 @@ import { sessionNameId } from '../../core/sessions';
  * docs/design/conversation-view.md.
  *
  * Mapping:
- *   user.message              -> user_prompt (a marker; its text is never stored)
+ *   user.message              -> user_prompt (with promptText when content capture is on)
  *   session.usage_record      -> turn_stop (one model call, with its usage and maxPromptTokens)
+ *   assistant.message         -> turn_stop without tokens: endsTurn when it requests no tools,
+ *                                and the reply's textExcerpt when content capture is on. Its
+ *                                usage_record (same apiCallId) comes just before it.
  *   tool.execution_complete   -> tool_call (name and arguments from its tool.execution_start)
  * Turns: a user.message's interactionId starts a turn; other events carry
  * interactionId themselves or inherit their parent's turn via parentId.
@@ -124,9 +127,21 @@ export function normalizeCopilotCliChunk(
         tokens: { input, output: num(u.outputTokens) ?? 0, cacheRead, cacheCreation: cacheWrite },
         contextLimit: num(u.maxPromptTokens),
       });
-    } else if (e.type === 'assistant.message' && Array.isArray(data.toolRequests) && data.toolRequests.length === 0 && !str(data.parentToolCallId)) {
+    } else if (e.type === 'assistant.message') {
       // A reply that requests no tools finishes the turn.
-      events.push({ ...base, eventId: `${e.id ?? `${filePath}:${chunkStartOffset}`}:end`, kind: 'turn_stop', status: 'unknown', endsTurn: true });
+      const ends = Array.isArray(data.toolRequests) && data.toolRequests.length === 0 && !str(data.parentToolCallId);
+      const textExcerpt = opts.captureContent ? makeExcerpt([str(data.content)]) : undefined;
+      if (ends || textExcerpt) {
+        events.push({
+          ...base,
+          eventId: `${e.id ?? `${filePath}:${chunkStartOffset}`}:${ends ? 'end' : 'reply'}`,
+          kind: 'turn_stop',
+          status: 'unknown',
+          model: str(data.model),
+          ...(ends ? { endsTurn: true } : {}),
+          ...(textExcerpt ? { textExcerpt } : {}),
+        });
+      }
     } else if (e.type === 'tool.execution_start' && str(data.toolCallId)) {
       state.recordToolStart(data.toolCallId, str(data.toolName), data.arguments && typeof data.arguments === 'object' ? data.arguments : undefined);
     } else if (e.type === 'tool.execution_complete') {

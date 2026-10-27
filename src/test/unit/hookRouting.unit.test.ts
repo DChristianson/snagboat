@@ -11,6 +11,7 @@ import {
   pruneStaleRoutes,
   removeRoutes,
   routeKey,
+  updateRoutes,
   writeRoutes,
 } from '../../adapters/claude-code/hookRoutes';
 import { AdapterContext, NormalizedEvent } from '../../core/types';
@@ -196,6 +197,31 @@ async function main() {
       await runHook(home, script, unicode, payload(unicode));
       await settle();
       assert.strictEqual(w.published.length, 1);
+    } finally {
+      w.receiver.stop();
+    }
+  });
+
+  test('folders added or removed after a window starts are routed without restarting it', async () => {
+    const { home, script, projectA, projectB } = await setup();
+    const w = await startWindow(home, [projectA]);
+    const route = { port: w.port, token: w.token, pid: process.pid };
+    try {
+      assert.deepStrictEqual(updateRoutes(home, [projectA], [projectA, projectB], route), [projectB]);
+      w.receiver.setWorkspaceFolders([projectA, projectB]);
+      await runHook(home, script, projectB, payload(projectB));
+      await settle();
+      assert.strictEqual(w.published.length, 1, 'the added folder reaches the window');
+
+      // Another window claims A; removing A from this window must leave that route alone.
+      writeRoutes(home, [projectA], { port: 1, token: 't', pid: process.ppid });
+      assert.deepStrictEqual(updateRoutes(home, [projectA, projectB], [projectB], route), []);
+      w.receiver.setWorkspaceFolders([projectB]);
+      assert.ok(fs.existsSync(path.join(home, 'routes', routeKey(projectA))), "another window's route is kept");
+      assert.ok(fs.existsSync(path.join(home, 'routes', routeKey(projectB))));
+
+      updateRoutes(home, [projectB], [], route);
+      assert.ok(!fs.existsSync(path.join(home, 'routes', routeKey(projectB))), 'a removed folder loses its route');
     } finally {
       w.receiver.stop();
     }

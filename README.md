@@ -22,7 +22,7 @@ Working, but early (version `0.0.1`). Install it from a [GitHub release](https:/
 | --- | --- | --- |
 | Claude Code | Tails the session transcripts in `~/.claude/projects/<project>/` | Token usage per API message (input, output, cache read/creation), model, reply excerpts, your prompts' text, and the session's title |
 | Claude Code | `PostToolUse` and `Stop` hooks, added to the project's `.claude/settings.json` automatically | Tool calls with their target (file path or shell command) and success or failure; turn boundaries |
-| GitHub Copilot (Agent mode) | Reads the Copilot CLI's session logs in `~/.copilot/session-state/`, which VS Code's agent host writes for every Agent-mode session | Prompts and their text, the session's name, every model call with token usage, model, and the model's context limit, and tool calls with their commands and outcomes |
+| GitHub Copilot (Agent mode) | Reads the Copilot CLI's session logs in `~/.copilot/session-state/`, which VS Code's agent host writes for every Agent-mode session | Prompts and their text, reply excerpts, the session's name, every model call with token usage, model, and the model's context limit, and tool calls with their commands and outcomes |
 | GitHub Copilot (editor features) | Copilot's optional OpenTelemetry export to a local receiver | Token usage of inline and next-edit suggestions and other editor-side model calls, kept separate from agent turns |
 | VS Code | File saves | Edits per file, for agent-independent signals |
 
@@ -196,7 +196,6 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 
 - **Copilot editor telemetry is collected by one window.** Copilot in every window exports to the same port, so the first window to claim it records all inline-suggestion usage and the others show a "failed to listen on port" health warning. Copilot agent sessions and Claude Code don't have this problem.
 - **The Copilot receiver doesn't authenticate requests**, so another local process could submit fake Copilot events. Claude Code hooks are token-protected. See [SECURITY.md](SECURITY.md).
-- **Workspace folders added to a window after it opens** start receiving Claude Code hooks only after a reload.
 - **Windows is unsupported**: the hook script needs a POSIX shell.
 
 ## Not built yet

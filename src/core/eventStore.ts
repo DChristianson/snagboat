@@ -1,5 +1,5 @@
 import { NormalizedEvent, NormalizedEventKind, AgentId, EventTokens } from './types';
-import { EventLog } from './eventLog';
+import type { EventLogReader } from './eventLog';
 
 export interface EventQuery {
   since?: string;
@@ -89,7 +89,7 @@ export class EventStore implements ReadonlyEventStore {
     this.dayTotals.clear();
   }
 
-  async rehydrateFrom(eventLog: EventLog): Promise<void> {
+  async rehydrateFrom(eventLog: EventLogReader): Promise<void> {
     const events = await eventLog.readAll();
     for (const event of events) {
       this.ingest(event);

@@ -21,6 +21,7 @@ In place ([.github/workflows/ci.yml](../.github/workflows/ci.yml)), on pushes to
 - on Ubuntu and macOS: `npm ci`, unit tests (`npm run test:unit`, which also type-checks via `tsc`), the production bundle, the third-party license check (`npm run licenses -- --check`), and `.vsix` packaging
 - the integration suite (`npm test`) in a real VS Code: latest stable on Ubuntu (under a virtual display) and macOS, plus the minimum supported version (1.119) on Ubuntu
 - Dependabot updates for npm and GitHub Actions
+- `main`'s ruleset requires every unit and integration job to pass before a merge (the 1.119 job's name includes the version, so raising the minimum means updating the ruleset)
 
 Releases ([.github/workflows/release.yml](../.github/workflows/release.yml)): pushing a `v*` tag that matches `package.json`'s version runs all of the above, then builds the `.vsix` and publishes a GitHub release with it attached.
 
@@ -28,7 +29,6 @@ Planned:
 
 - publishing to the VS Code Marketplace and Open VSX from the release workflow (needs a token for each, stored as repository secrets)
 - a weekly replay of the redacted transcript fixture against the heuristics engine
-- requiring the integration jobs in `main`'s ruleset; today only the unit-test jobs are required, so a failing integration run doesn't block a merge
 
 ## Session-level meta-characters
 
@@ -43,17 +43,16 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
 ## Planned tasks
 
 - **Per-field retention — done for captured text.** Prompt text and reply excerpts are kept for `snagboat.retention.textDays` (default 30), then removed from their events in place, keeping one event store. Still open: whether shell-command `target`s and file paths need a shorter clock of their own; they live as long as their event (`rawDays`). See [PRIVACY.md](../PRIVACY.md#retention).
-- **Per-window hook routing with discovery files and auth tokens — done.** Hooks previously all went to fixed port 45679, so the first VS Code window to bind it logged every project's hook events and the rest got none. Each window now listens on its own port and publishes per-folder route files with an auth token; a stable sh script routes each hook by `CLAUDE_PROJECT_DIR` (see [architecture.md](architecture.md#claude-code-adapter)). Existing projects' old `curl` hook entries are rewritten in place the next time a window opens them. Not handled: workspace folders added or removed after activation get routes only on the next reload, and the script needs a POSIX shell, so Windows is unsupported (as before).
+- **Per-window hook routing with discovery files and auth tokens — done.** Hooks previously all went to fixed port 45679, so the first VS Code window to bind it logged every project's hook events and the rest got none. Each window now listens on its own port and publishes per-folder route files with an auth token; a stable sh script routes each hook by `CLAUDE_PROJECT_DIR` (see [architecture.md](architecture.md#claude-code-adapter)). Existing projects' old `curl` hook entries are rewritten in place the next time a window opens them. Workspace folders added or removed while a window is open are routed (or unrouted) right away. Not handled: the script needs a POSIX shell, so Windows is unsupported (as before).
 
   Separately, zero Claude tokens in a window had a different cause, now fixed: a window opened before its project's first Claude session never noticed the transcripts folder appearing. The tailer now checks for a missing folder every 15 minutes.
 
 - **Conversation-aware view — done (phases 1–3).** Prompts, turns, compactions, subagents, and context size per call; a context timeline and a turn tree; turn-based heuristics calibrated by replaying real transcripts. Also fixes subagent tokens not being counted. See [design/conversation-view.md](design/conversation-view.md).
 - **Backfill sessions from transcripts — done.** **Snagboat: Backfill Sessions from Transcripts...** re-reads the session logs older days' events came from and rewrites those days, so history logged by older builds gets turns, turn ends, and tool calls. See [architecture.md](architecture.md#backfill).
 - **Prompt text and session names — done.** Text capture is on by default (`snagboat.captureContent`): your prompts (up to 2,000 characters, your own words without injected IDE context), reply excerpts, and session names (Claude Code's `ai-title`, Copilot's `workspace.yaml` name), with common secret formats redacted, prompts and replies kept for `textDays`, and **Snagboat: Remove Captured Text**. Names show in the session list, breadcrumb, and Overview; prompt text when you select a turn and in tooltips. See [PRIVACY.md](../PRIVACY.md#captured-text). Open: the advisor's use of prompts, gated per provider (see the advisor design).
-- **Copilot Agent reply excerpts.** Copilot Agent sessions store no reply text yet, so `verbal-hedge` never sees Copilot replies (Copilot's editor features already get excerpts from OTel). Each `assistant.message` in `events.jsonl` carries the reply and can be joined to its usage record by `apiCallId`; the redaction and capture code from prompt capture is already in that adapter. See [design/conversation-view.md](design/conversation-view.md#copilot).
+- **Copilot Agent reply excerpts — done.** Each `assistant.message` in a Copilot agent session's `events.jsonl` now yields a reply excerpt (on the turn end, or on its own tokenless `turn_stop` for a reply that also requests tools), so `verbal-hedge` sees Copilot replies. See [design/conversation-view.md](design/conversation-view.md#copilot).
 - **Split "Shell command" into finer categories.** For example package installs, network, and file system, chosen from which commands are actually common in your history (see [design/conversation-view.md](design/conversation-view.md#tool-attribution)). The model-fit heuristic below uses these to recognize simple work.
-- **Faster startup.** Activation reads the event log several times (today's totals, daily history, retention, the captured-text check). Read each day once and share the result.
-- **Hook routing for folders added after activation.** Publish and remove route files when workspace folders change, instead of waiting for the next reload.
+- **Faster startup — done.** Activation (and the reload after a backfill or text removal) used to parse the raw log about four times over: all-time totals, daily history, the session index, and recent events, plus today's days again. It now reads each day once into a snapshot they all rehydrate from (`EventLog.snapshot`).
 - **Model-fit heuristic (planned, not started; enabled by prompt text).** Flags expensive models doing simple work, such as a top-tier model running a one-line `git push` or `npm test`. Signals, per turn:
   - **the ask:** a short prompt that reads as an instruction to run something ("commit and push", "run the tests"), from `promptText`;
   - **the work:** few model calls, little output, and tool calls that are mostly shell, version control, or tests and builds;
