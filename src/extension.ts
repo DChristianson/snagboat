@@ -27,8 +27,12 @@ import { removeHooksConfigured } from './adapters/claude-code/hooksConfig';
 import { CopilotAdapter } from './adapters/copilot';
 import { FindingsRegistry } from './heuristics/findingsRegistry';
 import { HeuristicsEngine } from './heuristics/engine';
-import { builtInHeuristics, heuristicSettings } from './heuristics/index';
-import { Finding } from './heuristics/types';
+import { builtInHeuristics, heuristicSettings, settingsRuleSource } from './heuristics/index';
+import { Finding, Heuristic } from './heuristics/types';
+import { buildRuleSet } from './heuristics/rule';
+import { ruleHeuristic } from './heuristics/ruleHeuristic';
+import { RuleStore } from './heuristics/ruleStore';
+import { setShellSubCategories } from './core/toolCategory';
 
 const POLL_INTERVAL_MS = 30_000;
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
@@ -116,8 +120,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
 
   const health = new HealthRegistry();
 
+  const outputChannel = vscode.window.createOutputChannel('Snagboat');
+  context.subscriptions.push(outputChannel);
+
+  // Saved rules and shell sub-categories, shared by every workspace, plus any written in settings.
+  const ruleStore = new RuleStore(context.globalStorageUri.fsPath);
+  let ruleStoreError: string | undefined;
+  try {
+    await ruleStore.load();
+  } catch (err) {
+    ruleStoreError = `saved rules couldn't be read and are off until the file is fixed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
   const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []));
-  const engine = new HeuristicsEngine(builtInHeuristics(), eventStore, heuristicSettings, (model) => (model ? contextLimits.get(model)?.limit : undefined));
+  const contextLimitFor = (model: string | undefined) => (model ? contextLimits.get(model)?.limit : undefined);
+  let heuristics: Heuristic[] = [];
+  let ruleProblems: string[] = [];
+  let engine = new HeuristicsEngine(heuristics, eventStore, heuristicSettings, contextLimitFor);
+  /** Rebuilds the heuristics from the built-ins and the current rules; findings of rules that are gone are cleared. */
+  const loadRules = () => {
+    const ruleSet = buildRuleSet([ruleStore.source(), settingsRuleSource()]);
+    setShellSubCategories(ruleSet.categories);
+    const next = [...builtInHeuristics(), ...ruleSet.rules.map(ruleHeuristic)];
+    for (const h of heuristics) if (!next.some((n) => n.id === h.id)) findings.report(h.id, []);
+    heuristics = next;
+    engine = new HeuristicsEngine(heuristics, eventStore, heuristicSettings, contextLimitFor);
+    ruleProblems = [...(ruleStoreError ? [ruleStoreError] : []), ...ruleSet.problems];
+    for (const problem of ruleProblems) outputChannel.appendLine(`Rules: ${problem}`);
+    health.report('rules', 'invalid', ruleProblems.length > 0 ? `${ruleProblems.length} rule or tool category problem${ruleProblems.length === 1 ? '' : 's'}; see the Snagboat output` : undefined);
+  };
+  loadRules();
   const runHeuristics = (kind?: NormalizedEventKind) => {
     const now = new Date().toISOString();
     const results = kind ? engine.tickFor(kind, now) : engine.tick(now);
@@ -129,12 +161,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  const outputChannel = vscode.window.createOutputChannel('Snagboat');
-  context.subscriptions.push(outputChannel);
-
   const sessions = new SessionController(sessionIndex, eventLog, () => contextLimits.all(), {
     active: () => findings.list(),
-    newReplay: () => new FindingReplay(builtInHeuristics(), heuristicSettings, (model) => (model ? contextLimits.get(model)?.limit : undefined)),
+    newReplay: () => new FindingReplay(heuristics, heuristicSettings, contextLimitFor),
     muted: () => findings.mutedHeuristics(),
   });
   const detailPanel = new DetailPanel(context.extensionUri, {
@@ -273,6 +302,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('snagboat.retention')) runRetention();
       if (e.affectsConfiguration('snagboat.captureContent')) detailPanel.scheduleUpdate();
+      if (e.affectsConfiguration('snagboat.rules') || e.affectsConfiguration('snagboat.toolCategories')) {
+        loadRules();
+        runHeuristics();
+        refresh();
+      }
     })
   );
 
@@ -287,6 +321,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
           const parts = [marks.largestSeen !== undefined ? `largest seen ${marks.largestSeen.toLocaleString()}` : undefined, marks.limit !== undefined ? `limit ${marks.limit.toLocaleString()} (auto-compaction)` : undefined].filter(Boolean);
           outputChannel.appendLine(`  ${model}: ${parts.join(', ')}`);
         }
+      }
+      if (ruleProblems.length > 0) {
+        outputChannel.appendLine('\nRule problems (these were ignored):');
+        for (const problem of ruleProblems) outputChannel.appendLine(`  ${problem}`);
       }
       outputChannel.show();
     }),

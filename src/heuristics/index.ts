@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { RuleSource } from './rule';
 export { builtInHeuristics } from './builtIns';
 
 // Most heuristic settings live under `snagboat.heuristics.<id>.*` with `id`
@@ -23,7 +24,19 @@ const SETTINGS_SECTION: Record<string, string> = {
  * vscode WorkspaceConfiguration API to (deliberately vscode-free) heuristics.
  */
 export function heuristicSettings(id: string): Record<string, unknown> {
+  // Rules carry their own thresholds.
+  if (id.includes(':')) return {};
   const section = SETTINGS_SECTION[id] ?? `snagboat.heuristics.${id}`;
   const config = vscode.workspace.getConfiguration(section);
   return { ...config };
+}
+
+/** Rules and shell sub-categories written by hand in settings, for trying the rule format out. */
+export function settingsRuleSource(): RuleSource {
+  const config = vscode.workspace.getConfiguration('snagboat');
+  const list = (key: string): unknown[] => {
+    const value = config.get<unknown>(key, []);
+    return Array.isArray(value) ? value : [];
+  };
+  return { origin: 'settings', rules: list('rules'), categories: list('toolCategories') };
 }

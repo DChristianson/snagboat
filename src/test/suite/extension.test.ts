@@ -265,6 +265,27 @@ suite('Snagboat core plumbing', () => {
     sessions.close();
   });
 
+  test('a rule added in settings runs like a built-in, and stops when removed', async () => {
+    const config = vscode.workspace.getConfiguration('snagboat');
+    const rule = {
+      id: 'test:model-calls',
+      title: 'Any model call',
+      scope: 'session',
+      measure: { type: 'count', filter: { kind: 'turn_stop', hasTokens: true } },
+      when: { gte: 1 },
+      severity: 'info',
+      summary: '{value} model calls',
+    };
+    try {
+      await config.update('rules', [rule], vscode.ConfigurationTarget.Global);
+      await vscode.commands.executeCommand('snagboat._emitTestEvent');
+      await waitFor(() => api.getFindings().some((f) => f.heuristicId === 'test:model-calls'));
+    } finally {
+      await config.update('rules', undefined, vscode.ConfigurationTarget.Global);
+    }
+    await waitFor(() => !api.getFindings().some((f) => f.heuristicId === 'test:model-calls'));
+  });
+
   test('the detail view opens as a webview tab and the today snapshot tracks new events', async () => {
     const beforeToday = api.getTodaySnapshot().totalTokens;
     await vscode.commands.executeCommand('snagboat._emitTestEvent');
