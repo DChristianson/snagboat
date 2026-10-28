@@ -262,3 +262,4 @@ input[type="search"] { min-width: 220px; }
 .saved-rule { border-bottom: 1px solid var(--rule); padding: 8px 0; }
 .saved-rule .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .saved-rule p { margin: 2px 0 6px; }
+.prompt-head { display: flex; align-items: baseline; gap: 4px; }

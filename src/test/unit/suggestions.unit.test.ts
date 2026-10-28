@@ -52,6 +52,7 @@ async function withController(fn: (c: SuggestionsController, calls: { rulesChang
       dismissed: () => calls.dismissed,
       setDismissed: async (ids) => void (calls.dismissed = ids),
       sessionName: (id) => (id === 's1' ? 'Session one' : undefined),
+      roots: () => [],
       source: () => 'my-project',
       days: () => 30,
       now: () => at(5000),

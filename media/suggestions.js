@@ -20,7 +20,10 @@
   // ---------- layout ----------
   const discoverBtn = el('button', { text: 'Discover again' });
   discoverBtn.addEventListener('click', () => vscode.postMessage({ type: 'discover' }));
+  const adviseBtn = el('button', { text: 'Ask the advisor', title: 'Ask the advisor model to name these candidates, propose rules, and group shell commands. You see what it will send first.' });
+  adviseBtn.addEventListener('click', () => vscode.postMessage({ type: 'askAdvisor' }));
   const status = el('p', { class: 'muted small' });
+  const advisorNote = el('div', { class: 'small' });
   const notes = el('div');
   const candidatesHost = el('div');
   const thresholdsHost = el('div');
@@ -30,8 +33,9 @@
 
   suggestionsRoot.append(
     el('section', { 'aria-label': 'Discovery' }, [
-      el('div', { class: 'panel-head' }, [el('h2', { text: 'Suggested heuristics' }), el('span', { class: 'spacer' }), discoverBtn]),
+      el('div', { class: 'panel-head' }, [el('h2', { text: 'Suggested heuristics' }), el('span', { class: 'spacer' }), adviseBtn, discoverBtn]),
       status,
+      advisorNote,
       notes,
       candidatesHost,
       dismissedNote,
@@ -69,10 +73,17 @@
   function candidateCard(c) {
     const b = c.baseline;
     const overlaps = Object.entries(c.overlaps).map(([id, n]) => `${id} ${n}`);
-    const tweaked = c.threshold !== c.proposedThreshold;
+    const tweaked = c.source === 'discovery' && c.threshold !== c.proposedThreshold;
+    const advisorLabel = view.advisor.provider ? `${view.advisor.provider}, ${view.advisor.model}` : 'the advisor';
     return el('article', { class: 'finding info suggestion' }, [
-      el('div', { class: 'head' }, [el('span', { class: 'badge info', text: 'rule' }), el('strong', { text: c.title }), el('span', { class: 'muted small', text: c.id })]),
-      el('p', { class: 'summary' }, [
+      el('div', { class: 'head' }, [
+        el('span', { class: 'badge info', text: c.source === 'advisor' ? 'advisor rule' : 'rule' }),
+        el('strong', { text: c.title }),
+        el('span', { class: 'muted small', text: c.id }),
+        c.named ? el('span', { class: 'muted small', text: c.source === 'advisor' ? `· proposed by ${advisorLabel}` : `· named by ${advisorLabel}` }) : null,
+      ]),
+      el('p', { class: 'muted small', text: `When it fires: ${c.summary}${c.suggestedAction ? ` — ${c.suggestedAction}` : ''}` }),
+      c.source === 'advisor' ? null : el('p', { class: 'summary' }, [
         'Turns with ',
         thresholdInput(c),
         ` or more ${c.describes}: ${percent(c.turnsAbove / b.turns)} of your turns (${c.turnsAbove} in ${plural(c.sessionsAbove, 'session')}).`,
@@ -80,7 +91,7 @@
           ? el('button', { class: 'link', text: ` Back to ${value(c.proposedThreshold, c.kind)}`, onclick: () => vscode.postMessage({ type: 'tweakSuggestion', id: c.id, threshold: c.proposedThreshold }) })
           : null,
       ]),
-      el('p', { class: 'muted small', text: `Your median is ${value(b.p50, c.kind)}, 90th percentile ${value(b.p90, c.kind)}, 99th ${value(b.p99, c.kind)}, most ${value(b.max, c.kind)}.` }),
+      b ? el('p', { class: 'muted small', text: `Your median is ${value(b.p50, c.kind)}, 90th percentile ${value(b.p90, c.kind)}, 99th ${value(b.p99, c.kind)}, most ${value(b.max, c.kind)}.` }) : null,
       el('p', {
         class: 'small',
         text: `Replay: ${plural(c.episodes, 'episode')} in ${plural(c.sessions, 'session')}. ${overlaps.length ? `Overlaps ${overlaps.join(', ')}.` : 'No overlap with your other heuristics.'}`,
@@ -112,6 +123,20 @@
       status.textContent = `${view.source}, ${range}: ${plural(view.sessions, 'session')}, ${plural(view.turns, 'turn')}. Discovered ${formatTime(view.ranAt)}. Rules you accept apply in every workspace.`;
     }
     notes.replaceChildren(...view.notes.map((n) => el('p', { class: 'filter-note', text: n })));
+    const a = view.advisor;
+    adviseBtn.hidden = !a.available || view.status !== 'ready' || view.notes.length > 0;
+    adviseBtn.disabled = a.status === 'asking';
+    adviseBtn.textContent = a.status === 'done' ? 'Ask the advisor again' : 'Ask the advisor';
+    const advisorParts = [];
+    if (a.status === 'asking') advisorParts.push(el('p', { class: 'muted', text: 'Asking the advisor…' }));
+    if (a.status === 'done') {
+      advisorParts.push(el('p', { class: 'muted', text: `${a.provider} (${a.model}) answered ${formatTime(a.at)}. Its names and rules are model output: each was checked like a rule you'd write and scored by replay, and nothing is saved until you accept.` }));
+    }
+    if (a.warning) advisorParts.push(el('p', { class: 'filter-note', text: a.warning }));
+    if (a.problems.length) {
+      advisorParts.push(el('details', {}, [el('summary', { text: `${plural(a.problems.length, 'part')} of its answer dropped` }), el('ul', {}, a.problems.map((p) => el('li', { text: p })))]));
+    }
+    advisorNote.replaceChildren(...advisorParts);
     if (view.status === 'ready' && view.notes.length === 0 && view.candidates.length === 0) {
       candidatesHost.replaceChildren(el('p', { class: 'muted', text: 'Nothing stands out from your usual turns.' }));
     } else {
@@ -162,7 +187,7 @@
       el('p', { class: 'muted small', text: `${plural(sh.shellCalls, 'plain shell call')}. Accepted categories label new calls; ${percent(sh.leftShare)} would stay in Shell command.` }),
       ...sh.candidates.map((c) =>
         el('article', { class: 'finding info suggestion' }, [
-          el('div', { class: 'head' }, [el('span', { class: 'badge info', text: 'category' }), el('strong', { text: c.label }), el('span', { class: 'muted small', text: c.id })]),
+          el('div', { class: 'head' }, [el('span', { class: 'badge info', text: c.source === 'advisor' ? 'advisor category' : 'category' }), el('strong', { text: c.label }), el('span', { class: 'muted small', text: c.id })]),
           el('p', { class: 'summary', text: `Commands starting with ${c.match.join(', ')}: ${percent(c.share)} of shell calls (${c.calls} in ${plural(c.sessions, 'session')}).` }),
           el('div', { class: 'actions' }, [
             el('button', { text: 'Accept', onclick: () => vscode.postMessage({ type: 'acceptShellCategory', id: c.id }) }),

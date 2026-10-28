@@ -53,6 +53,8 @@ export interface Candidate {
   /** Turns at or above the threshold, and in how many sessions. */
   turnsAbove: number;
   sessionsAbove: number;
+  /** The turns furthest past the threshold, largest first (up to MAX_EXAMPLES). */
+  exampleTurns: Array<{ sessionId: string; turnId: string; value: number }>;
   score: Score;
 }
 
@@ -182,6 +184,10 @@ export interface DiscoveryRun {
   tweak(ruleId: string, threshold: number): Candidate | undefined;
   /** Replays rules (imported ones, say) over the same history. */
   score(rules: Rule[]): Map<string, Score>;
+  /** A session's events in this history, in time order. */
+  sessionEvents(sessionId: string): NormalizedEvent[];
+  /** Every event in this history, in time order. */
+  events: NormalizedEvent[];
 }
 
 /**
@@ -216,6 +222,7 @@ export function runDiscovery(events: NormalizedEvent[], opts: DiscoveryOptions):
       baseline,
       turnsAbove: hits.length,
       sessionsAbove: new Set(hits.map((h) => h.turn.sessionId)).size,
+      exampleTurns: [...hits].sort((a, b) => b.value - a.value).slice(0, MAX_EXAMPLES).map((h) => ({ sessionId: h.turn.sessionId, turnId: h.turn.turnId, value: h.value })),
     };
   };
   const run: DiscoveryRun = {
@@ -227,6 +234,8 @@ export function runDiscovery(events: NormalizedEvent[], opts: DiscoveryOptions):
       return { ...c, score: scoreRules([parseRule(c.rule).value!]).get(c.rule.id)! };
     },
     score: scoreRules,
+    sessionEvents: (sessionId) => bySession.get(sessionId) ?? [],
+    events: sorted,
   };
   if (turns.length < MIN_TURNS) {
     result.notes.push(`Only ${turns.length} turns with their prompts in this history; discovery needs at least ${MIN_TURNS} to say what's unusual for you.`);

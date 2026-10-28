@@ -66,13 +66,15 @@ export type DetailMessage =
   | { type: 'openSession'; sessionId: string }
   | { type: 'closeSession' }
   | { type: 'discover' }
+  | { type: 'askAdvisor' }
   | { type: 'tweakSuggestion'; id: string; threshold: number }
   | { type: 'acceptSuggestion'; id: string }
   | { type: 'acceptShellCategory'; id: string }
   | { type: 'dismissSuggestion'; id: string }
   | { type: 'clearDismissed' }
   | { type: 'applyThreshold'; heuristic: string; setting: string }
-  | { type: 'removeSaved'; section: 'rules' | 'categories'; id: string };
+  | { type: 'removeSaved'; section: 'rules' | 'categories'; id: string }
+  | { type: 'explain'; sessionId: string; turnId?: string; heuristicId?: string };
 
 export type DetailTab = 'overview' | 'sessions' | 'suggestions';
 
@@ -96,6 +98,7 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
       return typeof m.sessionId === 'string';
     case 'closeSession':
     case 'discover':
+    case 'askAdvisor':
     case 'clearDismissed':
       return true;
     case 'tweakSuggestion':
@@ -106,6 +109,8 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
       return typeof m.id === 'string';
     case 'applyThreshold':
       return typeof m.heuristic === 'string' && typeof m.setting === 'string';
+    case 'explain':
+      return typeof m.sessionId === 'string' && (m.turnId === undefined || typeof m.turnId === 'string') && (m.heuristicId === undefined || typeof m.heuristicId === 'string');
     case 'removeSaved':
       return (m.section === 'rules' || m.section === 'categories') && typeof m.id === 'string';
     default:

@@ -11,6 +11,12 @@ import { SessionIndex } from './core/sessions';
 import { SessionController } from './ui/sessionController';
 import { FindingReplay } from './heuristics/replay';
 import { runBackfill } from './backfill/command';
+import { runRelabel } from './backfill/relabel';
+import { buildDigest, digestForReading } from './advisor/digest';
+import { sessionDigestInput } from './advisor/source';
+import { Advisor } from './advisor/advisor';
+import { AuditLog } from './advisor/audit';
+import { proposeMessages } from './advisor/propose';
 import { hasCapturedText, withoutCapturedText } from './core/excerpt';
 import { ContextLimits, ModelContextMarks } from './core/contextLimits';
 import { AggregateStore, EventSink, RetentionPolicy, applyRetention, oldestKeptDay } from './core/retention';
@@ -141,11 +147,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const contextLimitFor = (model: string | undefined) => (model ? contextLimits.get(model)?.limit : undefined);
   let heuristics: Heuristic[] = [];
   let ruleProblems: string[] = [];
+  let activeCategories: string | undefined;
+  /** Set once the extension is up: offers to relabel past shell calls when the shell categories in use change. */
+  let onCategoriesChanged: (() => void) | undefined;
   let engine = new HeuristicsEngine(heuristics, eventStore, heuristicSettings, contextLimitFor);
   /** Rebuilds the heuristics from the built-ins and the current rules; findings of rules that are gone are cleared. */
   const loadRules = () => {
     const ruleSet = buildRuleSet([ruleStore.source(), settingsRuleSource()]);
     setShellSubCategories(ruleSet.categories);
+    const categories = JSON.stringify(ruleSet.categories);
+    if (activeCategories !== undefined && categories !== activeCategories) onCategoriesChanged?.();
+    activeCategories = categories;
     const next = [...builtInHeuristics(), ...ruleSet.rules.map(ruleHeuristic)];
     for (const h of heuristics) if (!next.some((n) => n.id === h.id)) findings.report(h.id, []);
     heuristics = next;
@@ -197,13 +209,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     dismissed: () => context.globalState.get<string[]>(DISMISSED_SUGGESTIONS_KEY, []),
     setDismissed: (ids) => Promise.resolve(context.globalState.update(DISMISSED_SUGGESTIONS_KEY, ids)),
     sessionName: (id) => sessionIndex.get(id)?.name,
+    propose: async (build) => {
+      const asked = await advisor.ask('propose', async (p) => proposeMessages(build(p.policy)), { title: 'proposing heuristics' });
+      if (!asked) return undefined;
+      const warning = Advisor.cutWarning(asked, 'dismiss candidates you don\'t need and ask again, which sends less');
+      return { text: asked.completion.text, provider: asked.provider.label, model: asked.provider.model, ...(warning ? { warning } : {}) };
+    },
+    roots: () => roots(),
     source: discoverySource,
     days: discoveryDays,
     now: () => new Date().toISOString(),
   });
 
+  const roots = () => (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+  const digestInput = async (sessionId: string, turnId?: string) => {
+    const summary = sessionIndex.get(sessionId);
+    if (!summary) return undefined;
+    await eventLog.flush();
+    return sessionDigestInput(summary, eventLog, new FindingReplay(heuristics, heuristicSettings, contextLimitFor), { roots: roots(), contextLimit: contextLimitFor, sessionName: summary.name, ...(turnId ? { turnId } : {}) });
+  };
+  const audit = new AuditLog(context.globalStorageUri.fsPath);
+  void audit.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
+  const advisor = new Advisor({ secrets: context.secrets, globalState: context.globalState, audit, output: outputChannel, digestInput });
+
   const detailPanel = new DetailPanel(context.extensionUri, {
     suggestions,
+    explain: (req) => advisor.explain(req),
     buildState: (isOpenable) =>
       buildDetailState({
         now: new Date().toISOString(),
@@ -343,6 +374,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     })
   );
 
+  const pickSession = async (placeHolder: string): Promise<string | undefined> => {
+    const recent = sessionIndex.list().slice(0, 40);
+    if (recent.length === 0) {
+      void vscode.window.showInformationMessage('Snagboat: no agent sessions recorded yet.');
+      return undefined;
+    }
+    const agentName = (a: string) => (a === 'claude-code' ? 'Claude Code' : a === 'copilot' ? 'Copilot' : a);
+    const pick = await vscode.window.showQuickPick(
+      recent.map((s) => ({
+        label: `${agentName(s.agent)} \u00b7 ${new Date(s.firstTs).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+        description: `${s.prompts} prompts \u00b7 ${formatCount(s.tokens)} tokens`,
+        detail: `${s.models.join(', ') || 'no model calls'} \u00b7 session ${s.sessionId.slice(0, 8)}`,
+        sessionId: s.sessionId,
+      })),
+      { placeHolder, matchOnDescription: true, matchOnDetail: true }
+    );
+    return pick?.sessionId;
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand('snagboat.showBreakdown', () => {
       outputChannel.clear();
@@ -363,23 +413,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     }),
     vscode.commands.registerCommand('snagboat.openDetail', () => detailPanel.show()),
     vscode.commands.registerCommand('snagboat.openSession', async () => {
-      const recent = sessionIndex.list().slice(0, 40);
-      if (recent.length === 0) {
-        void vscode.window.showInformationMessage('Snagboat: no agent sessions recorded yet.');
-        return;
-      }
-      const agentName = (a: string) => (a === 'claude-code' ? 'Claude Code' : a === 'copilot' ? 'Copilot' : a);
+      const sessionId = await pickSession('Open a session (most recent first)');
+      if (sessionId) detailPanel.show({ sessionId });
+    }),
+    vscode.commands.registerCommand('snagboat.previewDigest', async () => {
+      const sessionId = await pickSession('Preview the advisor digest of a session (most recent first)');
+      if (!sessionId) return;
       const pick = await vscode.window.showQuickPick(
-        recent.map((s) => ({
-          label: `${agentName(s.agent)} \u00b7 ${new Date(s.firstTs).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
-          description: `${s.prompts} prompts \u00b7 ${formatCount(s.tokens)} tokens`,
-          detail: `${s.models.join(', ') || 'no model calls'} \u00b7 session ${s.sessionId.slice(0, 8)}`,
-          sessionId: s.sessionId,
+        advisor.providers().map((p) => ({
+          label: p.label,
+          description: p.kind === 'local' ? 'on this machine' : p.baseUrl,
+          detail: `Sends ${[p.policy.prompts && 'prompts', p.policy.replies && 'replies', p.policy.sessionNames && 'session names'].filter(Boolean).join(', ') || 'no text'}; paths ${p.policy.paths}`,
+          policy: p.policy,
         })),
-        { placeHolder: 'Open a session (most recent first)', matchOnDescription: true, matchOnDetail: true }
+        { placeHolder: 'As sent to which provider?' }
       );
-      if (pick) detailPanel.show({ sessionId: pick.sessionId });
-    })
+      if (!pick) return;
+      const input = await digestInput(sessionId);
+      if (!input) return;
+      const content = `// Snagboat advisor digest, as ${pick.label} would receive it. Indented here for reading; it's sent without indentation.\n${digestForReading(buildDigest(input, pick.policy))}\n`;
+      const doc = await vscode.workspace.openTextDocument({ language: 'jsonc', content });
+      await vscode.window.showTextDocument(doc, { preview: true });
+    }),
+    vscode.commands.registerCommand('snagboat.explainSession', async () => {
+      const sessionId = await pickSession('Explain a session (most recent first)');
+      if (sessionId) await advisor.explain({ sessionId });
+    }),
+    vscode.commands.registerCommand('snagboat.setAdvisorKey', () => advisor.setKey())
   );
 
   context.subscriptions.push(
@@ -393,6 +453,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         output: outputChannel,
       })
     ),
+    vscode.commands.registerCommand('snagboat.relabelShellCalls', () => runRelabel({ eventLog, runStorageOp, reloadFromLog })),
     vscode.commands.registerCommand('snagboat.removeClaudeHooks', async () => {
       const folders = vscode.workspace.workspaceFolders ?? [];
       if (folders.length === 0) {
@@ -513,6 +574,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       vscode.window.showInformationMessage('Snagboat: event log cleared.');
     })
   );
+
+  onCategoriesChanged = () => {
+    void vscode.window
+      .showInformationMessage('Snagboat: shell categories changed. New shell calls get them; relabel past ones in this workspace too?', 'Relabel')
+      .then((choice) => choice === 'Relabel' && vscode.commands.executeCommand('snagboat.relabelShellCalls'));
+  };
 
   const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter(path.join(context.globalStorageUri.fsPath, 'copilot-structure'))];
   for (const adapter of adapters) {

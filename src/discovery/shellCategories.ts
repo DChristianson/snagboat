@@ -1,4 +1,4 @@
-import { commandPrefix, isShellTool, parseShellSubCategory, ShellSubCategory } from '../core/toolCategory';
+import { classifyCommand, commandPrefix, isShellTool, parseShellSubCategory, ShellSubCategory } from '../core/toolCategory';
 import { NormalizedEvent } from '../core/types';
 
 /** Commands whose second word says what they do (`npm install`, `docker run`), so families are two words. */
@@ -22,6 +22,19 @@ export interface ShellDiscovery {
   candidates: ShellCandidate[];
   /** Share of plain shell calls the candidates would leave in "Shell command". */
   leftShare: number;
+  /** Every command family by calls, largest first: names only, for the advisor to group. */
+  families: Array<{ name: string; calls: number; sessions: number }>;
+}
+
+function isPlainShellCall(e: NormalizedEvent): boolean {
+  return e.kind === 'tool_call' && e.toolCategory === 'shell' && isShellTool(e.toolName) && !!e.target;
+}
+
+/** How a sub-category would split your plain shell calls: calls it would take, in how many sessions. */
+export function shellCategoryReach(category: ShellSubCategory, events: NormalizedEvent[]): { calls: number; share: number; sessions: number } {
+  const plain = events.filter(isPlainShellCall);
+  const taken = plain.filter((e) => classifyCommand(e.target!, [category]) === category.id);
+  return { calls: taken.length, share: plain.length === 0 ? 0 : taken.length / plain.length, sessions: new Set(taken.map((e) => e.sessionId)).size };
 }
 
 /** The command family a shell call belongs to: its first word, or first two for TWO_WORD commands. */
@@ -36,9 +49,9 @@ export function discoverShellCategories(events: NormalizedEvent[]): ShellDiscove
   const families = new Map<string, { calls: number; sessions: Set<string> }>();
   let shellCalls = 0;
   for (const e of events) {
-    if (e.kind !== 'tool_call' || e.toolCategory !== 'shell' || !isShellTool(e.toolName) || !e.target) continue;
+    if (!isPlainShellCall(e)) continue;
     shellCalls += 1;
-    const name = family(e.target);
+    const name = family(e.target!);
     if (!name) continue;
     const f = families.get(name) ?? { calls: 0, sessions: new Set<string>() };
     f.calls += 1;
@@ -54,5 +67,10 @@ export function discoverShellCategories(events: NormalizedEvent[]): ShellDiscove
     if (value) candidates.push({ category: value, calls: f.calls, share, sessions: f.sessions.size });
   }
   candidates.sort((a, b) => b.calls - a.calls);
-  return { shellCalls, candidates, leftShare: shellCalls === 0 ? 0 : 1 - candidates.reduce((n, c) => n + c.share, 0) };
+  return {
+    shellCalls,
+    candidates,
+    leftShare: shellCalls === 0 ? 0 : 1 - candidates.reduce((n, c) => n + c.share, 0),
+    families: [...families].map(([name, f]) => ({ name, calls: f.calls, sessions: f.sessions.size })).sort((a, b) => b.calls - a.calls),
+  };
 }

@@ -47,12 +47,28 @@
         "title": "Snagboat: Open Session..."
       },
       {
+        "command": "snagboat.previewDigest",
+        "title": "Snagboat: Preview Advisor Digest..."
+      },
+      {
+        "command": "snagboat.explainSession",
+        "title": "Snagboat: Explain Session..."
+      },
+      {
+        "command": "snagboat.setAdvisorKey",
+        "title": "Snagboat: Set Advisor API Key..."
+      },
+      {
         "command": "snagboat.showBreakdown",
         "title": "Snagboat: Show Token/Event Breakdown"
       },
       {
         "command": "snagboat.backfill",
         "title": "Snagboat: Backfill Sessions from Transcripts..."
+      },
+      {
+        "command": "snagboat.relabelShellCalls",
+        "title": "Snagboat: Relabel Shell Calls"
       },
       {
         "command": "snagboat.discover",
@@ -939,6 +955,86 @@
           "default": 30,
           "minimum": 1,
           "description": "How many days of this workspace's history Snagboat: Discover Heuristics reads, so suggestions follow your current habits."
+        },
+        "snagboat.advisor.providers": {
+          "type": "array",
+          "default": [
+            {
+              "id": "local",
+              "label": "Local (Ollama)",
+              "baseUrl": "http://localhost:11434/v1",
+              "model": ""
+            }
+          ],
+          "markdownDescription": "Models the advisor can use: OpenAI-compatible chat completion endpoints. A provider whose `baseUrl` is on this machine (localhost) is local; any other is hosted, must use https, needs an API key (**Snagboat: Set Advisor API Key...**), and every request to it is recorded in the audit log. `send` sets what it may receive: by default local providers get prompts and session names, hosted ones neither, and neither gets reply excerpts. See [the advisor](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#the-advisor).",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "baseUrl"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*$",
+                "description": "Lowercase letters, digits, and dashes; names it in snagboat.advisor.explainProvider."
+              },
+              "label": {
+                "type": "string"
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "Such as http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio), or https://api.openai.com/v1."
+              },
+              "model": {
+                "type": "string",
+                "description": "Leave empty to pick from the provider's models on first use."
+              },
+              "send": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "What it may receive. Paths outside the workspace are always hashed.",
+                "properties": {
+                  "prompts": {
+                    "type": "boolean",
+                    "description": "Your prompts' text (default: local yes, hosted no)."
+                  },
+                  "replies": {
+                    "type": "boolean",
+                    "description": "Agent reply excerpts (default: no)."
+                  },
+                  "sessionNames": {
+                    "type": "boolean",
+                    "description": "Session names (default: local yes, hosted no)."
+                  },
+                  "paths": {
+                    "type": "string",
+                    "enum": [
+                      "relative",
+                      "hashed"
+                    ],
+                    "description": "File paths relative to the workspace, or hashed (default: relative)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "snagboat.advisor.explainProvider": {
+          "type": "string",
+          "default": "local",
+          "description": "The id of the provider Explain uses."
+        },
+        "snagboat.advisor.proposeProvider": {
+          "type": "string",
+          "default": "local",
+          "description": "The id of the provider the Suggestions tab asks to propose heuristics."
+        },
+        "snagboat.advisor.auditPayloads": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also keep the full payload of each request to a hosted provider in the audit log, for snagboat.retention.rawDays. Off: the log keeps when, which capability, the size, and a hash."
         }
       }
     }
@@ -953,10 +1049,11 @@
     "verify:transcripts": "npm run compile-tests && node ./out/scripts/transcripts.js verify",
     "replay:heuristics": "npm run compile-tests && node ./out/scripts/replayHeuristics.js",
     "discover": "npm run compile-tests && node ./out/scripts/discover.js",
+    "eval:advisor": "npm run compile-tests && node ./out/scripts/evalAdvisor.js",
     "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js"
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js && node ./out/test/unit/digest.unit.test.js && node ./out/test/unit/advisor.unit.test.js && node ./out/test/unit/propose.unit.test.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",

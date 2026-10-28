@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import { DetailState, DetailTab, isDetailMessage, resolveTargetFile } from './detailModel';
 import { SessionController } from './sessionController';
 import { SuggestionsController } from './suggestionsController';
+import { ExplainRequest } from '../advisor/advisor';
 
 const UPDATE_DEBOUNCE_MS = 500;
 
@@ -12,6 +13,7 @@ export interface DetailPanelHooks {
   setMuted(heuristicId: string, muted: boolean): void;
   sessions: SessionController;
   suggestions: SuggestionsController;
+  explain(req: ExplainRequest): Promise<void>;
   /** Today's UTC day key, for the session list's default day. */
   today(): string;
 }
@@ -150,6 +152,9 @@ export class DetailPanel implements vscode.Disposable {
       case 'discover':
         await this.hooks.suggestions.discover();
         break;
+      case 'askAdvisor':
+        await this.hooks.suggestions.askAdvisor();
+        break;
       case 'tweakSuggestion':
         this.hooks.suggestions.tweak(message.id, message.threshold);
         break;
@@ -167,6 +172,9 @@ export class DetailPanel implements vscode.Disposable {
         break;
       case 'applyThreshold':
         await this.hooks.suggestions.applyThreshold(message.heuristic, message.setting);
+        break;
+      case 'explain':
+        await this.hooks.explain({ sessionId: message.sessionId, ...(message.turnId ? { turnId: message.turnId } : {}), ...(message.heuristicId ? { heuristicId: message.heuristicId } : {}) });
         break;
       case 'removeSaved':
         await this.hooks.suggestions.removeSaved(message.section, message.id);
