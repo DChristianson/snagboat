@@ -27,18 +27,21 @@ import { removeHooksConfigured } from './adapters/claude-code/hooksConfig';
 import { CopilotAdapter } from './adapters/copilot';
 import { FindingsRegistry } from './heuristics/findingsRegistry';
 import { HeuristicsEngine } from './heuristics/engine';
-import { builtInHeuristics, heuristicSettings, settingsRuleSource } from './heuristics/index';
+import { builtInHeuristics, heuristicSettings, heuristicSettingsSection, settingsRuleSource } from './heuristics/index';
 import { Finding, Heuristic } from './heuristics/types';
 import { buildRuleSet } from './heuristics/rule';
 import { ruleHeuristic } from './heuristics/ruleHeuristic';
 import { RuleStore } from './heuristics/ruleStore';
 import { setShellSubCategories } from './core/toolCategory';
-import { discover } from './discovery/discover';
-import { formatDiscovery } from './discovery/report';
+import { runDiscovery } from './discovery/discover';
+import { SuggestionsController } from './ui/suggestionsController';
+import { exportRules, importRules } from './ui/ruleTransfer';
 
 const POLL_INTERVAL_MS = 30_000;
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
 const MUTED_HEURISTICS_KEY = 'snagboat.mutedHeuristics';
+// Global: saved rules are shared by every workspace, so a dismissed suggestion stays dismissed everywhere.
+const DISMISSED_SUGGESTIONS_KEY = 'snagboat.dismissedSuggestions';
 
 // Generous placeholder sizing, comfortably covering every planned heuristic's
 // short window (minutes) without yet reading heuristic settings -- revisited
@@ -168,7 +171,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     newReplay: () => new FindingReplay(heuristics, heuristicSettings, contextLimitFor),
     muted: () => findings.mutedHeuristics(),
   });
+  // Discovery reads only this workspace's history; each workspace's log is separate.
+  const discoveryDays = () => Math.max(1, vscode.workspace.getConfiguration('snagboat.discovery').get<number>('days', 30));
+  const discoverySource = () => vscode.workspace.name ?? 'this window';
+  const loadDiscoveryEvents = async () => {
+    const since = new Date(Date.now() - (discoveryDays() - 1) * 86_400_000).toISOString().slice(0, 10);
+    const logged = await eventLog.snapshot();
+    const events: NormalizedEvent[] = [];
+    for (const day of await logged.listDays()) if (day >= since) events.push(...(await logged.readDay(day)));
+    return events;
+  };
+  const discoveryOptions = () => ({ existing: heuristics, settingsFor: heuristicSettings, contextLimit: contextLimitFor });
+  const rulesChanged = () => {
+    loadRules();
+    runHeuristics();
+    refresh();
+  };
+  const suggestions = new SuggestionsController({
+    loadEvents: loadDiscoveryEvents,
+    options: discoveryOptions,
+    store: ruleStore,
+    settingsRules: settingsRuleSource,
+    rulesChanged: () => rulesChanged(),
+    applySetting: (heuristic, setting, value) => Promise.resolve(vscode.workspace.getConfiguration(heuristicSettingsSection(heuristic)).update(setting, value, vscode.ConfigurationTarget.Global)),
+    dismissed: () => context.globalState.get<string[]>(DISMISSED_SUGGESTIONS_KEY, []),
+    setDismissed: (ids) => Promise.resolve(context.globalState.update(DISMISSED_SUGGESTIONS_KEY, ids)),
+    sessionName: (id) => sessionIndex.get(id)?.name,
+    source: discoverySource,
+    days: discoveryDays,
+    now: () => new Date().toISOString(),
+  });
+
   const detailPanel = new DetailPanel(context.extensionUri, {
+    suggestions,
     buildState: (isOpenable) =>
       buildDetailState({
         now: new Date().toISOString(),
@@ -304,11 +339,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('snagboat.retention')) runRetention();
       if (e.affectsConfiguration('snagboat.captureContent')) detailPanel.scheduleUpdate();
-      if (e.affectsConfiguration('snagboat.rules') || e.affectsConfiguration('snagboat.toolCategories')) {
-        loadRules();
-        runHeuristics();
-        refresh();
-      }
+      if (e.affectsConfiguration('snagboat.rules') || e.affectsConfiguration('snagboat.toolCategories')) rulesChanged();
     })
   );
 
@@ -406,20 +437,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       }
     }),
     vscode.commands.registerCommand('snagboat.discover', async () => {
-      const days = Math.max(1, vscode.workspace.getConfiguration('snagboat.discovery').get<number>('days', 30));
-      const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
-      // Discovery reads only this workspace's history; each workspace's log is separate.
-      const source = vscode.workspace.name ?? 'this window';
-      const lines = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Snagboat: discovering heuristics…' }, async () => {
-        const logged = await eventLog.snapshot();
-        const events: NormalizedEvent[] = [];
-        for (const day of await logged.listDays()) if (day >= since) events.push(...(await logged.readDay(day)));
-        return formatDiscovery(discover(events, { existing: heuristics, settingsFor: heuristicSettings, contextLimit: contextLimitFor }), `${source} (last ${days} days)`);
-      });
-      outputChannel.clear();
-      outputChannel.appendLine(lines.join('\n'));
-      outputChannel.show();
+      detailPanel.show({ tab: 'suggestions' });
+      await suggestions.discover();
     }),
+    vscode.commands.registerCommand('snagboat.exportRules', () => exportRules(ruleStore)),
+    vscode.commands.registerCommand('snagboat.importRules', () =>
+      importRules({
+        store: ruleStore,
+        score: async (rules) => runDiscovery(await loadDiscoveryEvents(), discoveryOptions()).score(rules),
+        workspace: discoverySource(),
+        days: discoveryDays(),
+        now: () => new Date().toISOString(),
+        rulesChanged,
+        output: outputChannel,
+      })
+    ),
     vscode.commands.registerCommand('snagboat.removeCapturedText', async () => {
       const turnOff = 'Remove and Turn Off Capture';
       const choice = await vscode.window.showWarningMessage(

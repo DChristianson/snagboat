@@ -3,7 +3,8 @@
 ## Unreleased
 
 - **Rules:** heuristics written as JSON in `snagboat.rules`, which run alongside the built-ins with the same findings, past findings, acknowledge, and mute. **Shell sub-categories** in `snagboat.toolCategories` split "Shell command" by command prefix. Both are groundwork for heuristics discovered from your own history.
-- **Snagboat: Discover Heuristics** reports what's unusual in this workspace's last 30 days: candidate rules, how the built-ins' thresholds compare with your history, and command families that could split "Shell command". It only reports for now. See [heuristics.md](https://github.com/DChristianson/snagboat/blob/main/docs/heuristics.md#rules).
+- **Suggestions** tab (**Snagboat: Discover Heuristics**): heuristics suggested from what's unusual in this workspace's last 30 days. You get candidate rules scored by replaying your history, built-in thresholds compared with your own percentiles, and command families that could split "Shell command". Accept, adjust, or dismiss each, and remove saved rules there too.
+- **Snagboat: Export Rules...** and **Snagboat: Import Rules...** move saved rules between machines; imports are replayed over your history before you pick them. See [heuristics.md](https://github.com/DChristianson/snagboat/blob/main/docs/heuristics.md#rules).
 
 ## 0.0.2
 

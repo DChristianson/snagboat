@@ -190,7 +190,7 @@ Sub-categories are saved alongside rules, or written by hand in `snagboat.toolCa
 
 ## Discovery
 
-**Snagboat: Discover Heuristics** looks for what's unusual in your own history and reports it. It needs no model, and it only reports: nothing is added or changed. It reads the current workspace's stored events for the last `snagboat.discovery.days` days (default 30). Each workspace's log is separate, so a rule found here reflects this project's habits, and a rule accepted from it will record which workspace it came from. `npm run discover` runs the same code over this project's Claude Code transcripts.
+**Snagboat: Discover Heuristics** opens the detail view's **Suggestions** tab, which looks for what's unusual in your own history and suggests heuristics from it. It needs no model, and nothing is added until you accept. It reads the current workspace's stored events for the last `snagboat.discovery.days` days (default 30). Each workspace's log is separate, so a rule found here reflects this project's habits, and a rule accepted from it will record which workspace it came from. `npm run discover` runs the same code over this project's Claude Code transcripts.
 
 [discover.ts](../src/discovery/discover.ts) works in four steps:
 
@@ -201,7 +201,16 @@ Sub-categories are saved alongside rules, or written by hand in `snagboat.toolCa
 
 Shell sub-category candidates come from [shellCategories.ts](../src/discovery/shellCategories.ts). Each plain "Shell command" call belongs to a command family: the first word of the command, or the first two for commands like `npm` and `docker` whose second word says what they do. A family that takes at least 10% of shell calls, with 5 or more calls in 2 or more sessions, becomes a candidate.
 
-The report names heuristic ids and command families only, never targets, paths, prompts, or session names.
+In the Suggestions tab:
+
+- **Candidate rules** show the threshold, how many of your turns reach it, your percentiles, the replay score, and up to five sessions where it would have fired (opening one shows the candidate's past findings). Changing the threshold re-scores it. **Accept** saves the rule as shown, recording that discovery proposed it, when, in which workspace, and its replay score. **Dismiss** hides it in every workspace until you choose to show dismissed suggestions again.
+- **Built-in thresholds** compare each built-in setting with your history. **Apply** writes discovery's suggested value to your user settings.
+- **Shell sub-categories** can be accepted or dismissed the same way. An accepted category labels new tool calls; calls already logged keep their category.
+- **Your rules** lists saved rules and categories with where they came from, with **Remove**, and the ones written in settings.
+
+**Snagboat: Export Rules...** writes saved rules and categories, with their provenance, to a JSON file. **Snagboat: Import Rules...** reads one back (or a plain list of rules, as in `snagboat.rules`), replays each rule over this workspace's history, and lets you pick which to add. An imported rule replaces a saved rule with the same id.
+
+`npm run discover` prints the same findings as text, naming heuristic ids and command families only, never targets, paths, prompts, or session names.
 
 ## Acknowledging and muting
 

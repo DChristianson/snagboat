@@ -175,12 +175,21 @@ function score(candidates: Heuristic[], existing: Heuristic[], bySession: Map<st
   return scores;
 }
 
+/** A finished discovery, keeping what it measured so a threshold can be changed and rules scored without measuring again. */
+export interface DiscoveryRun {
+  result: DiscoveryResult;
+  /** A candidate at another threshold, re-scored by replay; undefined for an unknown id or a threshold that isn't positive. */
+  tweak(ruleId: string, threshold: number): Candidate | undefined;
+  /** Replays rules (imported ones, say) over the same history. */
+  score(rules: Rule[]): Map<string, Score>;
+}
+
 /**
  * Discovery without a model: measures every past turn, finds where your own
  * turns' tails are, proposes rules there and thresholds for the built-ins,
  * proposes shell sub-categories, and scores each rule by replay.
  */
-export function discover(events: NormalizedEvent[], opts: DiscoveryOptions): DiscoveryResult {
+export function runDiscovery(events: NormalizedEvent[], opts: DiscoveryOptions): DiscoveryRun {
   const sorted = [...events].sort((a, b) => a.ts.localeCompare(b.ts));
   const turns = pastTurns(sorted);
   const bySession = new Map<string, NormalizedEvent[]>();
@@ -196,9 +205,32 @@ export function discover(events: NormalizedEvent[], opts: DiscoveryOptions): Dis
     shell: discoverShellCategories(sorted),
     notes: [],
   };
+  const measuredByKey = new Map<string, { probe: Probe; measured: Array<{ turn: PastTurn; value: number }>; baseline: Baseline }>();
+  const scoreRules = (rules: Rule[]) => score(rules.map(ruleHeuristic), opts.existing, bySession, opts);
+  const candidateAt = (probe: Probe, measured: Array<{ turn: PastTurn; value: number }>, baseline: Baseline, threshold: number): Omit<Candidate, 'score'> => {
+    const hits = measured.filter((m) => m.value >= threshold);
+    return {
+      probe: { key: probe.key, describes: probe.describes, kind: probe.kind },
+      rule: probeRule(probe, threshold),
+      threshold,
+      baseline,
+      turnsAbove: hits.length,
+      sessionsAbove: new Set(hits.map((h) => h.turn.sessionId)).size,
+    };
+  };
+  const run: DiscoveryRun = {
+    result,
+    tweak(ruleId, threshold) {
+      const m = measuredByKey.get(ruleId.replace(/^discovery:/, ''));
+      if (!m || !(threshold > 0)) return undefined;
+      const c = candidateAt(m.probe, m.measured, m.baseline, threshold);
+      return { ...c, score: scoreRules([parseRule(c.rule).value!]).get(c.rule.id)! };
+    },
+    score: scoreRules,
+  };
   if (turns.length < MIN_TURNS) {
     result.notes.push(`Only ${turns.length} turns with their prompts in this history; discovery needs at least ${MIN_TURNS} to say what's unusual for you.`);
-    return result;
+    return run;
   }
 
   const tail = opts.tail ?? DEFAULT_TAIL;
@@ -212,6 +244,7 @@ export function discover(events: NormalizedEvent[], opts: DiscoveryOptions): Dis
     if (measured.length < MIN_TURNS) continue;
     const values = measured.map((m) => m.value);
     const baseline = baselineOf(values);
+    measuredByKey.set(probe.key, { probe, measured, baseline });
     const threshold = tailThreshold(values, probe.kind, tail);
     const above = (t: number) => measured.filter((m) => m.value >= t);
     // Ties at the threshold can make it common rather than a tail.
@@ -235,16 +268,16 @@ export function discover(events: NormalizedEvent[], opts: DiscoveryOptions): Dis
     if (threshold === undefined || threshold < probe.floor) continue;
     // An outlier is far from your normal, not just your busiest 1% of quiet turns.
     if (probe.kind !== 'share' && baseline.p50 > 0 && threshold < 2 * baseline.p50) continue;
-    const hits = above(threshold);
-    const sessionsAbove = new Set(hits.map((h) => h.turn.sessionId)).size;
-    if (tooCommon(threshold) || sessionsAbove < MIN_SESSIONS) continue;
-    const doc = probeRule(probe, threshold);
-    if (existingIds.has(doc.id)) continue;
-    pending.push({ probe: { key: probe.key, describes: probe.describes, kind: probe.kind }, rule: doc, threshold, baseline, turnsAbove: hits.length, sessionsAbove });
+    const candidate = candidateAt(probe, measured, baseline, threshold);
+    if (tooCommon(threshold) || candidate.sessionsAbove < MIN_SESSIONS || existingIds.has(candidate.rule.id)) continue;
+    pending.push(candidate);
   }
 
-  const heuristics = pending.map((c) => ruleHeuristic(parseRule(c.rule).value!));
-  const scores = score(heuristics, opts.existing, bySession, opts);
+  const scores = scoreRules(pending.map((c) => parseRule(c.rule).value!));
   result.candidates = pending.map((c) => ({ ...c, score: scores.get(c.rule.id)! })).sort((a, b) => a.turnsAbove / a.baseline.turns - b.turnsAbove / b.baseline.turns);
-  return result;
+  return run;
+}
+
+export function discover(events: NormalizedEvent[], opts: DiscoveryOptions): DiscoveryResult {
+  return runDiscovery(events, opts).result;
 }

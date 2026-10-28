@@ -61,10 +61,20 @@ export type DetailMessage =
   | { type: 'acknowledge'; heuristicId: string }
   | { type: 'setMuted'; heuristicId: string; muted: boolean }
   | { type: 'openFile'; target: string }
-  | { type: 'tab'; tab: 'overview' | 'sessions' }
+  | { type: 'tab'; tab: DetailTab }
   | { type: 'listSessions'; day?: string }
   | { type: 'openSession'; sessionId: string }
-  | { type: 'closeSession' };
+  | { type: 'closeSession' }
+  | { type: 'discover' }
+  | { type: 'tweakSuggestion'; id: string; threshold: number }
+  | { type: 'acceptSuggestion'; id: string }
+  | { type: 'acceptShellCategory'; id: string }
+  | { type: 'dismissSuggestion'; id: string }
+  | { type: 'clearDismissed' }
+  | { type: 'applyThreshold'; heuristic: string; setting: string }
+  | { type: 'removeSaved'; section: 'rules' | 'categories'; id: string };
+
+export type DetailTab = 'overview' | 'sessions' | 'suggestions';
 
 export function isDetailMessage(value: unknown): value is DetailMessage {
   if (typeof value !== 'object' || value === null) return false;
@@ -79,13 +89,25 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
     case 'openFile':
       return typeof m.target === 'string';
     case 'tab':
-      return m.tab === 'overview' || m.tab === 'sessions';
+      return m.tab === 'overview' || m.tab === 'sessions' || m.tab === 'suggestions';
     case 'listSessions':
       return m.day === undefined || (typeof m.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m.day));
     case 'openSession':
       return typeof m.sessionId === 'string';
     case 'closeSession':
+    case 'discover':
+    case 'clearDismissed':
       return true;
+    case 'tweakSuggestion':
+      return typeof m.id === 'string' && typeof m.threshold === 'number' && Number.isFinite(m.threshold) && m.threshold > 0;
+    case 'acceptSuggestion':
+    case 'acceptShellCategory':
+    case 'dismissSuggestion':
+      return typeof m.id === 'string';
+    case 'applyThreshold':
+      return typeof m.heuristic === 'string' && typeof m.setting === 'string';
+    case 'removeSaved':
+      return (m.section === 'rules' || m.section === 'categories') && typeof m.id === 'string';
     default:
       return false;
   }

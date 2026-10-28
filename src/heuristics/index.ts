@@ -23,10 +23,15 @@ const SETTINGS_SECTION: Record<string, string> = {
  * HeuristicContext.settings stays a simple bag rather than exposing the
  * vscode WorkspaceConfiguration API to (deliberately vscode-free) heuristics.
  */
+/** The settings section a built-in's settings live under. */
+export function heuristicSettingsSection(id: string): string {
+  return SETTINGS_SECTION[id] ?? `snagboat.heuristics.${id}`;
+}
+
 export function heuristicSettings(id: string): Record<string, unknown> {
   // Rules carry their own thresholds.
   if (id.includes(':')) return {};
-  const section = SETTINGS_SECTION[id] ?? `snagboat.heuristics.${id}`;
+  const section = heuristicSettingsSection(id);
   const config = vscode.workspace.getConfiguration(section);
   return { ...config };
 }

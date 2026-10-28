@@ -286,6 +286,13 @@ suite('Snagboat core plumbing', () => {
     await waitFor(() => !api.getFindings().some((f) => f.heuristicId === 'test:model-calls'));
   });
 
+  test('Discover Heuristics runs over this workspace and opens the detail view', async () => {
+    await vscode.commands.executeCommand('snagboat.discover');
+    await waitFor(() =>
+      vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputWebview && t.label === 'Snagboat'))
+    );
+  });
+
   test('the detail view opens as a webview tab and the today snapshot tracks new events', async () => {
     const beforeToday = api.getTodaySnapshot().totalTokens;
     await vscode.commands.executeCommand('snagboat._emitTestEvent');
