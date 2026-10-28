@@ -33,6 +33,8 @@ import { buildRuleSet } from './heuristics/rule';
 import { ruleHeuristic } from './heuristics/ruleHeuristic';
 import { RuleStore } from './heuristics/ruleStore';
 import { setShellSubCategories } from './core/toolCategory';
+import { discover } from './discovery/discover';
+import { formatDiscovery } from './discovery/report';
 
 const POLL_INTERVAL_MS = 30_000;
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
@@ -402,6 +404,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
           removed.length > 0 ? `Snagboat: removed its Claude Code hooks from ${removed.join(', ')}.` : 'Snagboat: no Snagboat hooks were found; they won\'t be added to these folders.'
         );
       }
+    }),
+    vscode.commands.registerCommand('snagboat.discover', async () => {
+      const days = Math.max(1, vscode.workspace.getConfiguration('snagboat.discovery').get<number>('days', 30));
+      const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+      // Discovery reads only this workspace's history; each workspace's log is separate.
+      const source = vscode.workspace.name ?? 'this window';
+      const lines = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Snagboat: discovering heuristics…' }, async () => {
+        const logged = await eventLog.snapshot();
+        const events: NormalizedEvent[] = [];
+        for (const day of await logged.listDays()) if (day >= since) events.push(...(await logged.readDay(day)));
+        return formatDiscovery(discover(events, { existing: heuristics, settingsFor: heuristicSettings, contextLimit: contextLimitFor }), `${source} (last ${days} days)`);
+      });
+      outputChannel.clear();
+      outputChannel.appendLine(lines.join('\n'));
+      outputChannel.show();
     }),
     vscode.commands.registerCommand('snagboat.removeCapturedText', async () => {
       const turnOff = 'Remove and Turn Off Capture';

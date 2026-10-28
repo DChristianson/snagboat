@@ -6,6 +6,8 @@ import { RuleSource } from './rule';
 export interface Provenance {
   proposedBy: 'you' | 'discovery' | 'advisor' | 'import';
   addedAt: string;
+  /** The workspace whose history it was discovered in or scored against; discovery reads only the current workspace's. */
+  workspace?: string;
   /** Replay over your history at acceptance: episodes it would have raised, in how many sessions. */
   replay?: { episodes: number; sessions: number };
 }

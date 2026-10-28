@@ -55,6 +55,10 @@
         "title": "Snagboat: Backfill Sessions from Transcripts..."
       },
       {
+        "command": "snagboat.discover",
+        "title": "Snagboat: Discover Heuristics"
+      },
+      {
         "command": "snagboat.removeCapturedText",
         "title": "Snagboat: Remove Captured Text"
       },
@@ -921,6 +925,12 @@
           },
           "default": [],
           "markdownDescription": "Sub-categories of \"Shell command\", written as JSON (see [Rules](https://github.com/DChristianson/snagboat/blob/main/docs/heuristics.md#shell-sub-categories)). New tool calls get them; a rule filtering on `shell` still matches them all."
+        },
+        "snagboat.discovery.days": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "description": "How many days of this workspace's history Snagboat: Discover Heuristics reads, so suggestions follow your current habits."
         }
       }
     }
@@ -934,10 +944,11 @@
     "compile-tests": "tsc -p . --outDir out",
     "verify:transcripts": "npm run compile-tests && node ./out/scripts/transcripts.js verify",
     "replay:heuristics": "npm run compile-tests && node ./out/scripts/replayHeuristics.js",
+    "discover": "npm run compile-tests && node ./out/scripts/discover.js",
     "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js"
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",

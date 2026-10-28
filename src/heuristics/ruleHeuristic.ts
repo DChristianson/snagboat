@@ -10,7 +10,7 @@ import { Finding, Heuristic, HeuristicContext } from './types';
 const MAX_REFS = 200;
 
 /** What a measure found in one scope: its value (undefined when there was nothing to measure), and the events behind it. */
-interface Measured {
+export interface Measured {
   value?: number;
   target?: string;
   refs: NormalizedEvent[];
@@ -53,8 +53,8 @@ function tokenTotal(e: NormalizedEvent): number {
   return t ? (t.input ?? 0) + (t.output ?? 0) + (t.cacheRead ?? 0) + (t.cacheCreation ?? 0) : 0;
 }
 
-/** Measures one scope's events (time-ordered). */
-function measure(m: RuleMeasure, base: RuleFilter, events: NormalizedEvent[], ctx: HeuristicContext): Measured {
+/** Measures one scope's events (time-ordered). Discovery uses it too, to measure every past turn. */
+export function measure(m: RuleMeasure, base: RuleFilter, events: NormalizedEvent[], ctx: Pick<HeuristicContext, 'now' | 'contextLimit'>): Measured {
   const matching = events.filter((e) => matches(base, e) && matches(m.filter, e));
   switch (m.type) {
     case 'count':

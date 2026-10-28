@@ -180,6 +180,20 @@ function matchSubCategory(words: string[], categories: ShellSubCategory[]): Shel
   return best?.id;
 }
 
+/** The words of a command line's first meaningful segment, the part classification reads; empty if there's none. */
+export function commandPrefix(command: string): string[] {
+  for (const segment of command.split(/&&|\|\||;|\n/)) {
+    const words = commandWords(segment.split('|')[0]);
+    if (classifyCommandSegment(words)) return words;
+  }
+  return [];
+}
+
+/** Whether a tool's input is a shell command line. */
+export function isShellTool(toolName: string | undefined): boolean {
+  return !!toolName && SHELL_TOOLS.has(toolName);
+}
+
 /**
  * Classifies a shell command line by its first meaningful segment (skipping
  * `cd …`) of an && / ; / || chain. Plain shell commands are refined by the
