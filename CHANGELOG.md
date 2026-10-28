@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Rules:** heuristics written as JSON in `snagboat.rules`, which run alongside the built-ins with the same findings, past findings, acknowledge, and mute. **Shell sub-categories** in `snagboat.toolCategories` split "Shell command" by command prefix. Both are groundwork for heuristics discovered from your own history. See [heuristics.md](https://github.com/DChristianson/snagboat/blob/main/docs/heuristics.md#rules).
+
 ## 0.0.2
 
 **Text capture is now on by default.** Snagboat stores your prompts (up to 2,000 characters), agent reply excerpts (up to 500), and session names, so the Sessions tab can show what you asked and `verbal-hedge` has replies to read. If you installed 0.0.1 and never changed `snagboat.captureContent`, capture starts with this version. Common secret formats are redacted before anything is stored, prompts and replies are kept for 30 days (`snagboat.retention.textDays`), and **Snagboat: Remove Captured Text** deletes what's stored and can turn capture off. Nothing leaves your machine. See [PRIVACY.md](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#captured-text).

@@ -1,6 +1,6 @@
 # Design: self-discovered heuristics and a trusted advisor
 
-Status: accepted, not started. Planned after the current roadmap work; see [roadmap.md](../roadmap.md#planned-tasks).
+Status: accepted; phase 1 (rule engine) done, see [heuristics.md](../heuristics.md#rules). See [roadmap.md](../roadmap.md#planned-tasks).
 
 ## Summary
 
@@ -193,7 +193,7 @@ Live nudges are rate-limited (at most one per turn, none while you're typing a p
 
 ## Phases
 
-1. **Rule engine.** The rule format, `RuleHeuristic`, storage, and porting two or three built-ins to rules to prove the format. The tool-category format too, with `shell` matching its sub-categories. A manual "add rule" path (JSON in settings) for testing.
+1. **Rule engine (done).** The rule format, `RuleHeuristic`, storage, and porting two or three built-ins to rules to prove the format. The tool-category format too, with `shell` matching its sub-categories. A manual "add rule" path (JSON in settings) for testing. As built: rules can name several measures (`measures`) for conditions over more than one, as `runaway-turn` and `backtracking` need; the three ports are checked against their built-ins in tests rather than replacing them. Saved rules have no writer yet, and Export and Import Rules come with discovery.
 2. **Discovery without a model.** Feature extraction, personal baselines, outlier candidates, replay scoring, and a "Suggested heuristics" view with accept, tweak, and dismiss. Personal threshold suggestions for the built-ins. Shell sub-category candidates from command frequencies. Useful on its own, with no model involved.
 3. **Providers, model testing, and explain.** The provider interface, local and hosted providers, the digest builder with redaction, preview, and audit log. Then an evaluation harness (a dev script like `replay:heuristics`, e.g. `npm run eval:advisor`) that runs each capability over digests of your real sessions with several models, local and hosted: rules are scored automatically (valid, replay results, overlap), explanations side by side for you to judge. Its results pick the default models. Then "Explain" on sessions and findings.
 4. **Advisor-proposed heuristics.** The advisor joins discovery, proposing rules and grouping and naming shell sub-categories; proposals go through the same scoring.
