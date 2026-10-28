@@ -1,7 +1,7 @@
 import { contextSize, ModelContextMarks } from '../core/contextLimits';
 import { eventTokens, isConversationEvent, SessionSummary } from '../core/sessions';
 import { NormalizedEvent } from '../core/types';
-import { TOOL_CATEGORY_LABELS, ToolCategory } from '../core/toolCategory';
+import { EventToolCategory, ToolCategory, baseCategory, categoryLabel } from '../core/toolCategory';
 
 /**
  * Everything the session view (turn tree above a context timeline; see
@@ -94,8 +94,8 @@ export const CATEGORY_COLOR_GROUPS: Array<{ label: string; categories: ToolCateg
   { label: 'Shell and version control', categories: ['shell', 'version-control'] },
 ];
 
-export function categoryColorGroup(category: ToolCategory): number {
-  return CATEGORY_COLOR_GROUPS.findIndex((g) => g.categories.includes(category)) + 1;
+export function categoryColorGroup(category: EventToolCategory): number {
+  return CATEGORY_COLOR_GROUPS.findIndex((g) => g.categories.includes(baseCategory(category))) + 1;
 }
 
 /** Display name for a subagent: Claude Code ids are long hashes, so keep a short prefix. */
@@ -115,14 +115,14 @@ function categoryChildren(parentId: string, tokens: number, tools: NormalizedEve
     return [{ id: `${parentId}/reply`, label: 'Replies only', kind: 'category', tokens, approximate: true, shade, colorGroup: 0, children: [] }];
   }
   // Fixed color-group order (neutral last), then largest first within a group.
-  const rank = (c: ToolCategory) => categoryColorGroup(c) || CATEGORY_COLOR_GROUPS.length + 1;
-  const counts = new Map<ToolCategory, number>();
+  const rank = (c: EventToolCategory) => categoryColorGroup(c) || CATEGORY_COLOR_GROUPS.length + 1;
+  const counts = new Map<EventToolCategory, number>();
   for (const t of tools) counts.set(t.toolCategory ?? 'other', (counts.get(t.toolCategory ?? 'other') ?? 0) + 1);
   return [...counts]
     .sort((a, b) => rank(a[0]) - rank(b[0]) || b[1] - a[1])
     .map(([category, n]) => ({
       id: `${parentId}/${category}`,
-      label: TOOL_CATEGORY_LABELS[category],
+      label: categoryLabel(category),
       kind: 'category' as const,
       tokens: Math.round((tokens * n) / tools.length),
       approximate: true,
