@@ -83,6 +83,7 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
   - **Snagboat: Backfill Sessions from Transcripts...** re-reads the transcripts behind days logged by older versions and rewrites those days, so their sessions get turns, turn ends, and tool calls, and their past findings are complete. It shows what will change and asks first.
   - **Snagboat: Discover Heuristics** opens the detail view's **Suggestions** tab, which reads this workspace's last 30 days (`snagboat.discovery.days`) and suggests heuristics from what's unusual for you. It shows candidate rules at your own turns' tails, how the built-ins' thresholds compare with your history, and command families that could split "Shell command". Accept, adjust the threshold (the replay updates as you type), or dismiss each one; nothing is added until you accept. See [docs/heuristics.md](docs/heuristics.md#discovery).
   - **Snagboat: Export Rules...** and **Snagboat: Import Rules...** carry your saved rules and shell categories to a JSON file and back. Import replays each rule over this workspace's history and lets you pick what to add.
+  - **Snagboat: Relabel Shell Calls** re-applies the shell sub-categories in use to this workspace's past shell calls, after counting them and asking.
   - **Snagboat: Remove Captured Text** deletes stored prompts and reply excerpts, keeping the events, and can turn capture off.
   - **Snagboat: Remove Claude Code Hooks from Project...** removes Snagboat's entries from a folder's `.claude/settings.json`, leaving your own hooks alone, and stops adding them there.
   - **Snagboat: Clear Event Log** deletes this workspace's logged events after confirming.
@@ -105,6 +106,24 @@ Most heuristics judge each session's current turn (everything since your latest 
 Default thresholds come from replaying real sessions; `npm run replay:heuristics` replays yours.
 
 With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself shows `$(warning)`. Details: [docs/heuristics.md](docs/heuristics.md).
+
+### Advisor (optional)
+
+**Explain** asks a model you choose what happened in a session, a turn, or a finding, and shows its answer beside the session, labelled as model output. Use the **Explain session** button in the Sessions tab, **Explain turn** on a selected prompt, **Explain** on a finding, or **Snagboat: Explain Session...**.
+
+**Ask the advisor**, in the Suggestions tab, gives discovery's candidates plain names, summaries, and suggested actions, proposes up to three rules of its own, and groups your shell commands into categories ("Network" for `curl` and `wget`). Each is checked like a rule you'd write, scored by replaying your history, and marked as the advisor's; nothing is saved until you accept.
+
+- **Local by default.** `snagboat.advisor.providers` starts with one provider: Ollama at `http://localhost:11434/v1`. Any OpenAI-compatible server on this machine works (LM Studio, llama.cpp). With no model set, Snagboat lists the server's models the first time you use it.
+- **Hosted only if you add one.** A provider at any other address must use https and needs your API key, set with **Snagboat: Set Advisor API Key...** and kept in VS Code's secret storage. Every request to it is recorded in a local audit log.
+- **The model sees a digest, not your log.** The digest is a summary built for one request:
+  - shell commands become their category and command name (`tests-builds: npm`);
+  - paths are made relative to the workspace, or hashed;
+  - prompts and session names go to local providers only, unless you allow more per provider (`send`);
+  - reply excerpts go nowhere unless you allow them.
+
+  The model gets no tools, so it can only answer.
+- **Small local models** may cut a whole session's digest to fit their context window; Explain warns when that happens. For Ollama, a larger window (`OLLAMA_CONTEXT_LENGTH=16384 ollama serve`) fixes it, and explaining one turn or finding sends far less.
+- **You see it first.** Before a provider's first request, and again whenever its address or sending rules change, Snagboat opens the exact payload and asks. **Snagboat: Preview Advisor Digest...** shows a session's digest as any provider would get it.
 
 ## Settings
 
@@ -136,7 +155,7 @@ With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself s
 
 ## Privacy
 
-Nothing leaves your machine, and there is no telemetry on the extension's UI. Events are stored as daily JSONL files in VS Code's per-workspace storage, readable with `jq`, DuckDB, or a notebook. Two things worth knowing. **Snagboat stores your prompts' text** by default, along with agent reply excerpts and session names: common secret formats are redacted first, prompts and replies are kept for 30 days (`snagboat.retention.textDays`), and **Snagboat: Remove Captured Text** deletes them on demand; turn `snagboat.captureContent` off to store no text at all. And for Claude Code's Bash tool, an event's target is the **full shell command**, which can contain secrets. [PRIVACY.md](PRIVACY.md) lists exactly what each source records and every place Snagboat stores anything.
+Nothing leaves your machine unless you set up a hosted advisor provider and approve what it receives (see [Advisor](#advisor-optional)), and there is no telemetry on the extension's UI. Events are stored as daily JSONL files in VS Code's per-workspace storage, readable with `jq`, DuckDB, or a notebook. Two things worth knowing. **Snagboat stores your prompts' text** by default, along with agent reply excerpts and session names: common secret formats are redacted first, prompts and replies are kept for 30 days (`snagboat.retention.textDays`), and **Snagboat: Remove Captured Text** deletes them on demand; turn `snagboat.captureContent` off to store no text at all. And for Claude Code's Bash tool, an event's target is the **full shell command**, which can contain secrets. [PRIVACY.md](PRIVACY.md) lists exactly what each source records and every place Snagboat stores anything.
 
 ## How it fits together
 
@@ -205,6 +224,8 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 ## Not built yet
 
 From the [roadmap](docs/roadmap.md):
+
+- more advisor capabilities: proposing heuristics, a periodic review, and live nudges
 
 - a shorter retention for shell commands and file paths (text already has one)
 - terminal exit codes and `git diff` polling, to tell real edits from no-op saves

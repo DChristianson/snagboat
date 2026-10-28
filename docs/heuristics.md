@@ -186,7 +186,7 @@ As a check that the format can say what the built-ins do, [rules.unit.test.ts](.
 
 Each `match` entry is one or two words, compared with the first words of the command's first meaningful segment, the same part the built-in classification reads. The longest match wins. Only commands that would otherwise be plain "Shell command" are refined, so an entry starting with `git` or `npm test` is rejected as one that could never apply. A filter on `shell` still matches every sub-category, so nothing written against the built-in categories changes.
 
-Sub-categories are saved alongside rules, or written by hand in `snagboat.toolCategories`. New tool calls get them as they arrive. Calls already logged keep the category they had.
+Sub-categories are saved alongside rules, or written by hand in `snagboat.toolCategories`. New tool calls get them as they arrive. **Snagboat: Relabel Shell Calls** re-applies them to this workspace's stored shell calls, and taking a category away puts its calls back in "Shell command". Whenever the categories in use change, Snagboat offers to relabel. Each workspace's log is separate, so other workspaces keep their labels until you relabel there.
 
 ## Discovery
 
@@ -205,10 +205,12 @@ In the Suggestions tab:
 
 - **Candidate rules** show the threshold, how many of your turns reach it, your percentiles, the replay score, and up to five sessions where it would have fired (opening one shows the candidate's past findings). Changing the threshold re-scores it. **Accept** saves the rule as shown, recording that discovery proposed it, when, in which workspace, and its replay score. **Dismiss** hides it in every workspace until you choose to show dismissed suggestions again.
 - **Built-in thresholds** compare each built-in setting with your history. **Apply** writes discovery's suggested value to your user settings.
-- **Shell sub-categories** can be accepted or dismissed the same way. An accepted category labels new tool calls; calls already logged keep their category.
+- **Shell sub-categories** can be accepted or dismissed the same way. An accepted category labels new tool calls, and Snagboat offers to relabel past ones.
 - **Your rules** lists saved rules and categories with where they came from, with **Remove**, and the ones written in settings.
 
 **Snagboat: Export Rules...** writes saved rules and categories, with their provenance, to a JSON file. **Snagboat: Import Rules...** reads one back (or a plain list of rules, as in `snagboat.rules`), replays each rule over this workspace's history, and lets you pick which to add. An imported rule replaces a saved rule with the same id.
+
+**Ask the advisor** sends the candidates to the model set in `snagboat.advisor.proposeProvider`, with digests of up to two example turns each and your shell command-family names (see [PRIVACY.md](../PRIVACY.md#the-advisor)). It returns names, summaries, and suggested actions for the candidates, up to three rules of its own (always given an `advisor:` id, so they can't replace one of yours), and shell categories. All of it goes through the same validators as hand-written rules: a name whose summary uses a placeholder the rule doesn't have, a rule that doesn't parse, or a category that can't match anything is dropped, and the tab lists what was dropped and why. Kept rules are scored by replay like discovery's, and accepting one records the advisor in its provenance. A new discovery clears the advisor's answer, since it was about the old candidates.
 
 `npm run discover` prints the same findings as text, naming heuristic ids and command families only, never targets, paths, prompts, or session names.
 

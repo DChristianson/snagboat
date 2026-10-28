@@ -4,6 +4,9 @@
 
 - **Rules:** heuristics written as JSON in `snagboat.rules`, which run alongside the built-ins with the same findings, past findings, acknowledge, and mute. **Shell sub-categories** in `snagboat.toolCategories` split "Shell command" by command prefix. Both are groundwork for heuristics discovered from your own history.
 - **Suggestions** tab (**Snagboat: Discover Heuristics**): heuristics suggested from what's unusual in this workspace's last 30 days. You get candidate rules scored by replaying your history, built-in thresholds compared with your own percentiles, and command families that could split "Shell command". Accept, adjust, or dismiss each, and remove saved rules there too.
+- **Explain** (optional): ask a model you choose about a session, a turn, or a finding. Local by default (Ollama or any OpenAI-compatible server on this machine). Hosted providers need your key, use https, and are audited. The model sees only a redacted digest, which you approve before the first request. **Snagboat: Preview Advisor Digest...** shows exactly what would be sent.
+- **Ask the advisor** in the Suggestions tab: a model you choose names discovery's candidates, proposes up to three rules, and groups your shell commands into categories. Everything it returns is validated, scored by replay, and saved only if you accept.
+- **Snagboat: Relabel Shell Calls** gives past shell calls the shell categories in use; Snagboat offers it whenever they change.
 - **Snagboat: Export Rules...** and **Snagboat: Import Rules...** move saved rules between machines; imports are replayed over your history before you pick them. See [heuristics.md](https://github.com/DChristianson/snagboat/blob/main/docs/heuristics.md#rules).
 
 ## 0.0.2
