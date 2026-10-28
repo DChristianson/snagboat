@@ -81,6 +81,7 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
 - **Commands:**
   - **Snagboat: Show Token/Event Breakdown** prints the breakdown to an output channel.
   - **Snagboat: Backfill Sessions from Transcripts...** re-reads the transcripts behind days logged by older versions and rewrites those days, so their sessions get turns, turn ends, and tool calls, and their past findings are complete. It shows what will change and asks first.
+  - **Snagboat: Discover Heuristics** reads this workspace's last 30 days (`snagboat.discovery.days`) and reports what's unusual for you: candidate rules where your own turns' tails are, how the built-ins' thresholds compare with your history, and command families that could split "Shell command". It only reports; nothing is added. See [docs/heuristics.md](docs/heuristics.md#discovery).
   - **Snagboat: Remove Captured Text** deletes stored prompts and reply excerpts, keeping the events, and can turn capture off.
   - **Snagboat: Remove Claude Code Hooks from Project...** removes Snagboat's entries from a folder's `.claude/settings.json`, leaving your own hooks alone, and stops adding them there.
   - **Snagboat: Clear Event Log** deletes this workspace's logged events after confirming.

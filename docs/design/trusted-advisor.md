@@ -1,6 +1,6 @@
 # Design: self-discovered heuristics and a trusted advisor
 
-Status: accepted; phase 1 (rule engine) done, see [heuristics.md](../heuristics.md#rules). See [roadmap.md](../roadmap.md#planned-tasks).
+Status: accepted; phase 1 (rule engine) done and phase 2 (discovery) in progress, see [heuristics.md](../heuristics.md#rules). See [roadmap.md](../roadmap.md#planned-tasks).
 
 ## Summary
 
@@ -82,7 +82,7 @@ Accepted rules live in Snagboat's global storage (shared by every workspace on t
 
 The first discovery pass needs no model:
 
-Discovery mines a recent window, the last 30 days by default (`snagboat.discovery.days`), so candidates follow your current habits rather than old ones.
+Discovery mines a recent window, the last 30 days by default (`snagboat.discovery.days`), so candidates follow your current habits rather than old ones. It reads only the current workspace's history (each workspace's log is separate), and each accepted rule records which workspace that was.
 
 1. **Feature extraction.** For every turn and session in the window: call and tool counts, per-category counts, failure rates, max repeats per target, context peak, cache rebuilds, idle gaps, duration, tokens.
 2. **Your own baseline.** Percentiles of each feature over your history, the same way the phase 3 defaults were calibrated by hand, but automatic and per user.
@@ -194,7 +194,7 @@ Live nudges are rate-limited (at most one per turn, none while you're typing a p
 ## Phases
 
 1. **Rule engine (done).** The rule format, `RuleHeuristic`, storage, and porting two or three built-ins to rules to prove the format. The tool-category format too, with `shell` matching its sub-categories. A manual "add rule" path (JSON in settings) for testing. As built: rules can name several measures (`measures`) for conditions over more than one, as `runaway-turn` and `backtracking` need; the three ports are checked against their built-ins in tests rather than replacing them. Saved rules have no writer yet, and Export and Import Rules come with discovery.
-2. **Discovery without a model.** Feature extraction, personal baselines, outlier candidates, replay scoring, and a "Suggested heuristics" view with accept, tweak, and dismiss. Personal threshold suggestions for the built-ins. Shell sub-category candidates from command frequencies. Useful on its own, with no model involved.
+2. **Discovery without a model (in progress: discovery, scoring, and a report are done; the view is next).** Feature extraction, personal baselines, outlier candidates, replay scoring, and a "Suggested heuristics" view with accept, tweak, and dismiss. Personal threshold suggestions for the built-ins. Shell sub-category candidates from command frequencies. Useful on its own, with no model involved.
 3. **Providers, model testing, and explain.** The provider interface, local and hosted providers, the digest builder with redaction, preview, and audit log. Then an evaluation harness (a dev script like `replay:heuristics`, e.g. `npm run eval:advisor`) that runs each capability over digests of your real sessions with several models, local and hosted: rules are scored automatically (valid, replay results, overlap), explanations side by side for you to judge. Its results pick the default models. Then "Explain" on sessions and findings.
 4. **Advisor-proposed heuristics.** The advisor joins discovery, proposing rules and grouping and naming shell sub-categories; proposals go through the same scoring.
 5. **Periodic review,** including the presentation review. First, UI snapshots at the moments that matter, fixed checks over them, response-to-findings measurements, and settings recommendations. Then the agent's review, from text snapshots and then rendered ones, also as `npm run review:ui`. Last, the optional local interaction counts.
@@ -217,6 +217,7 @@ From the first discussion:
 | Choosing models | Test several, local and hosted, with an evaluation harness over real session digests before picking defaults |
 | Where accepted rules live | Snagboat's global storage, with export to and import from a JSON file |
 | How much history discovery mines | A recent window (30 days by default) |
+| Which workspaces discovery reads | The current workspace only, for now. Each accepted rule records the workspace it was discovered in. Revisit once there's storage shared across workspaces. |
 | What rules filter on | Both Snagboat's tool categories and raw tool names |
 | Reviewing how findings are presented | No telemetry needed: an agent reviews snapshots of the status bar, notifications, and detail view, rebuilt by replay at the moments findings were active. Optional local interaction counts are off by default and never leave the machine. Output: settings you apply with a click, and design recommendations for Snagboat written up for you to file. |
 | Splitting "Shell command" | Discovered from your history as sub-categories of `shell`, proposed by discovery and the advisor and accepted like rules, rather than a fixed split |

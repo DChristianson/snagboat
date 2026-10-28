@@ -188,6 +188,21 @@ Each `match` entry is one or two words, compared with the first words of the com
 
 Sub-categories are saved alongside rules, or written by hand in `snagboat.toolCategories`. New tool calls get them as they arrive. Calls already logged keep the category they had.
 
+## Discovery
+
+**Snagboat: Discover Heuristics** looks for what's unusual in your own history and reports it. It needs no model, and it only reports: nothing is added or changed. It reads the current workspace's stored events for the last `snagboat.discovery.days` days (default 30). Each workspace's log is separate, so a rule found here reflects this project's habits, and a rule accepted from it will record which workspace it came from. `npm run discover` runs the same code over this project's Claude Code transcripts.
+
+[discover.ts](../src/discovery/discover.ts) works in four steps:
+
+1. **Measure every past turn.** Each feature is a turn-scoped rule measure from [probes.ts](../src/discovery/probes.ts): model calls, tool calls, tokens, failures and edits on one target, failures in a row, failure rate (turns with 5 or more decided calls), and per tool category, calls and calls on one target.
+2. **Find your tail.** The threshold is the value reached by your top 1% of turns, but always by at least 3 real turns, rounded down to a whole count, a 5% step, or two significant digits of tokens. It needs 50 turns with their prompts.
+3. **Propose a rule** where that tail is an outlier. The threshold has to be at least twice your median and above a floor per feature, the turns reaching it have to span 2 or more sessions, and it can't be common through ties (more than 3% of turns). For a feature a built-in already measures, discovery compares the built-in's current threshold with your tail instead.
+4. **Score it by replay.** Each candidate is replayed with [FindingReplay](../src/heuristics/replay.ts), session by session, alongside the running heuristics. The report gives its episodes, its sessions, and how many episodes of each existing heuristic it overlaps.
+
+Shell sub-category candidates come from [shellCategories.ts](../src/discovery/shellCategories.ts). Each plain "Shell command" call belongs to a command family: the first word of the command, or the first two for commands like `npm` and `docker` whose second word says what they do. A family that takes at least 10% of shell calls, with 5 or more calls in 2 or more sessions, becomes a candidate.
+
+The report names heuristic ids and command families only, never targets, paths, prompts, or session names.
+
 ## Acknowledging and muting
 
 Heuristics don't need to do anything to support either: both are applied by `FindingsRegistry` on top of whatever a heuristic reports, keyed by heuristic id. See [architecture.md](architecture.md#heuristics-engine).
