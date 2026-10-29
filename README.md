@@ -89,7 +89,7 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
     - rules to retire or add;
     - how findings were shown in the status bar, with suggested changes to Snagboat.
 
-    It names heuristics, rules, models, and session ids, never prompts, paths, or commands.
+    It names heuristics, rules, models, and session ids, never prompts, paths, or commands. Afterwards, **Ask the Advisor** has a model add its judgment and suggested changes to the file, labelled as model output. `snagboat.advisor.weeklyReview` (off by default) writes the review once a week by itself, without a model.
   - **Snagboat: Relabel Shell Calls** re-applies the shell sub-categories in use to this workspace's past shell calls, after counting them and asking.
   - **Snagboat: Remove Captured Text** deletes stored prompts and reply excerpts, keeping the events, and can turn capture off.
   - **Snagboat: Remove Claude Code Hooks from Project...** removes Snagboat's entries from a folder's `.claude/settings.json`, leaving your own hooks alone, and stops adding them there.
