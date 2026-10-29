@@ -1,4 +1,5 @@
 import { Finding } from './types';
+import { ResponseTracker } from './responses';
 
 /** A finding plus how the user has chosen to treat its heuristic. */
 export interface FindingView {
@@ -27,7 +28,7 @@ export class FindingsRegistry {
   private acknowledged = new Set<string>();
   private muted: Set<string>;
 
-  constructor(initiallyMuted: Iterable<string> = []) {
+  constructor(initiallyMuted: Iterable<string> = [], private readonly responses?: ResponseTracker) {
     this.muted = new Set(initiallyMuted);
   }
 
@@ -41,6 +42,7 @@ export class FindingsRegistry {
   }
 
   report(heuristicId: string, findings: Finding[]): void {
+    this.responses?.reported(heuristicId, findings);
     const prev = this.byHeuristic.get(heuristicId) ?? [];
     const changed = !sameFindings(prev, findings);
     if (findings.length > 0) {
@@ -56,6 +58,7 @@ export class FindingsRegistry {
   acknowledge(heuristicId: string): void {
     if (!this.byHeuristic.has(heuristicId) || this.acknowledged.has(heuristicId)) return;
     this.acknowledged.add(heuristicId);
+    this.responses?.acknowledged(heuristicId);
     this.notify();
   }
 
@@ -63,6 +66,7 @@ export class FindingsRegistry {
     if (this.muted.has(heuristicId) === muted) return;
     if (muted) this.muted.add(heuristicId);
     else this.muted.delete(heuristicId);
+    this.responses?.muted(heuristicId, muted);
     this.notify();
   }
 

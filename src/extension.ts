@@ -17,6 +17,10 @@ import { sessionDigestInput } from './advisor/source';
 import { Advisor } from './advisor/advisor';
 import { AuditLog } from './advisor/audit';
 import { proposeMessages } from './advisor/propose';
+import { ResponseLog, ResponseTracker } from './heuristics/responses';
+import { buildReview, isoWeek, renderReview } from './review/review';
+import * as os from 'os';
+import * as fs from 'fs';
 import { hasCapturedText, withoutCapturedText } from './core/excerpt';
 import { ContextLimits, ModelContextMarks } from './core/contextLimits';
 import { AggregateStore, EventSink, RetentionPolicy, applyRetention, oldestKeptDay } from './core/retention';
@@ -48,6 +52,7 @@ const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
 const MUTED_HEURISTICS_KEY = 'snagboat.mutedHeuristics';
 // Global: saved rules are shared by every workspace, so a dismissed suggestion stays dismissed everywhere.
 const DISMISSED_SUGGESTIONS_KEY = 'snagboat.dismissedSuggestions';
+const RESPONDING_SINCE_KEY = 'snagboat.respondingSince';
 
 // Generous placeholder sizing, comfortably covering every planned heuristic's
 // short window (minutes) without yet reading heuristic settings -- revisited
@@ -143,7 +148,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     ruleStoreError = `saved rules couldn't be read and are off until the file is fixed: ${err instanceof Error ? err.message : String(err)}`;
   }
 
-  const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []));
+  // How you respond to findings (acknowledge, mute, or let them pass), for the review.
+  const responseLog = new ResponseLog(storageDir);
+  void responseLog.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
+  if (!context.workspaceState.get<string>(RESPONDING_SINCE_KEY)) void context.workspaceState.update(RESPONDING_SINCE_KEY, new Date().toISOString());
+  const responses = new ResponseTracker((episode) => responseLog.append(episode));
+  context.subscriptions.push({ dispose: () => responseLog.appendNow(responses.drain()) });
+  const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []), responses);
   const contextLimitFor = (model: string | undefined) => (model ? contextLimits.get(model)?.limit : undefined);
   let heuristics: Heuristic[] = [];
   let ruleProblems: string[] = [];
@@ -439,7 +450,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       const sessionId = await pickSession('Explain a session (most recent first)');
       if (sessionId) await advisor.explain({ sessionId });
     }),
-    vscode.commands.registerCommand('snagboat.setAdvisorKey', () => advisor.setKey())
+    vscode.commands.registerCommand('snagboat.setAdvisorKey', () => advisor.setKey()),
+    vscode.commands.registerCommand('snagboat.writeReview', async () => {
+      const file = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Snagboat: writing the review…' }, async () => {
+        const to = new Date().toISOString();
+        const from = new Date(Date.now() - 7 * 86_400_000).toISOString();
+        const logged = await eventLog.snapshot();
+        const events: NormalizedEvent[] = [];
+        for (const day of await logged.listDays()) if (day >= from.slice(0, 10)) events.push(...(await logged.readDay(day)).filter((e) => e.ts >= from));
+        const discovery = runDiscovery(await loadDiscoveryEvents(), discoveryOptions()).result;
+        const review = buildReview({
+          workspace: discoverySource(),
+          from,
+          to,
+          events,
+          heuristics,
+          settingsFor: heuristicSettings,
+          contextLimit: contextLimitFor,
+          savedRules: ruleStore.list('rules').map((r) => ({ id: r.doc.id, title: typeof r.doc.title === 'string' ? r.doc.title : r.doc.id, provenance: r.provenance })),
+          responses: (await responseLog.readAll()).filter((e) => e.startedAt >= from),
+          respondingSince: context.workspaceState.get<string>(RESPONDING_SINCE_KEY),
+          muted: findings.mutedHeuristics(),
+          discovery,
+        });
+        const configured = vscode.workspace.getConfiguration('snagboat.advisor').get<string>('reviewDirectory', '');
+        const dir = configured ? configured.replace(/^~(?=$|\/)/, os.homedir()) : path.join(os.homedir(), '.snagboat', 'reviews');
+        await fs.promises.mkdir(dir, { recursive: true });
+        const name = `${isoWeek(to)}-${discoverySource().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workspace'}.md`;
+        const target = path.join(dir, name);
+        await fs.promises.writeFile(target, renderReview(review));
+        return target;
+      });
+      await vscode.window.showTextDocument(vscode.Uri.file(file), { preview: false });
+    })
   );
 
   context.subscriptions.push(
@@ -554,6 +597,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       const clearOp = retentionQueue.then(async () => {
         await aggregateStore.clear();
         await eventLog.clear();
+        await responseLog.clear();
         aggregate.reset();
         todayAggregate.reset();
         dailyHistory.reset();

@@ -59,6 +59,10 @@
         "title": "Snagboat: Set Advisor API Key..."
       },
       {
+        "command": "snagboat.writeReview",
+        "title": "Snagboat: Write Review"
+      },
+      {
         "command": "snagboat.showBreakdown",
         "title": "Snagboat: Show Token/Event Breakdown"
       },
@@ -1035,6 +1039,11 @@
           "type": "boolean",
           "default": false,
           "description": "Also keep the full payload of each request to a hosted provider in the audit log, for snagboat.retention.rawDays. Off: the log keeps when, which capability, the size, and a hash."
+        },
+        "snagboat.advisor.reviewDirectory": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Where **Snagboat: Write Review** writes its Markdown reports, one per week and workspace. Empty: `~/.snagboat/reviews`."
         }
       }
     }
@@ -1053,7 +1062,7 @@
     "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js && node ./out/test/unit/digest.unit.test.js && node ./out/test/unit/advisor.unit.test.js && node ./out/test/unit/propose.unit.test.js"
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js && node ./out/test/unit/digest.unit.test.js && node ./out/test/unit/advisor.unit.test.js && node ./out/test/unit/propose.unit.test.js && node ./out/test/unit/review.unit.test.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
