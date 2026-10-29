@@ -114,6 +114,8 @@ Default thresholds come from replaying real sessions; `npm run replay:heuristics
 
 With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself shows `$(warning)`. Details: [docs/heuristics.md](docs/heuristics.md).
 
+**Notifications** are off by default. Set `snagboat.nudges.notify` to `warnings` (or `all`) to be told when a finding appears, with buttons to show it in its session, explain it, acknowledge it, or mute it. There's at most one per turn, never a modal dialog, and `snagboat.nudges.quiet` keeps any heuristic out of them. With notifications on, `runaway-turn` and `context-pressure` also warn early, at 80% of their thresholds (`earlyWarning`), while there's still time to act: "Heading for a runaway turn: 80 of 100 model calls". `snagboat.nudges.advisor` adds the advisor's one-line suggestion under the finding in the status bar tooltip.
+
 ### Advisor (optional)
 
 **Explain** asks a model you choose what happened in a session, a turn, or a finding, and shows its answer beside the session, labelled as model output. Use the **Explain session** button in the Sessions tab, **Explain turn** on a selected prompt, **Explain** on a finding, or **Snagboat: Explain Session...**.

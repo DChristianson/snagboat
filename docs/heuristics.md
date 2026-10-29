@@ -47,7 +47,7 @@ Defaults come from replaying 20 real sessions (794 turns) with `npm run replay:h
 
 ### `runaway-turn`
 
-One prompt has driven at least `snagboat.heuristics.runawayTurn.maxModelCalls` model calls (main agent and subagents, default `100`) or `.maxToolCalls` tool calls (default `100`) without another prompt. Warn. Fires while the turn is current, finished or not. On real history, the 99th percentile was about 80 of each per turn.
+One prompt has driven at least `snagboat.heuristics.runawayTurn.maxModelCalls` model calls (main agent and subagents, default `100`) or `.maxToolCalls` tool calls (default `100`) without another prompt. Warn. Fires while the turn is current, finished or not. On real history, the 99th percentile was about 80 of each per turn. Early warning: while the turn is still open, at `.earlyWarning` (default `0.8`) of either threshold; see [Nudges](#nudges).
 
 ### `context-pressure`
 
@@ -172,6 +172,8 @@ A rule that doesn't validate is ignored. Each problem is listed in the Snagboat 
 - **`when`**: thresholds (`gte`, `gt`, `lte`, `lt`) on a measure, combined with `all` and `any`. With one measure, `measure` can be left out.
 - **`summary`** and **`suggestedAction`**: text with placeholders. `{name}` is a measure's value (shares and percentages as percentages, tokens shortened), `{name.target}` the target it names, `{target}` the first target any measure names, and `{windowMinutes}` the window.
 
+- **`earlyWarning`** (optional, between 0 and 1): warn before the rule fires, once its `gte` or `gt` thresholds are this far along. With `all`, the furthest-off condition decides; with `any`, the nearest. See [Nudges](#nudges).
+
 A rule is re-run on timer ticks only when its verdict can change with time alone: a `window` scope, or an `idleMinutes` measure.
 
 As a check that the format can say what the built-ins do, [rules.unit.test.ts](../src/test/unit/rules.unit.test.ts) writes `runaway-turn`, `tool-churn`, and `backtracking` as rules and checks that each fires at the same times as its built-in. `backtracking` as a rule reports one finding per turn, naming the worst target, where the built-in reports one per target.
@@ -213,6 +215,19 @@ In the Suggestions tab:
 **Ask the advisor** sends the candidates to the model set in `snagboat.advisor.proposeProvider`, with digests of up to two example turns each and your shell command-family names (see [PRIVACY.md](../PRIVACY.md#the-advisor)). It returns names, summaries, and suggested actions for the candidates, up to three rules of its own (always given an `advisor:` id, so they can't replace one of yours), and shell categories. All of it goes through the same validators as hand-written rules: a name whose summary uses a placeholder the rule doesn't have, a rule that doesn't parse, or a category that can't match anything is dropped, and the tab lists what was dropped and why. Kept rules are scored by replay like discovery's, and accepting one records the advisor in its provenance. A new discovery clears the advisor's answer, since it was about the old candidates.
 
 `npm run discover` prints the same findings as text, naming heuristic ids and command families only, never targets, paths, prompts, or session names.
+
+## Nudges
+
+With `snagboat.nudges.notify` set to `warnings` or `all` (it's `off` by default), [nudger.ts](../src/nudges/nudger.ts) turns findings into notifications after each evaluation:
+
+- **One per episode.** A heuristic notifies when it starts reporting, not again until it has cleared. An episode already under way when notifications are turned on stays quiet.
+- **One per turn.** Whatever fires, a session's turn gets at most one nudge, early warnings included. Findings that aren't tied to one turn (`token-budget`'s daily total) are limited by episode only.
+- **Never** for a muted heuristic or one listed in `snagboat.nudges.quiet`, and never a modal dialog. The design also asks for no nudges while you type a prompt; Snagboat can't see the agent's input box, so that one isn't done.
+- **Buttons:** Show in Session, Explain (the advisor, asking first as Explain always does), Acknowledge, Mute.
+
+**Early warnings** come from heuristics that can say how close they are (`progress` on the `Heuristic` interface), where acting early saves something real. `runaway-turn` reports at `earlyWarning` of its call thresholds, since tokens are still being spent. `context-pressure` reports at `earlyWarning` of its percentage, since a compaction is coming. Both default to `0.8`, and `0` turns them off. Rules opt in with `earlyWarning`. An early warning notifies as info, once per heuristic and turn, and not while that heuristic is already firing.
+
+**The advisor's line** (`snagboat.nudges.advisor`, off by default): when a finding nudges, the provider in `snagboat.advisor.nudgeProvider` gets that turn's digest and returns one sentence. It's shown under the finding in the status bar tooltip, labelled as model output, until the finding clears. It never prompts while you work. If the provider has no model yet, needs a key, or you haven't approved its payload through Explain, it doesn't ask, and the Snagboat output says why.
 
 ## Acknowledging and muting
 
