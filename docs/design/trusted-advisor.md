@@ -1,6 +1,6 @@
 # Design: self-discovered heuristics and a trusted advisor
 
-Status: accepted, not started. Planned after the current roadmap work; see [roadmap.md](../roadmap.md#planned-tasks).
+Status: accepted; phases 1 to 4 and 6 done (rule engine, discovery, providers and Explain, advisor-proposed heuristics, live nudges), phase 5 (periodic review) mostly done, see [heuristics.md](../heuristics.md#rules). See [roadmap.md](../roadmap.md#planned-tasks).
 
 ## Summary
 
@@ -82,7 +82,7 @@ Accepted rules live in Snagboat's global storage (shared by every workspace on t
 
 The first discovery pass needs no model:
 
-Discovery mines a recent window, the last 30 days by default (`snagboat.discovery.days`), so candidates follow your current habits rather than old ones.
+Discovery mines a recent window, the last 30 days by default (`snagboat.discovery.days`), so candidates follow your current habits rather than old ones. It reads only the current workspace's history (each workspace's log is separate), and each accepted rule records which workspace that was.
 
 1. **Feature extraction.** For every turn and session in the window: call and tool counts, per-category counts, failure rates, max repeats per target, context peak, cache rebuilds, idle gaps, duration, tokens.
 2. **Your own baseline.** Percentiles of each feature over your history, the same way the phase 3 defaults were calibrated by hand, but automatic and per user.
@@ -121,7 +121,7 @@ You accept, tweak the threshold (replay updates live), or dismiss. Dismissals ar
 - **Without a model:** the command names in your shell calls over the discovery window, by frequency. A command family taking a large share of them becomes a candidate on its own (`curl` 18% of shell calls).
 - **With the advisor:** it groups command names into named categories (`curl` and `wget` as "Network"; `ls`, `cat`, and `find` as "File system"). It sees command names only, never arguments, the same as the digest's redaction for shell targets.
 - **Scoring:** a replay shows the share of shell calls each candidate would take and what would be left in plain "Shell command", with example sessions.
-- **Applying:** new tool calls get the accepted category as `toolCategory`. **Snagboat: Backfill Sessions from Transcripts...** relabels history. Categories live in global storage with the rules, and export and import with them.
+- **Applying:** new tool calls get the accepted category as `toolCategory`. **Snagboat: Relabel Shell Calls** relabels history from the stored command lines, so it reaches calls logged through hooks too, not only days Backfill can re-read. Categories live in global storage with the rules, and export and import with them.
 
 ### Learning from use
 
@@ -193,16 +193,28 @@ Live nudges are rate-limited (at most one per turn, none while you're typing a p
 
 ## Phases
 
-1. **Rule engine.** The rule format, `RuleHeuristic`, storage, and porting two or three built-ins to rules to prove the format. The tool-category format too, with `shell` matching its sub-categories. A manual "add rule" path (JSON in settings) for testing.
-2. **Discovery without a model.** Feature extraction, personal baselines, outlier candidates, replay scoring, and a "Suggested heuristics" view with accept, tweak, and dismiss. Personal threshold suggestions for the built-ins. Shell sub-category candidates from command frequencies. Useful on its own, with no model involved.
-3. **Providers, model testing, and explain.** The provider interface, local and hosted providers, the digest builder with redaction, preview, and audit log. Then an evaluation harness (a dev script like `replay:heuristics`, e.g. `npm run eval:advisor`) that runs each capability over digests of your real sessions with several models, local and hosted: rules are scored automatically (valid, replay results, overlap), explanations side by side for you to judge. Its results pick the default models. Then "Explain" on sessions and findings.
-4. **Advisor-proposed heuristics.** The advisor joins discovery, proposing rules and grouping and naming shell sub-categories; proposals go through the same scoring.
-5. **Periodic review,** including the presentation review. First, UI snapshots at the moments that matter, fixed checks over them, response-to-findings measurements, and settings recommendations. Then the agent's review, from text snapshots and then rendered ones, also as `npm run review:ui`. Last, the optional local interaction counts.
-6. **Live nudges.**
+1. **Rule engine (done).** The rule format, `RuleHeuristic`, storage, and porting two or three built-ins to rules to prove the format. The tool-category format too, with `shell` matching its sub-categories. A manual "add rule" path (JSON in settings) for testing. As built: rules can name several measures (`measures`) for conditions over more than one, as `runaway-turn` and `backtracking` need; the three ports are checked against their built-ins in tests rather than replacing them. Export and Import Rules came with discovery's view, in phase 2.
+2. **Discovery without a model (done).** Feature extraction, personal baselines, outlier candidates, replay scoring, and a "Suggested heuristics" view with accept, tweak, and dismiss. Personal threshold suggestions for the built-ins. Shell sub-category candidates from command frequencies. Useful on its own, with no model involved.
+3. **Providers, model testing, and explain (done; see the first evaluation under Open questions).** The provider interface, local and hosted providers, the digest builder with redaction, preview, and audit log. Then an evaluation harness (a dev script like `replay:heuristics`, e.g. `npm run eval:advisor`) that runs each capability over digests of your real sessions with several models, local and hosted: rules are scored automatically (valid, replay results, overlap), explanations side by side for you to judge. Its results pick the default models. Then "Explain" on sessions and findings.
+4. **Advisor-proposed heuristics (done).** The advisor joins discovery, proposing rules and grouping and naming shell sub-categories; proposals go through the same scoring.
+5. **Periodic review,** including the presentation review (in progress: recorded responses, snapshots with fixed checks, **Snagboat: Write Review**, the advisor's part of it (from text snapshots), `npm run review:ui`, and the opt-in weekly schedule are done; rendered screenshots for vision models and the optional local interaction counts are next). Notifications for findings don't exist yet, so the settings recommendations the design describes ("send a heuristic's warnings as notifications") start as a design recommendation in the review instead. First, UI snapshots at the moments that matter, fixed checks over them, response-to-findings measurements, and settings recommendations. Then the agent's review, from text snapshots and then rendered ones, also as `npm run review:ui`. Last, the optional local interaction counts.
+6. **Live nudges (done).** Notifications for findings, opt-in with `snagboat.nudges.notify`, at most one per episode and per turn; early warnings through a `progress` hook on heuristics (`runaway-turn`, `context-pressure`, and rules with `earlyWarning`); and an opt-in advisor line in the tooltip that never prompts mid-work. Not done: holding nudges while you type a prompt, since the agent's input box isn't visible to Snagboat.
 
 ## Open questions
 
-- **Which models to test first,** and how many digests make a fair comparison.
+- **Which models to test first,** and how many digests make a fair comparison. First run (2026-10-28, `npm run eval:advisor`, 2 sessions, 12 cases, local Ollama):
+  - llama3.1 (8B) answered in 15 to 30 seconds, but Ollama's default 2,048-token window cut every whole-session prompt (5,000 to 7,700 tokens), and those answers lost the required headings. Its turn and finding answers were well-formed but generic, and it misread a turn's length as idle time.
+  - qwen3.5 was specific and grounded (named the files and failures, said when the digest couldn't tell), but took 105 to 180 seconds, mostly thinking. One whole-session request hit the old 180-second timeout.
+  - Proposing heuristics (same day, `--capability propose`): asking for JSON mode broke both, since Ollama refuses it for qwen3.5 and llama3.1 looped until aborted, so the request asks for JSON in words and the parser finds it. llama3.1's 2,048-token window cut the 4,500-token request every time. qwen3.5 (about 2 minutes) named all four candidates well and grouped shell commands sensibly. Its first rules filtered `toolName` on shell commands (`sed`) and could never fire, so the prompt now explains `toolName` and lists the tool names seen, and rules that would never have fired on your history are dropped. Its second try gave two rules that fire (8 and 20 episodes in 3 sessions). It kept writing "{value}M tokens" for an already-formatted value, so a unit glued to a placeholder is now removed.
+  - The review (same day, `npm run review:ui --models qwen3.5`): the first try failed at exactly 5 minutes, because Node's `fetch` gives up on headers that slow and Ollama sends none until it's done. Completions are now streamed. Streamed, qwen3.5 answered in 3.6 minutes and rightly recommended notifications for warnings. It also read `stalled` as agent hangs (see the `stalled` note in the roadmap) and asked for token counts that the snapshot had only left out, so the review prompt now explains elided counts and carries a short glossary of the built-in heuristics.
+  - So far: no default model is set (you pick from your server's models on first use). Turn and finding explanations fit any local model; whole sessions need a larger context window. Explain now warns when a server reads far less than it was sent, and local requests may take up to 10 minutes. Still open: whether to compact the digest (pretty JSON costs about 30%), and whether to turn thinking off for reasoning models.
+- **Actionability and value of rules (noted 2026-10-28, not started).** Proposals should be judged on whether they name a cause and an action the person can take, not only on whether they fire. "Check what the agent is doing, it may be a problem" is weak. Strong ones name the cause and the fix:
+  - the agent is downloading software with known vulnerabilities, so set guardrails;
+  - the prompts are too complex for the model's tier, so plan more before prompting;
+  - the model's tier is too high for the prompt, so drop to a smaller model (see the model-fit heuristic in the roadmap).
+
+  This needs an evaluation of actionability and value alongside replay scoring (episodes, overlap). That might mean a rubric applied in `npm run eval:advisor`, a stronger requirement in the propose prompt, or both. Discovery's own suggested actions are generic today and would be judged the same way.
+- **Telling an inattentive user apart from a stalled agent** (noted 2026-10-28): see the `stalled` entry in the [roadmap](../roadmap.md#planned-tasks). It affects what Explain and proposals say about idle time.
 - **Whether local interaction counts add enough** to be worth building, beyond the agent's review of snapshots and the response-to-findings signals. Decide after the agent's review has run on real history.
 
 ## Decisions
@@ -217,8 +229,11 @@ From the first discussion:
 | Choosing models | Test several, local and hosted, with an evaluation harness over real session digests before picking defaults |
 | Where accepted rules live | Snagboat's global storage, with export to and import from a JSON file |
 | How much history discovery mines | A recent window (30 days by default) |
+| Which workspaces discovery reads | The current workspace only, for now. Each accepted rule records the workspace it was discovered in. Revisit once there's storage shared across workspaces. |
 | What rules filter on | Both Snagboat's tool categories and raw tool names |
 | Reviewing how findings are presented | No telemetry needed: an agent reviews snapshots of the status bar, notifications, and detail view, rebuilt by replay at the moments findings were active. Optional local interaction counts are off by default and never leave the machine. Output: settings you apply with a click, and design recommendations for Snagboat written up for you to file. |
 | Splitting "Shell command" | Discovered from your history as sub-categories of `shell`, proposed by discovery and the advisor and accepted like rules, rather than a fixed split |
+| Which hosted providers first | OpenAI-compatible endpoints only: one client covers local servers and hosted ones (and Anthropic's compatibility endpoint) with a base URL and your key |
+| What makes a provider local | Its address: loopback only. Anything else is hosted, must use https, and is audited, whatever it's called |
 | Where reviews go | Markdown files in a user-level folder outside any project (`~/.snagboat/reviews/` by default) |
 | When live nudges fire | On findings, plus early warnings only where acting early saves something real (`runaway-turn`, `context-pressure` by default); a per-rule setting, off otherwise |

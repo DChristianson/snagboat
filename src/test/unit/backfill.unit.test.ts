@@ -4,7 +4,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { mainTranscriptOf, normalizeTranscriptSession } from '../../adapters/claude-code/transcriptSession';
 import { normalizeHookPayload } from '../../adapters/claude-code/normalize';
-import { dayStats, isRetiredCopilotMetric, mergeDay, sourceFileOf } from '../../backfill/merge';
+import { dayStats, isRetiredCopilotMetric, mergeDay, relabelShellCalls, sourceFileOf } from '../../backfill/merge';
+import { setShellSubCategories } from '../../core/toolCategory';
 import { planBackfill, rebuildDays } from '../../backfill/rebuild';
 import { EventLog } from '../../core/eventLog';
 import { NormalizedEvent } from '../../core/types';
@@ -37,6 +38,29 @@ const endLine = (uuid: string, parent: string, msgId: string, min: number) =>
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
   const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
+
+  test('relabelling gives past shell calls the categories in use, and takes removed ones back to shell', () => {
+    const call = (eventId: string, target: string, toolCategory: NormalizedEvent['toolCategory'], toolName = 'Bash'): NormalizedEvent => ({
+      eventId, sessionId: 's', agent: 'claude-code', ts: '2026-01-01T00:00:00.000Z', kind: 'tool_call', status: 'success', toolName, toolCategory, target, raw: { adapter: 'claude-code', ref: 'hook:PostToolUse' },
+    });
+    const events = [
+      call('curl', 'curl -s https://example.com', 'shell'),
+      call('old', 'brew install jq', 'user:shell/brew'),
+      call('ls', 'ls -la', 'shell'),
+      call('test', 'npm test', 'tests-builds'),
+      call('output', 'curl', 'shell', 'BashOutput'),
+    ];
+    setShellSubCategories([{ id: 'user:shell/network', parent: 'shell', label: 'Network', match: ['curl'] }]);
+    try {
+      const { events: out, changed } = relabelShellCalls(events);
+      assert.strictEqual(changed, 2);
+      assert.deepStrictEqual(out.map((e) => e.toolCategory), ['user:shell/network', 'shell', 'shell', 'tests-builds', 'shell']);
+      assert.strictEqual(out[2], events[2], 'unchanged events are passed through as they are');
+      assert.strictEqual(relabelShellCalls(out).changed, 0);
+    } finally {
+      setShellSubCategories([]);
+    }
+  });
 
   test('source files: transcript and Copilot log refs, not hooks, spans, or saves', () => {
     assert.strictEqual(sourceFileOf(ev({ eventId: 'a', kind: 'turn_stop' })), '/t/main.jsonl');

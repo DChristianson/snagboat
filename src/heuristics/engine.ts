@@ -1,6 +1,6 @@
 import { NormalizedEventKind } from '../core/types';
 import { ReadonlyEventStore } from '../core/eventStore';
-import { Heuristic, Finding } from './types';
+import { Heuristic, Finding, Progress } from './types';
 
 export class HeuristicsEngine {
   constructor(
@@ -21,6 +21,11 @@ export class HeuristicsEngine {
       this.heuristics.filter((h) => h.appliesTo.includes(kind)),
       now
     );
+  }
+
+  /** Early warnings from the heuristics that give them. */
+  progress(now: string): Progress[] {
+    return this.heuristics.flatMap((h) => h.progress?.({ now, store: this.store, settings: this.settingsFor(h.id), contextLimit: this.contextLimit }) ?? []);
   }
 
   private runAll(heuristics: Heuristic[], now: string): Map<string, Finding[]> {

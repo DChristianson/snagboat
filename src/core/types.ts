@@ -1,4 +1,4 @@
-import type { ToolCategory } from './toolCategory';
+import type { EventToolCategory } from './toolCategory';
 
 export type BuiltInAgentId = 'claude-code' | 'copilot' | 'generic-fs';
 export type AgentId = BuiltInAgentId | `custom:${string}`;
@@ -45,7 +45,7 @@ export interface NormalizedEvent {
   /** For tool calls: the tool's name as the agent reported it. */
   toolName?: string;
   /** For tool calls: high-level category (see toolCategory.ts). */
-  toolCategory?: ToolCategory;
+  toolCategory?: EventToolCategory;
   /**
    * 'inline' marks model calls made by editor features (Copilot's inline and
    * next-edit suggestions, chat titles, intent detection) rather than an

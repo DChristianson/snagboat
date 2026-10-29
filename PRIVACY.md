@@ -1,6 +1,6 @@
 # Privacy
 
-Snagboat keeps everything it observes on the developer's machine. Nothing is sent off-machine, and there is no telemetry of the extension itself.
+Snagboat keeps everything it observes on the developer's machine, and there is no telemetry of the extension itself. The one exception is the optional advisor: if you add a hosted provider and approve its payload, a redacted digest of the session you ask about is sent to it (see [The advisor](#the-advisor)).
 
 ## What is captured
 
@@ -47,6 +47,21 @@ The same text is already on disk in the agents' own logs: Claude Code keeps full
 
 Note that Copilot's own `github.copilot.chat.otel.captureContent` makes Copilot send full prompts, replies, and tool results to Snagboat's local receiver. Snagboat keeps only the truncated reply text and discards the rest without logging it.
 
+## The advisor
+
+**Explain** sends one **session digest** per request to the provider set in `snagboat.advisor.explainProvider`. **Ask the advisor**, in the Suggestions tab, sends discovery's candidates to the provider set in `snagboat.advisor.proposeProvider`. That's each candidate's pattern, threshold, and your percentiles, plus digests of up to two of the turns that reached it, under the same rules as below, and the names of your shell command families (`curl`, `npm install`) with their counts, never their arguments. **Ask the Advisor**, after **Snagboat: Write Review**, sends the review's own data to the provider set in `snagboat.advisor.reviewProvider`: counts by model, day, and tool category; session ids; heuristic and rule ids and titles with their episode and response counts; and the status bar snapshots, with findings shown only by heuristic id. A scheduled weekly review never sends anything. With `snagboat.nudges.advisor` on, a finding's notification also sends that turn's digest to `snagboat.advisor.nudgeProvider`, but only for a provider whose current payload you've already approved; it never asks while you work. By default that's a local model (Ollama on `localhost`), and nothing leaves the machine. A provider is treated as local only if its address is a loopback address (`localhost`, `127.0.0.1`, `::1`), whatever its name. Any other provider is hosted: it must use https, needs your API key, and is audited.
+
+Digests are built from the stored events for one request and contain:
+
+- **Always:** session and turn ids, times, counts of turns, model calls, and tool calls; token counts and context peaks; tool categories, failures, compactions; findings, with summaries redacted the same way as targets.
+- **Shell commands:** only their category and command name (`tests-builds: npm`). Never arguments, environment variables, or the rest of the line.
+- **File paths:** relative to the workspace, or, when outside it or when `send.paths` is `hashed`, a short hash that keeps the extension (`file-3dbaa72f.md`).
+- **Prompt text:** for local providers by default; for hosted ones only with `send.prompts`. Capped at 1,000 characters per turn, after the redaction applied at capture.
+- **Session names:** local by default; hosted only with `send.sessionNames`.
+- **Reply excerpts:** never, unless a provider has `send.replies`.
+
+The request carries a fixed instruction and the data, and offers the model no tools. What a model sends back is only ever shown as model output; a proposed rule or category is checked like one you'd write and saved only if you accept it. Before a provider's first request, and whenever its address or sending rules change, Snagboat shows the exact payload and asks. **Snagboat: Preview Advisor Digest...** shows a digest any time.
+
 ## Where data is stored
 
 All under the extension's per-workspace storage folder unless noted:
@@ -56,11 +71,18 @@ All under the extension's per-workspace storage folder unless noted:
 | `events/<date>.jsonl` | Every normalized event, including `target` and, when capture is on, `promptText`, `textExcerpt`, and `sessionName` | `snagboat.retention.rawDays` (default 90 days, counting today); `promptText` and `textExcerpt` only `snagboat.retention.textDays` (default 30) |
 | `aggregates/<date>.json` | Per-day, per-agent token and event counts. No targets or text. | `snagboat.retention.aggregateDays` (default `-1`, kept indefinitely; `0` keeps none) |
 | `checkpoints/<adapter>.json` | Read offsets into Claude Code transcript files (including subagent transcripts), the last few API message ids seen in each, and each file's most recent prompt id, keyed by transcript path (Copilot's: offsets and last turn per session log) | Until the transcript or session log is deleted (its entry is dropped at the next activation), or cleared manually; not covered by `Clear Event Log` |
-| VS Code workspace state | The list of muted heuristics | Until unmuted |
+| VS Code workspace state | The list of muted heuristics, and when Snagboat started recording your responses to findings | Until unmuted, or Snagboat is uninstalled |
+| `finding-responses.jsonl` | One line per finding episode: heuristic id, worst severity, when it started and ended, and when you acknowledged or muted it. No summaries or targets. Read by **Snagboat: Write Review**. | `snagboat.retention.rawDays`, pruned at activation; removed by `Clear Event Log` |
+| `~/.snagboat/reviews/<week>-<workspace>.md` (or `snagboat.advisor.reviewDirectory`) | Reviews you write with **Snagboat: Write Review**: token and call counts by model, day, and tool category; session ids; heuristic and rule ids, titles, and episode counts; your response counts; status bar snapshots with findings shown only by heuristic id. No prompts, replies, paths, commands, or session names. | Until you delete them; Snagboat never reads them back or sends them anywhere |
+| VS Code global state | The ids of suggestions you dismissed in the Suggestions tab, shared by all workspaces. No content. | Until you show dismissed suggestions again |
 | VS Code webview state | The detail view's filters, including the timeline search text | Managed by VS Code |
 | VS Code extension host log | Diagnostic messages: file paths, port errors, and, for hook or OTLP requests Snagboat couldn't parse or map, only their size and hook/tool names, never payload contents | Managed by VS Code |
 | VS Code global storage: `copilot-structure/<date>.jsonl` | Only with `snagboat.copilot.captureStructure` on (off by default): the shape of Copilot's telemetry, meaning span names, ids, parent links, timings, attribute names, and numeric or true/false values such as token counts. Every text value is replaced by its length, so no prompts, replies, tool arguments, paths, or model names. | Until deleted by hand |
 | VS Code global storage: `context-limits.json` | Per model name: the largest context seen, and the context at which an automatic compaction happened, with when. Shared by all workspaces. No content. | Until Snagboat is uninstalled |
+| VS Code global storage: `advisor-audit.jsonl` | One line per request to a hosted advisor provider: when, provider, address, model, capability, outcome, request size, and its SHA-256. The full request only with `snagboat.advisor.auditPayloads` on (off by default). | `snagboat.retention.rawDays`, pruned at activation |
+| VS Code secret storage | Hosted advisor providers' API keys | Until removed with **Snagboat: Set Advisor API Key...** (leave it empty) |
+| VS Code global state | Which advisor providers you've approved, keyed by a hash of their address and sending rules. No content. | Until Snagboat is uninstalled |
+| VS Code global storage: `rules.json` | Saved heuristic rules and shell sub-categories: their definitions, which can include command prefixes you or discovery chose, plus who proposed each, when, the name of the workspace it was discovered in, and its replay score. Shared by all workspaces. No events or captured text. | Until removed, or Snagboat is uninstalled |
 | `~/.snagboat/routes/<folder>` | One file per open workspace folder: the local port, a random auth token, and the VS Code process id, so hooks reach the right window. Owner-only (`0600`). | Removed when the window closes; leftovers from crashed windows are removed on the next activation |
 | `~/.snagboat/bin/snagboat-hook` | The hook forwarder script that Claude Code runs | Rewritten on every activation |
 | `<project>/.claude/settings.json` | Outside Snagboat's storage: the `PostToolUse`/`Stop` hook entries Snagboat adds so Claude Code runs `snagboat-hook` | Until removed with `Snagboat: Remove Claude Code Hooks from Project...` or by hand |
@@ -89,6 +111,7 @@ Events are filed under the day they happened, so history caught up from an old t
 ## Design guardrails
 
 - Logs stay local. Any future sharing or sync feature must be a separate, clearly labeled opt-in.
+- The advisor sees only digests built for one request, under its provider's sending rules, after you've seen the payload. Local is the default; hosted providers are opt-in, use https, and are audited. A model gets no tools and no standing access to the log.
 - Adapters prefer pointers back to source data (`raw.ref`) over copying payloads into events.
 - Heuristics and UI must work without captured text (`promptText`, `textExcerpt`, `sessionName`).
 - Token tracking must not require content capture.

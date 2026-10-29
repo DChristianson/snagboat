@@ -47,7 +47,7 @@ Defaults come from replaying 20 real sessions (794 turns) with `npm run replay:h
 
 ### `runaway-turn`
 
-One prompt has driven at least `snagboat.heuristics.runawayTurn.maxModelCalls` model calls (main agent and subagents, default `100`) or `.maxToolCalls` tool calls (default `100`) without another prompt. Warn. Fires while the turn is current, finished or not. On real history, the 99th percentile was about 80 of each per turn.
+One prompt has driven at least `snagboat.heuristics.runawayTurn.maxModelCalls` model calls (main agent and subagents, default `100`) or `.maxToolCalls` tool calls (default `100`) without another prompt. Warn. Fires while the turn is current, finished or not. On real history, the 99th percentile was about 80 of each per turn. Early warning: while the turn is still open, at `.earlyWarning` (default `0.8`) of either threshold; see [Nudges](#nudges).
 
 ### `context-pressure`
 
@@ -115,6 +115,119 @@ The replay works the same way as the live engine:
 Past findings are only as complete as the stored events. History read back from transcripts, from before a window ran Snagboat, has prompts, model calls, and compactions but no tool calls, because Claude Code's tool calls arrive through hooks. `tool-churn`, `backtracking`, and the tool-call half of `runaway-turn` can't fire there until **Snagboat: Backfill Sessions from Transcripts...** rebuilds tool calls from the transcripts. After a backfill, a stored session's past findings match a replay of its transcripts. Sessions logged before turn ends were recorded are skipped by `stalled`, since every turn would look unfinished.
 
 A replayed episode still reporting at the end that shares events with a live finding of the same heuristic is shown once, as active. Muted heuristics are left out. The largest real session (2,209 events over 11 days) replays in about 0.2 seconds. `npm run replay:heuristics` uses the same code.
+
+## Rules
+
+Besides the built-ins, Snagboat runs **rules**: heuristics written as JSON instead of code. [ruleHeuristic.ts](../src/heuristics/ruleHeuristic.ts) turns each rule into an ordinary heuristic, so a rule's findings show in the status bar and the Sessions tab, replay as past findings, and can be acknowledged and muted like a built-in's. Rules are data. They count events and compare the counts with thresholds; they can't run code, read files, or send anything.
+
+Rules come from two places, and a rule in settings replaces a saved rule with the same id:
+
+- **Saved rules** in `rules.json` in VS Code's global storage, shared by every workspace. Each saved rule records who proposed it, when, and its replay score. Nothing adds saved rules yet: discovery (phase 2 of the [advisor design](design/trusted-advisor.md#phases)) will.
+- **`snagboat.rules`** in settings, for writing rules by hand.
+
+A rule that doesn't validate is ignored. Each problem is listed in the Snagboat output (and again by **Snagboat: Show Token/Event Breakdown**), and the status bar shows a health warning until it's fixed.
+
+```json
+{
+  "id": "user:read-loop",
+  "title": "Re-reading the same files",
+  "scope": "turn",
+  "filter": { "kind": "tool_call", "toolCategory": ["file-read"] },
+  "measure": { "type": "maxPerTarget" },
+  "when": { "gte": 6 },
+  "severity": "info",
+  "summary": "{target} read {value} times in this turn",
+  "suggestedAction": "The agent may be losing track of the file's contents; consider pointing it at the relevant lines."
+}
+```
+
+- **`id`**: a source, a colon, then a name in lowercase letters, digits, and dashes (`user:read-loop`). The colon keeps rule ids apart from the built-ins'.
+- **`scope`**: which events of each session are measured. `turn` is the session's latest turn, and clears on the next prompt. `session` is the session's events in the event store, which holds the last 24 hours. `window` is the last `windowMinutes` minutes.
+- **`filter`**: which events count, on top of each measure's own `filter`. Rules see conversation events only (`user_prompt`, `turn_stop`, `tool_call`, `compaction`), as the built-ins do. Fields:
+  - `kind`
+  - `agent`
+  - `toolCategory`: `shell` also matches its [sub-categories](#shell-sub-categories).
+  - `toolName`: exact, or with `*` (`mcp__github__*`).
+  - `status`
+  - `subagent`: `true` for subagents' events only, `false` for the main agent's.
+  - `hasTarget`
+  - `hasTokens`: model calls that carry token counts.
+
+  Every list field also takes a single string.
+- **`measure`**: one measure, named `value`. **`measures`** names several instead (`{ "calls": {...}, "tools": {...} }`). The types:
+
+  | Type | Value |
+  | --- | --- |
+  | `count` | Matching events |
+  | `distinctTargets` | Different targets among them |
+  | `maxPerTarget` | Events on the busiest target; names that target |
+  | `topShare` | Share (0 to 1) of targeted events on the top `n` targets (default 1); names the top one |
+  | `sumTokens` | Tokens of every kind, added up |
+  | `contextPercent` | The latest model call's context as a percentage of the model's limit (the call's reported limit, else the lowest seen) |
+  | `failureRate` | Share (0 to 1) of events with a known outcome that failed |
+  | `idleMinutes` | Minutes since the latest matching event |
+  | `consecutive` | Longest run of matching events among events of the filtered kinds, so model calls between failed tool calls don't break a run of failures |
+
+  A measure with nothing to measure (no targets, no known limit) has no value, and any threshold on it is false.
+- **`when`**: thresholds (`gte`, `gt`, `lte`, `lt`) on a measure, combined with `all` and `any`. With one measure, `measure` can be left out.
+- **`summary`** and **`suggestedAction`**: text with placeholders. `{name}` is a measure's value (shares and percentages as percentages, tokens shortened), `{name.target}` the target it names, `{target}` the first target any measure names, and `{windowMinutes}` the window.
+
+- **`earlyWarning`** (optional, between 0 and 1): warn before the rule fires, once its `gte` or `gt` thresholds are this far along. With `all`, the furthest-off condition decides; with `any`, the nearest. See [Nudges](#nudges).
+
+A rule is re-run on timer ticks only when its verdict can change with time alone: a `window` scope, or an `idleMinutes` measure.
+
+As a check that the format can say what the built-ins do, [rules.unit.test.ts](../src/test/unit/rules.unit.test.ts) writes `runaway-turn`, `tool-churn`, and `backtracking` as rules and checks that each fires at the same times as its built-in. `backtracking` as a rule reports one finding per turn, naming the worst target, where the built-in reports one per target.
+
+### Shell sub-categories
+
+"Shell command" covers every shell call that isn't a script, a test or build, or version control. Sub-categories split it further, and a rule can target one:
+
+```json
+{ "id": "user:shell/package-install", "parent": "shell", "label": "Package installs", "match": ["npm install", "pip install", "brew install"] }
+```
+
+Each `match` entry is one or two words, compared with the first words of the command's first meaningful segment, the same part the built-in classification reads. The longest match wins. Only commands that would otherwise be plain "Shell command" are refined, so an entry starting with `git` or `npm test` is rejected as one that could never apply. A filter on `shell` still matches every sub-category, so nothing written against the built-in categories changes.
+
+Sub-categories are saved alongside rules, or written by hand in `snagboat.toolCategories`. New tool calls get them as they arrive. **Snagboat: Relabel Shell Calls** re-applies them to this workspace's stored shell calls, and taking a category away puts its calls back in "Shell command". Whenever the categories in use change, Snagboat offers to relabel. Each workspace's log is separate, so other workspaces keep their labels until you relabel there.
+
+## Discovery
+
+**Snagboat: Discover Heuristics** opens the detail view's **Suggestions** tab, which looks for what's unusual in your own history and suggests heuristics from it. It needs no model, and nothing is added until you accept. It reads the current workspace's stored events for the last `snagboat.discovery.days` days (default 30). Each workspace's log is separate, so a rule found here reflects this project's habits, and a rule accepted from it will record which workspace it came from. `npm run discover` runs the same code over this project's Claude Code transcripts.
+
+[discover.ts](../src/discovery/discover.ts) works in four steps:
+
+1. **Measure every past turn.** Each feature is a turn-scoped rule measure from [probes.ts](../src/discovery/probes.ts): model calls, tool calls, tokens, failures and edits on one target, failures in a row, failure rate (turns with 5 or more decided calls), and per tool category, calls and calls on one target.
+2. **Find your tail.** The threshold is the value reached by your top 1% of turns, but always by at least 3 real turns, rounded down to a whole count, a 5% step, or two significant digits of tokens. It needs 50 turns with their prompts.
+3. **Propose a rule** where that tail is an outlier. The threshold has to be at least twice your median and above a floor per feature, the turns reaching it have to span 2 or more sessions, and it can't be common through ties (more than 3% of turns). For a feature a built-in already measures, discovery compares the built-in's current threshold with your tail instead.
+4. **Score it by replay.** Each candidate is replayed with [FindingReplay](../src/heuristics/replay.ts), session by session, alongside the running heuristics. The report gives its episodes, its sessions, and how many episodes of each existing heuristic it overlaps.
+
+Shell sub-category candidates come from [shellCategories.ts](../src/discovery/shellCategories.ts). Each plain "Shell command" call belongs to a command family: the first word of the command, or the first two for commands like `npm` and `docker` whose second word says what they do. A family that takes at least 10% of shell calls, with 5 or more calls in 2 or more sessions, becomes a candidate.
+
+In the Suggestions tab:
+
+- **Candidate rules** show the threshold, how many of your turns reach it, your percentiles, the replay score, and up to five sessions where it would have fired (opening one shows the candidate's past findings). Changing the threshold re-scores it. **Accept** saves the rule as shown, recording that discovery proposed it, when, in which workspace, and its replay score. **Dismiss** hides it in every workspace until you choose to show dismissed suggestions again.
+- **Built-in thresholds** compare each built-in setting with your history. **Apply** writes discovery's suggested value to your user settings.
+- **Shell sub-categories** can be accepted or dismissed the same way. An accepted category labels new tool calls, and Snagboat offers to relabel past ones.
+- **Your rules** lists saved rules and categories with where they came from, with **Remove**, and the ones written in settings.
+
+**Snagboat: Export Rules...** writes saved rules and categories, with their provenance, to a JSON file. **Snagboat: Import Rules...** reads one back (or a plain list of rules, as in `snagboat.rules`), replays each rule over this workspace's history, and lets you pick which to add. An imported rule replaces a saved rule with the same id.
+
+**Ask the advisor** sends the candidates to the model set in `snagboat.advisor.proposeProvider`, with digests of up to two example turns each and your shell command-family names (see [PRIVACY.md](../PRIVACY.md#the-advisor)). It returns names, summaries, and suggested actions for the candidates, up to three rules of its own (always given an `advisor:` id, so they can't replace one of yours), and shell categories. All of it goes through the same validators as hand-written rules: a name whose summary uses a placeholder the rule doesn't have, a rule that doesn't parse, or a category that can't match anything is dropped, and the tab lists what was dropped and why. Kept rules are scored by replay like discovery's, and accepting one records the advisor in its provenance. A new discovery clears the advisor's answer, since it was about the old candidates.
+
+`npm run discover` prints the same findings as text, naming heuristic ids and command families only, never targets, paths, prompts, or session names.
+
+## Nudges
+
+With `snagboat.nudges.notify` set to `warnings` or `all` (it's `off` by default), [nudger.ts](../src/nudges/nudger.ts) turns findings into notifications after each evaluation:
+
+- **One per episode.** A heuristic notifies when it starts reporting, not again until it has cleared. An episode already under way when notifications are turned on stays quiet.
+- **One per turn.** Whatever fires, a session's turn gets at most one nudge, early warnings included. Findings that aren't tied to one turn (`token-budget`'s daily total) are limited by episode only.
+- **Never** for a muted heuristic or one listed in `snagboat.nudges.quiet`, and never a modal dialog. The design also asks for no nudges while you type a prompt; Snagboat can't see the agent's input box, so that one isn't done.
+- **Buttons:** Show in Session, Explain (the advisor, asking first as Explain always does), Acknowledge, Mute.
+
+**Early warnings** come from heuristics that can say how close they are (`progress` on the `Heuristic` interface), where acting early saves something real. `runaway-turn` reports at `earlyWarning` of its call thresholds, since tokens are still being spent. `context-pressure` reports at `earlyWarning` of its percentage, since a compaction is coming. Both default to `0.8`, and `0` turns them off. Rules opt in with `earlyWarning`. An early warning notifies as info, once per heuristic and turn, and not while that heuristic is already firing.
+
+**The advisor's line** (`snagboat.nudges.advisor`, off by default): when a finding nudges, the provider in `snagboat.advisor.nudgeProvider` gets that turn's digest and returns one sentence. It's shown under the finding in the status bar tooltip, labelled as model output, until the finding clears. It never prompts while you work. If the provider has no model yet, needs a key, or you haven't approved its payload through Explain, it doesn't ask, and the Snagboat output says why.
 
 ## Acknowledging and muting
 

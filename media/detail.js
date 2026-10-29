@@ -126,26 +126,28 @@
   const timelineCount = el('p', { class: 'muted small' });
   const timelineBody = el('tbody');
 
-  // ---------- tabs: Overview (this script) and Sessions (sessions.js) ----------
+  // ---------- tabs: Overview (this script), Sessions (sessions.js), and Suggestions (suggestions.js) ----------
   const overviewRoot = el('div', { id: 'overview-root', role: 'tabpanel', 'aria-labelledby': 'tab-overview' });
   const sessionsRoot = el('div', { id: 'sessions-root', role: 'tabpanel', 'aria-labelledby': 'tab-sessions', hidden: true });
+  const suggestionsRoot = el('div', { id: 'suggestions-root', role: 'tabpanel', 'aria-labelledby': 'tab-suggestions', hidden: true });
   const tabButtons = {};
   function selectTab(tab, notify) {
     for (const [name, btn] of Object.entries(tabButtons)) btn.setAttribute('aria-selected', String(name === tab));
     overviewRoot.hidden = tab !== 'overview';
     sessionsRoot.hidden = tab !== 'sessions';
+    suggestionsRoot.hidden = tab !== 'suggestions';
     persist({ tab });
     if (notify) vscode.postMessage({ type: 'tab', tab });
     if (tab === 'sessions' && window.snagboatSessions) window.snagboatSessions.shown();
   }
-  for (const [name, label] of [['overview', 'Overview'], ['sessions', 'Sessions']]) {
+  for (const [name, label] of [['overview', 'Overview'], ['sessions', 'Sessions'], ['suggestions', 'Suggestions']]) {
     const btn = el('button', { id: `tab-${name}`, class: 'tab', role: 'tab', text: label });
     btn.addEventListener('click', () => selectTab(name, true));
     tabButtons[name] = btn;
   }
   const tabBar = el('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Snagboat views' }, Object.values(tabButtons));
 
-  app.replaceChildren(el('div', { class: 'title-row' }, [el('h1', { text: 'Snagboat' }), tabBar]), overviewRoot, sessionsRoot);
+  app.replaceChildren(el('div', { class: 'title-row' }, [el('h1', { text: 'Snagboat' }), tabBar]), overviewRoot, sessionsRoot, suggestionsRoot);
   overviewRoot.append(
     el('header', {}, [updatedNote, captureNote, tiles]),
     el('section', { 'aria-labelledby': 'findings-h' }, [el('h2', { id: 'findings-h', text: 'Findings' }), findingsList, mutedRow]),
@@ -181,7 +183,7 @@
   );
 
   // Helpers for sessions.js (same document, same CSP nonce).
-  window.snagboat = { vscode, el, svg, compact, fmt, formatTime, clip, persist, sessionsRoot, selectTab, tooltip };
+  window.snagboat = { vscode, el, svg, compact, fmt, formatTime, formatDay, clip, persist, sessionsRoot, suggestionsRoot, selectTab, tooltip };
 
   // ---------- header ----------
 
@@ -539,9 +541,9 @@
   });
   // Restore the tab from the last session of this panel.
   const savedTab = (vscode.getState() || {}).tab;
-  if (savedTab === 'sessions') {
-    selectTab('sessions', false);
-    vscode.postMessage({ type: 'tab', tab: 'sessions' });
+  if (savedTab === 'sessions' || savedTab === 'suggestions') {
+    selectTab(savedTab, false);
+    vscode.postMessage({ type: 'tab', tab: savedTab });
   } else {
     selectTab('overview', false);
   }

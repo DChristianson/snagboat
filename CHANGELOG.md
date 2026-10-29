@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Rules:** heuristics written as JSON in `snagboat.rules`, which run alongside the built-ins with the same findings, past findings, acknowledge, and mute. **Shell sub-categories** in `snagboat.toolCategories` split "Shell command" by command prefix. Both are groundwork for heuristics discovered from your own history.
+- **Suggestions** tab (**Snagboat: Discover Heuristics**): heuristics suggested from what's unusual in this workspace's last 30 days. You get candidate rules scored by replaying your history, built-in thresholds compared with your own percentiles, and command families that could split "Shell command". Accept, adjust, or dismiss each, and remove saved rules there too.
+- **Explain** (optional): ask a model you choose about a session, a turn, or a finding. Local by default (Ollama or any OpenAI-compatible server on this machine). Hosted providers need your key, use https, and are audited. The model sees only a redacted digest, which you approve before the first request. **Snagboat: Preview Advisor Digest...** shows exactly what would be sent.
+- **Ask the advisor** in the Suggestions tab: a model you choose names discovery's candidates, proposes up to three rules, and groups your shell commands into categories. Everything it returns is validated, scored by replay, and saved only if you accept.
+- **Notifications** (opt-in, `snagboat.nudges.notify`): be told when a finding appears, at most one per turn, with Show in Session, Explain, Acknowledge, and Mute. `runaway-turn` and `context-pressure` warn early, at 80% of their thresholds, and rules can too (`earlyWarning`). `snagboat.nudges.advisor` adds the advisor's one-line suggestion to the tooltip.
+- **Snagboat: Write Review**: a weekly Markdown review of this workspace covering what it cost, which heuristics fired and how you responded (acknowledgements and mutes are now recorded), rules to retire or add, and checks on how findings were shown in the status bar. **Ask the Advisor** afterwards adds a model's judgment and suggested changes, and `snagboat.advisor.weeklyReview` writes it weekly.
+- **Snagboat: Relabel Shell Calls** gives past shell calls the shell categories in use; Snagboat offers it whenever they change.
+- **Snagboat: Export Rules...** and **Snagboat: Import Rules...** move saved rules between machines; imports are replayed over your history before you pick them. See [heuristics.md](https://github.com/DChristianson/snagboat/blob/main/docs/heuristics.md#rules).
+
 ## 0.0.2
 
 **Text capture is now on by default.** Snagboat stores your prompts (up to 2,000 characters), agent reply excerpts (up to 500), and session names, so the Sessions tab can show what you asked and `verbal-hedge` has replies to read. If you installed 0.0.1 and never changed `snagboat.captureContent`, capture starts with this version. Common secret formats are redacted before anything is stored, prompts and replies are kept for 30 days (`snagboat.retention.textDays`), and **Snagboat: Remove Captured Text** deletes what's stored and can turn capture off. Nothing leaves your machine. See [PRIVACY.md](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#captured-text).

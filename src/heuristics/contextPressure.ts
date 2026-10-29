@@ -1,6 +1,7 @@
 import { contextSize } from '../core/contextLimits';
 import { currentTurnsIn, modelCalls } from '../core/turns';
-import { Heuristic, Finding, HeuristicContext } from './types';
+import { Heuristic, Finding, HeuristicContext, Progress } from './types';
+import { earlyWarningOr } from './runawayTurn';
 import { compactTokens, positiveNumberOr } from './settings';
 
 // 1 in 10 of your turns peaks above 80%, so 90% keeps this rare.
@@ -48,5 +49,23 @@ export const contextPressureHeuristic: Heuristic = {
       });
     }
     return findings;
+  },
+
+  progress(ctx: HeuristicContext): Progress[] {
+    // Warn at 80% of the threshold (72% of the limit by default): compaction is coming.
+    const early = earlyWarningOr(ctx.settings.earlyWarning, 0.8);
+    if (early === undefined) return [];
+    const percent = Math.min(positiveNumberOr(ctx.settings.percent, DEFAULT_PERCENT), 100);
+    const out: Progress[] = [];
+    for (const turn of currentTurnsIn(ctx.store)) {
+      if (!turn.open || turn.events.some((e) => e.kind === 'compaction' && e.compaction?.trigger === 'auto' && !e.agentId)) continue;
+      const last = modelCalls(turn, true).pop();
+      const size = last && contextSize(last);
+      const limit = last && (last.contextLimit ?? ctx.contextLimit?.(last.model));
+      if (!last || !size || !limit) continue;
+      const share = (100 * size) / limit / percent;
+      if (share >= early && share < 1) out.push({ heuristicId: 'context-pressure', share, summary: `Heading for compaction: context is at ${Math.round((100 * size) / limit)}% of the limit`, eventRefs: [turn.promptEventId, last.eventId] });
+    }
+    return out;
   },
 };

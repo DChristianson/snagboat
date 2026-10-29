@@ -11,6 +11,19 @@ import { SessionIndex } from './core/sessions';
 import { SessionController } from './ui/sessionController';
 import { FindingReplay } from './heuristics/replay';
 import { runBackfill } from './backfill/command';
+import { runRelabel } from './backfill/relabel';
+import { buildDigest, digestForReading } from './advisor/digest';
+import { sessionDigestInput } from './advisor/source';
+import { Advisor } from './advisor/advisor';
+import { AuditLog } from './advisor/audit';
+import { proposeMessages } from './advisor/propose';
+import { nudgeLine, nudgeMessages } from './advisor/nudge';
+import { Nudge, Nudger, NudgeSettings, NotifyLevel } from './nudges/nudger';
+import { ResponseLog, ResponseTracker } from './heuristics/responses';
+import { buildReview, isoWeek, renderReview, Review } from './review/review';
+import { advisorSection, reviewMessages } from './review/advisorReview';
+import * as os from 'os';
+import * as fs from 'fs';
 import { hasCapturedText, withoutCapturedText } from './core/excerpt';
 import { ContextLimits, ModelContextMarks } from './core/contextLimits';
 import { AggregateStore, EventSink, RetentionPolicy, applyRetention, oldestKeptDay } from './core/retention';
@@ -27,12 +40,22 @@ import { removeHooksConfigured } from './adapters/claude-code/hooksConfig';
 import { CopilotAdapter } from './adapters/copilot';
 import { FindingsRegistry } from './heuristics/findingsRegistry';
 import { HeuristicsEngine } from './heuristics/engine';
-import { builtInHeuristics, heuristicSettings } from './heuristics/index';
-import { Finding } from './heuristics/types';
+import { builtInHeuristics, heuristicSettings, heuristicSettingsSection, settingsRuleSource } from './heuristics/index';
+import { Finding, Heuristic } from './heuristics/types';
+import { buildRuleSet } from './heuristics/rule';
+import { ruleHeuristic } from './heuristics/ruleHeuristic';
+import { RuleStore } from './heuristics/ruleStore';
+import { setShellSubCategories } from './core/toolCategory';
+import { runDiscovery } from './discovery/discover';
+import { SuggestionsController } from './ui/suggestionsController';
+import { exportRules, importRules } from './ui/ruleTransfer';
 
 const POLL_INTERVAL_MS = 30_000;
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
 const MUTED_HEURISTICS_KEY = 'snagboat.mutedHeuristics';
+// Global: saved rules are shared by every workspace, so a dismissed suggestion stays dismissed everywhere.
+const DISMISSED_SUGGESTIONS_KEY = 'snagboat.dismissedSuggestions';
+const RESPONDING_SINCE_KEY = 'snagboat.respondingSince';
 
 // Generous placeholder sizing, comfortably covering every planned heuristic's
 // short window (minutes) without yet reading heuristic settings -- revisited
@@ -116,12 +139,73 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
 
   const health = new HealthRegistry();
 
-  const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []));
-  const engine = new HeuristicsEngine(builtInHeuristics(), eventStore, heuristicSettings, (model) => (model ? contextLimits.get(model)?.limit : undefined));
+  const outputChannel = vscode.window.createOutputChannel('Snagboat');
+  context.subscriptions.push(outputChannel);
+
+  // Saved rules and shell sub-categories, shared by every workspace, plus any written in settings.
+  const ruleStore = new RuleStore(context.globalStorageUri.fsPath);
+  let ruleStoreError: string | undefined;
+  try {
+    await ruleStore.load();
+  } catch (err) {
+    ruleStoreError = `saved rules couldn't be read and are off until the file is fixed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  // How you respond to findings (acknowledge, mute, or let them pass), for the review.
+  const responseLog = new ResponseLog(storageDir);
+  void responseLog.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
+  if (!context.workspaceState.get<string>(RESPONDING_SINCE_KEY)) void context.workspaceState.update(RESPONDING_SINCE_KEY, new Date().toISOString());
+  const responses = new ResponseTracker((episode) => responseLog.append(episode));
+  context.subscriptions.push({ dispose: () => responseLog.appendNow(responses.drain()) });
+  const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []), responses);
+  const contextLimitFor = (model: string | undefined) => (model ? contextLimits.get(model)?.limit : undefined);
+  let heuristics: Heuristic[] = [];
+  let ruleProblems: string[] = [];
+  let activeCategories: string | undefined;
+  /** Set once the extension is up: offers to relabel past shell calls when the shell categories in use change. */
+  let onCategoriesChanged: (() => void) | undefined;
+  let engine = new HeuristicsEngine(heuristics, eventStore, heuristicSettings, contextLimitFor);
+  /** Rebuilds the heuristics from the built-ins and the current rules; findings of rules that are gone are cleared. */
+  const loadRules = () => {
+    const ruleSet = buildRuleSet([ruleStore.source(), settingsRuleSource()]);
+    setShellSubCategories(ruleSet.categories);
+    const categories = JSON.stringify(ruleSet.categories);
+    if (activeCategories !== undefined && categories !== activeCategories) onCategoriesChanged?.();
+    activeCategories = categories;
+    const next = [...builtInHeuristics(), ...ruleSet.rules.map(ruleHeuristic)];
+    for (const h of heuristics) if (!next.some((n) => n.id === h.id)) findings.report(h.id, []);
+    heuristics = next;
+    engine = new HeuristicsEngine(heuristics, eventStore, heuristicSettings, contextLimitFor);
+    ruleProblems = [...(ruleStoreError ? [ruleStoreError] : []), ...ruleSet.problems];
+    for (const problem of ruleProblems) outputChannel.appendLine(`Rules: ${problem}`);
+    health.report('rules', 'invalid', ruleProblems.length > 0 ? `${ruleProblems.length} rule or tool category problem${ruleProblems.length === 1 ? '' : 's'}; see the Snagboat output` : undefined);
+  };
+  loadRules();
+  // Live nudges (opt-in): notifications for findings and early warnings, at most one per turn.
+  const nudgeSettings = (): NudgeSettings => {
+    const config = vscode.workspace.getConfiguration('snagboat.nudges');
+    const quiet = config.get<unknown>('quiet', []);
+    return { notify: config.get<NotifyLevel>('notify', 'off'), quiet: Array.isArray(quiet) ? quiet.filter((q): q is string => typeof q === 'string') : [], muted: findings.mutedHeuristics() };
+  };
+  const nudger = new Nudger((refs) => {
+    const wanted = new Set(refs);
+    const events = eventStore.query().filter((e) => wanted.has(e.eventId));
+    const inTurn = events.filter((e) => e.turnId).pop();
+    return inTurn ? { sessionId: inTurn.sessionId, turnId: inTurn.turnId } : events[0] ? { sessionId: events[0].sessionId } : undefined;
+  });
+  /** The advisor's line for a finding in the tooltip, while that finding lasts. */
+  const advice = new Map<string, { line: string; model: string }>();
+  let showNudge: (nudge: Nudge) => void = () => undefined;
   const runHeuristics = (kind?: NormalizedEventKind) => {
     const now = new Date().toISOString();
     const results = kind ? engine.tickFor(kind, now) : engine.tick(now);
     for (const [id, list] of results) findings.report(id, list);
+    const settings = nudgeSettings();
+    if (settings.notify === 'off') return;
+    const active = new Map<string, Finding[]>();
+    for (const f of findings.list()) active.set(f.heuristicId, [...(active.get(f.heuristicId) ?? []), f]);
+    for (const id of [...advice.keys()]) if (!active.has(id)) advice.delete(id);
+    for (const nudge of nudger.update(active, engine.progress(now), settings)) showNudge(nudge);
   };
 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -129,15 +213,63 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  const outputChannel = vscode.window.createOutputChannel('Snagboat');
-  context.subscriptions.push(outputChannel);
-
   const sessions = new SessionController(sessionIndex, eventLog, () => contextLimits.all(), {
     active: () => findings.list(),
-    newReplay: () => new FindingReplay(builtInHeuristics(), heuristicSettings, (model) => (model ? contextLimits.get(model)?.limit : undefined)),
+    newReplay: () => new FindingReplay(heuristics, heuristicSettings, contextLimitFor),
     muted: () => findings.mutedHeuristics(),
   });
+  // Discovery reads only this workspace's history; each workspace's log is separate.
+  const discoveryDays = () => Math.max(1, vscode.workspace.getConfiguration('snagboat.discovery').get<number>('days', 30));
+  const discoverySource = () => vscode.workspace.name ?? 'this window';
+  const loadDiscoveryEvents = async () => {
+    const since = new Date(Date.now() - (discoveryDays() - 1) * 86_400_000).toISOString().slice(0, 10);
+    const logged = await eventLog.snapshot();
+    const events: NormalizedEvent[] = [];
+    for (const day of await logged.listDays()) if (day >= since) events.push(...(await logged.readDay(day)));
+    return events;
+  };
+  const discoveryOptions = () => ({ existing: heuristics, settingsFor: heuristicSettings, contextLimit: contextLimitFor });
+  const rulesChanged = () => {
+    loadRules();
+    runHeuristics();
+    refresh();
+  };
+  const suggestions = new SuggestionsController({
+    loadEvents: loadDiscoveryEvents,
+    options: discoveryOptions,
+    store: ruleStore,
+    settingsRules: settingsRuleSource,
+    rulesChanged: () => rulesChanged(),
+    applySetting: (heuristic, setting, value) => Promise.resolve(vscode.workspace.getConfiguration(heuristicSettingsSection(heuristic)).update(setting, value, vscode.ConfigurationTarget.Global)),
+    dismissed: () => context.globalState.get<string[]>(DISMISSED_SUGGESTIONS_KEY, []),
+    setDismissed: (ids) => Promise.resolve(context.globalState.update(DISMISSED_SUGGESTIONS_KEY, ids)),
+    sessionName: (id) => sessionIndex.get(id)?.name,
+    propose: async (build) => {
+      const asked = await advisor.ask('propose', async (p) => proposeMessages(build(p.policy)), { title: 'proposing heuristics' });
+      if (!asked) return undefined;
+      const warning = Advisor.cutWarning(asked, 'dismiss candidates you don\'t need and ask again, which sends less');
+      return { text: asked.completion.text, provider: asked.provider.label, model: asked.provider.model, ...(warning ? { warning } : {}) };
+    },
+    roots: () => roots(),
+    source: discoverySource,
+    days: discoveryDays,
+    now: () => new Date().toISOString(),
+  });
+
+  const roots = () => (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+  const digestInput = async (sessionId: string, turnId?: string) => {
+    const summary = sessionIndex.get(sessionId);
+    if (!summary) return undefined;
+    await eventLog.flush();
+    return sessionDigestInput(summary, eventLog, new FindingReplay(heuristics, heuristicSettings, contextLimitFor), { roots: roots(), contextLimit: contextLimitFor, sessionName: summary.name, ...(turnId ? { turnId } : {}) });
+  };
+  const audit = new AuditLog(context.globalStorageUri.fsPath);
+  void audit.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
+  const advisor = new Advisor({ secrets: context.secrets, globalState: context.globalState, audit, output: outputChannel, digestInput });
+
   const detailPanel = new DetailPanel(context.extensionUri, {
+    suggestions,
+    explain: (req) => advisor.explain(req),
     buildState: (isOpenable) =>
       buildDetailState({
         now: new Date().toISOString(),
@@ -160,8 +292,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   });
   context.subscriptions.push(detailPanel);
 
+  const withAdvice = (list: Finding[]): Finding[] =>
+    list.map((f) => {
+      const a = advice.get(f.heuristicId);
+      return a ? { ...f, suggestedAction: [f.suggestedAction, `advisor (model output, ${a.model}): ${a.line}`].filter(Boolean).join(' · ') } : f;
+    });
   const refresh = () => {
-    renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), findings.visible(), findings.worst());
+    renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), withAdvice(findings.visible()), findings.worst());
     detailPanel.scheduleUpdate();
   };
   refresh();
@@ -273,8 +410,125 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('snagboat.retention')) runRetention();
       if (e.affectsConfiguration('snagboat.captureContent')) detailPanel.scheduleUpdate();
+      if (e.affectsConfiguration('snagboat.rules') || e.affectsConfiguration('snagboat.toolCategories')) rulesChanged();
     })
   );
+
+  const reviewFile = (week: string) => {
+    const configured = vscode.workspace.getConfiguration('snagboat.advisor').get<string>('reviewDirectory', '');
+    const dir = configured ? configured.replace(/^~(?=$|\/)/, os.homedir()) : path.join(os.homedir(), '.snagboat', 'reviews');
+    return path.join(dir, `${week}-${discoverySource().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workspace'}.md`);
+  };
+  /** Writes this week's review of the last 7 days, without a model. */
+  const writeReview = async (): Promise<{ file: string; review: Review }> => {
+    const to = new Date().toISOString();
+    const from = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    await eventLog.flush();
+    const logged = await eventLog.snapshot();
+    const events: NormalizedEvent[] = [];
+    for (const day of await logged.listDays()) if (day >= from.slice(0, 10)) events.push(...(await logged.readDay(day)).filter((e) => e.ts >= from));
+    const discovery = runDiscovery(await loadDiscoveryEvents(), discoveryOptions()).result;
+    const review = buildReview({
+      workspace: discoverySource(),
+      from,
+      to,
+      events,
+      heuristics,
+      settingsFor: heuristicSettings,
+      contextLimit: contextLimitFor,
+      savedRules: ruleStore.list('rules').map((r) => ({ id: r.doc.id, title: typeof r.doc.title === 'string' ? r.doc.title : r.doc.id, provenance: r.provenance })),
+      responses: (await responseLog.readAll()).filter((e) => e.startedAt >= from),
+      respondingSince: context.workspaceState.get<string>(RESPONDING_SINCE_KEY),
+      muted: findings.mutedHeuristics(),
+      discovery,
+      notifying: nudgeSettings().notify !== 'off',
+    });
+    const file = reviewFile(isoWeek(to));
+    await fs.promises.mkdir(path.dirname(file), { recursive: true });
+    await fs.promises.writeFile(file, renderReview(review));
+    return { file, review };
+  };
+  /** Offers the advisor's review of a written one; its answer is appended to the file as model output. */
+  const offerAdvisorReview = async (written: { file: string; review: Review }, message: string) => {
+    const choice = await vscode.window.showInformationMessage(message, 'Open', 'Ask the Advisor');
+    if (choice === 'Open') await vscode.window.showTextDocument(vscode.Uri.file(written.file), { preview: false });
+    if (choice !== 'Ask the Advisor') return;
+    const asked = await advisor.ask('review', async () => reviewMessages(written.review), { title: 'reviewing the week' });
+    if (!asked) return;
+    const warning = Advisor.cutWarning(asked, 'its context window is too small for a week of data');
+    await fs.promises.appendFile(written.file, advisorSection(asked.completion.text, asked.provider.label, asked.provider.model, warning || undefined));
+    await vscode.window.showTextDocument(vscode.Uri.file(written.file), { preview: false });
+  };
+  // Weekly review, opt-in: once per ISO week, the first time a window is open, without a model.
+  const weeklyReview = async () => {
+    if (!vscode.workspace.getConfiguration('snagboat.advisor').get<boolean>('weeklyReview', false)) return;
+    const file = reviewFile(isoWeek(new Date().toISOString()));
+    if (fs.existsSync(file)) return;
+    try {
+      void offerAdvisorReview(await writeReview(), "Snagboat: wrote this week's review.");
+    } catch (err) {
+      outputChannel.appendLine(`Review: couldn't write the weekly review: ${String(err)}`);
+    }
+  };
+  showNudge = (nudge: Nudge) => {
+    const text = `Snagboat: ${nudge.summary}${nudge.suggestedAction ? `. ${nudge.suggestedAction}` : ''}`;
+    const actions = [...(nudge.sessionId ? ['Show in Session'] : []), ...(nudge.sessionId ? ['Explain'] : []), ...(nudge.early ? [] : ['Acknowledge']), 'Mute'];
+    const shown = nudge.severity === 'warn' ? vscode.window.showWarningMessage(text, ...actions) : vscode.window.showInformationMessage(text, ...actions);
+    void shown.then((choice) => {
+      if (choice === 'Show in Session' && nudge.sessionId) detailPanel.show({ sessionId: nudge.sessionId });
+      else if (choice === 'Explain' && nudge.sessionId) void advisor.explain({ sessionId: nudge.sessionId, ...(nudge.turnId ? { turnId: nudge.turnId } : {}), ...(nudge.early ? {} : { heuristicId: nudge.heuristicId }) });
+      else if (choice === 'Acknowledge') findings.acknowledge(nudge.heuristicId);
+      else if (choice === 'Mute') {
+        findings.setMuted(nudge.heuristicId, true);
+        void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
+      }
+    });
+    // The advisor's one line, opt-in, only for findings in one turn, and only quietly: no prompts mid-work.
+    if (nudge.early || !nudge.sessionId || !nudge.turnId || !vscode.workspace.getConfiguration('snagboat.nudges').get<boolean>('advisor', false)) return;
+    const { sessionId, turnId } = nudge;
+    void advisor
+      .ask(
+        'nudge',
+        async (p) => {
+          const input = await digestInput(sessionId, turnId);
+          if (!input) return undefined;
+          const digest = buildDigest(input, p.policy);
+          return nudgeMessages(digest, nudge.heuristicId, digest.findings.find((f) => f.heuristic === nudge.heuristicId)?.summary ?? '', false);
+        },
+        { title: `asking the advisor about ${nudge.heuristicId}`, quiet: true }
+      )
+      .then((asked) => {
+        const line = asked && nudgeLine(asked.completion.text);
+        if (!asked || !line || !findings.list().some((f) => f.heuristicId === nudge.heuristicId)) return;
+        advice.set(nudge.heuristicId, { line, model: asked.provider.model });
+        refresh();
+      });
+  };
+
+  const weeklyTimer = setInterval(() => void weeklyReview(), RETENTION_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(weeklyTimer) });
+  // A minute in, so activation and catching up on transcripts come first.
+  const firstWeekly = setTimeout(() => void weeklyReview(), 60_000);
+  context.subscriptions.push({ dispose: () => clearTimeout(firstWeekly) });
+
+  const pickSession = async (placeHolder: string): Promise<string | undefined> => {
+    const recent = sessionIndex.list().slice(0, 40);
+    if (recent.length === 0) {
+      void vscode.window.showInformationMessage('Snagboat: no agent sessions recorded yet.');
+      return undefined;
+    }
+    const agentName = (a: string) => (a === 'claude-code' ? 'Claude Code' : a === 'copilot' ? 'Copilot' : a);
+    const pick = await vscode.window.showQuickPick(
+      recent.map((s) => ({
+        label: `${agentName(s.agent)} \u00b7 ${new Date(s.firstTs).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+        description: `${s.prompts} prompts \u00b7 ${formatCount(s.tokens)} tokens`,
+        detail: `${s.models.join(', ') || 'no model calls'} \u00b7 session ${s.sessionId.slice(0, 8)}`,
+        sessionId: s.sessionId,
+      })),
+      { placeHolder, matchOnDescription: true, matchOnDetail: true }
+    );
+    return pick?.sessionId;
+  };
 
   context.subscriptions.push(
     vscode.commands.registerCommand('snagboat.showBreakdown', () => {
@@ -288,26 +542,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
           outputChannel.appendLine(`  ${model}: ${parts.join(', ')}`);
         }
       }
+      if (ruleProblems.length > 0) {
+        outputChannel.appendLine('\nRule problems (these were ignored):');
+        for (const problem of ruleProblems) outputChannel.appendLine(`  ${problem}`);
+      }
       outputChannel.show();
     }),
     vscode.commands.registerCommand('snagboat.openDetail', () => detailPanel.show()),
     vscode.commands.registerCommand('snagboat.openSession', async () => {
-      const recent = sessionIndex.list().slice(0, 40);
-      if (recent.length === 0) {
-        void vscode.window.showInformationMessage('Snagboat: no agent sessions recorded yet.');
-        return;
-      }
-      const agentName = (a: string) => (a === 'claude-code' ? 'Claude Code' : a === 'copilot' ? 'Copilot' : a);
+      const sessionId = await pickSession('Open a session (most recent first)');
+      if (sessionId) detailPanel.show({ sessionId });
+    }),
+    vscode.commands.registerCommand('snagboat.previewDigest', async () => {
+      const sessionId = await pickSession('Preview the advisor digest of a session (most recent first)');
+      if (!sessionId) return;
       const pick = await vscode.window.showQuickPick(
-        recent.map((s) => ({
-          label: `${agentName(s.agent)} \u00b7 ${new Date(s.firstTs).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
-          description: `${s.prompts} prompts \u00b7 ${formatCount(s.tokens)} tokens`,
-          detail: `${s.models.join(', ') || 'no model calls'} \u00b7 session ${s.sessionId.slice(0, 8)}`,
-          sessionId: s.sessionId,
+        advisor.providers().map((p) => ({
+          label: p.label,
+          description: p.kind === 'local' ? 'on this machine' : p.baseUrl,
+          detail: `Sends ${[p.policy.prompts && 'prompts', p.policy.replies && 'replies', p.policy.sessionNames && 'session names'].filter(Boolean).join(', ') || 'no text'}; paths ${p.policy.paths}`,
+          policy: p.policy,
         })),
-        { placeHolder: 'Open a session (most recent first)', matchOnDescription: true, matchOnDetail: true }
+        { placeHolder: 'As sent to which provider?' }
       );
-      if (pick) detailPanel.show({ sessionId: pick.sessionId });
+      if (!pick) return;
+      const input = await digestInput(sessionId);
+      if (!input) return;
+      const content = `// Snagboat advisor digest, as ${pick.label} would receive it. Indented here for reading; it's sent without indentation.\n${digestForReading(buildDigest(input, pick.policy))}\n`;
+      const doc = await vscode.workspace.openTextDocument({ language: 'jsonc', content });
+      await vscode.window.showTextDocument(doc, { preview: true });
+    }),
+    vscode.commands.registerCommand('snagboat.explainSession', async () => {
+      const sessionId = await pickSession('Explain a session (most recent first)');
+      if (sessionId) await advisor.explain({ sessionId });
+    }),
+    vscode.commands.registerCommand('snagboat.setAdvisorKey', () => advisor.setKey()),
+    vscode.commands.registerCommand('snagboat.writeReview', async () => {
+      const written = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Snagboat: writing the review…' }, () => writeReview());
+      await vscode.window.showTextDocument(vscode.Uri.file(written.file), { preview: false });
+      void offerAdvisorReview(written, 'Snagboat: wrote the review.');
     })
   );
 
@@ -322,6 +595,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         output: outputChannel,
       })
     ),
+    vscode.commands.registerCommand('snagboat.relabelShellCalls', () => runRelabel({ eventLog, runStorageOp, reloadFromLog })),
     vscode.commands.registerCommand('snagboat.removeClaudeHooks', async () => {
       const folders = vscode.workspace.workspaceFolders ?? [];
       if (folders.length === 0) {
@@ -365,6 +639,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         );
       }
     }),
+    vscode.commands.registerCommand('snagboat.discover', async () => {
+      detailPanel.show({ tab: 'suggestions' });
+      await suggestions.discover();
+    }),
+    vscode.commands.registerCommand('snagboat.exportRules', () => exportRules(ruleStore)),
+    vscode.commands.registerCommand('snagboat.importRules', () =>
+      importRules({
+        store: ruleStore,
+        score: async (rules) => runDiscovery(await loadDiscoveryEvents(), discoveryOptions()).score(rules),
+        workspace: discoverySource(),
+        days: discoveryDays(),
+        now: () => new Date().toISOString(),
+        rulesChanged,
+        output: outputChannel,
+      })
+    ),
     vscode.commands.registerCommand('snagboat.removeCapturedText', async () => {
       const turnOff = 'Remove and Turn Off Capture';
       const choice = await vscode.window.showWarningMessage(
@@ -406,6 +696,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       const clearOp = retentionQueue.then(async () => {
         await aggregateStore.clear();
         await eventLog.clear();
+        await responseLog.clear();
         aggregate.reset();
         todayAggregate.reset();
         dailyHistory.reset();
@@ -426,6 +717,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       vscode.window.showInformationMessage('Snagboat: event log cleared.');
     })
   );
+
+  onCategoriesChanged = () => {
+    void vscode.window
+      .showInformationMessage('Snagboat: shell categories changed. New shell calls get them; relabel past ones in this workspace too?', 'Relabel')
+      .then((choice) => choice === 'Relabel' && vscode.commands.executeCommand('snagboat.relabelShellCalls'));
+  };
 
   const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter(path.join(context.globalStorageUri.fsPath, 'copilot-structure'))];
   for (const adapter of adapters) {

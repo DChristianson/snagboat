@@ -47,12 +47,44 @@
         "title": "Snagboat: Open Session..."
       },
       {
+        "command": "snagboat.previewDigest",
+        "title": "Snagboat: Preview Advisor Digest..."
+      },
+      {
+        "command": "snagboat.explainSession",
+        "title": "Snagboat: Explain Session..."
+      },
+      {
+        "command": "snagboat.setAdvisorKey",
+        "title": "Snagboat: Set Advisor API Key..."
+      },
+      {
+        "command": "snagboat.writeReview",
+        "title": "Snagboat: Write Review"
+      },
+      {
         "command": "snagboat.showBreakdown",
         "title": "Snagboat: Show Token/Event Breakdown"
       },
       {
         "command": "snagboat.backfill",
         "title": "Snagboat: Backfill Sessions from Transcripts..."
+      },
+      {
+        "command": "snagboat.relabelShellCalls",
+        "title": "Snagboat: Relabel Shell Calls"
+      },
+      {
+        "command": "snagboat.discover",
+        "title": "Snagboat: Discover Heuristics"
+      },
+      {
+        "command": "snagboat.exportRules",
+        "title": "Snagboat: Export Rules..."
+      },
+      {
+        "command": "snagboat.importRules",
+        "title": "Snagboat: Import Rules..."
       },
       {
         "command": "snagboat.removeCapturedText",
@@ -186,12 +218,26 @@
           "default": 100,
           "description": "runaway-turn fires when one prompt drives this many tool calls without another prompt."
         },
+        "snagboat.heuristics.runawayTurn.earlyWarning": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0,
+          "maximum": 0.99,
+          "description": "With snagboat.nudges.notify on, warn early once a turn reaches this share of its threshold (0.8: at 80%). 0 turns early warnings off."
+        },
         "snagboat.heuristics.contextPressure.percent": {
           "type": "number",
           "default": 90,
           "minimum": 1,
           "maximum": 100,
           "description": "context-pressure reports (info) when the current turn's context reaches this percentage of the model's limit. An automatic compaction always warns."
+        },
+        "snagboat.heuristics.contextPressure.earlyWarning": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0,
+          "maximum": 0.99,
+          "description": "With snagboat.nudges.notify on, warn early once a turn's context reaches this share of its threshold (0.8: at 80%). 0 turns early warnings off."
         },
         "snagboat.heuristics.cacheThrash.minTokens": {
           "type": "number",
@@ -202,6 +248,865 @@
           "type": "number",
           "default": 2,
           "description": "Cache rewrites within one turn before cache-thrash fires."
+        },
+        "snagboat.rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "title",
+              "scope",
+              "when",
+              "severity",
+              "summary"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
+                "patternErrorMessage": "A source, a colon, then lowercase letters, digits, and dashes, such as user:read-loop.",
+                "description": "Unique id, such as user:read-loop."
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "turn",
+                  "session",
+                  "window"
+                ],
+                "enumDescriptions": [
+                  "The session's latest turn; clears on the next prompt",
+                  "The session's events in the last 24 hours",
+                  "The last windowMinutes minutes"
+                ]
+              },
+              "windowMinutes": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "For a window scope only."
+              },
+              "filter": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Which events count. Rules see conversation events only.",
+                "properties": {
+                  "kind": {
+                    "description": "Event kinds.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "user_prompt",
+                          "turn_stop",
+                          "tool_call",
+                          "compaction"
+                        ]
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "user_prompt",
+                            "turn_stop",
+                            "tool_call",
+                            "compaction"
+                          ]
+                        },
+                        "minItems": 1
+                      }
+                    ]
+                  },
+                  "agent": {
+                    "description": "Agents, such as claude-code or copilot.",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ]
+                  },
+                  "toolCategory": {
+                    "description": "Tool categories, or shell sub-category ids (user:shell/name). shell also matches its sub-categories.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "file-read",
+                              "file-edit",
+                              "search",
+                              "script",
+                              "tests-builds",
+                              "version-control",
+                              "shell",
+                              "web",
+                              "mcp",
+                              "subagent",
+                              "other"
+                            ]
+                          },
+                          {
+                            "pattern": "^[a-z][a-z0-9-]*:shell/[a-z0-9][a-z0-9-]*$"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "string",
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "file-read",
+                                "file-edit",
+                                "search",
+                                "script",
+                                "tests-builds",
+                                "version-control",
+                                "shell",
+                                "web",
+                                "mcp",
+                                "subagent",
+                                "other"
+                              ]
+                            },
+                            {
+                              "pattern": "^[a-z][a-z0-9-]*:shell/[a-z0-9][a-z0-9-]*$"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "toolName": {
+                    "description": "Raw tool names, exact or with * wildcards (mcp__github__*).",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ]
+                  },
+                  "status": {
+                    "description": "Outcomes.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "success",
+                          "failure",
+                          "unknown"
+                        ]
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "success",
+                            "failure",
+                            "unknown"
+                          ]
+                        },
+                        "minItems": 1
+                      }
+                    ]
+                  },
+                  "subagent": {
+                    "type": "boolean",
+                    "description": "true: only subagents' events; false: only the main agent."
+                  },
+                  "hasTarget": {
+                    "type": "boolean",
+                    "description": "Only events with (or without) a target."
+                  },
+                  "hasTokens": {
+                    "type": "boolean",
+                    "description": "Only model calls that carry token counts (or events without)."
+                  }
+                }
+              },
+              "measure": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "count",
+                      "distinctTargets",
+                      "maxPerTarget",
+                      "topShare",
+                      "sumTokens",
+                      "contextPercent",
+                      "failureRate",
+                      "idleMinutes",
+                      "consecutive"
+                    ],
+                    "enumDescriptions": [
+                      "Matching events",
+                      "Different targets among them",
+                      "Events on the busiest target; names it",
+                      "Share (0 to 1) of targeted events on the top n targets; names the top one",
+                      "Tokens of every kind, added up",
+                      "Latest model call context as a percentage of the model's limit",
+                      "Share (0 to 1) of events with a known outcome that failed",
+                      "Minutes since the latest matching event",
+                      "Longest run of matching events among events of the filtered kinds"
+                    ]
+                  },
+                  "filter": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "description": "Which events count. Rules see conversation events only.",
+                    "properties": {
+                      "kind": {
+                        "description": "Event kinds.",
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "user_prompt",
+                              "turn_stop",
+                              "tool_call",
+                              "compaction"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "user_prompt",
+                                "turn_stop",
+                                "tool_call",
+                                "compaction"
+                              ]
+                            },
+                            "minItems": 1
+                          }
+                        ]
+                      },
+                      "agent": {
+                        "description": "Agents, such as claude-code or copilot.",
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1
+                          }
+                        ]
+                      },
+                      "toolCategory": {
+                        "description": "Tool categories, or shell sub-category ids (user:shell/name). shell also matches its sub-categories.",
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "file-read",
+                                  "file-edit",
+                                  "search",
+                                  "script",
+                                  "tests-builds",
+                                  "version-control",
+                                  "shell",
+                                  "web",
+                                  "mcp",
+                                  "subagent",
+                                  "other"
+                                ]
+                              },
+                              {
+                                "pattern": "^[a-z][a-z0-9-]*:shell/[a-z0-9][a-z0-9-]*$"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                              "type": "string",
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "file-read",
+                                    "file-edit",
+                                    "search",
+                                    "script",
+                                    "tests-builds",
+                                    "version-control",
+                                    "shell",
+                                    "web",
+                                    "mcp",
+                                    "subagent",
+                                    "other"
+                                  ]
+                                },
+                                {
+                                  "pattern": "^[a-z][a-z0-9-]*:shell/[a-z0-9][a-z0-9-]*$"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "toolName": {
+                        "description": "Raw tool names, exact or with * wildcards (mcp__github__*).",
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1
+                          }
+                        ]
+                      },
+                      "status": {
+                        "description": "Outcomes.",
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "success",
+                              "failure",
+                              "unknown"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "success",
+                                "failure",
+                                "unknown"
+                              ]
+                            },
+                            "minItems": 1
+                          }
+                        ]
+                      },
+                      "subagent": {
+                        "type": "boolean",
+                        "description": "true: only subagents' events; false: only the main agent."
+                      },
+                      "hasTarget": {
+                        "type": "boolean",
+                        "description": "Only events with (or without) a target."
+                      },
+                      "hasTokens": {
+                        "type": "boolean",
+                        "description": "Only model calls that carry token counts (or events without)."
+                      }
+                    }
+                  },
+                  "n": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "topShare only: how many top targets to add up (default 1)."
+                  }
+                },
+                "description": "One measure, named value. Use this or measures."
+              },
+              "measures": {
+                "type": "object",
+                "description": "Named measures, for conditions over more than one. Use this or measure.",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "type"
+                  ],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "count",
+                        "distinctTargets",
+                        "maxPerTarget",
+                        "topShare",
+                        "sumTokens",
+                        "contextPercent",
+                        "failureRate",
+                        "idleMinutes",
+                        "consecutive"
+                      ],
+                      "enumDescriptions": [
+                        "Matching events",
+                        "Different targets among them",
+                        "Events on the busiest target; names it",
+                        "Share (0 to 1) of targeted events on the top n targets; names the top one",
+                        "Tokens of every kind, added up",
+                        "Latest model call context as a percentage of the model's limit",
+                        "Share (0 to 1) of events with a known outcome that failed",
+                        "Minutes since the latest matching event",
+                        "Longest run of matching events among events of the filtered kinds"
+                      ]
+                    },
+                    "filter": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "description": "Which events count. Rules see conversation events only.",
+                      "properties": {
+                        "kind": {
+                          "description": "Event kinds.",
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "user_prompt",
+                                "turn_stop",
+                                "tool_call",
+                                "compaction"
+                              ]
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "user_prompt",
+                                  "turn_stop",
+                                  "tool_call",
+                                  "compaction"
+                                ]
+                              },
+                              "minItems": 1
+                            }
+                          ]
+                        },
+                        "agent": {
+                          "description": "Agents, such as claude-code or copilot.",
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1
+                            }
+                          ]
+                        },
+                        "toolCategory": {
+                          "description": "Tool categories, or shell sub-category ids (user:shell/name). shell also matches its sub-categories.",
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "file-read",
+                                    "file-edit",
+                                    "search",
+                                    "script",
+                                    "tests-builds",
+                                    "version-control",
+                                    "shell",
+                                    "web",
+                                    "mcp",
+                                    "subagent",
+                                    "other"
+                                  ]
+                                },
+                                {
+                                  "pattern": "^[a-z][a-z0-9-]*:shell/[a-z0-9][a-z0-9-]*$"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "string",
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "file-read",
+                                      "file-edit",
+                                      "search",
+                                      "script",
+                                      "tests-builds",
+                                      "version-control",
+                                      "shell",
+                                      "web",
+                                      "mcp",
+                                      "subagent",
+                                      "other"
+                                    ]
+                                  },
+                                  {
+                                    "pattern": "^[a-z][a-z0-9-]*:shell/[a-z0-9][a-z0-9-]*$"
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        "toolName": {
+                          "description": "Raw tool names, exact or with * wildcards (mcp__github__*).",
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1
+                            }
+                          ]
+                        },
+                        "status": {
+                          "description": "Outcomes.",
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "success",
+                                "failure",
+                                "unknown"
+                              ]
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "success",
+                                  "failure",
+                                  "unknown"
+                                ]
+                              },
+                              "minItems": 1
+                            }
+                          ]
+                        },
+                        "subagent": {
+                          "type": "boolean",
+                          "description": "true: only subagents' events; false: only the main agent."
+                        },
+                        "hasTarget": {
+                          "type": "boolean",
+                          "description": "Only events with (or without) a target."
+                        },
+                        "hasTokens": {
+                          "type": "boolean",
+                          "description": "Only model calls that carry token counts (or events without)."
+                        }
+                      }
+                    },
+                    "n": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "topShare only: how many top targets to add up (default 1)."
+                    }
+                  }
+                },
+                "propertyNames": {
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9]*$"
+                }
+              },
+              "when": {
+                "description": "Thresholds on a measure (gte, gt, lte, lt), combined with all and any.",
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "measure": {
+                        "type": "string",
+                        "description": "The measure to compare; optional with a single measure."
+                      },
+                      "gte": {
+                        "type": "number"
+                      },
+                      "gt": {
+                        "type": "number"
+                      },
+                      "lte": {
+                        "type": "number"
+                      },
+                      "lt": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "all"
+                    ],
+                    "properties": {
+                      "all": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "any"
+                    ],
+                    "properties": {
+                      "any": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "info",
+                  "warn"
+                ]
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Placeholders: {name} for a measure's value, {name.target}, {target}, and {windowMinutes}."
+              },
+              "suggestedAction": {
+                "type": "string",
+                "description": "Same placeholders as summary."
+              },
+              "earlyWarning": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "exclusiveMaximum": 1,
+                "description": "Warn early, before it fires, at this share of its gte or gt thresholds (0.8: at 80%). Needs snagboat.nudges.notify on."
+              }
+            }
+          },
+          "default": [],
+          "markdownDescription": "Heuristic rules to run alongside the built-ins, written as JSON (see [Rules](https://github.com/DChristianson/snagboat/blob/main/docs/heuristics.md#rules)). Meant for trying the rule format out; a rule here replaces a saved rule with the same id. Invalid rules are ignored and listed in the Snagboat output."
+        },
+        "snagboat.toolCategories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "parent",
+              "label",
+              "match"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*:shell/[a-z0-9][a-z0-9-]*$",
+                "patternErrorMessage": "Such as user:shell/package-install.",
+                "description": "Such as user:shell/package-install."
+              },
+              "parent": {
+                "type": "string",
+                "enum": [
+                  "shell"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "match": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Command prefixes of one or two words, such as npm install.",
+                "items": {
+                  "type": "string",
+                  "pattern": "^\\S+( \\S+)?$",
+                  "patternErrorMessage": "One or two words, separated by a single space."
+                }
+              }
+            }
+          },
+          "default": [],
+          "markdownDescription": "Sub-categories of \"Shell command\", written as JSON (see [Rules](https://github.com/DChristianson/snagboat/blob/main/docs/heuristics.md#shell-sub-categories)). New tool calls get them; a rule filtering on `shell` still matches them all."
+        },
+        "snagboat.discovery.days": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "description": "How many days of this workspace's history Snagboat: Discover Heuristics reads, so suggestions follow your current habits."
+        },
+        "snagboat.advisor.providers": {
+          "type": "array",
+          "default": [
+            {
+              "id": "local",
+              "label": "Local (Ollama)",
+              "baseUrl": "http://localhost:11434/v1",
+              "model": ""
+            }
+          ],
+          "markdownDescription": "Models the advisor can use: OpenAI-compatible chat completion endpoints. A provider whose `baseUrl` is on this machine (localhost) is local; any other is hosted, must use https, needs an API key (**Snagboat: Set Advisor API Key...**), and every request to it is recorded in the audit log. `send` sets what it may receive: by default local providers get prompts and session names, hosted ones neither, and neither gets reply excerpts. See [the advisor](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#the-advisor).",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "baseUrl"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*$",
+                "description": "Lowercase letters, digits, and dashes; names it in snagboat.advisor.explainProvider."
+              },
+              "label": {
+                "type": "string"
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "Such as http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio), or https://api.openai.com/v1."
+              },
+              "model": {
+                "type": "string",
+                "description": "Leave empty to pick from the provider's models on first use."
+              },
+              "send": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "What it may receive. Paths outside the workspace are always hashed.",
+                "properties": {
+                  "prompts": {
+                    "type": "boolean",
+                    "description": "Your prompts' text (default: local yes, hosted no)."
+                  },
+                  "replies": {
+                    "type": "boolean",
+                    "description": "Agent reply excerpts (default: no)."
+                  },
+                  "sessionNames": {
+                    "type": "boolean",
+                    "description": "Session names (default: local yes, hosted no)."
+                  },
+                  "paths": {
+                    "type": "string",
+                    "enum": [
+                      "relative",
+                      "hashed"
+                    ],
+                    "description": "File paths relative to the workspace, or hashed (default: relative)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "snagboat.advisor.explainProvider": {
+          "type": "string",
+          "default": "local",
+          "description": "The id of the provider Explain uses."
+        },
+        "snagboat.advisor.proposeProvider": {
+          "type": "string",
+          "default": "local",
+          "description": "The id of the provider the Suggestions tab asks to propose heuristics."
+        },
+        "snagboat.advisor.reviewProvider": {
+          "type": "string",
+          "default": "local",
+          "description": "The id of the provider asked to add its judgment to a review (Ask the Advisor, after Snagboat: Write Review)."
+        },
+        "snagboat.advisor.nudgeProvider": {
+          "type": "string",
+          "default": "local",
+          "description": "The id of the provider asked for a one-line suggestion when a nudge fires (snagboat.nudges.advisor)."
+        },
+        "snagboat.advisor.auditPayloads": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also keep the full payload of each request to a hosted provider in the audit log, for snagboat.retention.rawDays. Off: the log keeps when, which capability, the size, and a hash."
+        },
+        "snagboat.advisor.reviewDirectory": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Where **Snagboat: Write Review** writes its Markdown reports, one per week and workspace. Empty: `~/.snagboat/reviews`."
+        },
+        "snagboat.advisor.weeklyReview": {
+          "type": "boolean",
+          "default": false,
+          "description": "Write this workspace's review once a week, the first time a window is open that week, without a model. You're told when it's written, and can then ask the advisor to add to it."
+        },
+        "snagboat.nudges.notify": {
+          "type": "string",
+          "enum": [
+            "off",
+            "warnings",
+            "all"
+          ],
+          "default": "off",
+          "enumDescriptions": [
+            "No notifications: findings show in the status bar and detail view only",
+            "Notify when a warning appears, and for early warnings",
+            "Notify for every finding, and for early warnings"
+          ],
+          "markdownDescription": "Show a notification when a finding appears, at most one per turn, never modal. Early warnings (`earlyWarning` on `runaway-turn`, `context-pressure`, and rules) notify too unless this is off. Muted heuristics never notify."
+        },
+        "snagboat.nudges.quiet": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Heuristic or rule ids that never notify, while still showing in the status bar."
+        },
+        "snagboat.nudges.advisor": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "When a nudge fires, also ask the advisor (`snagboat.advisor.nudgeProvider`) for one line on what to do, shown under the finding in the status bar tooltip as model output. It never prompts while you work: until you've picked a model and approved that provider's payload through Explain, it doesn't ask."
         }
       }
     }
@@ -215,10 +1120,13 @@
     "compile-tests": "tsc -p . --outDir out",
     "verify:transcripts": "npm run compile-tests && node ./out/scripts/transcripts.js verify",
     "replay:heuristics": "npm run compile-tests && node ./out/scripts/replayHeuristics.js",
+    "discover": "npm run compile-tests && node ./out/scripts/discover.js",
+    "eval:advisor": "npm run compile-tests && node ./out/scripts/evalAdvisor.js",
+    "review:ui": "npm run compile-tests && node ./out/scripts/reviewUi.js",
     "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js"
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js && node ./out/test/unit/digest.unit.test.js && node ./out/test/unit/advisor.unit.test.js && node ./out/test/unit/propose.unit.test.js && node ./out/test/unit/review.unit.test.js && node ./out/test/unit/nudges.unit.test.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",

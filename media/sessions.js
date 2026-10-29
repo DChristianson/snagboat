@@ -30,6 +30,10 @@
     persist({ sessionId: null });
   });
   const sessionMeta = el('p', { class: 'muted small' });
+  // Explain asks the advisor (a model you configure); it shows what it will send before the first request.
+  const explain = (extra) => vscode.postMessage({ type: 'explain', sessionId: ui.view.summary.sessionId, ...(extra || {}) });
+  const explainBtn = el('button', { text: 'Explain session', title: 'Ask the advisor model what happened in this session' });
+  explainBtn.addEventListener('click', () => explain());
   const promptPanel = el('section', { class: 'prompt-panel', 'aria-label': 'Prompt', hidden: true });
   const treeHost = el('div', { class: 'tree-host' });
   const expandBtn = el('button', {});
@@ -52,7 +56,7 @@
   ]);
   const findingsSection = el('section', { class: 'session-findings', 'aria-label': 'Findings in this session' });
   const sessionSection = el('section', { class: 'session-view', hidden: true }, [
-    el('div', { class: 'session-head' }, [crumbs, el('span', { class: 'spacer' }), closeBtn]),
+    el('div', { class: 'session-head' }, [crumbs, el('span', { class: 'spacer' }), explainBtn, closeBtn]),
     sessionMeta,
     treeHost,
     promptPanel,
@@ -177,7 +181,12 @@
     promptPanel.hidden = messages.length === 0;
     if (!messages.length) return promptPanel.replaceChildren();
     promptPanel.replaceChildren(
-      el('div', { class: 'prompt-head' }, [el('strong', { text: `P${messages[0].index}` }), el('span', { class: 'muted small', text: ` ${formatTime(messages[0].ts)}` })]),
+      el('div', { class: 'prompt-head' }, [
+        el('strong', { text: `P${messages[0].index}` }),
+        el('span', { class: 'muted small', text: ` ${formatTime(messages[0].ts)}` }),
+        el('span', { class: 'spacer' }),
+        el('button', { class: 'link', text: 'Explain turn', title: 'Ask the advisor model what happened in this turn', onclick: () => explain({ turnId: messages[0].turnId }) }),
+      ]),
       ...messages.map((p) => el('p', { class: p.text ? 'prompt-text' : 'prompt-text muted', text: p.text || 'Prompt text wasn\u2019t captured for this turn (text capture was off, or it\u2019s past text retention).' }))
     );
   }
@@ -566,7 +575,11 @@
               el('td', { text: findingState(f) }),
               el('td', { text: turnLabel(f) }),
               el('td', { text: f.summary }),
-              el('td', { class: 'nowrap' }, [el('button', { class: 'link', text: 'Show', onclick: () => showFinding(f) })]),
+              el('td', { class: 'nowrap' }, [
+                el('button', { class: 'link', text: 'Show', onclick: () => showFinding(f) }),
+                ' ',
+                el('button', { class: 'link', text: 'Explain', title: 'Ask the advisor model about this finding', onclick: () => explain({ heuristicId: f.heuristicId, ...(f.turnIds[0] ? { turnId: f.turnIds[0] } : {}) }) }),
+              ]),
             ])
           )
         ),

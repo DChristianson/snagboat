@@ -255,3 +255,11 @@ input[type="search"] { min-width: 220px; }
 .brush { fill: var(--vscode-editor-selectionBackground, rgba(57, 135, 229, 0.25)); }
 .session-view.expanded .tree-host { margin-bottom: 4px; }
 .context-chart .mark-label { fill: var(--ink); }
+
+/* Suggestions */
+.suggestion .summary input.threshold { width: 7em; margin: 0 2px; }
+.rule-json { white-space: pre-wrap; word-break: break-all; margin: 6px 0 0; padding: 8px; border: 1px solid var(--rule); border-radius: 4px; }
+.saved-rule { border-bottom: 1px solid var(--rule); padding: 8px 0; }
+.saved-rule .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.saved-rule p { margin: 2px 0 6px; }
+.prompt-head { display: flex; align-items: baseline; gap: 4px; }

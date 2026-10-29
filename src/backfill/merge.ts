@@ -1,5 +1,5 @@
 import { eventTokens } from '../core/sessions';
-import { classifyTool } from '../core/toolCategory';
+import { baseCategory, classifyCommand, classifyTool, isShellTool } from '../core/toolCategory';
 import { NormalizedEvent } from '../core/types';
 
 /**
@@ -118,4 +118,22 @@ export function mergeDay(
     }
     return fixed;
   });
+}
+
+/**
+ * Re-applies the shell sub-categories in use to stored shell calls: calls
+ * classified as shell (plain or a sub-category) are classified again from
+ * their command line, so an accepted category reaches past calls and a
+ * removed one goes back to "Shell command". Other categories never change.
+ */
+export function relabelShellCalls(events: NormalizedEvent[]): { events: NormalizedEvent[]; changed: number } {
+  let changed = 0;
+  const out = events.map((e) => {
+    if (e.kind !== 'tool_call' || !e.toolCategory || baseCategory(e.toolCategory) !== 'shell' || !isShellTool(e.toolName) || !e.target) return e;
+    const category = classifyCommand(e.target);
+    if (category === e.toolCategory) return e;
+    changed += 1;
+    return { ...e, toolCategory: category };
+  });
+  return { events: out, changed };
 }

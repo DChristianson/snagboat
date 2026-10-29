@@ -265,6 +265,37 @@ suite('Snagboat core plumbing', () => {
     sessions.close();
   });
 
+  test('a rule added in settings runs like a built-in, and stops when removed', async () => {
+    const config = vscode.workspace.getConfiguration('snagboat');
+    const rule = {
+      id: 'test:model-calls',
+      title: 'Any model call',
+      scope: 'session',
+      measure: { type: 'count', filter: { kind: 'turn_stop', hasTokens: true } },
+      when: { gte: 1 },
+      severity: 'info',
+      summary: '{value} model calls',
+    };
+    try {
+      await config.update('rules', [rule], vscode.ConfigurationTarget.Global);
+      // With notifications on, the nudge path runs too (a notification appears in the test window).
+      await config.update('nudges.notify', 'all', vscode.ConfigurationTarget.Global);
+      await vscode.commands.executeCommand('snagboat._emitTestEvent');
+      await waitFor(() => api.getFindings().some((f) => f.heuristicId === 'test:model-calls'));
+    } finally {
+      await config.update('rules', undefined, vscode.ConfigurationTarget.Global);
+      await config.update('nudges.notify', undefined, vscode.ConfigurationTarget.Global);
+    }
+    await waitFor(() => !api.getFindings().some((f) => f.heuristicId === 'test:model-calls'));
+  });
+
+  test('Discover Heuristics runs over this workspace and opens the detail view', async () => {
+    await vscode.commands.executeCommand('snagboat.discover');
+    await waitFor(() =>
+      vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputWebview && t.label === 'Snagboat'))
+    );
+  });
+
   test('the detail view opens as a webview tab and the today snapshot tracks new events', async () => {
     const beforeToday = api.getTodaySnapshot().totalTokens;
     await vscode.commands.executeCommand('snagboat._emitTestEvent');

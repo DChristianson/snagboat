@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
-import { DetailState, isDetailMessage, resolveTargetFile } from './detailModel';
+import { DetailState, DetailTab, isDetailMessage, resolveTargetFile } from './detailModel';
 import { SessionController } from './sessionController';
+import { SuggestionsController } from './suggestionsController';
+import { ExplainRequest } from '../advisor/advisor';
 
 const UPDATE_DEBOUNCE_MS = 500;
 
@@ -10,13 +12,15 @@ export interface DetailPanelHooks {
   acknowledge(heuristicId: string): void;
   setMuted(heuristicId: string, muted: boolean): void;
   sessions: SessionController;
+  suggestions: SuggestionsController;
+  explain(req: ExplainRequest): Promise<void>;
   /** Today's UTC day key, for the session list's default day. */
   today(): string;
 }
 
 /** Where to take the page when opening it from a link or command. */
 export interface DetailTarget {
-  tab?: 'overview' | 'sessions';
+  tab?: DetailTab;
   day?: string;
   sessionId?: string;
 }
@@ -36,10 +40,12 @@ export class DetailPanel implements vscode.Disposable {
   // Targets repeat heavily (the same file edited many times), so one stat per
   // distinct target per panel session is plenty.
   private openableCache = new Map<string, boolean>();
-  private activeTab: 'overview' | 'sessions' = 'overview';
+  private activeTab: DetailTab = 'overview';
   private sessionDay?: string;
 
-  constructor(private readonly extensionUri: vscode.Uri, private readonly hooks: DetailPanelHooks) {}
+  constructor(private readonly extensionUri: vscode.Uri, private readonly hooks: DetailPanelHooks) {
+    hooks.suggestions.onChange(() => this.postSuggestions());
+  }
 
   show(target?: DetailTarget): void {
     if (this.panel) {
@@ -94,6 +100,12 @@ export class DetailPanel implements vscode.Disposable {
     if (!this.panel) return;
     void this.panel.webview.postMessage({ type: 'state', state: this.hooks.buildState(this.isOpenable) });
     if (this.activeTab === 'sessions') this.postSessions();
+    if (this.activeTab === 'suggestions') this.postSuggestions();
+  }
+
+  private postSuggestions(): void {
+    if (!this.panel || this.activeTab !== 'suggestions') return;
+    void this.panel.webview.postMessage({ type: 'suggestions', view: this.hooks.suggestions.view() });
   }
 
   private postSessions(): void {
@@ -131,6 +143,41 @@ export class DetailPanel implements vscode.Disposable {
       case 'tab':
         this.activeTab = message.tab;
         if (message.tab === 'sessions') this.postSessions();
+        if (message.tab === 'suggestions') {
+          this.postSuggestions();
+          // The first visit runs discovery; after that, only Discover again does.
+          if (!this.hooks.suggestions.hasRun) void this.hooks.suggestions.discover();
+        }
+        break;
+      case 'discover':
+        await this.hooks.suggestions.discover();
+        break;
+      case 'askAdvisor':
+        await this.hooks.suggestions.askAdvisor();
+        break;
+      case 'tweakSuggestion':
+        this.hooks.suggestions.tweak(message.id, message.threshold);
+        break;
+      case 'acceptSuggestion':
+        await this.hooks.suggestions.accept(message.id);
+        break;
+      case 'acceptShellCategory':
+        await this.hooks.suggestions.acceptCategory(message.id);
+        break;
+      case 'dismissSuggestion':
+        await this.hooks.suggestions.dismiss(message.id);
+        break;
+      case 'clearDismissed':
+        await this.hooks.suggestions.clearDismissed();
+        break;
+      case 'applyThreshold':
+        await this.hooks.suggestions.applyThreshold(message.heuristic, message.setting);
+        break;
+      case 'explain':
+        await this.hooks.explain({ sessionId: message.sessionId, ...(message.turnId ? { turnId: message.turnId } : {}), ...(message.heuristicId ? { heuristicId: message.heuristicId } : {}) });
+        break;
+      case 'removeSaved':
+        await this.hooks.suggestions.removeSaved(message.section, message.id);
         break;
       case 'listSessions':
         this.sessionDay = message.day;
@@ -167,6 +214,7 @@ export class DetailPanel implements vscode.Disposable {
     const nonce = crypto.randomBytes(16).toString('base64');
     const script = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'detail.js'));
     const sessionsScript = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'sessions.js'));
+    const suggestionsScript = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'suggestions.js'));
     const style = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'detail.css'));
     return `<!DOCTYPE html>
 <html lang="en">
@@ -182,6 +230,7 @@ export class DetailPanel implements vscode.Disposable {
 <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
 <script nonce="${nonce}" src="${script}"></script>
 <script nonce="${nonce}" src="${sessionsScript}"></script>
+<script nonce="${nonce}" src="${suggestionsScript}"></script>
 </body>
 </html>`;
   }
