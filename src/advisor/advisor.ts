@@ -16,7 +16,7 @@ export interface AdvisorDeps {
   digestInput(sessionId: string, turnId?: string): Promise<DigestInput | undefined>;
 }
 
-export type Capability = 'explain' | 'propose' | 'review';
+export type Capability = 'explain' | 'propose' | 'review' | 'nudge';
 
 /** An answer, with the provider (and model) that gave it and what it was asked. */
 export interface Asked {
@@ -136,8 +136,9 @@ export class Advisor {
   async ask(
     capability: Capability,
     build: (p: ProviderConfig) => Promise<ChatMessage[] | undefined>,
-    opts: { title: string; json?: boolean }
+    opts: { title: string; json?: boolean; quiet?: boolean }
   ): Promise<Asked | undefined> {
+    if (opts.quiet) return this.askQuietly(capability, build, opts);
     const p = await this.provider(capability);
     if (!p) return undefined;
     const apiKey = await this.apiKey(p);
@@ -159,6 +160,36 @@ export class Advisor {
       await this.auditRequest(provider, capability, body, 'error');
       void vscode.window.showErrorMessage(`Snagboat: ${p.label} (${p.baseUrl}) didn't answer: ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
+    }
+  }
+
+  /**
+   * For requests made while you work (nudges): never a prompt, picker, or
+   * approval dialog. If the provider still needs a key, a model, or your
+   * approval, it doesn't ask, and says why in the output.
+   */
+  private async askQuietly(capability: Capability, build: (p: ProviderConfig) => Promise<ChatMessage[] | undefined>, opts: { title: string; json?: boolean }): Promise<Asked | undefined> {
+    const skip = (why: string) => {
+      this.deps.output.appendLine(`Advisor: skipped ${opts.title}: ${why}`);
+      return undefined;
+    };
+    const id = config().get<string>(`${capability}Provider`, 'local');
+    const p = this.providers().find((x) => x.id === id);
+    if (!p) return skip(`no provider "${id}" in snagboat.advisor.providers`);
+    if (!p.model) return skip(`${p.label} has no model set yet; use Explain once to pick one`);
+    const apiKey = p.kind === 'hosted' ? await this.deps.secrets.get(secretKey(p.id)) : undefined;
+    if (p.kind === 'hosted' && !apiKey) return skip(`${p.label} needs an API key`);
+    if (this.deps.globalState.get<Record<string, string>>(APPROVED_KEY, {})[p.id] !== approvalKey(p)) return skip(`you haven't approved what ${p.label} receives yet; use Explain once to see and approve it`);
+    const messages = await build(p);
+    if (!messages) return undefined;
+    const body = completionBody(p.model, messages, opts.json);
+    try {
+      const completion = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: `Snagboat: ${opts.title}…` }, () => complete(p, messages, apiKey, this.fetchImpl, opts.json));
+      await this.auditRequest(p, capability, body, 'ok');
+      return { completion, provider: p, messages };
+    } catch (err) {
+      await this.auditRequest(p, capability, body, 'error');
+      return skip(`${p.label} didn't answer: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

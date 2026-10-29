@@ -5,7 +5,7 @@ import { currentTurnsIn } from '../core/turns';
 import { NormalizedEvent, NormalizedEventKind } from '../core/types';
 import { compactTokens } from './settings';
 import { Rule, RuleCondition, RuleFilter, RuleMeasure, TARGET_MEASURES, MeasureType } from './rule';
-import { Finding, Heuristic, HeuristicContext } from './types';
+import { Finding, Heuristic, HeuristicContext, Progress } from './types';
 
 const MAX_REFS = 200;
 
@@ -126,6 +126,19 @@ function holds(condition: RuleCondition, values: Map<string, Measured>): boolean
   );
 }
 
+/** How far a condition is toward holding, 0 to 1; undefined where that can't be said (lte and lt thresholds, nothing measured). */
+function shareOf(condition: RuleCondition, values: Map<string, Measured>): number | undefined {
+  if ('all' in condition || 'any' in condition) {
+    const parts = ('all' in condition ? condition.all : condition.any).map((c) => shareOf(c, values));
+    if (parts.some((p) => p === undefined)) return undefined;
+    return 'all' in condition ? Math.min(...(parts as number[])) : Math.max(...(parts as number[]));
+  }
+  const v = values.get(condition.measure)?.value;
+  const target = condition.gte ?? condition.gt;
+  if (v === undefined || target === undefined || target <= 0 || condition.lte !== undefined || condition.lt !== undefined) return undefined;
+  return Math.min(v / target, 1);
+}
+
 function formatValue(type: MeasureType, v: number | undefined): string {
   if (v === undefined) return '?';
   switch (type) {
@@ -176,6 +189,22 @@ export function ruleHeuristic(rule: Rule): Heuristic {
     id: rule.id,
     appliesTo: CONVERSATION_KINDS,
     onlyChangesWithEvents: !timeDependent,
+
+    ...(rule.earlyWarning !== undefined
+      ? {
+          progress(ctx: HeuristicContext): Progress[] {
+            const out: Progress[] = [];
+            for (const group of scopeGroups(rule, ctx)) {
+              const values = new Map(Object.entries(rule.measures).map(([name, m]) => [name, measure(m, rule.filter, group.events, ctx)]));
+              if (holds(rule.when, values)) continue;
+              const share = shareOf(rule.when, values);
+              if (share === undefined || share < rule.earlyWarning!) continue;
+              out.push({ heuristicId: rule.id, share, summary: `Heading for "${rule.title}": ${render(rule.summary, rule, values)}`, eventRefs: group.anchor ? [group.anchor] : [] });
+            }
+            return out;
+          },
+        }
+      : {}),
 
     evaluate(ctx: HeuristicContext): Finding[] {
       const findings: Finding[] = [];

@@ -26,6 +26,22 @@ export interface Heuristic {
    */
   readonly onlyChangesWithEvents?: boolean;
   evaluate(ctx: HeuristicContext): Finding[];
+  /**
+   * How close it is to firing, where warning early saves something real
+   * (tokens still being burned, a compaction coming). Only for heuristics
+   * with an early-warning point set; never reports one that's already firing.
+   */
+  progress?(ctx: HeuristicContext): Progress[];
+}
+
+/** A heuristic past its early-warning point but not yet firing. */
+export interface Progress {
+  heuristicId: string;
+  /** How far toward the threshold, 0 to 1. */
+  share: number;
+  /** What it's heading for, such as "heading for a runaway: 80 of 100 model calls". */
+  summary: string;
+  eventRefs: string[];
 }
 
 export interface Finding {

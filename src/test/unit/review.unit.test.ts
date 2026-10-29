@@ -97,6 +97,8 @@ async function main() {
     assert.deepStrictEqual(checks.map((c) => [c.id, c.moments]), [['warning-not-first', 1], ['count-hidden', 1], ['no-notification', 1]]);
     assert.ok(checks[2].recommendation.includes('1 of 1 episodes'));
     assert.deepStrictEqual(presentationChecks([], stats), []);
+    assert.deepStrictEqual(presentationChecks(moments, stats, true).map((c) => c.id), ['warning-not-first', 'count-hidden'], 'with notifications on, nothing to recommend there');
+    assert.ok(checks[2].recommendation.startsWith('Setting: set snagboat.nudges.notify'));
   });
 
   test('the review covers usage, findings, responses, rules to retire, and presentation, without targets or summaries', () => {

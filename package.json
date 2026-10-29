@@ -218,12 +218,26 @@
           "default": 100,
           "description": "runaway-turn fires when one prompt drives this many tool calls without another prompt."
         },
+        "snagboat.heuristics.runawayTurn.earlyWarning": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0,
+          "maximum": 0.99,
+          "description": "With snagboat.nudges.notify on, warn early once a turn reaches this share of its threshold (0.8: at 80%). 0 turns early warnings off."
+        },
         "snagboat.heuristics.contextPressure.percent": {
           "type": "number",
           "default": 90,
           "minimum": 1,
           "maximum": 100,
           "description": "context-pressure reports (info) when the current turn's context reaches this percentage of the model's limit. An automatic compaction always warns."
+        },
+        "snagboat.heuristics.contextPressure.earlyWarning": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0,
+          "maximum": 0.99,
+          "description": "With snagboat.nudges.notify on, warn early once a turn's context reaches this share of its threshold (0.8: at 80%). 0 turns early warnings off."
         },
         "snagboat.heuristics.cacheThrash.minTokens": {
           "type": "number",
@@ -905,6 +919,12 @@
               "suggestedAction": {
                 "type": "string",
                 "description": "Same placeholders as summary."
+              },
+              "earlyWarning": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "exclusiveMaximum": 1,
+                "description": "Warn early, before it fires, at this share of its gte or gt thresholds (0.8: at 80%). Needs snagboat.nudges.notify on."
               }
             }
           },
@@ -1040,6 +1060,11 @@
           "default": "local",
           "description": "The id of the provider asked to add its judgment to a review (Ask the Advisor, after Snagboat: Write Review)."
         },
+        "snagboat.advisor.nudgeProvider": {
+          "type": "string",
+          "default": "local",
+          "description": "The id of the provider asked for a one-line suggestion when a nudge fires (snagboat.nudges.advisor)."
+        },
         "snagboat.advisor.auditPayloads": {
           "type": "boolean",
           "default": false,
@@ -1054,6 +1079,34 @@
           "type": "boolean",
           "default": false,
           "description": "Write this workspace's review once a week, the first time a window is open that week, without a model. You're told when it's written, and can then ask the advisor to add to it."
+        },
+        "snagboat.nudges.notify": {
+          "type": "string",
+          "enum": [
+            "off",
+            "warnings",
+            "all"
+          ],
+          "default": "off",
+          "enumDescriptions": [
+            "No notifications: findings show in the status bar and detail view only",
+            "Notify when a warning appears, and for early warnings",
+            "Notify for every finding, and for early warnings"
+          ],
+          "markdownDescription": "Show a notification when a finding appears, at most one per turn, never modal. Early warnings (`earlyWarning` on `runaway-turn`, `context-pressure`, and rules) notify too unless this is off. Muted heuristics never notify."
+        },
+        "snagboat.nudges.quiet": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Heuristic or rule ids that never notify, while still showing in the status bar."
+        },
+        "snagboat.nudges.advisor": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "When a nudge fires, also ask the advisor (`snagboat.advisor.nudgeProvider`) for one line on what to do, shown under the finding in the status bar tooltip as model output. It never prompts while you work: until you've picked a model and approved that provider's payload through Explain, it doesn't ask."
         }
       }
     }
@@ -1073,7 +1126,7 @@
     "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js && node ./out/test/unit/digest.unit.test.js && node ./out/test/unit/advisor.unit.test.js && node ./out/test/unit/propose.unit.test.js && node ./out/test/unit/review.unit.test.js"
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js && node ./out/test/unit/digest.unit.test.js && node ./out/test/unit/advisor.unit.test.js && node ./out/test/unit/propose.unit.test.js && node ./out/test/unit/review.unit.test.js && node ./out/test/unit/nudges.unit.test.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",

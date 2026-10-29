@@ -17,6 +17,8 @@ import { sessionDigestInput } from './advisor/source';
 import { Advisor } from './advisor/advisor';
 import { AuditLog } from './advisor/audit';
 import { proposeMessages } from './advisor/propose';
+import { nudgeLine, nudgeMessages } from './advisor/nudge';
+import { Nudge, Nudger, NudgeSettings, NotifyLevel } from './nudges/nudger';
 import { ResponseLog, ResponseTracker } from './heuristics/responses';
 import { buildReview, isoWeek, renderReview, Review } from './review/review';
 import { advisorSection, reviewMessages } from './review/advisorReview';
@@ -179,10 +181,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     health.report('rules', 'invalid', ruleProblems.length > 0 ? `${ruleProblems.length} rule or tool category problem${ruleProblems.length === 1 ? '' : 's'}; see the Snagboat output` : undefined);
   };
   loadRules();
+  // Live nudges (opt-in): notifications for findings and early warnings, at most one per turn.
+  const nudgeSettings = (): NudgeSettings => {
+    const config = vscode.workspace.getConfiguration('snagboat.nudges');
+    const quiet = config.get<unknown>('quiet', []);
+    return { notify: config.get<NotifyLevel>('notify', 'off'), quiet: Array.isArray(quiet) ? quiet.filter((q): q is string => typeof q === 'string') : [], muted: findings.mutedHeuristics() };
+  };
+  const nudger = new Nudger((refs) => {
+    const wanted = new Set(refs);
+    const events = eventStore.query().filter((e) => wanted.has(e.eventId));
+    const inTurn = events.filter((e) => e.turnId).pop();
+    return inTurn ? { sessionId: inTurn.sessionId, turnId: inTurn.turnId } : events[0] ? { sessionId: events[0].sessionId } : undefined;
+  });
+  /** The advisor's line for a finding in the tooltip, while that finding lasts. */
+  const advice = new Map<string, { line: string; model: string }>();
+  let showNudge: (nudge: Nudge) => void = () => undefined;
   const runHeuristics = (kind?: NormalizedEventKind) => {
     const now = new Date().toISOString();
     const results = kind ? engine.tickFor(kind, now) : engine.tick(now);
     for (const [id, list] of results) findings.report(id, list);
+    const settings = nudgeSettings();
+    if (settings.notify === 'off') return;
+    const active = new Map<string, Finding[]>();
+    for (const f of findings.list()) active.set(f.heuristicId, [...(active.get(f.heuristicId) ?? []), f]);
+    for (const id of [...advice.keys()]) if (!active.has(id)) advice.delete(id);
+    for (const nudge of nudger.update(active, engine.progress(now), settings)) showNudge(nudge);
   };
 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -269,8 +292,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   });
   context.subscriptions.push(detailPanel);
 
+  const withAdvice = (list: Finding[]): Finding[] =>
+    list.map((f) => {
+      const a = advice.get(f.heuristicId);
+      return a ? { ...f, suggestedAction: [f.suggestedAction, `advisor (model output, ${a.model}): ${a.line}`].filter(Boolean).join(' · ') } : f;
+    });
   const refresh = () => {
-    renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), findings.visible(), findings.worst());
+    renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), withAdvice(findings.visible()), findings.worst());
     detailPanel.scheduleUpdate();
   };
   refresh();
@@ -413,6 +441,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       respondingSince: context.workspaceState.get<string>(RESPONDING_SINCE_KEY),
       muted: findings.mutedHeuristics(),
       discovery,
+      notifying: nudgeSettings().notify !== 'off',
     });
     const file = reviewFile(isoWeek(to));
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
@@ -441,6 +470,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       outputChannel.appendLine(`Review: couldn't write the weekly review: ${String(err)}`);
     }
   };
+  showNudge = (nudge: Nudge) => {
+    const text = `Snagboat: ${nudge.summary}${nudge.suggestedAction ? `. ${nudge.suggestedAction}` : ''}`;
+    const actions = [...(nudge.sessionId ? ['Show in Session'] : []), ...(nudge.sessionId ? ['Explain'] : []), ...(nudge.early ? [] : ['Acknowledge']), 'Mute'];
+    const shown = nudge.severity === 'warn' ? vscode.window.showWarningMessage(text, ...actions) : vscode.window.showInformationMessage(text, ...actions);
+    void shown.then((choice) => {
+      if (choice === 'Show in Session' && nudge.sessionId) detailPanel.show({ sessionId: nudge.sessionId });
+      else if (choice === 'Explain' && nudge.sessionId) void advisor.explain({ sessionId: nudge.sessionId, ...(nudge.turnId ? { turnId: nudge.turnId } : {}), ...(nudge.early ? {} : { heuristicId: nudge.heuristicId }) });
+      else if (choice === 'Acknowledge') findings.acknowledge(nudge.heuristicId);
+      else if (choice === 'Mute') {
+        findings.setMuted(nudge.heuristicId, true);
+        void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
+      }
+    });
+    // The advisor's one line, opt-in, only for findings in one turn, and only quietly: no prompts mid-work.
+    if (nudge.early || !nudge.sessionId || !nudge.turnId || !vscode.workspace.getConfiguration('snagboat.nudges').get<boolean>('advisor', false)) return;
+    const { sessionId, turnId } = nudge;
+    void advisor
+      .ask(
+        'nudge',
+        async (p) => {
+          const input = await digestInput(sessionId, turnId);
+          if (!input) return undefined;
+          const digest = buildDigest(input, p.policy);
+          return nudgeMessages(digest, nudge.heuristicId, digest.findings.find((f) => f.heuristic === nudge.heuristicId)?.summary ?? '', false);
+        },
+        { title: `asking the advisor about ${nudge.heuristicId}`, quiet: true }
+      )
+      .then((asked) => {
+        const line = asked && nudgeLine(asked.completion.text);
+        if (!asked || !line || !findings.list().some((f) => f.heuristicId === nudge.heuristicId)) return;
+        advice.set(nudge.heuristicId, { line, model: asked.provider.model });
+        refresh();
+      });
+  };
+
   const weeklyTimer = setInterval(() => void weeklyReview(), RETENTION_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(weeklyTimer) });
   // A minute in, so activation and catching up on transcripts come first.

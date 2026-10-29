@@ -62,6 +62,8 @@ export interface Rule {
   severity: 'info' | 'warn';
   summary: string;
   suggestedAction?: string;
+  /** Warn before firing, at this share of its thresholds (0 to 1); only for gte and gt thresholds. */
+  earlyWarning?: number;
 }
 
 export interface ParseResult<T> {
@@ -73,7 +75,7 @@ const RULE_ID = /^[a-z][a-z0-9-]*:[a-z0-9][a-z0-9-]*$/;
 const MEASURE_NAME = /^[a-zA-Z][a-zA-Z0-9]*$/;
 const RESERVED_NAMES = new Set(['target', 'windowMinutes']);
 const MAX_CONDITION_DEPTH = 4;
-const RULE_FIELDS = ['id', 'title', 'scope', 'windowMinutes', 'filter', 'measure', 'measures', 'when', 'severity', 'summary', 'suggestedAction'];
+const RULE_FIELDS = ['id', 'title', 'scope', 'windowMinutes', 'filter', 'measure', 'measures', 'when', 'severity', 'summary', 'suggestedAction', 'earlyWarning'];
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -246,6 +248,10 @@ export function parseRule(doc: unknown): ParseResult<Rule> {
     else checkPlaceholders(doc.suggestedAction, 'suggestedAction', { measures, scope }, errors);
   }
 
+  if (doc.earlyWarning !== undefined && (typeof doc.earlyWarning !== 'number' || !(doc.earlyWarning > 0 && doc.earlyWarning < 1))) {
+    errors.push('earlyWarning must be a share of the threshold between 0 and 1, such as 0.8');
+  }
+
   if (errors.length > 0 || !when) return { errors };
   return {
     value: {
@@ -259,6 +265,7 @@ export function parseRule(doc: unknown): ParseResult<Rule> {
       severity: doc.severity as Rule['severity'],
       summary: doc.summary as string,
       ...(doc.suggestedAction !== undefined ? { suggestedAction: doc.suggestedAction as string } : {}),
+      ...(typeof doc.earlyWarning === 'number' ? { earlyWarning: doc.earlyWarning } : {}),
     },
     errors,
   };

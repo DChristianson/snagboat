@@ -34,7 +34,7 @@ export interface CheckResult {
   /** Moments it was true at, out of the moments looked at. */
   moments: number;
   example: UiSnapshot;
-  /** A change to Snagboat, worded so it can be filed as an issue. */
+  /** A setting to change, or a change to Snagboat worded so it can be filed as an issue. */
   recommendation: string;
 }
 
@@ -81,7 +81,7 @@ export function snapshotAt(moment: Moment): UiSnapshot {
 }
 
 /** Fixed checks over the moments; each result names how often it held and shows one example. */
-export function presentationChecks(moments: Moment[], responses: Map<string, ResponseStats>): CheckResult[] {
+export function presentationChecks(moments: Moment[], responses: Map<string, ResponseStats>, notifying = false): CheckResult[] {
   const snapshots = moments.map(snapshotAt);
   const results: CheckResult[] = [];
 
@@ -111,16 +111,16 @@ export function presentationChecks(moments: Moment[], responses: Map<string, Res
   }
 
   const warnings = snapshots.filter((s) => s.moment.active.some((a) => a.severity === 'warn'));
-  if (warnings.length > 0) {
+  if (warnings.length > 0 && !notifying) {
     const warnStats = [...responses.values()].filter((r) => r.warnings > 0);
     const expired = warnStats.reduce((n, r) => n + r.expiredUnacknowledged, 0);
     const total = warnStats.reduce((n, r) => n + r.episodes, 0);
     results.push({
       id: 'no-notification',
-      title: 'Warnings only ever appeared in the status bar',
+      title: 'Warnings only appeared in the status bar, with notifications off',
       moments: warnings.length,
       example: warnings[0],
-      recommendation: `Findings: add an opt-in notification for warnings (per heuristic), since Snagboat shows them only in the status bar and detail view.${total > 0 ? ` In your recorded responses, ${expired} of ${total} episodes of heuristics that warn ended without being acknowledged.` : ''}`,
+      recommendation: `Setting: set snagboat.nudges.notify to "warnings", so a warning (and an early warning) shows a notification, at most one per turn; snagboat.nudges.quiet keeps any heuristic out of it.${total > 0 ? ` In your recorded responses, ${expired} of ${total} episodes of heuristics that warn ended without being acknowledged.` : ''}`,
     });
   }
   return results;

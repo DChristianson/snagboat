@@ -34,6 +34,8 @@ export interface ReviewInput {
   muted: string[];
   /** Discovery over its own window, for rules to add. */
   discovery?: DiscoveryResult;
+  /** Whether findings notify (snagboat.nudges.notify isn't off). */
+  notifying?: boolean;
 }
 
 interface TokenSum {
@@ -165,7 +167,7 @@ export function buildReview(input: ReviewInput): Review {
     retire,
     add,
     thresholds,
-    presentation: { moments: moments.length, snapshots: moments.slice(0, MAX_SNAPSHOTS).map(snapshotAt), checks: presentationChecks(moments, responses) },
+    presentation: { moments: moments.length, snapshots: moments.slice(0, MAX_SNAPSHOTS).map(snapshotAt), checks: presentationChecks(moments, responses, input.notifying) },
   };
 }
 
@@ -215,7 +217,7 @@ export function renderReview(r: Review): string {
     out.push(`${r.presentation.moments} moments had a warning or several findings active at once. Rebuilt with the status bar's own code, they show:`, '');
     if (r.presentation.checks.length === 0) out.push('- Nothing to fix: warnings came first and stood out.', '');
     for (const c of r.presentation.checks) {
-      out.push(`### ${c.title} (${c.moments} of ${r.presentation.moments} moments)`, '', `Example, ${c.example.moment.at.slice(0, 16).replace('T', ' ')} UTC:`, '', '```', `status bar: ${c.example.statusBar}`, 'tooltip:', ...c.example.tooltip.map((l) => `  ${l}`), '```', '', `**Suggested change** (to file as an issue if you agree): ${c.recommendation}`, '');
+      out.push(`### ${c.title} (${c.moments} of ${r.presentation.moments} moments)`, '', `Example, ${c.example.moment.at.slice(0, 16).replace('T', ' ')} UTC:`, '', '```', `status bar: ${c.example.statusBar}`, 'tooltip:', ...c.example.tooltip.map((l) => `  ${l}`), '```', '', `**Suggested change**: ${c.recommendation}`, '');
     }
   }
   return out.join('\n') + '\n';

@@ -278,10 +278,13 @@ suite('Snagboat core plumbing', () => {
     };
     try {
       await config.update('rules', [rule], vscode.ConfigurationTarget.Global);
+      // With notifications on, the nudge path runs too (a notification appears in the test window).
+      await config.update('nudges.notify', 'all', vscode.ConfigurationTarget.Global);
       await vscode.commands.executeCommand('snagboat._emitTestEvent');
       await waitFor(() => api.getFindings().some((f) => f.heuristicId === 'test:model-calls'));
     } finally {
       await config.update('rules', undefined, vscode.ConfigurationTarget.Global);
+      await config.update('nudges.notify', undefined, vscode.ConfigurationTarget.Global);
     }
     await waitFor(() => !api.getFindings().some((f) => f.heuristicId === 'test:model-calls'));
   });
