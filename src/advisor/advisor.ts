@@ -16,7 +16,7 @@ export interface AdvisorDeps {
   digestInput(sessionId: string, turnId?: string): Promise<DigestInput | undefined>;
 }
 
-export type Capability = 'explain' | 'propose';
+export type Capability = 'explain' | 'propose' | 'review';
 
 /** An answer, with the provider (and model) that gave it and what it was asked. */
 export interface Asked {

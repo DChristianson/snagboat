@@ -81,10 +81,39 @@ async function main() {
     assert.strictEqual(sent[0].url, 'https://api.example.com/v1/chat/completions');
     assert.strictEqual(sent[0].headers.Authorization, 'Bearer sk-key');
     const body = JSON.parse(sent[0].body!);
-    assert.deepStrictEqual(Object.keys(body).sort(), ['messages', 'model', 'stream', 'temperature']);
+    assert.deepStrictEqual(Object.keys(body).sort(), ['messages', 'model', 'stream', 'stream_options', 'temperature']);
+    assert.strictEqual(body.stream, true);
     assert.strictEqual(sent[0].body, completionBody('m', [{ role: 'user', content: 'hi' }]), 'the body is what the preview and audit see');
     await complete(p, [{ role: 'user', content: 'hi' }], undefined, fakeFetch(200, { choices: [{ message: { content: 'x' } }] }, sent));
     assert.strictEqual(sent[1].headers.Authorization, undefined);
+  });
+
+  test('a streamed answer is read as it arrives, split across chunks, with its usage', async () => {
+    const [p] = parseProviders([{ id: 'x', baseUrl: 'http://localhost:1/v1', model: 'm' }]).providers;
+    const sse = [
+      'data: {"choices":[{"delta":{"content":"<think>hm"}}]}\n',
+      'data: {"choices":[{"delta":{"content":"m</think>## What"}}]}\n\ndata: {"choi',
+      'ces":[{"delta":{"content":" happened"}}]}\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":40,"completion_tokens":9}}\n',
+      'data: [DONE]\n',
+    ];
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of sse) controller.enqueue(new TextEncoder().encode(chunk));
+        controller.close();
+      },
+    });
+    const streaming: FetchLike = async () => ({ ok: true, status: 200, headers: { get: () => 'text/event-stream' }, body, json: async () => ({}), text: async () => '' });
+    assert.deepStrictEqual(await complete(p, [], undefined, streaming), { text: '## What happened', promptTokens: 40, completionTokens: 9 });
+    const failing: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'text/event-stream' },
+      body: new ReadableStream<Uint8Array>({ start: (c) => (c.enqueue(new TextEncoder().encode('data: {"error":{"message":"model ran out of memory"}}\n')), c.close()) }),
+      json: async () => ({}),
+      text: async () => '',
+    });
+    await assert.rejects(complete(p, [], undefined, failing), /ran out of memory/);
   });
 
   test('errors and empty answers are reported, not returned', async () => {

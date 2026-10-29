@@ -98,6 +98,8 @@ export interface ChatMessage {
 export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{
   ok: boolean;
   status: number;
+  headers?: { get(name: string): string | null };
+  body?: ReadableStream<Uint8Array> | null;
   json(): Promise<unknown>;
   text(): Promise<string>;
 }>;
@@ -116,8 +118,43 @@ async function failure(res: Awaited<ReturnType<FetchLike>>): Promise<Error> {
 }
 
 /** The request body sent for a completion; exported so the preview and the audit hash match what's sent. */
+/**
+ * Streamed, so the server's headers arrive at once: Node's fetch gives up on a
+ * response whose headers take more than 5 minutes, which a local model that
+ * thinks first easily does.
+ */
 export function completionBody(model: string, messages: ChatMessage[], json = false): string {
-  return JSON.stringify({ model, messages, temperature: 0.2, stream: false, ...(json ? { response_format: { type: 'json_object' } } : {}) });
+  return JSON.stringify({ model, messages, temperature: 0.2, stream: true, stream_options: { include_usage: true }, ...(json ? { response_format: { type: 'json_object' } } : {}) });
+}
+
+type Usage = { prompt_tokens?: unknown; completion_tokens?: unknown };
+
+/** Reads a streamed completion (server-sent events): the text deltas joined, and the usage if the server sends it. */
+async function readStream(body: ReadableStream<Uint8Array>): Promise<{ content: string; usage?: Usage }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let content = '';
+  let usage: Usage | undefined;
+  const take = (line: string): boolean => {
+    if (!line.startsWith('data:')) return false;
+    const data = line.slice(5).trim();
+    if (data === '[DONE]') return true;
+    const chunk = JSON.parse(data) as { choices?: Array<{ delta?: { content?: unknown } }>; usage?: Usage; error?: { message?: unknown } };
+    if (chunk.error) throw new Error(String(chunk.error.message ?? 'the stream reported an error'));
+    const delta = chunk.choices?.[0]?.delta?.content;
+    if (typeof delta === 'string') content += delta;
+    if (chunk.usage) usage = chunk.usage;
+    return false;
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split('\n');
+    buffer = done ? '' : lines.pop()!;
+    for (const line of lines) if (take(line.trim())) return { content, usage };
+    if (done) return { content, usage };
+  }
 }
 
 export interface Completion {
@@ -131,12 +168,20 @@ export interface Completion {
 export async function complete(p: ProviderConfig, messages: ChatMessage[], apiKey: string | undefined, fetchImpl: FetchLike, jsonMode = false): Promise<Completion> {
   const res = await fetchImpl(`${p.baseUrl}/chat/completions`, { method: 'POST', headers: headers(apiKey), body: completionBody(p.model, messages, jsonMode), signal: AbortSignal.timeout(p.kind === 'local' ? LOCAL_TIMEOUT_MS : HOSTED_TIMEOUT_MS) });
   if (!res.ok) throw await failure(res);
-  const json = (await res.json()) as { choices?: Array<{ message?: { content?: unknown } }>; usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } };
-  const content = json.choices?.[0]?.message?.content;
+  let content: unknown;
+  let usage: Usage | undefined;
+  if (res.body && (res.headers?.get('content-type') ?? '').includes('text/event-stream')) {
+    ({ content, usage } = await readStream(res.body));
+  } else {
+    // A server that ignored "stream" answers in one piece.
+    const json = (await res.json()) as { choices?: Array<{ message?: { content?: unknown } }>; usage?: Usage };
+    content = json.choices?.[0]?.message?.content;
+    usage = json.usage;
+  }
   const text = typeof content === 'string' ? content.replace(/<think>[\s\S]*?<\/think>/g, '').trim() : '';
   if (!text) throw new Error('the response had no text');
   const n = (v: unknown) => (typeof v === 'number' ? v : undefined);
-  return { text, promptTokens: n(json.usage?.prompt_tokens), completionTokens: n(json.usage?.completion_tokens) };
+  return { text, promptTokens: n(usage?.prompt_tokens), completionTokens: n(usage?.completion_tokens) };
 }
 
 /**

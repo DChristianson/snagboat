@@ -1035,6 +1035,11 @@
           "default": "local",
           "description": "The id of the provider the Suggestions tab asks to propose heuristics."
         },
+        "snagboat.advisor.reviewProvider": {
+          "type": "string",
+          "default": "local",
+          "description": "The id of the provider asked to add its judgment to a review (Ask the Advisor, after Snagboat: Write Review)."
+        },
         "snagboat.advisor.auditPayloads": {
           "type": "boolean",
           "default": false,
@@ -1044,6 +1049,11 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Where **Snagboat: Write Review** writes its Markdown reports, one per week and workspace. Empty: `~/.snagboat/reviews`."
+        },
+        "snagboat.advisor.weeklyReview": {
+          "type": "boolean",
+          "default": false,
+          "description": "Write this workspace's review once a week, the first time a window is open that week, without a model. You're told when it's written, and can then ask the advisor to add to it."
         }
       }
     }
@@ -1059,6 +1069,7 @@
     "replay:heuristics": "npm run compile-tests && node ./out/scripts/replayHeuristics.js",
     "discover": "npm run compile-tests && node ./out/scripts/discover.js",
     "eval:advisor": "npm run compile-tests && node ./out/scripts/evalAdvisor.js",
+    "review:ui": "npm run compile-tests && node ./out/scripts/reviewUi.js",
     "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",

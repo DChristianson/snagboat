@@ -7,7 +7,7 @@ import { FindingReplay, ReplayEpisode } from '../heuristics/replay';
 import { Provenance } from '../heuristics/ruleStore';
 import { ResponseEpisode, ResponseStats, responseStats } from '../heuristics/responses';
 import { Heuristic } from '../heuristics/types';
-import { CheckResult, momentsFrom, presentationChecks } from './presentation';
+import { CheckResult, momentsFrom, presentationChecks, snapshotAt, UiSnapshot } from './presentation';
 
 /**
  * The periodic review without a model: what a week of agent work cost, which
@@ -58,8 +58,12 @@ export interface Review {
   retire: Array<{ id: string; title: string; reason: string }>;
   add: Array<{ id: string; title: string; detail: string }>;
   thresholds: Array<{ detail: string }>;
-  presentation: { moments: number; checks: CheckResult[] };
+  /** The moments looked at, as snapshots (latest first, for the advisor), and the fixed checks over them. */
+  presentation: { moments: number; snapshots: UiSnapshot[]; checks: CheckResult[] };
 }
+
+/** Snapshots kept for the advisor's review. */
+const MAX_SNAPSHOTS = 15;
 
 const tokensOf = (e: NormalizedEvent) => (e.tokens ? (e.tokens.input ?? 0) + (e.tokens.output ?? 0) + (e.tokens.cacheRead ?? 0) + (e.tokens.cacheCreation ?? 0) : 0);
 
@@ -161,7 +165,7 @@ export function buildReview(input: ReviewInput): Review {
     retire,
     add,
     thresholds,
-    presentation: { moments: moments.length, checks: presentationChecks(moments, responses) },
+    presentation: { moments: moments.length, snapshots: moments.slice(0, MAX_SNAPSHOTS).map(snapshotAt), checks: presentationChecks(moments, responses) },
   };
 }
 

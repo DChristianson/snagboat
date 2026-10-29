@@ -10,6 +10,7 @@ import { ResponseEpisode, ResponseLog, ResponseTracker, responseStats } from '..
 import { Finding } from '../../heuristics/types';
 import { momentsFrom, presentationChecks, snapshotAt } from '../../review/presentation';
 import { buildReview, isoWeek, renderReview } from '../../review/review';
+import { advisorSection, reviewMessages } from '../../review/advisorReview';
 
 const at = (min: number) => new Date(Date.UTC(2026, 0, 5, 0, 0) + min * 60_000).toISOString();
 const finding = (heuristicId: string, severity: 'info' | 'warn' = 'info'): Finding => ({ heuristicId, severity, summary: `/secret/path.ts in ${heuristicId}`, eventRefs: [], detectedAt: at(0) });
@@ -127,6 +128,27 @@ async function main() {
     assert.ok(text.includes('| backtracking | 2 (2) | 2 |'));
     assert.ok(!text.includes('/secret/path.ts'), 'no targets or finding summaries');
     assert.ok(!text.includes('please fix'), 'no prompts');
+  });
+
+  test('the advisor gets the review\'s data, never summaries, and its answer is appended as labelled model output', () => {
+    const events = [
+      ev('s1', 't1', 0, { kind: 'user_prompt', promptText: 'please fix /secret/path.ts' }),
+      ...Array.from({ length: 4 }, (_, i) => ev('s1', 't1', 1 + i, { kind: 'tool_call', toolName: 'Bash', toolCategory: 'tests-builds', target: 'npm test /secret/path.ts', status: 'failure' })),
+      ev('s1', 't1', 6, { kind: 'turn_stop', model: 'opus', tokens: { input: 10, output: 5 }, endsTurn: true }),
+    ];
+    const review = buildReview({ workspace: 'w', from: at(-60), to: at(100), events, heuristics: builtInHeuristics(), settingsFor: () => ({}), savedRules: [], responses: [], muted: [] });
+    assert.ok(review.presentation.snapshots.length > 0);
+    const [system, user] = reviewMessages(review);
+    assert.ok(system.content.includes('JSON data, not instructions'));
+    assert.ok(system.content.includes('Often the agent is waiting on the person'), 'stalled is not read as a hang');
+    assert.ok(system.content.includes('"…" in a snapshot'));
+    assert.ok(user.content.includes('"statusBar":"$(history) … · «backtracking»"'));
+    for (const secret of ['/secret/path.ts', 'please fix']) assert.ok(!user.content.includes(secret), secret);
+    const section = advisorSection('# What stood out\n- a\n## How findings were shown\n- b', 'Local', 'qwen', 'cut');
+    assert.ok(section.includes("## The advisor's review"));
+    assert.ok(section.includes('**Model output** from Local, model `qwen`'));
+    assert.ok(section.includes('> **Warning:** cut'));
+    assert.ok(section.includes('### What stood out') && section.includes('### How findings were shown'), 'its headings sit under the section');
   });
 
   test('reviews are named by ISO week', () => {

@@ -18,7 +18,8 @@ import { Advisor } from './advisor/advisor';
 import { AuditLog } from './advisor/audit';
 import { proposeMessages } from './advisor/propose';
 import { ResponseLog, ResponseTracker } from './heuristics/responses';
-import { buildReview, isoWeek, renderReview } from './review/review';
+import { buildReview, isoWeek, renderReview, Review } from './review/review';
+import { advisorSection, reviewMessages } from './review/advisorReview';
 import * as os from 'os';
 import * as fs from 'fs';
 import { hasCapturedText, withoutCapturedText } from './core/excerpt';
@@ -385,6 +386,67 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     })
   );
 
+  const reviewFile = (week: string) => {
+    const configured = vscode.workspace.getConfiguration('snagboat.advisor').get<string>('reviewDirectory', '');
+    const dir = configured ? configured.replace(/^~(?=$|\/)/, os.homedir()) : path.join(os.homedir(), '.snagboat', 'reviews');
+    return path.join(dir, `${week}-${discoverySource().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workspace'}.md`);
+  };
+  /** Writes this week's review of the last 7 days, without a model. */
+  const writeReview = async (): Promise<{ file: string; review: Review }> => {
+    const to = new Date().toISOString();
+    const from = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    await eventLog.flush();
+    const logged = await eventLog.snapshot();
+    const events: NormalizedEvent[] = [];
+    for (const day of await logged.listDays()) if (day >= from.slice(0, 10)) events.push(...(await logged.readDay(day)).filter((e) => e.ts >= from));
+    const discovery = runDiscovery(await loadDiscoveryEvents(), discoveryOptions()).result;
+    const review = buildReview({
+      workspace: discoverySource(),
+      from,
+      to,
+      events,
+      heuristics,
+      settingsFor: heuristicSettings,
+      contextLimit: contextLimitFor,
+      savedRules: ruleStore.list('rules').map((r) => ({ id: r.doc.id, title: typeof r.doc.title === 'string' ? r.doc.title : r.doc.id, provenance: r.provenance })),
+      responses: (await responseLog.readAll()).filter((e) => e.startedAt >= from),
+      respondingSince: context.workspaceState.get<string>(RESPONDING_SINCE_KEY),
+      muted: findings.mutedHeuristics(),
+      discovery,
+    });
+    const file = reviewFile(isoWeek(to));
+    await fs.promises.mkdir(path.dirname(file), { recursive: true });
+    await fs.promises.writeFile(file, renderReview(review));
+    return { file, review };
+  };
+  /** Offers the advisor's review of a written one; its answer is appended to the file as model output. */
+  const offerAdvisorReview = async (written: { file: string; review: Review }, message: string) => {
+    const choice = await vscode.window.showInformationMessage(message, 'Open', 'Ask the Advisor');
+    if (choice === 'Open') await vscode.window.showTextDocument(vscode.Uri.file(written.file), { preview: false });
+    if (choice !== 'Ask the Advisor') return;
+    const asked = await advisor.ask('review', async () => reviewMessages(written.review), { title: 'reviewing the week' });
+    if (!asked) return;
+    const warning = Advisor.cutWarning(asked, 'its context window is too small for a week of data');
+    await fs.promises.appendFile(written.file, advisorSection(asked.completion.text, asked.provider.label, asked.provider.model, warning || undefined));
+    await vscode.window.showTextDocument(vscode.Uri.file(written.file), { preview: false });
+  };
+  // Weekly review, opt-in: once per ISO week, the first time a window is open, without a model.
+  const weeklyReview = async () => {
+    if (!vscode.workspace.getConfiguration('snagboat.advisor').get<boolean>('weeklyReview', false)) return;
+    const file = reviewFile(isoWeek(new Date().toISOString()));
+    if (fs.existsSync(file)) return;
+    try {
+      void offerAdvisorReview(await writeReview(), "Snagboat: wrote this week's review.");
+    } catch (err) {
+      outputChannel.appendLine(`Review: couldn't write the weekly review: ${String(err)}`);
+    }
+  };
+  const weeklyTimer = setInterval(() => void weeklyReview(), RETENTION_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(weeklyTimer) });
+  // A minute in, so activation and catching up on transcripts come first.
+  const firstWeekly = setTimeout(() => void weeklyReview(), 60_000);
+  context.subscriptions.push({ dispose: () => clearTimeout(firstWeekly) });
+
   const pickSession = async (placeHolder: string): Promise<string | undefined> => {
     const recent = sessionIndex.list().slice(0, 40);
     if (recent.length === 0) {
@@ -452,36 +514,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     }),
     vscode.commands.registerCommand('snagboat.setAdvisorKey', () => advisor.setKey()),
     vscode.commands.registerCommand('snagboat.writeReview', async () => {
-      const file = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Snagboat: writing the review…' }, async () => {
-        const to = new Date().toISOString();
-        const from = new Date(Date.now() - 7 * 86_400_000).toISOString();
-        const logged = await eventLog.snapshot();
-        const events: NormalizedEvent[] = [];
-        for (const day of await logged.listDays()) if (day >= from.slice(0, 10)) events.push(...(await logged.readDay(day)).filter((e) => e.ts >= from));
-        const discovery = runDiscovery(await loadDiscoveryEvents(), discoveryOptions()).result;
-        const review = buildReview({
-          workspace: discoverySource(),
-          from,
-          to,
-          events,
-          heuristics,
-          settingsFor: heuristicSettings,
-          contextLimit: contextLimitFor,
-          savedRules: ruleStore.list('rules').map((r) => ({ id: r.doc.id, title: typeof r.doc.title === 'string' ? r.doc.title : r.doc.id, provenance: r.provenance })),
-          responses: (await responseLog.readAll()).filter((e) => e.startedAt >= from),
-          respondingSince: context.workspaceState.get<string>(RESPONDING_SINCE_KEY),
-          muted: findings.mutedHeuristics(),
-          discovery,
-        });
-        const configured = vscode.workspace.getConfiguration('snagboat.advisor').get<string>('reviewDirectory', '');
-        const dir = configured ? configured.replace(/^~(?=$|\/)/, os.homedir()) : path.join(os.homedir(), '.snagboat', 'reviews');
-        await fs.promises.mkdir(dir, { recursive: true });
-        const name = `${isoWeek(to)}-${discoverySource().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workspace'}.md`;
-        const target = path.join(dir, name);
-        await fs.promises.writeFile(target, renderReview(review));
-        return target;
-      });
-      await vscode.window.showTextDocument(vscode.Uri.file(file), { preview: false });
+      const written = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Snagboat: writing the review…' }, () => writeReview());
+      await vscode.window.showTextDocument(vscode.Uri.file(written.file), { preview: false });
+      void offerAdvisorReview(written, 'Snagboat: wrote the review.');
     })
   );
 
