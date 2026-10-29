@@ -83,6 +83,13 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
   - **Snagboat: Backfill Sessions from Transcripts...** re-reads the transcripts behind days logged by older versions and rewrites those days, so their sessions get turns, turn ends, and tool calls, and their past findings are complete. It shows what will change and asks first.
   - **Snagboat: Discover Heuristics** opens the detail view's **Suggestions** tab, which reads this workspace's last 30 days (`snagboat.discovery.days`) and suggests heuristics from what's unusual for you. It shows candidate rules at your own turns' tails, how the built-ins' thresholds compare with your history, and command families that could split "Shell command". Accept, adjust the threshold (the replay updates as you type), or dismiss each one; nothing is added until you accept. See [docs/heuristics.md](docs/heuristics.md#discovery).
   - **Snagboat: Export Rules...** and **Snagboat: Import Rules...** carry your saved rules and shell categories to a JSON file and back. Import replays each rule over this workspace's history and lets you pick what to add.
+  - **Snagboat: Write Review** writes a Markdown review of this workspace's last 7 days to `~/.snagboat/reviews/` (`snagboat.advisor.reviewDirectory`). It covers:
+    - what the agents' work cost, by model, day, and tool category;
+    - which heuristics fired, and how you responded;
+    - rules to retire or add;
+    - how findings were shown in the status bar, with suggested changes to Snagboat.
+
+    It names heuristics, rules, models, and session ids, never prompts, paths, or commands.
   - **Snagboat: Relabel Shell Calls** re-applies the shell sub-categories in use to this workspace's past shell calls, after counting them and asking.
   - **Snagboat: Remove Captured Text** deletes stored prompts and reply excerpts, keeping the events, and can turn capture off.
   - **Snagboat: Remove Claude Code Hooks from Project...** removes Snagboat's entries from a folder's `.claude/settings.json`, leaving your own hooks alone, and stops adding them there.

@@ -1,6 +1,6 @@
 # Design: self-discovered heuristics and a trusted advisor
 
-Status: accepted; phases 1 to 4 done (rule engine, discovery, providers and Explain, advisor-proposed heuristics), see [heuristics.md](../heuristics.md#rules). See [roadmap.md](../roadmap.md#planned-tasks).
+Status: accepted; phases 1 to 4 done (rule engine, discovery, providers and Explain, advisor-proposed heuristics), phase 5 (periodic review) in progress, see [heuristics.md](../heuristics.md#rules). See [roadmap.md](../roadmap.md#planned-tasks).
 
 ## Summary
 
@@ -197,7 +197,7 @@ Live nudges are rate-limited (at most one per turn, none while you're typing a p
 2. **Discovery without a model (done).** Feature extraction, personal baselines, outlier candidates, replay scoring, and a "Suggested heuristics" view with accept, tweak, and dismiss. Personal threshold suggestions for the built-ins. Shell sub-category candidates from command frequencies. Useful on its own, with no model involved.
 3. **Providers, model testing, and explain (done; see the first evaluation under Open questions).** The provider interface, local and hosted providers, the digest builder with redaction, preview, and audit log. Then an evaluation harness (a dev script like `replay:heuristics`, e.g. `npm run eval:advisor`) that runs each capability over digests of your real sessions with several models, local and hosted: rules are scored automatically (valid, replay results, overlap), explanations side by side for you to judge. Its results pick the default models. Then "Explain" on sessions and findings.
 4. **Advisor-proposed heuristics (done).** The advisor joins discovery, proposing rules and grouping and naming shell sub-categories; proposals go through the same scoring.
-5. **Periodic review,** including the presentation review. First, UI snapshots at the moments that matter, fixed checks over them, response-to-findings measurements, and settings recommendations. Then the agent's review, from text snapshots and then rendered ones, also as `npm run review:ui`. Last, the optional local interaction counts.
+5. **Periodic review,** including the presentation review (in progress: recorded responses, snapshots with fixed checks, and **Snagboat: Write Review** without a model are done; the agent's review, `npm run review:ui`, the weekly schedule, and local interaction counts are next). Notifications for findings don't exist yet, so the settings recommendations the design describes ("send a heuristic's warnings as notifications") start as a design recommendation in the review instead. First, UI snapshots at the moments that matter, fixed checks over them, response-to-findings measurements, and settings recommendations. Then the agent's review, from text snapshots and then rendered ones, also as `npm run review:ui`. Last, the optional local interaction counts.
 6. **Live nudges.**
 
 ## Open questions
