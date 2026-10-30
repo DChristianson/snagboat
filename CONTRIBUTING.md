@@ -66,7 +66,7 @@ Some unit tests deliberately use real file watching, real HTTP servers, and the 
 1. Create `src/heuristics/<name>.ts` implementing `Heuristic`, with `appliesTo` listing the event kinds that can change its verdict.
 2. Add it to `builtInHeuristics()` in `src/heuristics/index.ts`. Settings go under `snagboat.heuristics.<id>` in `package.json`; if the section name differs from the id (camelCase, for example), add it to `SETTINGS_SECTION`.
 3. Give it a status bar glyph in `FINDING_GLYPHS` (`src/ui/format.ts`).
-4. Document it in [docs/heuristics.md](docs/heuristics.md) and the README's findings and settings tables, including whether it needs optional data such as `textExcerpt`.
+4. Document it in [docs/heuristics.md](docs/heuristics.md), the README's findings table, and [docs/settings.md](docs/settings.md), including whether it needs optional data such as `textExcerpt`.
 
 ## Dependencies and licenses
 
