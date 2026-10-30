@@ -4,6 +4,107 @@
 
 Adapters know agent-specific formats; nothing downstream does. The normalization layer is the only place that understands the common schema, which keeps new adapters additive instead of invasive.
 
+## Where everything lives
+
+Every part of Snagboat, grouped by where it runs or is stored, and how the parts reach the coding agents, VS Code, and the advisors. Solid arrows carry data; dotted ones configure. The advisors on the right are the ones of the [trusted advisor design](design/trusted-advisor.md): a local model by default, hosted providers you add, and, planned in its phase 5, HypAware and recommendations mined from the agents.
+
+```mermaid
+flowchart LR
+  subgraph Agents["Coding agents"]
+    ClaudeCode["Claude Code"]
+    Copilot["Copilot"]
+  end
+
+  subgraph Home["Home folder"]
+    Transcripts["~/.claude/projects/#lt;project#gt;/*.jsonl<br>transcripts, subagents"]
+    CopilotLogs["~/.copilot/session-state/#lt;session#gt;/events.jsonl"]
+    HookScript["~/.snagboat/bin/snagboat-hook<br>~/.snagboat/routes/#lt;folder#gt;"]
+    Reviews["~/.snagboat/reviews/*.md"]
+    Prompts["~/.snagboat/advisors/#lt;id#gt;/*.md<br>(phase 5: custom prompts)"]
+  end
+
+  subgraph Project["Project folder"]
+    HookSettings[".claude/settings.json<br>hook entries"]
+    Sources["Source files"]
+  end
+
+  subgraph Window["VS Code window: Snagboat extension host"]
+    subgraph Adapters
+      CA["claude-code"]
+      CoA["copilot"]
+      ET["edit-tracker"]
+    end
+    Receiver["Hook receiver<br>own port, token"]
+    OTLP["OTLP receiver :4318"]
+    EventLog["EventLog, retention"]
+    Store["EventStore"]
+    Engine["Heuristics engine<br>built-ins, rules"]
+    Findings["FindingsRegistry<br>responses"]
+    Discovery["Discovery, replay"]
+    Review["Review<br>presentation checks"]
+    Nudger["Nudger"]
+    AdvisorMod["Advisor<br>digests, policy, approval, audit"]
+    subgraph UI
+      Status["Status bar"]
+      Detail["Detail webview<br>Overview, Sessions, Suggestions"]
+      Notes["Notifications"]
+      Docs["Markdown documents<br>Explain answers, payload previews"]
+    end
+  end
+
+  subgraph WS["VS Code workspace storage"]
+    Events["events/#lt;day#gt;.jsonl"]
+    Aggregates["aggregates/"]
+    Checkpoints["checkpoints/"]
+    Mutes["workspaceState: mutes"]
+  end
+
+  subgraph GS["VS Code global storage"]
+    Rules["rules.json<br>rules, shell categories"]
+    Audit["advisor-audit.jsonl"]
+    Keys["SecretStorage: API keys"]
+    Approved["globalState: approved payloads"]
+  end
+
+  subgraph Advisors
+    LocalModel["Local model<br>Ollama, LM Studio, llama.cpp"]
+    HostedModel["Hosted provider<br>https, your key"]
+    HypAware["HypAware<br>(phase 5)"]
+    AgentAdvice["Agents' own recommendations<br>(phase 5 spike)"]
+  end
+
+  ClaudeCode --> Transcripts --> CA
+  HookSettings -.-> ClaudeCode
+  ClaudeCode -->|PostToolUse, Stop| HookScript -->|HTTP, token| Receiver --> CA
+  CA -.->|writes on activation| HookSettings
+  CA -.-> HookScript
+  Copilot --> CopilotLogs --> CoA
+  Copilot -->|OTel, editor features| OTLP --> CoA
+  Sources -->|saves| ET
+
+  CA & CoA & ET --> EventLog
+  EventLog --> Events & Aggregates
+  CA & CoA --> Checkpoints
+  EventLog --> Store --> Engine --> Findings
+  Rules -.-> Engine
+  Mutes -.-> Findings
+  Findings --> Status & Detail & Nudger
+  Nudger --> Notes
+  Store --> Discovery --> Detail
+  Detail -->|accept| Rules
+  Findings & Store --> Review --> Reviews
+
+  Detail & Nudger & Review & Discovery -->|ask| AdvisorMod
+  Keys & Approved -.-> AdvisorMod
+  Prompts -.-> AdvisorMod
+  AdvisorMod --> Audit
+  AdvisorMod --> LocalModel & HostedModel & HypAware
+  Transcripts & CopilotLogs -.-> AgentAdvice --> AdvisorMod
+  AdvisorMod --> Docs & Detail
+```
+
+Each VS Code window runs one extension host with everything in the middle; two windows on different projects share the home folder and global storage but not workspace storage. The hook script is the only part that runs outside VS Code: Claude Code runs it, and it posts to whichever window has the project open. Advisors are outside Snagboat and get only what the `Advisor` module builds for one request ([the advisor](#advisor)).
+
 ## Adapter contract
 
 ```ts
@@ -118,6 +219,10 @@ Design notes:
 ## Heuristics engine
 
 `HeuristicsEngine` (see [heuristics.md](heuristics.md) for the `Heuristic`/`Finding` contract) runs on two triggers: pushed on every event (filtered cheaply by each heuristic's `appliesTo`, since a heuristic whose relevant kinds didn't change can't have a new verdict), and on a timer regardless of events (30s poll interval, a code constant not a setting) — required because some heuristics, like `stalled`, depend on the *absence* of events and can't be purely event-triggered. `FindingsRegistry` tracks the current set of findings per heuristic, mirroring `HealthRegistry`'s proven shape (replace-per-key, notify only on real change) — surfaced via the status bar's icon/text (worst active finding) and the tooltip/breakdown's `Findings:` section (all active findings). Findings themselves are in-memory only (recomputed from events), but the user's treatment of them isn't: a heuristic can be **acknowledged**, which hides its findings from the status bar until it next reports nothing (so a fresh occurrence resurfaces), or **muted**, which hides it from the status bar, tooltip, and breakdown indefinitely. Mutes persist per workspace in `workspaceState`; acknowledgements last only for the current episode and window. Both are set from the detail view.
+
+## Advisor
+
+[src/advisor/](../src/advisor/) is the one path out of Snagboat to a model. `digest.ts` builds a **session digest** from stored events under a `DigestPolicy` (prompts, replies, session names, relative or hashed paths); `providers.ts` speaks to OpenAI-compatible endpoints and decides local or hosted from the address alone (loopback is local); `advisor.ts` picks the provider for a capability, holds hosted keys in `SecretStorage`, shows the exact payload before a provider's first request (and again when its address or sending rules change, keyed by a hash in `globalState`), and records hosted requests in `audit.ts`. The callers are Explain (from the Sessions tab, a finding, or a nudge), propose ([src/advisor/propose.ts](../src/advisor/propose.ts), from the Suggestions tab), the review's advisor section ([src/review/advisorReview.ts](../src/review/advisorReview.ts)), and the nudge line ([src/advisor/nudge.ts](../src/advisor/nudge.ts)). The model gets no tools, and its output is only ever shown, or parsed as a rule or category that is checked like one you wrote. Phase 5 of the [design](design/trusted-advisor.md#installed-advisors) turns provider-per-capability into several installed advisors, each with a kind, prompts, and a data policy per ability; this section follows when it lands.
 
 ## UI
 
