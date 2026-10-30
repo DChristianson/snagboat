@@ -66,7 +66,7 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
   - Nothing limits concurrent advisor asks for nudges; with a slow local model, several turns in a row can queue requests (the load that wedged Ollama during testing).
 
   Likely fixes: always run the nudger and prune advice, treat the first update after activation or a log reload as already seen, and allow one nudge ask at a time. The "none while you're typing a prompt" rule is also unbuilt, since Snagboat can't see the agent's input box.
-- **README rework (noted 2026-10-29, not started).** Make the README quicker to skim, with reference material moved out:
+- **README rework (noted 2026-10-29, done 2026-10-30, except the optional GIF).** The README was made quicker to skim, with reference material moved out:
   - a **Highlights** section right after the screenshot:
     - one event log for both agents, Claude Code and Copilot, normalized into daily JSONL;
     - eight heuristics with thresholds tuned by replaying real sessions, a replay that also runs in the unit tests;
