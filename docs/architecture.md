@@ -6,31 +6,40 @@ Adapters know agent-specific formats; nothing downstream does. The normalization
 
 ## Where everything lives
 
-The parts of Snagboat and how they relate: a pipeline from the coding agents to the UI, three components that draw insights from it, and one gateway, the Advisor, which is the only way anything leaves. The table below ties each box to its modules and to where it keeps things on disk.
+How Snagboat relates to the systems around it: you, VS Code, the two coding agents, what's on disk, and the advisors. Inside Snagboat only its spine is drawn, from adapters to the UI, plus the Advisor, which is the only way anything leaves. The table below ties each of those boxes to its modules and to where it keeps things on disk.
 
 ```mermaid
 flowchart LR
-  Agents["Coding agents<br>Claude Code, Copilot"]
-  Adapters["Adapters<br>one normalized event shape"]
-  Log["Event log<br>daily JSONL, retention, backfill"]
-  Store["EventStore<br>recent events, sessions, turns"]
-  Heuristics["Heuristics<br>built-ins, your rules, findings"]
-  subgraph Insights
-    Discovery["Discovery<br>rules from your history"]
-    Review["Review<br>weekly report, presentation checks"]
-    Nudger["Nudger<br>notifications, early warnings"]
-  end
-  Advisor["Advisor<br>digests, data policy, approval, audit"]
-  UI["UI<br>status bar, detail view, documents"]
-  Models["Advisors outside Snagboat<br>local model, hosted provider, HypAware (planned)"]
+  You(["You"])
 
-  Agents -->|transcripts, logs, hooks, telemetry| Adapters --> Log --> Store
-  Store --> Heuristics --> UI
-  Store --> Insights
-  Heuristics --> Nudger & Review
-  Discovery -->|accepted rules| Heuristics
-  Insights --> UI
-  UI & Insights -->|ask| Advisor -->|one digest per request| Models
+  subgraph Machine["Your machine"]
+    subgraph VSCode["VS Code window"]
+      ClaudeCode["Claude Code"]
+      Copilot["Copilot Chat"]
+      subgraph Snagboat
+        Adapters --> Log["Event log"] --> Heuristics --> UI["Status bar, detail view"]
+        Advisor["Advisor gateway<br>digest, policy, approval, audit"]
+      end
+    end
+    AgentLogs["Agent logs<br>~/.claude, ~/.copilot"]
+    Storage["Snagboat storage<br>workspace storage, ~/.snagboat"]
+    LocalModel["Local model<br>Ollama, LM Studio"]
+  end
+
+  Hosted["Hosted provider<br>https, your key"]
+  HypAware["HypAware<br>(planned)"]
+
+  You -->|prompts| ClaudeCode & Copilot
+  UI -->|findings, sessions, reviews| You
+  ClaudeCode -->|transcripts| AgentLogs
+  Copilot -->|session logs| AgentLogs
+  AgentLogs --> Adapters
+  ClaudeCode -->|hooks| Adapters
+  Copilot -->|editor telemetry| Adapters
+  Log <--> Storage
+  UI & Heuristics -->|ask| Advisor
+  Advisor -->|one digest per request| LocalModel & Hosted & HypAware
+  HypAware -.->|events, planned| Adapters
 ```
 
 | Box | Modules | On disk |
