@@ -6,7 +6,7 @@ Adapters know agent-specific formats; nothing downstream does. The normalization
 
 ## Where everything lives
 
-How Snagboat relates to the systems around it: you, VS Code, the two coding agents, what's on disk, and the advisors. Inside Snagboat only its spine is drawn, from adapters to the UI, plus the Advisor, which is the only way anything leaves. The table below ties each of those boxes to its modules and to where it keeps things on disk.
+How Snagboat relates to the systems around it: you, VS Code, the two coding agents, what's on disk, and the advisors. Inside Snagboat only its spine is drawn, from adapters to the UI, plus the Advisor, which is the only way anything leaves. The table below ties each part of Snagboat, the drawn ones and the ones behind them (discovery, review, nudges), to its modules and to where it keeps things on disk.
 
 ```mermaid
 flowchart LR
@@ -42,7 +42,7 @@ flowchart LR
   HypAware -.->|events, planned| Adapters
 ```
 
-| Box | Modules | On disk |
+| Part | Modules | On disk |
 | --- | --- | --- |
 | Coding agents | Outside Snagboat | `~/.claude/projects/<project>/*.jsonl` (transcripts, subagents), `~/.copilot/session-state/<id>/events.jsonl`, the project's `.claude/settings.json` (hook entries), and `~/.snagboat/bin/snagboat-hook` with `~/.snagboat/routes/<folder>`, which Claude Code runs and which posts to the window that has the project open |
 | Adapters | [src/adapters/claude-code](../src/adapters/claude-code/) (transcript tailer, hook receiver on the window's own port), [src/adapters/copilot](../src/adapters/copilot/) (session-log tailer, OTLP receiver on `:4318`), [src/adapters/edit-tracker](../src/adapters/edit-tracker/) | `checkpoints/` in workspace storage |
