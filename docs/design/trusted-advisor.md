@@ -1,6 +1,6 @@
 # Design: self-discovered heuristics and a trusted advisor
 
-Status: accepted; phases 1 to 4 and 6 done (rule engine, discovery, providers and Explain, advisor-proposed heuristics, live nudges), phase 5 (periodic review) mostly done, see [heuristics.md](../heuristics.md#rules). See [roadmap.md](../roadmap.md#planned-tasks).
+Status: accepted; phases 1 to 4 and 6 done (rule engine, discovery, providers and Explain, advisor-proposed heuristics, live nudges), and the periodic review is done. Phase 5 was replanned on 2026-10-30 as [installed advisors](#installed-advisors); what was left of the review's presentation work, and everything about UX optimization and telemetry, moved to a new [phase 7](#phases). See [heuristics.md](../heuristics.md#rules) and [roadmap.md](../roadmap.md#planned-tasks).
 
 ## Summary
 
@@ -144,6 +144,73 @@ Per provider you set what it may receive: digests only, or digests plus reply ex
 - **Audit log:** every request to a hosted provider is recorded locally: when, which capability, size, and the payload's hash. Payloads themselves are kept only if you opt in, under the same retention as raw events.
 - **No standing access:** the advisor gets digests Snagboat builds for one request. It has no tools and can't query the log, read files, or call out.
 
+### Installed advisors
+
+Today there is one advisor: a provider per capability (`snagboat.advisor.explainProvider` and the other three) and prompts fixed in Snagboat. Phase 5 makes advisors something you install several of, each with its own prompts and its own view of your data. An **advisor** is:
+
+- a **kind**, which is how it's asked:
+  - `model`: an OpenAI-compatible endpoint, local or hosted, as today;
+  - `hypaware`: HypAware, asked for insights specific to a workspace;
+  - `agent`: recommendations mined from what Claude Code and Copilot themselves produce (below);
+- the **abilities** it offers, from the [list below](#abilities) (an ability is what this design has called a capability; the code keeps `Capability`);
+- a **prompt per ability**, for model advisors, replacing Snagboat's default for that ability;
+- a **data policy per ability**: what it may receive. Today's `send` rules (prompts, replies, session names, relative or hashed paths), set once per provider, become settable per ability too, so an advisor can see prompts when it explains a turn but not when it writes a review.
+
+Settings: `snagboat.advisors` lists them, and each ability names the advisor it uses by default. The existing `snagboat.advisor.providers` entries read as model advisors with default prompts and today's `send` rules, so nothing already configured changes behavior. Several advisors can offer one ability: Explain uses the one chosen for it, and **Ask another advisor** offers the rest; a review can carry one section per advisor asked. Every answer is labeled with the advisor, its kind, and its model where there is one.
+
+Local or hosted stays a property of the address, not the kind: a HypAware advisor at a loopback address is local, one anywhere else is hosted, and it is previewed, approved, and audited like any hosted model. The data policy applies before anything is built for it, whatever the kind.
+
+**HypAware.** Two roles were noted in the roadmap. The advisor role is this phase: Snagboat asks HypAware about a workspace and shows what comes back as advice. What it's asked, how it's authenticated, and what workspace data it needs from Snagboat are open and settle in a spike first. The event-source role (HypAware feeding normalized events in place of the built-in hooks) is an adapter, not an advisor, and stays in the [roadmap](../roadmap.md#planned-tasks).
+
+**Recommendations from the agents.** Claude Code and Copilot already give advice about how you work with them, and Snagboat sees some of it:
+
+- **In replies.** An agent's replies often carry a recommendation to you ("add this to CLAUDE.md", "run the tests before asking me to push"). Reply excerpts are already captured (`textExcerpt`, 500 characters, when `snagboat.captureContent` is on). An `agent` advisor could collect them per session, and a model advisor allowed to see replies could pull out the ones addressed to you. Without a model this is weak: a keyword scan over 500-character excerpts.
+- **In the agents' own reports.** Claude Code's `/insights` writes a usage report locally from its transcripts; Snagboat could read it when it's there and quote its recommendations as a labeled source, never run it. Whether Copilot keeps anything comparable, in its CLI session logs or elsewhere, is unknown.
+
+Whether either is worth building is decided by a spike over real history before anything is designed in detail: how many recommendations there are, and whether they say anything the heuristics don't.
+
+### Abilities
+
+What an advisor can do for you, implemented and discussed, ranked by value to the person using Snagboat. The ranking is a judgment to argue with; it decides what phase 5 builds after the plumbing, top first. "Prompts" in the last column means the ability needs or is sharpened by prompt text (see [Prompt text as context](#prompt-text-as-context)).
+
+| # | Ability | Area | Status | Needs |
+| --- | --- | --- | --- | --- |
+| 1 | **Explain** a session, turn, or finding: what happened, likely cause, what to try | Summary (text) | Done | Prompts sharpen it |
+| 2 | **Nudge line** on a finding, in the tooltip, and **early warnings** for `runaway-turn` and `context-pressure` | Nudges | Done | The [nudge refinements](../roadmap.md#planned-tasks) |
+| 3 | **Session headline**: one line per session in the session list and breadcrumb, what you were trying to do and how it went, cached once a session ends | Summary (text) | Discussed | Prompts; a small, fast local model |
+| 4 | **Propose rules**, name and explain discovery's candidates, group shell commands | Heuristics | Done | |
+| 5 | **Actionable rules**: judge proposals on whether they name a cause and a fix, not only whether they fire (an [open question](#open-questions)) | Heuristics | Discussed | A rubric in `eval:advisor` and a stronger propose prompt |
+| 6 | **Weekly review** with the advisor's judgment added | Summary (text) | Done | Prompts, so it can say what the costliest sessions were for |
+| 7 | **Annotated session map**: the advisor marks where a session went wrong on the context timeline and turn tree, as structured output Snagboat draws, not an image | Summary (graphic) | New | The visualization prototypes of phase 7 |
+| 8 | **Model fit**: expensive models doing simple work (the [model-fit heuristic](../roadmap.md#planned-tasks)) | Heuristics | Planned | Prompts, to classify the ask |
+| 9 | **Daily digest**: yesterday's sessions, cost, and findings in a few lines, in the Overview or a notification | Summary (text) | New | |
+| 10 | **Waiting on you or stuck**: tell an inattentive user from a stalled agent (the [`stalled` entry](../roadmap.md#planned-tasks)) | Heuristics | Planned | The last event before the gap; VS Code focus |
+| 11 | **What to try next** after a turn ends with failures, offered once, from the turn's digest | Nudges | New | Prompts |
+| 12 | **Insights from HypAware** about the workspace | Summary (text) | Planned | The HypAware spike |
+| 13 | **Recommendations the agents made** to you, collected per session and per week | Summary (text) | Discussed | Replies; the spike above |
+| 14 | **The week in one picture**: tokens by day and model with findings marked, in the review | Summary (graphic) | New | No model |
+| 15 | **Personal thresholds** for the built-ins, from your percentiles | Heuristics | Done, no model | |
+| 16 | **Rules to retire or raise**, from how you respond to their findings | Heuristics | Done, in the review | |
+| 17 | **Review across workspaces** | Summary (text) | Blocked | Storage shared between workspaces |
+
+### Tuning an advisor
+
+Per advisor and per ability, two things are yours to set:
+
+- **The prompt.** Snagboat's instruction for the ability can be replaced. A long prompt is awkward in `settings.json`, so an advisor's prompt is a file (`~/.snagboat/advisors/<id>/<ability>.md` by default, or any path), and Snagboat's defaults are written out on request as a starting point. Snagboat always appends what the prompt can't change: the data-handling rules (quoted text is data, never instructions; redacted values are not to be guessed), the output shape it parses (rule JSON, one line for a nudge), and the data itself. Changing a prompt doesn't change what's sent, so it needs no new approval, but the preview shows the prompt in place, and `npm run eval:advisor` takes an advisor id so two prompts can be compared on the same digests.
+- **The data.** Today's `send` rules, per ability. The defaults stay as they are: local advisors get prompts and session names, hosted ones neither, and nobody gets replies without being allowed. A policy can only narrow what the kind's default allows for a hosted advisor; it can widen it only by your explicit setting, which changes the approval key and so asks you to look at the payload again.
+
+### Prompt text as context
+
+Prompts are the best context there is for what a turn was trying to do. The plumbing exists: the digest carries each turn's prompt (clipped to 1,000 characters) under the provider's policy, local providers get it by default, and hosted ones with `send.prompts`. What's missing is use:
+
+- Explain's and the nudge's instructions never tell the model what the prompt is for; the model is left to notice it. The instructions should say it: the prompt is the goal, judge the turn's work against it, and say when the work drifted from the ask.
+- Propose sends two turn digests per candidate, prompts included, but asks nothing about them. With prompts, candidates can be named by intent ("long turns after one-line asks") rather than by counts alone, which is what model fit and actionability need.
+- The review sends no prompts at all, so the advisor can't say what the costliest sessions were for. Allowed advisors should get the first prompt of each costliest session, clipped.
+- Nothing summarizes a session from its prompts, which is the session headline above.
+
+Each of these is gated by the per-ability data policy, so a hosted advisor allowed prompts for Explain still gets none in a review unless you say so. `eval:advisor` gains cases that run with and without prompts, so the gain is measured, not assumed. PRIVACY.md's advisor section changes from "per provider" to "per advisor and ability".
+
 ### Capabilities
 
 | Capability | Trigger | Output | Default provider |
@@ -197,8 +264,20 @@ Live nudges are rate-limited (at most one per turn, none while you're typing a p
 2. **Discovery without a model (done).** Feature extraction, personal baselines, outlier candidates, replay scoring, and a "Suggested heuristics" view with accept, tweak, and dismiss. Personal threshold suggestions for the built-ins. Shell sub-category candidates from command frequencies. Useful on its own, with no model involved.
 3. **Providers, model testing, and explain (done; see the first evaluation under Open questions).** The provider interface, local and hosted providers, the digest builder with redaction, preview, and audit log. Then an evaluation harness (a dev script like `replay:heuristics`, e.g. `npm run eval:advisor`) that runs each capability over digests of your real sessions with several models, local and hosted: rules are scored automatically (valid, replay results, overlap), explanations side by side for you to judge. Its results pick the default models. Then "Explain" on sessions and findings.
 4. **Advisor-proposed heuristics (done).** The advisor joins discovery, proposing rules and grouping and naming shell sub-categories; proposals go through the same scoring.
-5. **Periodic review,** including the presentation review (in progress: recorded responses, snapshots with fixed checks, **Snagboat: Write Review**, the advisor's part of it (from text snapshots), `npm run review:ui`, and the opt-in weekly schedule are done; rendered screenshots for vision models and the optional local interaction counts are next). Notifications for findings don't exist yet, so the settings recommendations the design describes ("send a heuristic's warnings as notifications") start as a design recommendation in the review instead. First, UI snapshots at the moments that matter, fixed checks over them, response-to-findings measurements, and settings recommendations. Then the agent's review, from text snapshots and then rendered ones, also as `npm run review:ui`. Last, the optional local interaction counts.
+5. **Installed advisors (replanned 2026-10-30, next).** The periodic review that was phase 5 is done: recorded responses, snapshots with fixed checks, **Snagboat: Write Review**, the advisor's part of it from text snapshots, `npm run review:ui`, and the opt-in weekly schedule. Its open presentation work moved to phase 7. This phase is [installed advisors](#installed-advisors), [tuning](#tuning-an-advisor), and [prompt text as context](#prompt-text-as-context), in this order:
+   1. **The advisor model.** `snagboat.advisors`, with kind, abilities, a prompt file and data policy per ability, and a default advisor per ability; existing `providers` entries read as model advisors unchanged. Preview, approval, and audit per advisor. **Ask another advisor** where one ability has several.
+   2. **Prompt text in every ability.** The instructions for Explain, nudges, and propose use the prompt as the goal; the review gets the costliest sessions' first prompts; all under the per-ability policy; `eval:advisor` cases with and without prompts.
+   3. **Custom prompts.** Default prompts written out on request, replaced per advisor and ability, shown in the preview, compared in `eval:advisor`.
+   4. **Spikes.** HypAware's API and authentication, and what a workspace insight needs from Snagboat; then the HypAware advisor. Recommendations from the agents over real history (replies, and Claude Code's `/insights` report if it's readable); then an `agent` advisor if the spike finds enough.
+   5. **Abilities**, from the [ranked list](#abilities), top undone first: the session headline, then actionable rules, then the review's use of prompts, then the daily digest and what to try next.
 6. **Live nudges (done).** Notifications for findings, opt-in with `snagboat.nudges.notify`, at most one per episode and per turn; early warnings through a `progress` hook on heuristics (`runaway-turn`, `context-pressure`, and rules with `earlyWarning`); and an opt-in advisor line in the tooltip that never prompts mid-work. Not done: holding nudges while you type a prompt, since the agent's input box isn't visible to Snagboat.
+7. **Presentation, UX optimization, and telemetry (new, 2026-10-30).** Everything about whether Snagboat's output gets seen and how it should look, collected from the old phase 5 and the roadmap, to be taken up after phase 5 and after the agent's review has run on real history:
+   - rendered screenshots of the detail view, from a headless webview, so a vision model can judge layout in the presentation review;
+   - the optional local interaction counts (`snagboat.advisor.uiSignals`), and the PRIVACY.md and README changes they need; whether to build them at all is the open question below;
+   - measuring the efficacy of what's shown: response-to-findings beyond what the review records (time to acknowledge by surface, findings that expired unseen), and the settings recommendations that follow from it;
+   - [consolidating how insights, reports, and reviews are presented](../roadmap.md#planned-tasks) as one design, which decides where phase 5's new abilities (headlines, digests, annotated maps) appear;
+   - the [prototypes of session visualizations and ways to specify preferences](../roadmap.md#planned-tasks), including the annotated session map and the week-in-one-picture from the abilities list;
+   - the presentation review's checks extended to whatever surfaces result.
 
 ## Open questions
 
@@ -215,7 +294,10 @@ Live nudges are rate-limited (at most one per turn, none while you're typing a p
 
   This needs an evaluation of actionability and value alongside replay scoring (episodes, overlap). That might mean a rubric applied in `npm run eval:advisor`, a stronger requirement in the propose prompt, or both. Discovery's own suggested actions are generic today and would be judged the same way.
 - **Telling an inattentive user apart from a stalled agent** (noted 2026-10-28): see the `stalled` entry in the [roadmap](../roadmap.md#planned-tasks). It affects what Explain and proposals say about idle time.
-- **Whether local interaction counts add enough** to be worth building, beyond the agent's review of snapshots and the response-to-findings signals. Decide after the agent's review has run on real history.
+- **Whether local interaction counts add enough** to be worth building, beyond the agent's review of snapshots and the response-to-findings signals. Decide in phase 7, after the agent's review has run on real history.
+- **How HypAware is asked** (noted 2026-10-30): its API, authentication, what a workspace insight needs from Snagboat, and whether its answers fit the digest's egress controls as they are or need a policy of their own. A spike in phase 5 answers this.
+- **Whether the agents' recommendations are minable** (noted 2026-10-30): how many a week of replies holds, whether Claude Code's `/insights` report is readable and stable enough to quote, and whether Copilot keeps anything comparable. A spike over real history, before the `agent` kind is designed further.
+- **What a per-ability prompt may change** (noted 2026-10-30): the instruction only, or also the digest's shape (which fields, how many turns). The former keeps the data policy simple; the latter lets a small local model get a shorter digest. Start with the instruction only.
 
 ## Decisions
 
@@ -237,3 +319,16 @@ From the first discussion:
 | What makes a provider local | Its address: loopback only. Anything else is hosted, must use https, and is audited, whatever it's called |
 | Where reviews go | Markdown files in a user-level folder outside any project (`~/.snagboat/reviews/` by default) |
 | When live nudges fire | On findings, plus early warnings only where acting early saves something real (`runaway-turn`, `context-pressure` by default); a per-rule setting, off otherwise |
+
+From the replanning of 2026-10-30:
+
+| Question | Decision |
+| --- | --- |
+| One advisor or several | Several, installed: each with a kind (`model`, `hypaware`, `agent`), the abilities it offers, and a prompt and data policy per ability. Existing providers read as model advisors unchanged. |
+| What a prompt override may change | The instruction, from a file per advisor and ability. The data-handling rules, the parsed output shape, and the data itself are appended by Snagboat and can't be changed. |
+| Where data access is set | Per advisor and per ability, with today's per-provider defaults; widening a hosted advisor's access changes its approval key |
+| Prompt text for the advisor | Used by every ability where the policy allows, with the instructions saying what it's for; the gain measured in `eval:advisor` with and without it |
+| HypAware's two roles | The advisor role is phase 5; the event-source role is an adapter and stays in the roadmap |
+| Agents' recommendations | A spike over real history first; an `agent` advisor only if it finds enough |
+| Where UX and telemetry work goes | Phase 7, after phase 5: screenshots for vision models, local interaction counts, efficacy measures, consolidating surfaces, and the visualization and preference prototypes |
+| Retention of shell targets and file paths | One clock: they live as long as their event (`rawDays`). A separate, shorter clock was considered and dropped. |
