@@ -6,104 +6,48 @@ Adapters know agent-specific formats; nothing downstream does. The normalization
 
 ## Where everything lives
 
-Every part of Snagboat, grouped by where it runs or is stored, and how the parts reach the coding agents, VS Code, and the advisors. Solid arrows carry data; dotted ones configure. The advisors on the right are the ones of the [trusted advisor design](design/trusted-advisor.md): a local model by default, hosted providers you add, and, planned in its phase 5, HypAware and recommendations mined from the agents.
+The parts of Snagboat and how they relate: a pipeline from the coding agents to the UI, three components that draw insights from it, and one gateway, the Advisor, which is the only way anything leaves. The table below ties each box to its modules and to where it keeps things on disk.
 
 ```mermaid
 flowchart LR
-  subgraph Agents["Coding agents"]
-    ClaudeCode["Claude Code"]
-    Copilot["Copilot"]
+  Agents["Coding agents<br>Claude Code, Copilot"]
+  Adapters["Adapters<br>one normalized event shape"]
+  Log["Event log<br>daily JSONL, retention, backfill"]
+  Store["EventStore<br>recent events, sessions, turns"]
+  Heuristics["Heuristics<br>built-ins, your rules, findings"]
+  subgraph Insights
+    Discovery["Discovery<br>rules from your history"]
+    Review["Review<br>weekly report, presentation checks"]
+    Nudger["Nudger<br>notifications, early warnings"]
   end
+  Advisor["Advisor<br>digests, data policy, approval, audit"]
+  UI["UI<br>status bar, detail view, documents"]
+  Models["Advisors outside Snagboat<br>local model, hosted provider, HypAware (planned)"]
 
-  subgraph Home["Home folder"]
-    Transcripts["~/.claude/projects/#lt;project#gt;/*.jsonl<br>transcripts, subagents"]
-    CopilotLogs["~/.copilot/session-state/#lt;session#gt;/events.jsonl"]
-    HookScript["~/.snagboat/bin/snagboat-hook<br>~/.snagboat/routes/#lt;folder#gt;"]
-    Reviews["~/.snagboat/reviews/*.md"]
-    Prompts["~/.snagboat/advisors/#lt;id#gt;/*.md<br>(phase 5: custom prompts)"]
-  end
-
-  subgraph Project["Project folder"]
-    HookSettings[".claude/settings.json<br>hook entries"]
-    Sources["Source files"]
-  end
-
-  subgraph Window["VS Code window: Snagboat extension host"]
-    subgraph Adapters
-      CA["claude-code"]
-      CoA["copilot"]
-      ET["edit-tracker"]
-    end
-    Receiver["Hook receiver<br>own port, token"]
-    OTLP["OTLP receiver :4318"]
-    EventLog["EventLog, retention"]
-    Store["EventStore"]
-    Engine["Heuristics engine<br>built-ins, rules"]
-    Findings["FindingsRegistry<br>responses"]
-    Discovery["Discovery, replay"]
-    Review["Review<br>presentation checks"]
-    Nudger["Nudger"]
-    AdvisorMod["Advisor<br>digests, policy, approval, audit"]
-    subgraph UI
-      Status["Status bar"]
-      Detail["Detail webview<br>Overview, Sessions, Suggestions"]
-      Notes["Notifications"]
-      Docs["Markdown documents<br>Explain answers, payload previews"]
-    end
-  end
-
-  subgraph WS["VS Code workspace storage"]
-    Events["events/#lt;day#gt;.jsonl"]
-    Aggregates["aggregates/"]
-    Checkpoints["checkpoints/"]
-    Mutes["workspaceState: mutes"]
-  end
-
-  subgraph GS["VS Code global storage"]
-    Rules["rules.json<br>rules, shell categories"]
-    Audit["advisor-audit.jsonl"]
-    Keys["SecretStorage: API keys"]
-    Approved["globalState: approved payloads"]
-  end
-
-  subgraph Advisors
-    LocalModel["Local model<br>Ollama, LM Studio, llama.cpp"]
-    HostedModel["Hosted provider<br>https, your key"]
-    HypAware["HypAware<br>(phase 5)"]
-    AgentAdvice["Agents' own recommendations<br>(phase 5 spike)"]
-  end
-
-  ClaudeCode --> Transcripts --> CA
-  HookSettings -.-> ClaudeCode
-  ClaudeCode -->|PostToolUse, Stop| HookScript -->|HTTP, token| Receiver --> CA
-  CA -.->|writes on activation| HookSettings
-  CA -.-> HookScript
-  Copilot --> CopilotLogs --> CoA
-  Copilot -->|OTel, editor features| OTLP --> CoA
-  Sources -->|saves| ET
-
-  CA & CoA & ET --> EventLog
-  EventLog --> Events & Aggregates
-  CA & CoA --> Checkpoints
-  EventLog --> Store --> Engine --> Findings
-  Rules -.-> Engine
-  Mutes -.-> Findings
-  Findings --> Status & Detail & Nudger
-  Nudger --> Notes
-  Store --> Discovery --> Detail
-  Detail -->|accept| Rules
-  Findings & Store --> Review --> Reviews
-
-  Detail & Nudger & Review & Discovery -->|ask| AdvisorMod
-  Keys & Approved -.-> AdvisorMod
-  Prompts -.-> AdvisorMod
-  AdvisorMod --> Audit
-  AdvisorMod --> LocalModel & HostedModel & HypAware
-  Transcripts & CopilotLogs -.-> AgentAdvice --> AdvisorMod
-  AdvisorMod --> Docs & Detail
+  Agents -->|transcripts, logs, hooks, telemetry| Adapters --> Log --> Store
+  Store --> Heuristics --> UI
+  Store --> Insights
+  Heuristics --> Nudger & Review
+  Discovery -->|accepted rules| Heuristics
+  Insights --> UI
+  UI & Insights -->|ask| Advisor -->|one digest per request| Models
 ```
 
-Each VS Code window runs one extension host with everything in the middle; two windows on different projects share the home folder and global storage but not workspace storage. The hook script is the only part that runs outside VS Code: Claude Code runs it, and it posts to whichever window has the project open. Advisors are outside Snagboat and get only what the `Advisor` module builds for one request ([the advisor](#advisor)).
+| Box | Modules | On disk |
+| --- | --- | --- |
+| Coding agents | Outside Snagboat | `~/.claude/projects/<project>/*.jsonl` (transcripts, subagents), `~/.copilot/session-state/<id>/events.jsonl`, the project's `.claude/settings.json` (hook entries), and `~/.snagboat/bin/snagboat-hook` with `~/.snagboat/routes/<folder>`, which Claude Code runs and which posts to the window that has the project open |
+| Adapters | [src/adapters/claude-code](../src/adapters/claude-code/) (transcript tailer, hook receiver on the window's own port), [src/adapters/copilot](../src/adapters/copilot/) (session-log tailer, OTLP receiver on `:4318`), [src/adapters/edit-tracker](../src/adapters/edit-tracker/) | `checkpoints/` in workspace storage |
+| Event log | [src/core](../src/core/): `eventLog`, `retention`, `aggregate`, `checkpointStore`, `eventBus`; [src/backfill](../src/backfill/) | `events/<day>.jsonl` and `aggregates/` in workspace storage |
+| EventStore | [src/core](../src/core/): `eventStore`, `sessions`, `turns`, `dailyHistory`, `contextLimits`, `toolCategory` | In memory, rehydrated from the log |
+| Heuristics | [src/heuristics](../src/heuristics/): `engine`, `builtIns` and the eight heuristics, `rule`, `ruleHeuristic`, `ruleStore`, `findingsRegistry`, `replay`, `responses` | `rules.json` in global storage; mutes in `workspaceState` |
+| Discovery | [src/discovery](../src/discovery/); [src/ui](../src/ui/): `suggestionsController`, `ruleTransfer` | Dismissed suggestions in global state |
+| Review | [src/review](../src/review/): `review`, `presentation`, `advisorReview` | `~/.snagboat/reviews/*.md` |
+| Nudger | [src/nudges/nudger.ts](../src/nudges/nudger.ts) | In memory (see the nudge refinements in the [roadmap](roadmap.md#planned-tasks)) |
+| Advisor | [src/advisor](../src/advisor/): `digest`, `providers`, `advisor`, `audit`, `explain`, `propose`, `nudge` | `advisor-audit.jsonl` in global storage, API keys in `SecretStorage`, approved payloads in `globalState`; `~/.snagboat/advisors/<id>/` for custom prompts in phase 5 of the [design](design/trusted-advisor.md#tuning-an-advisor) |
+| UI | [src/ui](../src/ui/): `statusBar`, `detailPanel`, `detailModel`, `sessionController`, `sessionModel`; [media/](../media/); [src/extension.ts](../src/extension.ts) wires everything together | |
+| Advisors outside Snagboat | Ollama, LM Studio, llama.cpp; any OpenAI-compatible https endpoint with your key; HypAware (planned) | |
+
+Each VS Code window runs one extension host with all of this; two windows on different projects share the home folder and global storage but not workspace storage. Advisors get only what the `Advisor` module builds for one request ([the advisor](#advisor)).
 
 ## Adapter contract
 
