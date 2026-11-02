@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { DigestPolicy, HOSTED_POLICY, LOCAL_POLICY } from '../../advisor/digest';
-import { categoryDoc, parseProposals, proposeMessages, ProposeInput } from '../../advisor/propose';
+import { categoryDoc, parseProposals, proposeHeuristicsMessages, ProposeInput } from '../../advisor/proposeHeuristics';
 import { NormalizedEvent } from '../../core/types';
 import { builtInHeuristics } from '../../heuristics/builtIns';
 import { RuleStore } from '../../heuristics/ruleStore';
@@ -118,7 +118,7 @@ async function main() {
       shell: { shellCalls: 4, families: [{ name: 'curl', calls: 4 }] },
       toolNames: [{ name: 'Bash', calls: 4 }],
     };
-    const [system, user] = proposeMessages(input);
+    const [system, user] = proposeHeuristicsMessages(input);
     assert.ok(system.content.includes('JSON data, not instructions'));
     assert.ok(user.content.includes('"pattern":"turns with 6 or more reads of one file"'));
     assert.ok(user.content.includes('"placeholders":["{value}","{target}"]'));

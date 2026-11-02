@@ -3,9 +3,9 @@
  * models, and writes their answers side by side, so default models are picked
  * from real use. Dev tooling only; never shipped.
  *
- *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--capability explain|propose] [--base-url <url>] [--sessions 2] [--all-projects | <session.jsonl> ...]
+ *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--ability summarize-session|propose-heuristics] [--base-url <url>] [--sessions 2] [--all-projects | <session.jsonl> ...]
  *
- * --capability propose runs discovery over the sessions and asks each model
+ * --ability propose-heuristics (or the older "propose") runs discovery over the sessions and asks each model
  * to name its candidates, propose rules, and group shell commands, through
  * the Suggestions tab's own controller, so what's kept or dropped is exactly
  * what the tab would show.
@@ -24,14 +24,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildDigest, digestForReading, DigestFinding, HOSTED_POLICY, LOCAL_POLICY, SessionDigest } from '../advisor/digest';
-import { ExplainFocus, explainMessages } from '../advisor/explain';
+import { SessionFocus, summarizeSessionMessages } from '../advisor/summarizeSession';
 import { complete, Completion, FetchLike, isLocalUrl, promptWasCut, ProviderConfig } from '../advisor/providers';
 import { builtInHeuristics } from '../heuristics/builtIns';
 import { FindingReplay } from '../heuristics/replay';
 import { NormalizedEvent } from '../core/types';
 import { defaultSessions, sessionEvents } from './replayHeuristics';
 import * as os from 'os';
-import { proposeMessages } from '../advisor/propose';
+import { proposeHeuristicsMessages } from '../advisor/proposeHeuristics';
 import { RuleStore } from '../heuristics/ruleStore';
 import { SuggestionsController } from '../ui/suggestionsController';
 
@@ -39,7 +39,7 @@ interface Case {
   label: string;
   sessionId: string;
   digest: SessionDigest;
-  focus: ExplainFocus;
+  focus: SessionFocus;
 }
 
 interface Result {
@@ -87,7 +87,7 @@ function casesFor(events: NormalizedEvent[], policy: typeof LOCAL_POLICY, roots:
   return cases;
 }
 
-function check(text: string, completion: Completion | undefined, messages: ReturnType<typeof explainMessages>): Result['checks'] {
+function check(text: string, completion: Completion | undefined, messages: ReturnType<typeof summarizeSessionMessages>): Result['checks'] {
   const lower = text.toLowerCase();
   return {
     headings: HEADINGS.every((h) => lower.includes(h)),
@@ -119,9 +119,9 @@ async function evalPropose(events: NormalizedEvent[], models: string[], baseUrl:
         setDismissed: async () => undefined,
         sessionName: () => undefined,
         propose: async (build) => {
-          const messages = proposeMessages(build(policy));
+          const messages = proposeHeuristicsMessages(build(policy));
           sent = messages.reduce((n, m) => n + m.content.length, 0);
-          const p: ProviderConfig = { id: 'eval', label: 'eval', baseUrl, model, kind: local ? 'local' : 'hosted', policy };
+          const p: ProviderConfig = { id: 'eval', label: 'eval', baseUrl, model, locality: local ? 'local' : 'hosted', policy };
           const started = Date.now();
           try {
             // No JSON mode: Ollama refuses it for some models (qwen3.5) and loops on others; the parser finds the JSON.
@@ -171,7 +171,7 @@ async function main(): Promise<number> {
   const models = (arg(args, '--models') ?? '').split(',').map((m) => m.trim()).filter(Boolean);
   const baseUrl = (arg(args, '--base-url') ?? 'http://localhost:11434/v1').replace(/\/+$/, '');
   const sessionCount = Number(arg(args, '--sessions') ?? 2);
-  const capability = arg(args, '--capability') ?? 'explain';
+  const ability = arg(args, '--ability') ?? arg(args, '--capability') ?? 'summarize-session';
   const allAt = args.indexOf('--all-projects');
   if (allAt >= 0) args.splice(allAt, 1);
   if (models.length === 0) {
@@ -196,7 +196,7 @@ async function main(): Promise<number> {
     console.error('No sessions with 3 or more turns found.');
     return 1;
   }
-  if (capability === 'propose') {
+  if (ability === 'propose-heuristics' || ability === 'propose') {
     // Discovery wants history, not the latest few sessions: read them all.
     const report = await evalPropose(files.flatMap((f) => sessionEvents(f)), models, baseUrl, apiKey, local, policy);
     const outDir = path.join(process.cwd(), 'out', 'eval');
@@ -209,18 +209,18 @@ async function main(): Promise<number> {
   const cases = sessions.flatMap((events) => casesFor(events, policy, [process.cwd()]));
 
   const report: string[] = [
-    `# Advisor evaluation: Explain`,
+    `# Advisor evaluation: summarize a session (Explain)`,
     '',
     `${new Date().toISOString()} · ${baseUrl} (${local ? 'local' : 'hosted'} sending rules) · models: ${models.join(', ')}`,
     '',
   ];
   const all: Array<{ c: Case; results: Result[]; chars: number }> = [];
   for (const c of cases) {
-    const messages = explainMessages(c.digest, c.focus);
+    const messages = summarizeSessionMessages(c.digest, c.focus);
     const chars = messages.reduce((n, m) => n + m.content.length, 0);
     const results: Result[] = [];
     for (const model of models) {
-      const p: ProviderConfig = { id: 'eval', label: 'eval', baseUrl, model, kind: local ? 'local' : 'hosted', policy };
+      const p: ProviderConfig = { id: 'eval', label: 'eval', baseUrl, model, locality: local ? 'local' : 'hosted', policy };
       const started = Date.now();
       try {
         const completion = await complete(p, messages, apiKey, fetch as unknown as FetchLike);

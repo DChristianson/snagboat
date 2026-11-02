@@ -55,6 +55,10 @@
         "title": "Snagboat: Explain Session..."
       },
       {
+        "command": "snagboat.explainSessionWith",
+        "title": "Snagboat: Explain Session with Advisor..."
+      },
+      {
         "command": "snagboat.setAdvisorKey",
         "title": "Snagboat: Set Advisor API Key..."
       },
@@ -980,17 +984,10 @@
           "minimum": 1,
           "description": "How many days of this workspace's history Snagboat: Discover Heuristics reads, so suggestions follow your current habits."
         },
-        "snagboat.advisor.providers": {
+        "snagboat.advisors": {
           "type": "array",
-          "default": [
-            {
-              "id": "local",
-              "label": "Local (Ollama)",
-              "baseUrl": "http://localhost:11434/v1",
-              "model": ""
-            }
-          ],
-          "markdownDescription": "Models the advisor can use: OpenAI-compatible chat completion endpoints. A provider whose `baseUrl` is on this machine (localhost) is local; any other is hosted, must use https, needs an API key (**Snagboat: Set Advisor API Key...**), and every request to it is recorded in the audit log. `send` sets what it may receive: by default local providers get prompts and session names, hosted ones neither, and neither gets reply excerpts. See [the advisor](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#the-advisor).",
+          "default": [],
+          "markdownDescription": "Installed advisors: each a model (an OpenAI-compatible endpoint, local or hosted) with the abilities it offers and what it may receive for each. Several advisors can offer the same ability; `snagboat.advisor.defaults` picks the one used, and the rest are offered as **Ask another advisor**. Entries in `snagboat.advisor.providers` are read as advisors offering every ability. See [the advisor](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#the-advisor).",
           "items": {
             "type": "object",
             "required": [
@@ -1002,7 +999,297 @@
               "id": {
                 "type": "string",
                 "pattern": "^[a-z0-9][a-z0-9-]*$",
-                "description": "Lowercase letters, digits, and dashes; names it in snagboat.advisor.explainProvider."
+                "description": "Lowercase letters, digits, and dashes; names it in snagboat.advisor.defaults."
+              },
+              "label": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model"
+                ],
+                "default": "model",
+                "description": "How it's asked. Only model (an OpenAI-compatible endpoint) is available yet."
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "Such as http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio), or https://api.openai.com/v1."
+              },
+              "model": {
+                "type": "string",
+                "description": "Leave empty to pick from the provider's models on first use."
+              },
+              "send": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "What it may receive, for every ability unless an ability says otherwise. Paths outside the workspace are always hashed.",
+                "properties": {
+                  "prompts": {
+                    "type": "boolean",
+                    "description": "Your prompts' text (default: local yes, hosted no)."
+                  },
+                  "replies": {
+                    "type": "boolean",
+                    "description": "Agent reply excerpts (default: no)."
+                  },
+                  "sessionNames": {
+                    "type": "boolean",
+                    "description": "Session names (default: local yes, hosted no)."
+                  },
+                  "paths": {
+                    "type": "string",
+                    "enum": [
+                      "relative",
+                      "hashed"
+                    ],
+                    "description": "File paths relative to the workspace, or hashed (default: relative)."
+                  }
+                }
+              },
+              "abilities": {
+                "type": "object",
+                "additionalProperties": false,
+                "markdownDescription": "The abilities it offers. Leave out to offer all of them. Each is `true`, `false`, or `{ \"send\": { ... } }` for sending rules of its own.",
+                "properties": {
+                  "summarize-session": {
+                    "oneOf": [
+                      {
+                        "type": "boolean",
+                        "description": "true: offered with the advisor's send rules; false: not offered."
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "send": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "description": "What it may receive for this ability, over the advisor's send rules.",
+                            "properties": {
+                              "prompts": {
+                                "type": "boolean",
+                                "description": "Your prompts' text (default: local yes, hosted no)."
+                              },
+                              "replies": {
+                                "type": "boolean",
+                                "description": "Agent reply excerpts (default: no)."
+                              },
+                              "sessionNames": {
+                                "type": "boolean",
+                                "description": "Session names (default: local yes, hosted no)."
+                              },
+                              "paths": {
+                                "type": "string",
+                                "enum": [
+                                  "relative",
+                                  "hashed"
+                                ],
+                                "description": "File paths relative to the workspace, or hashed (default: relative)."
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "description": "Explain a session, a turn, or a finding (Sessions tab, notifications, Snagboat: Explain Session...)."
+                  },
+                  "summarize-week": {
+                    "oneOf": [
+                      {
+                        "type": "boolean",
+                        "description": "true: offered with the advisor's send rules; false: not offered."
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "send": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "description": "What it may receive for this ability, over the advisor's send rules.",
+                            "properties": {
+                              "prompts": {
+                                "type": "boolean",
+                                "description": "Your prompts' text (default: local yes, hosted no)."
+                              },
+                              "replies": {
+                                "type": "boolean",
+                                "description": "Agent reply excerpts (default: no)."
+                              },
+                              "sessionNames": {
+                                "type": "boolean",
+                                "description": "Session names (default: local yes, hosted no)."
+                              },
+                              "paths": {
+                                "type": "string",
+                                "enum": [
+                                  "relative",
+                                  "hashed"
+                                ],
+                                "description": "File paths relative to the workspace, or hashed (default: relative)."
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "description": "Summarize the week in the review (Ask the Advisor, after Snagboat: Write Review)."
+                  },
+                  "propose-heuristics": {
+                    "oneOf": [
+                      {
+                        "type": "boolean",
+                        "description": "true: offered with the advisor's send rules; false: not offered."
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "send": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "description": "What it may receive for this ability, over the advisor's send rules.",
+                            "properties": {
+                              "prompts": {
+                                "type": "boolean",
+                                "description": "Your prompts' text (default: local yes, hosted no)."
+                              },
+                              "replies": {
+                                "type": "boolean",
+                                "description": "Agent reply excerpts (default: no)."
+                              },
+                              "sessionNames": {
+                                "type": "boolean",
+                                "description": "Session names (default: local yes, hosted no)."
+                              },
+                              "paths": {
+                                "type": "string",
+                                "enum": [
+                                  "relative",
+                                  "hashed"
+                                ],
+                                "description": "File paths relative to the workspace, or hashed (default: relative)."
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "description": "Name discovery's candidates, propose rules, and group shell commands (Ask the advisor, in the Suggestions tab)."
+                  },
+                  "propose-nudges": {
+                    "oneOf": [
+                      {
+                        "type": "boolean",
+                        "description": "true: offered with the advisor's send rules; false: not offered."
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "send": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "description": "What it may receive for this ability, over the advisor's send rules.",
+                            "properties": {
+                              "prompts": {
+                                "type": "boolean",
+                                "description": "Your prompts' text (default: local yes, hosted no)."
+                              },
+                              "replies": {
+                                "type": "boolean",
+                                "description": "Agent reply excerpts (default: no)."
+                              },
+                              "sessionNames": {
+                                "type": "boolean",
+                                "description": "Session names (default: local yes, hosted no)."
+                              },
+                              "paths": {
+                                "type": "string",
+                                "enum": [
+                                  "relative",
+                                  "hashed"
+                                ],
+                                "description": "File paths relative to the workspace, or hashed (default: relative)."
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "description": "Review how findings were shown, in the review; and the one-line suggestion under a finding (snagboat.nudges.advisor)."
+                  },
+                  "propose-tactics": {
+                    "oneOf": [
+                      {
+                        "type": "boolean",
+                        "description": "true: offered with the advisor's send rules; false: not offered."
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "send": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "description": "What it may receive for this ability, over the advisor's send rules.",
+                            "properties": {
+                              "prompts": {
+                                "type": "boolean",
+                                "description": "Your prompts' text (default: local yes, hosted no)."
+                              },
+                              "replies": {
+                                "type": "boolean",
+                                "description": "Agent reply excerpts (default: no)."
+                              },
+                              "sessionNames": {
+                                "type": "boolean",
+                                "description": "Session names (default: local yes, hosted no)."
+                              },
+                              "paths": {
+                                "type": "string",
+                                "enum": [
+                                  "relative",
+                                  "hashed"
+                                ],
+                                "description": "File paths relative to the workspace, or hashed (default: relative)."
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "description": "Suggest changes to model use and prompt tactics (not asked yet)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "snagboat.advisor.providers": {
+          "type": "array",
+          "default": [
+            {
+              "id": "local",
+              "label": "Local (Ollama)",
+              "baseUrl": "http://localhost:11434/v1",
+              "model": ""
+            }
+          ],
+          "markdownDescription": "The short form of an advisor: a model that offers every ability with one set of sending rules. An OpenAI-compatible chat completion endpoint; a provider whose `baseUrl` is on this machine (localhost) is local; any other is hosted, must use https, needs an API key (**Snagboat: Set Advisor API Key...**), and every request to it is recorded in the audit log. `send` sets what it may receive: by default local providers get prompts and session names, hosted ones neither, and neither gets reply excerpts. For abilities with their own rules, use `snagboat.advisors`.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "baseUrl"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*$",
+                "description": "Lowercase letters, digits, and dashes; names it in snagboat.advisor.defaults."
               },
               "label": {
                 "type": "string"
@@ -1045,25 +1332,57 @@
             }
           }
         },
+        "snagboat.advisor.defaults": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": false,
+          "markdownDescription": "The advisor each ability uses unless you pick another, by id. Unset abilities use `local`.",
+          "properties": {
+            "summarize-session": {
+              "type": "string",
+              "description": "Explain a session, a turn, or a finding (Sessions tab, notifications, Snagboat: Explain Session...)."
+            },
+            "summarize-week": {
+              "type": "string",
+              "description": "Summarize the week in the review (Ask the Advisor, after Snagboat: Write Review)."
+            },
+            "propose-heuristics": {
+              "type": "string",
+              "description": "Name discovery's candidates, propose rules, and group shell commands (Ask the advisor, in the Suggestions tab)."
+            },
+            "propose-nudges": {
+              "type": "string",
+              "description": "Review how findings were shown, in the review; and the one-line suggestion under a finding (snagboat.nudges.advisor)."
+            },
+            "propose-tactics": {
+              "type": "string",
+              "description": "Suggest changes to model use and prompt tactics (not asked yet)."
+            }
+          }
+        },
         "snagboat.advisor.explainProvider": {
           "type": "string",
           "default": "local",
-          "description": "The id of the provider Explain uses."
+          "description": "The id of the provider Explain uses.",
+          "deprecationMessage": "Use snagboat.advisor.defaults[\"summarize-session\"] instead; this setting is still read when that is unset."
         },
         "snagboat.advisor.proposeProvider": {
           "type": "string",
           "default": "local",
-          "description": "The id of the provider the Suggestions tab asks to propose heuristics."
+          "description": "The id of the provider the Suggestions tab asks to propose heuristics.",
+          "deprecationMessage": "Use snagboat.advisor.defaults[\"propose-heuristics\"] instead; this setting is still read when that is unset."
         },
         "snagboat.advisor.reviewProvider": {
           "type": "string",
           "default": "local",
-          "description": "The id of the provider asked to add its judgment to a review (Ask the Advisor, after Snagboat: Write Review)."
+          "description": "The id of the provider asked to add its judgment to a review (Ask the Advisor, after Snagboat: Write Review).",
+          "deprecationMessage": "Use snagboat.advisor.defaults[\"summarize-week\"] instead; this setting is still read when that is unset."
         },
         "snagboat.advisor.nudgeProvider": {
           "type": "string",
           "default": "local",
-          "description": "The id of the provider asked for a one-line suggestion when a nudge fires (snagboat.nudges.advisor)."
+          "description": "The id of the provider asked for a one-line suggestion when a nudge fires (snagboat.nudges.advisor).",
+          "deprecationMessage": "Use snagboat.advisor.defaults[\"propose-nudges\"] instead; this setting is still read when that is unset."
         },
         "snagboat.advisor.auditPayloads": {
           "type": "boolean",

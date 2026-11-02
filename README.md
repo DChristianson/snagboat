@@ -160,6 +160,7 @@ With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself s
 
 - **Local by default.** `snagboat.advisor.providers` starts with one provider: Ollama at `http://localhost:11434/v1`. Any OpenAI-compatible server on this machine works (LM Studio, llama.cpp). With no model set, Snagboat lists the server's models the first time you use it.
 - **Hosted only if you add one.** A provider at any other address must use https and needs your API key, set with **Snagboat: Set Advisor API Key...** and kept in VS Code's secret storage. Every request to it is recorded in a local audit log.
+- **Several advisors, if you like.** `snagboat.advisors` lists advisors with the abilities each offers (summarize a session or the week, propose heuristics, propose nudges) and what each may receive per ability; `snagboat.advisor.defaults` picks the one used, and **Ask another advisor** offers the rest. See [settings.md](docs/settings.md#installed-advisors).
 - **The model sees a digest, not your log.** The digest is a summary built for one request:
   - shell commands become their category and command name (`tests-builds: npm`);
   - paths are made relative to the workspace, or hashed;
@@ -200,7 +201,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 
 From the [roadmap](docs/roadmap.md):
 
-- several advisors, each with its own prompts and data access, and the advisor's use of your prompts' text
+- advisors with their own prompts and personas, and the advisor's use of your prompts' text
 - telling an agent that's waiting on you from one that's stuck (`stalled`)
 - terminal exit codes and `git diff` polling, to tell real edits from no-op saves
 - a token budget across all workspaces, with a treemap view

@@ -63,14 +63,31 @@ Accepted rules and categories live in `rules.json` in Snagboat's global storage,
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `snagboat.advisor.providers` | one local provider: Ollama at `http://localhost:11434/v1` | Models the advisor can use: OpenAI-compatible chat completion endpoints, each with an `id`, `label`, `baseUrl`, and `model` (empty: pick from the server's models on first use). A loopback `baseUrl` makes a provider local; any other is hosted, must use https, needs an API key (**Snagboat: Set Advisor API Key...**), and is audited. `send` sets what it may receive: `prompts` and `sessionNames` (default: local yes, hosted no), `replies` (default: no), and `paths` (`relative` or `hashed`). See [the advisor](../PRIVACY.md#the-advisor). |
-| `snagboat.advisor.explainProvider` | `"local"` | The provider Explain uses. |
-| `snagboat.advisor.proposeProvider` | `"local"` | The provider the Suggestions tab asks to propose heuristics. |
-| `snagboat.advisor.reviewProvider` | `"local"` | The provider asked to add its judgment to a review (**Ask the Advisor**, after **Snagboat: Write Review**). |
-| `snagboat.advisor.nudgeProvider` | `"local"` | The provider asked for a one-line suggestion when a nudge fires (`snagboat.nudges.advisor`). |
+| `snagboat.advisors` | `[]` | Installed advisors (below): each a model with the abilities it offers and what it may receive for each. |
+| `snagboat.advisor.providers` | one local provider: Ollama at `http://localhost:11434/v1` | The short form of an advisor: a model offering every ability with one set of sending rules. OpenAI-compatible chat completion endpoints, each with an `id`, `label`, `baseUrl`, and `model` (empty: pick from the server's models on first use). A loopback `baseUrl` makes it local; any other is hosted, must use https, needs an API key (**Snagboat: Set Advisor API Key...**), and is audited. `send` sets what it may receive: `prompts` and `sessionNames` (default: local yes, hosted no), `replies` (default: no), and `paths` (`relative` or `hashed`). See [the advisor](../PRIVACY.md#the-advisor). |
+| `snagboat.advisor.defaults` | `{}` | The advisor each ability uses unless you pick another, by id: `summarize-session` (Explain), `summarize-week` and `propose-nudges` (the review; `propose-nudges` is also the one-line suggestion under a finding), `propose-heuristics` (Ask the advisor), `propose-tactics` (not asked yet). Unset abilities use `local`. The older `explainProvider`, `reviewProvider`, `proposeProvider`, and `nudgeProvider` settings still work when this is unset. |
 | `snagboat.advisor.auditPayloads` | `false` | Also keep the full payload of each request to a hosted provider in the audit log, for `rawDays`. Off, the log keeps when, which capability, the size, and a hash. |
 | `snagboat.advisor.reviewDirectory` | `""` | Where **Snagboat: Write Review** writes its Markdown reports, one per week and workspace. Empty: `~/.snagboat/reviews`. |
 | `snagboat.advisor.weeklyReview` | `false` | Write this workspace's review once a week, the first time a window is open that week, without a model. You're told when it's written and can then ask the advisor to add to it. |
+
+### Installed advisors
+
+An entry in `snagboat.advisors` is a model advisor: `id`, `label`, `baseUrl`, `model`, and `send` as for a provider, plus `abilities`, which names what it offers. Leave `abilities` out to offer everything; otherwise each ability is `true`, `false`, or an object with its own `send` rules over the advisor's. Several advisors can offer one ability: `snagboat.advisor.defaults` picks the one used, and the others are a click away (**Ask another advisor** in the Suggestions tab, **Ask Another Advisor** on the review notification, and **Snagboat: Explain Session with Advisor...**). Every answer names the advisor and its model. A hosted advisor's first request shows the exact payload and asks; changing its address or any ability's `send` rules asks again.
+
+```jsonc
+"snagboat.advisors": [
+  { "id": "local", "label": "Local (Ollama)", "baseUrl": "http://localhost:11434/v1", "model": "qwen3.5" },
+  {
+    "id": "hosted", "label": "OpenAI", "baseUrl": "https://api.openai.com/v1", "model": "gpt-5",
+    "abilities": {
+      "summarize-week": true,                              // counts only, as hosted advisors get by default
+      "summarize-session": { "send": { "prompts": true } }, // but prompts when explaining a session
+      "propose-nudges": false                               // never asked for the live line
+    }
+  }
+],
+"snagboat.advisor.defaults": { "summarize-week": "hosted" }
+```
 
 ## Notifications
 
@@ -78,4 +95,4 @@ Accepted rules and categories live in `rules.json` in Snagboat's global storage,
 | --- | --- | --- |
 | `snagboat.nudges.notify` | `"off"` | `warnings` notifies when a warning appears (and for early warnings); `all` for every finding. At most one per turn, never modal; muted heuristics never notify. See [Nudges](heuristics.md#nudges). |
 | `snagboat.nudges.quiet` | `[]` | Heuristic or rule ids that never notify, while still showing in the status bar. |
-| `snagboat.nudges.advisor` | `false` | When a nudge fires, also ask `nudgeProvider` for one line on what to do, shown under the finding in the status bar tooltip as model output. It never prompts while you work: until you've picked a model and approved that provider's payload through Explain, it doesn't ask. |
+| `snagboat.nudges.advisor` | `false` | When a nudge fires, also ask the `propose-nudges` advisor for one line on what to do, shown under the finding in the status bar tooltip as model output. It never prompts while you work: until you've picked a model and approved that advisor's payload through Explain, it doesn't ask. |

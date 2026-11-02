@@ -1,5 +1,5 @@
 import { buildDigest, DigestPolicy, DigestTurn } from '../advisor/digest';
-import { categoryDoc, MAX_EXAMPLES_PER_CANDIDATE, MAX_FAMILIES, MAX_PROPOSE_CANDIDATES, MAX_TOOL_NAMES, parseProposals, ProposeInput } from '../advisor/propose';
+import { categoryDoc, MAX_EXAMPLES_PER_CANDIDATE, MAX_FAMILIES, MAX_PROPOSE_CANDIDATES, MAX_TOOL_NAMES, parseProposals, ProposeInput } from '../advisor/proposeHeuristics';
 import { parseShellSubCategory, ShellSubCategory } from '../core/toolCategory';
 import { NormalizedEvent } from '../core/types';
 import { Baseline, Candidate, DiscoveryOptions, DiscoveryRun, runDiscovery, Score, ThresholdSuggestion } from '../discovery/discover';
@@ -58,8 +58,8 @@ export interface SuggestionsView {
   shell: { shellCalls: number; leftShare: number; candidates: Array<{ id: string; source: 'discovery' | 'advisor'; label: string; match: string[]; share: number; calls: number; sessions: number }> };
   saved: SavedView[];
   dismissed: number;
-  /** Whether an advisor can be asked, and what it last said. */
-  advisor: AdvisorState & { available: boolean };
+  /** Whether an advisor can be asked, whether several could be, and what the last one said. */
+  advisor: AdvisorState & { available: boolean; several: boolean };
 }
 
 export interface AdvisorState {
@@ -101,11 +101,13 @@ export interface SuggestionsHooks {
   setDismissed(ids: string[]): Promise<void>;
   sessionName(sessionId: string): string | undefined;
   /**
-   * Asks the advisor to propose heuristics; the input is built with the
-   * provider's sending rules. Undefined when you stopped it or it failed.
-   * Absent: no advisor in this host.
+   * Asks an advisor (the ability's default, or the one named) to propose
+   * heuristics; the input is built with that advisor's sending rules for it.
+   * Undefined when you stopped it or it failed. Absent: no advisor in this host.
    */
-  propose?(build: (policy: DigestPolicy) => ProposeInput): Promise<AdvisorAnswer | undefined>;
+  propose?(build: (policy: DigestPolicy) => ProposeInput, advisorId?: string): Promise<AdvisorAnswer | undefined>;
+  /** How many advisors offer to propose heuristics, so the tab can offer another. */
+  advisorCount?(): number;
   /** Workspace folders, for relative paths in example digests. */
   roots(): string[];
   /** The workspace discovery reads, recorded with each accepted rule. */
@@ -194,7 +196,7 @@ export class SuggestionsController {
    * by the same validators as a hand-written rule and scored by replay;
    * nothing is saved until you accept.
    */
-  async askAdvisor(): Promise<void> {
+  async askAdvisor(advisorId?: string): Promise<void> {
     const run = this.run;
     if (!run || this.status !== 'ready' || !this.hooks.propose || this.advisor.status === 'asking') return;
     const dismissed = new Set(this.hooks.dismissed());
@@ -228,7 +230,7 @@ export class SuggestionsController {
     const before = this.advisor;
     this.advisor = { ...SuggestionsController.noAdvice(), status: 'asking' };
     this.notify();
-    const answer = await this.hooks.propose(build);
+    const answer = await this.hooks.propose(build, advisorId);
     if (!answer || this.run !== run) {
       this.advisor = before.status === 'asking' ? SuggestionsController.noAdvice() : before;
       this.notify();
@@ -422,6 +424,7 @@ export class SuggestionsController {
       dismissed: dismissed.size,
       advisor: {
         available: !!this.hooks.propose,
+        several: (this.hooks.advisorCount?.() ?? 0) > 1,
         status: this.advisor.status,
         problems: this.advisor.problems,
         ...(this.advisor.provider ? { provider: this.advisor.provider, model: this.advisor.model, at: this.advisor.at } : {}),

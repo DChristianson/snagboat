@@ -17,7 +17,8 @@ import * as path from 'path';
 import { complete, FetchLike, isLocalUrl, ProviderConfig } from '../advisor/providers';
 import { HOSTED_POLICY, LOCAL_POLICY } from '../advisor/digest';
 import { builtInHeuristics } from '../heuristics/builtIns';
-import { advisorSection, reviewMessages } from '../review/advisorReview';
+import { proposeNudgesMessages } from '../advisor/proposeNudges';
+import { advisorSection, summarizeWeekMessages } from '../advisor/summarizeWeek';
 import { buildReview } from '../review/review';
 import { defaultSessions, sessionEvents } from './replayHeuristics';
 
@@ -69,17 +70,23 @@ async function main(): Promise<number> {
     return 1;
   }
   const report = [`# Advisor evaluation: review`, '', `${new Date().toISOString()} · ${baseUrl} · models: ${models.join(', ')}`, ''];
-  const messages = reviewMessages(review);
+  const parts = [
+    { title: "The advisor's summary of the week", messages: summarizeWeekMessages(review) },
+    { title: 'The advisor on how findings were shown', messages: proposeNudgesMessages(review) },
+  ];
   for (const model of models) {
-    const provider: ProviderConfig = { id: 'eval', label: 'eval', baseUrl, model, kind: local ? 'local' : 'hosted', policy: local ? LOCAL_POLICY : HOSTED_POLICY };
-    const started = Date.now();
-    try {
-      const c = await complete(provider, messages, apiKey, fetch as unknown as FetchLike);
-      console.log(`\n${model}: ${((Date.now() - started) / 1000).toFixed(1)}s, read ${c.promptTokens ?? '?'} tokens`);
-      report.push(`## ${model} (${((Date.now() - started) / 1000).toFixed(1)}s)`, advisorSection(c.text, 'eval', model));
-    } catch (err) {
-      console.log(`\n${model}: error: ${err instanceof Error ? err.message : String(err)}`);
-      report.push(`## ${model}`, '', `Error: ${err instanceof Error ? err.message : String(err)}`, '');
+    const provider: ProviderConfig = { id: 'eval', label: 'eval', baseUrl, model, locality: local ? 'local' : 'hosted', policy: local ? LOCAL_POLICY : HOSTED_POLICY };
+    report.push(`## ${model}`);
+    for (const part of parts) {
+      const started = Date.now();
+      try {
+        const c = await complete(provider, part.messages, apiKey, fetch as unknown as FetchLike);
+        console.log(`\n${model}, ${part.title}: ${((Date.now() - started) / 1000).toFixed(1)}s, read ${c.promptTokens ?? '?'} tokens`);
+        report.push(advisorSection(`${part.title} (${((Date.now() - started) / 1000).toFixed(1)}s)`, c.text, `eval, model \`${model}\``).replace(/^## /m, '### '));
+      } catch (err) {
+        console.log(`\n${model}, ${part.title}: error: ${err instanceof Error ? err.message : String(err)}`);
+        report.push('', `### ${part.title}`, '', `Error: ${err instanceof Error ? err.message : String(err)}`, '');
+      }
     }
   }
   const outDir = path.join(process.cwd(), 'out', 'eval');

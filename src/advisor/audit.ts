@@ -4,9 +4,13 @@ import * as path from 'path';
 
 export interface AuditEntry {
   ts: string;
+  /** The advisor's id (the field keeps its older name). */
   provider: string;
+  /** The advisor's kind; absent in entries from before advisors. */
+  kind?: string;
   baseUrl: string;
   model: string;
+  /** The ability asked for. */
   capability: string;
   /** Request body size in bytes, and its SHA-256, so a kept payload can be matched to its entry. */
   bytes: number;

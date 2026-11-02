@@ -53,7 +53,7 @@ Off by default. With `snagboat.nudges.notify` set to `warnings` or `all`, a find
 - rules to retire or add;
 - how findings were shown in the status bar, with suggested changes to Snagboat.
 
-It names heuristics, rules, models, and session ids, never prompts, paths, or commands. Afterwards, **Ask the Advisor** has a model add its judgment and suggested changes to the file, labelled as model output. `snagboat.advisor.weeklyReview` (off by default) writes the review once a week by itself.
+It names heuristics, rules, models, and session ids, never prompts, paths, or commands. Afterwards, **Ask the Advisor** has a model add two sections to the file, labelled as model output: a summary of the week, and how findings were shown with suggested changes. **Ask Another Advisor** appears when several advisors offer those. `snagboat.advisor.weeklyReview` (off by default) writes the review once a week by itself.
 
 ## Commands
 
@@ -66,8 +66,9 @@ It names heuristics, rules, models, and session ids, never prompts, paths, or co
 | **Snagboat: Export Rules...** / **Import Rules...** | Carry your saved rules and shell categories to a JSON file and back. Import replays each rule over this workspace's history and lets you pick what to add. |
 | **Snagboat: Relabel Shell Calls** | Re-applies the shell sub-categories in use to this workspace's past shell calls, after counting them and asking. |
 | **Snagboat: Explain Session...** | Asks the advisor about a session you pick. |
-| **Snagboat: Preview Advisor Digest...** | Shows a session's digest exactly as a provider would get it. |
-| **Snagboat: Set Advisor API Key...** | Stores a hosted provider's key in VS Code's secret storage (leave it empty to remove). |
+| **Snagboat: Explain Session with Advisor...** | The same, with an advisor you pick, when several can explain. |
+| **Snagboat: Preview Advisor Digest...** | Shows a session's digest exactly as an advisor would get it for an ability. |
+| **Snagboat: Set Advisor API Key...** | Stores a hosted advisor's key in VS Code's secret storage (leave it empty to remove). |
 | **Snagboat: Write Review** | Writes this workspace's weekly review (above). |
 | **Snagboat: Backfill Sessions from Transcripts...** | Re-reads the transcripts behind days logged by older versions and rewrites those days, so their sessions get turns, turn ends, and tool calls, and their past findings are complete. It shows what will change and asks first. |
 | **Snagboat: Remove Captured Text** | Deletes stored prompts and reply excerpts, keeping the events, and can turn capture off. |
