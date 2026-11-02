@@ -1,13 +1,17 @@
-import * as crypto from 'crypto';
 import { DigestPolicy, HOSTED_POLICY, LOCAL_POLICY } from './digest';
 
 /**
- * Advisor providers: OpenAI-compatible chat completion endpoints. A provider
+ * Model providers: OpenAI-compatible chat completion endpoints. A provider
  * is local only if its URL is on this machine; anything else is hosted, needs
  * your API key, and is audited. Requests carry a system prompt and one digest,
  * never tools, so a model can only answer with text. See
  * docs/design/trusted-advisor.md#providers.
+ *
+ * `snagboat.advisor.providers` is the short form of an advisor: one model
+ * offering every ability with one sending policy. See ./advisors.ts.
  */
+
+export type Locality = 'local' | 'hosted';
 
 export interface ProviderConfig {
   id: string;
@@ -15,7 +19,8 @@ export interface ProviderConfig {
   /** e.g. http://localhost:11434/v1 (Ollama) or https://api.openai.com/v1. */
   baseUrl: string;
   model: string;
-  kind: 'local' | 'hosted';
+  /** Decided by the address: loopback is local, anything else hosted. */
+  locality: Locality;
   /** What it may receive. */
   policy: DigestPolicy;
 }
@@ -33,61 +38,65 @@ export function isLocalUrl(url: string): boolean {
   }
 }
 
-function isObject(v: unknown): v is Record<string, unknown> {
+export function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** Providers from settings, with each kind's sending defaults; problems name the entry. */
+export const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+
+/** A `send` object over a base policy: your overrides, the base for the rest. */
+export function sendPolicy(send: unknown, base: DigestPolicy): DigestPolicy {
+  const s = isObject(send) ? send : {};
+  const flag = (k: 'prompts' | 'replies' | 'sessionNames') => (typeof s[k] === 'boolean' ? (s[k] as boolean) : base[k]);
+  return { prompts: flag('prompts'), replies: flag('replies'), sessionNames: flag('sessionNames'), paths: s.paths === 'hashed' ? 'hashed' : s.paths === 'relative' ? 'relative' : base.paths };
+}
+
+/** The address of an entry, checked: http or https, and https when off this machine. */
+export function parseBaseUrl(entry: Record<string, unknown>, where: string, problems: string[]): { baseUrl: string; locality: Locality } | undefined {
+  let url: URL | undefined;
+  try {
+    url = typeof entry.baseUrl === 'string' ? new URL(entry.baseUrl) : undefined;
+  } catch {
+    // reported below
+  }
+  if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
+    problems.push(`${where}: baseUrl must be an http or https URL`);
+    return undefined;
+  }
+  const local = isLocalUrl(url.href);
+  if (!local && url.protocol !== 'https:') {
+    problems.push(`${where}: a provider off this machine must use https`);
+    return undefined;
+  }
+  return { baseUrl: url.href.replace(/\/+$/, ''), locality: local ? 'local' : 'hosted' };
+}
+
+/** Providers from settings, with each locality's sending defaults; problems name the entry. */
 export function parseProviders(value: unknown): { providers: ProviderConfig[]; problems: string[] } {
   const list = Array.isArray(value) ? value : DEFAULT_PROVIDERS;
   const providers: ProviderConfig[] = [];
   const problems: string[] = [];
   for (const [i, entry] of list.entries()) {
     const where = isObject(entry) && typeof entry.id === 'string' ? `provider ${entry.id}` : `provider ${i + 1}`;
-    if (!isObject(entry) || typeof entry.id !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(entry.id)) {
+    if (!isObject(entry) || typeof entry.id !== 'string' || !ID_PATTERN.test(entry.id)) {
       problems.push(`${where}: id must be lowercase letters, digits, and dashes`);
       continue;
     }
-    let url: URL | undefined;
-    try {
-      url = typeof entry.baseUrl === 'string' ? new URL(entry.baseUrl) : undefined;
-    } catch {
-      // reported below
-    }
-    if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
-      problems.push(`${where}: baseUrl must be an http or https URL`);
-      continue;
-    }
-    const local = isLocalUrl(url.href);
-    if (!local && url.protocol !== 'https:') {
-      problems.push(`${where}: a provider off this machine must use https`);
-      continue;
-    }
+    const address = parseBaseUrl(entry, where, problems);
+    if (!address) continue;
     if (providers.some((p) => p.id === entry.id)) {
       problems.push(`${where}: another provider has this id`);
       continue;
     }
-    const base = local ? LOCAL_POLICY : HOSTED_POLICY;
-    const send = isObject(entry.send) ? entry.send : {};
-    const flag = (k: 'prompts' | 'replies' | 'sessionNames') => (typeof send[k] === 'boolean' ? (send[k] as boolean) : base[k]);
     providers.push({
       id: entry.id,
       label: typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim() : entry.id,
-      baseUrl: url.href.replace(/\/+$/, ''),
+      ...address,
       model: typeof entry.model === 'string' ? entry.model.trim() : '',
-      kind: local ? 'local' : 'hosted',
-      policy: { prompts: flag('prompts'), replies: flag('replies'), sessionNames: flag('sessionNames'), paths: send.paths === 'hashed' ? 'hashed' : base.paths },
+      policy: sendPolicy(entry.send, address.locality === 'local' ? LOCAL_POLICY : HOSTED_POLICY),
     });
   }
   return { providers, problems };
-}
-
-/**
- * What an approval covers: where requests go and what they may contain.
- * Changing either asks again; changing the model doesn't.
- */
-export function approvalKey(p: ProviderConfig): string {
-  return crypto.createHash('sha256').update(JSON.stringify({ id: p.id, baseUrl: p.baseUrl, policy: p.policy })).digest('hex').slice(0, 16);
 }
 
 export interface ChatMessage {
@@ -117,11 +126,11 @@ async function failure(res: Awaited<ReturnType<FetchLike>>): Promise<Error> {
   return new Error(`HTTP ${res.status}${body ? `: ${body}` : ''}`);
 }
 
-/** The request body sent for a completion; exported so the preview and the audit hash match what's sent. */
 /**
- * Streamed, so the server's headers arrive at once: Node's fetch gives up on a
- * response whose headers take more than 5 minutes, which a local model that
- * thinks first easily does.
+ * The request body sent for a completion; exported so the preview and the
+ * audit hash match what's sent. Streamed, so the server's headers arrive at
+ * once: Node's fetch gives up on a response whose headers take more than 5
+ * minutes, which a local model that thinks first easily does.
  */
 export function completionBody(model: string, messages: ChatMessage[], json = false): string {
   return JSON.stringify({ model, messages, temperature: 0.2, stream: true, stream_options: { include_usage: true }, ...(json ? { response_format: { type: 'json_object' } } : {}) });
@@ -166,7 +175,7 @@ export interface Completion {
 
 /** One chat completion. No tools are ever offered. A reasoning model's <think> block is dropped. */
 export async function complete(p: ProviderConfig, messages: ChatMessage[], apiKey: string | undefined, fetchImpl: FetchLike, jsonMode = false): Promise<Completion> {
-  const res = await fetchImpl(`${p.baseUrl}/chat/completions`, { method: 'POST', headers: headers(apiKey), body: completionBody(p.model, messages, jsonMode), signal: AbortSignal.timeout(p.kind === 'local' ? LOCAL_TIMEOUT_MS : HOSTED_TIMEOUT_MS) });
+  const res = await fetchImpl(`${p.baseUrl}/chat/completions`, { method: 'POST', headers: headers(apiKey), body: completionBody(p.model, messages, jsonMode), signal: AbortSignal.timeout(p.locality === 'local' ? LOCAL_TIMEOUT_MS : HOSTED_TIMEOUT_MS) });
   if (!res.ok) throw await failure(res);
   let content: unknown;
   let usage: Usage | undefined;

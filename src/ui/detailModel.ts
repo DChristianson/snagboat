@@ -67,6 +67,7 @@ export type DetailMessage =
   | { type: 'closeSession' }
   | { type: 'discover' }
   | { type: 'askAdvisor' }
+  | { type: 'askAnotherAdvisor' }
   | { type: 'tweakSuggestion'; id: string; threshold: number }
   | { type: 'acceptSuggestion'; id: string }
   | { type: 'acceptShellCategory'; id: string }
@@ -99,6 +100,7 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
     case 'closeSession':
     case 'discover':
     case 'askAdvisor':
+    case 'askAnotherAdvisor':
     case 'clearDismissed':
       return true;
     case 'tweakSuggestion':

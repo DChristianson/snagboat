@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { nudgeLine } from '../../advisor/nudge';
+import { nudgeLine } from '../../advisor/proposeNudges';
 import { EventStore } from '../../core/eventStore';
 import { NormalizedEvent } from '../../core/types';
 import { contextPressureHeuristic } from '../../heuristics/contextPressure';

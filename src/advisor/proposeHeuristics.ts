@@ -4,7 +4,7 @@ import { DigestTurn } from './digest';
 import { ChatMessage } from './providers';
 
 /**
- * The advisor's part in discovery: it names and explains discovery's
+ * Propose heuristics: the advisor's part in discovery. It names and explains discovery's
  * candidates, may propose a few rules of its own, and groups shell command
  * families into categories. It only ever returns data: every rule and category
  * is validated like a hand-written one and scored by replay before you see it,
@@ -63,7 +63,7 @@ const SYSTEM = [
   'categories: group the listed shell command families into a few named kinds of work (for example "Network" for curl and wget, "File system" for ls, cat, and find). Use only family names from the list, exactly as written. Leave out families that fit nowhere.',
 ].join('\n\n');
 
-export function proposeMessages(input: ProposeInput): ChatMessage[] {
+export function proposeHeuristicsMessages(input: ProposeInput): ChatMessage[] {
   const data = {
     history: { turns: input.turns, sessions: input.sessions },
     candidates: input.candidates.map((c) => ({

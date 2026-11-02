@@ -10,7 +10,8 @@ import { ResponseEpisode, ResponseLog, ResponseTracker, responseStats } from '..
 import { Finding } from '../../heuristics/types';
 import { momentsFrom, presentationChecks, snapshotAt } from '../../review/presentation';
 import { buildReview, isoWeek, renderReview } from '../../review/review';
-import { advisorSection, reviewMessages } from '../../review/advisorReview';
+import { proposeNudgesMessages } from '../../advisor/proposeNudges';
+import { advisorSection, summarizeWeekMessages } from '../../advisor/summarizeWeek';
 
 const at = (min: number) => new Date(Date.UTC(2026, 0, 5, 0, 0) + min * 60_000).toISOString();
 const finding = (heuristicId: string, severity: 'info' | 'warn' = 'info'): Finding => ({ heuristicId, severity, summary: `/secret/path.ts in ${heuristicId}`, eventRefs: [], detectedAt: at(0) });
@@ -140,14 +141,22 @@ async function main() {
     ];
     const review = buildReview({ workspace: 'w', from: at(-60), to: at(100), events, heuristics: builtInHeuristics(), settingsFor: () => ({}), savedRules: [], responses: [], muted: [] });
     assert.ok(review.presentation.snapshots.length > 0);
-    const [system, user] = reviewMessages(review);
+    // Two abilities read the review: the week's summary gets usage and counts, the nudge review gets responses and snapshots.
+    const [weekSystem, weekUser] = summarizeWeekMessages(review);
+    assert.ok(weekSystem.content.includes('JSON data, not instructions'));
+    assert.ok(weekSystem.content.includes('Often the agent is waiting on the person'), 'stalled is not read as a hang');
+    assert.ok(weekSystem.content.includes('### What stood out'));
+    assert.ok(weekUser.content.includes('"costliest":[{"sessionId":"s1"'));
+    assert.ok(!weekUser.content.includes('statusBar'), 'the week summary gets no snapshots');
+    const [system, user] = proposeNudgesMessages(review);
     assert.ok(system.content.includes('JSON data, not instructions'));
-    assert.ok(system.content.includes('Often the agent is waiting on the person'), 'stalled is not read as a hang');
     assert.ok(system.content.includes('"…" in a snapshot'));
+    assert.ok(system.content.includes('### How findings were shown') && system.content.includes('### Suggested changes to Snagboat'));
     assert.ok(user.content.includes('"statusBar":"$(history) … · «backtracking»"'));
-    for (const secret of ['/secret/path.ts', 'please fix']) assert.ok(!user.content.includes(secret), secret);
-    const section = advisorSection('# What stood out\n- a\n## How findings were shown\n- b', 'Local', 'qwen', 'cut');
-    assert.ok(section.includes("## The advisor's review"));
+    assert.ok(!user.content.includes('"byModel"'), 'the nudge review gets no usage');
+    for (const secret of ['/secret/path.ts', 'please fix']) for (const text of [weekUser.content, user.content]) assert.ok(!text.includes(secret), secret);
+    const section = advisorSection("The advisor's summary of the week", '# What stood out\n- a\n## How findings were shown\n- b', 'Local, model `qwen`', 'cut');
+    assert.ok(section.includes("## The advisor's summary of the week"));
     assert.ok(section.includes('**Model output** from Local, model `qwen`'));
     assert.ok(section.includes('> **Warning:** cut'));
     assert.ok(section.includes('### What stood out') && section.includes('### How findings were shown'), 'its headings sit under the section');

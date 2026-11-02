@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
+import { AdvisorConfig, approvalKey, Capability, CAPABILITY_LABELS, describeAdvisor, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from './advisors';
 import { AuditLog } from './audit';
-import { buildDigest, DigestInput } from './digest';
-import { ExplainFocus, explainMessages } from './explain';
-import { approvalKey, ChatMessage, complete, completionBody, Completion, FetchLike, listModels, parseProviders, promptWasCut, ProviderConfig } from './providers';
+import { buildDigest, DigestInput, DigestPolicy } from './digest';
+import { SessionFocus, summarizeSessionMessages } from './summarizeSession';
+import { ChatMessage, complete, completionBody, Completion, FetchLike, listModels, promptWasCut } from './providers';
 
 const APPROVED_KEY = 'snagboat.advisor.approved';
 const secretKey = (id: string) => `snagboat.advisor.key.${id}`;
@@ -16,12 +17,19 @@ export interface AdvisorDeps {
   digestInput(sessionId: string, turnId?: string): Promise<DigestInput | undefined>;
 }
 
-export type Capability = 'explain' | 'propose' | 'review' | 'nudge';
+export type { Capability } from './advisors';
 
-/** An answer, with the provider (and model) that gave it and what it was asked. */
+/** What a request is built for: the advisor asked, the ability, and what it may receive for it. */
+export interface AskContext {
+  advisor: AdvisorConfig;
+  ability: Capability;
+  policy: DigestPolicy;
+}
+
+/** An answer, with the advisor (and model) that gave it and what it was asked. */
 export interface Asked {
   completion: Completion;
-  provider: ProviderConfig;
+  advisor: AdvisorConfig;
   messages: ChatMessage[];
 }
 
@@ -32,205 +40,258 @@ export interface ExplainRequest {
   heuristicId?: string;
 }
 
+export interface AskOptions {
+  title: string;
+  json?: boolean;
+  /** Never prompt, pick, or ask for approval; skip instead (for requests made while you work). */
+  quiet?: boolean;
+  /** A particular advisor instead of the ability's default. */
+  advisorId?: string;
+}
+
 function config(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration('snagboat.advisor');
 }
 
 /**
- * The advisor's VS Code side: picks the provider for a capability, gets its
- * key from SecretStorage, shows the exact payload before a provider's first
+ * The advisor's VS Code side: picks the advisor for an ability, gets its key
+ * from SecretStorage, shows the exact payload before an advisor's first
  * request, audits hosted requests, and shows answers labelled as model output.
  */
 export class Advisor {
   constructor(private readonly deps: AdvisorDeps, private readonly fetchImpl: FetchLike = fetch as unknown as FetchLike) {}
 
-  providers(): ProviderConfig[] {
-    const { providers, problems } = parseProviders(config().get('providers'));
+  /** Every advisor from settings; problems go to the output channel. */
+  advisors(): AdvisorConfig[] {
+    const { advisors, problems } = parseAdvisors(config().get('advisors'), config().get('providers'));
     for (const p of problems) this.deps.output.appendLine(`Advisor: ${p}`);
-    return providers;
+    return advisors;
   }
 
-  private async provider(capability: Capability): Promise<ProviderConfig | undefined> {
-    const id = config().get<string>(`${capability}Provider`, 'local');
-    const p = this.providers().find((x) => x.id === id);
-    if (!p) {
-      void vscode.window.showErrorMessage(`Snagboat: no advisor provider "${id}" in snagboat.advisor.providers.`, 'Open Settings').then((c) => c && vscode.commands.executeCommand('workbench.action.openSettings', 'snagboat.advisor'));
+  /** The advisors offering an ability, the default first. */
+  offering(ability: Capability): AdvisorConfig[] {
+    const id = this.defaultId(ability);
+    return this.advisors()
+      .filter((a) => a.abilities[ability])
+      .sort((a, b) => (a.id === id ? -1 : b.id === id ? 1 : 0));
+  }
+
+  /** The id of the advisor an ability uses unless another is picked: `snagboat.advisor.defaults`, or the older per-capability setting. */
+  defaultId(ability: Capability): string {
+    const defaults = config().get<Record<string, unknown>>('defaults', {});
+    const set = defaults[ability];
+    if (typeof set === 'string' && set.trim()) return set.trim();
+    const legacy = Object.entries(LEGACY_DEFAULT_SETTINGS).find(([, c]) => c === ability)?.[0];
+    return (legacy && config().get<string>(legacy)) || 'local';
+  }
+
+  private advisorFor(ability: Capability, advisorId?: string): { advisor: AdvisorConfig; policy: DigestPolicy } | string {
+    const id = advisorId ?? this.defaultId(ability);
+    const a = this.advisors().find((x) => x.id === id);
+    if (!a) return `no advisor "${id}" in snagboat.advisors or snagboat.advisor.providers`;
+    const offered = a.abilities[ability];
+    if (!offered) return `${a.label} doesn't offer "${ability}"`;
+    return { advisor: a, policy: offered.policy };
+  }
+
+  /** Lets you pick among the advisors offering an ability; undefined when there's nothing to choose or you didn't. */
+  async pickAdvisor(ability: Capability, placeHolder = `Which advisor? (${CAPABILITY_LABELS[ability]})`): Promise<string | undefined> {
+    const offering = this.offering(ability);
+    if (offering.length === 0) {
+      void vscode.window.showErrorMessage(`Snagboat: no advisor offers "${ability}".`, 'Open Settings').then((c) => c && vscode.commands.executeCommand('workbench.action.openSettings', 'snagboat.advisor'));
       return undefined;
     }
-    return p;
+    const defaultId = this.defaultId(ability);
+    const pick = await vscode.window.showQuickPick(
+      offering.map((a) => ({ label: a.label, description: `${a.id === defaultId ? 'default · ' : ''}${a.locality === 'local' ? 'on this machine' : a.baseUrl}${a.model ? ` · ${a.model}` : ''}`, id: a.id })),
+      { placeHolder }
+    );
+    return pick?.id;
   }
 
-  private async apiKey(p: ProviderConfig): Promise<string | undefined | null> {
-    if (p.kind === 'local') return undefined;
-    const key = await this.deps.secrets.get(secretKey(p.id));
+  private async apiKey(a: AdvisorConfig): Promise<string | undefined | null> {
+    if (a.locality === 'local') return undefined;
+    const key = await this.deps.secrets.get(secretKey(a.id));
     if (key) return key;
-    const choice = await vscode.window.showWarningMessage(`Snagboat: ${p.label} needs your API key before anything is sent.`, 'Set API Key');
-    if (choice) await this.setKey(p.id);
+    const choice = await vscode.window.showWarningMessage(`Snagboat: ${a.label} needs your API key before anything is sent.`, 'Set API Key');
+    if (choice) await this.setKey(a.id);
     return null;
   }
 
-  /** Snagboat: Set Advisor API Key: stores a hosted provider's key in VS Code's SecretStorage. */
-  async setKey(providerId?: string): Promise<void> {
-    const hosted = this.providers().filter((p) => p.kind === 'hosted');
+  /** Snagboat: Set Advisor API Key: stores a hosted advisor's key in VS Code's SecretStorage. */
+  async setKey(advisorId?: string): Promise<void> {
+    const hosted = this.advisors().filter((a) => a.locality === 'hosted');
     if (hosted.length === 0) {
-      void vscode.window.showInformationMessage('Snagboat: no hosted providers are configured; add one to snagboat.advisor.providers. Local providers need no key.');
+      void vscode.window.showInformationMessage('Snagboat: no hosted advisors are configured; add one to snagboat.advisors. Local advisors need no key.');
       return;
     }
-    const p = providerId ? hosted.find((x) => x.id === providerId) : (await vscode.window.showQuickPick(hosted.map((x) => ({ label: x.label, description: x.baseUrl, p: x })), { placeHolder: 'Which provider?' }))?.p;
-    if (!p) return;
-    const key = await vscode.window.showInputBox({ prompt: `API key for ${p.label} (${p.baseUrl}); kept in VS Code's secret storage`, password: true, ignoreFocusOut: true });
+    const a = advisorId ? hosted.find((x) => x.id === advisorId) : (await vscode.window.showQuickPick(hosted.map((x) => ({ label: x.label, description: x.baseUrl, a: x })), { placeHolder: 'Which advisor?' }))?.a;
+    if (!a) return;
+    const key = await vscode.window.showInputBox({ prompt: `API key for ${a.label} (${a.baseUrl}); kept in VS Code's secret storage`, password: true, ignoreFocusOut: true });
     if (key === undefined) return;
-    if (key.trim()) await this.deps.secrets.store(secretKey(p.id), key.trim());
-    else await this.deps.secrets.delete(secretKey(p.id));
-    void vscode.window.showInformationMessage(`Snagboat: ${key.trim() ? 'saved' : 'removed'} the API key for ${p.label}.`);
+    if (key.trim()) await this.deps.secrets.store(secretKey(a.id), key.trim());
+    else await this.deps.secrets.delete(secretKey(a.id));
+    void vscode.window.showInformationMessage(`Snagboat: ${key.trim() ? 'saved' : 'removed'} the API key for ${a.label}.`);
   }
 
-  /** Lets you pick from the provider's models when none is set, and saves the choice where the providers are set. */
-  private async model(p: ProviderConfig, apiKey: string | undefined): Promise<string | undefined> {
-    if (p.model) return p.model;
+  /** Lets you pick from the advisor's models when none is set, and saves the choice in the setting it came from. */
+  private async model(a: AdvisorConfig, apiKey: string | undefined): Promise<string | undefined> {
+    if (a.model) return a.model;
     let models: string[];
     try {
-      models = await listModels(p, apiKey, this.fetchImpl);
+      models = await listModels(a, apiKey, this.fetchImpl);
     } catch (err) {
-      void vscode.window.showErrorMessage(`Snagboat: couldn't list ${p.label}'s models (${p.baseUrl}): ${err instanceof Error ? err.message : String(err)}. Is it running? You can also set "model" in snagboat.advisor.providers.`);
+      void vscode.window.showErrorMessage(`Snagboat: couldn't list ${a.label}'s models (${a.baseUrl}): ${err instanceof Error ? err.message : String(err)}. Is it running? You can also set "model" in snagboat.${a.source === 'advisors' ? 'advisors' : 'advisor.providers'}.`);
       return undefined;
     }
     if (models.length === 0) {
-      void vscode.window.showErrorMessage(`Snagboat: ${p.label} has no models. For Ollama, pull one first (ollama pull <model>).`);
+      void vscode.window.showErrorMessage(`Snagboat: ${a.label} has no models. For Ollama, pull one first (ollama pull <model>).`);
       return undefined;
     }
-    const model = await vscode.window.showQuickPick(models, { placeHolder: `Which ${p.label} model should the advisor use?` });
+    const model = await vscode.window.showQuickPick(models, { placeHolder: `Which ${a.label} model should it use?` });
     if (!model) return undefined;
-    const inspected = config().inspect<unknown[]>('providers');
+    const setting = a.source === 'advisors' ? 'advisors' : 'providers';
+    const inspected = config().inspect<unknown[]>(setting);
     const target = inspected?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
     const current = (target === vscode.ConfigurationTarget.Workspace ? inspected?.workspaceValue : inspected?.globalValue ?? inspected?.defaultValue) ?? [];
-    await config().update('providers', (current as Array<Record<string, unknown>>).map((x) => (x.id === p.id ? { ...x, model } : x)), target);
+    await config().update(setting, (current as Array<Record<string, unknown>>).map((x) => (x.id === a.id ? { ...x, model } : x)), target);
     return model;
   }
 
-  /** Before a provider's first request (or after its URL or sending rules change), shows the payload and asks. */
-  private async approved(p: ProviderConfig, body: string): Promise<boolean> {
-    const approvals = this.deps.globalState.get<Record<string, string>>(APPROVED_KEY, {});
-    if (approvals[p.id] === approvalKey(p)) return true;
+  private isApproved(a: AdvisorConfig): boolean {
+    return this.deps.globalState.get<Record<string, string>>(APPROVED_KEY, {})[a.id] === approvalKey(a);
+  }
+
+  /** Before an advisor's first request (or after its URL or sending rules change), shows the payload and asks. */
+  private async approved(a: AdvisorConfig, body: string): Promise<boolean> {
+    if (this.isApproved(a)) return true;
     const doc = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(JSON.parse(body), null, 2) });
     await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside });
-    const where = p.kind === 'local' ? 'a model on this machine' : `${p.baseUrl}, off this machine`;
+    const where = a.locality === 'local' ? 'a model on this machine' : `${a.baseUrl}, off this machine`;
     const choice = await vscode.window.showWarningMessage(
-      `Send this to ${p.label}?`,
+      `Send this to ${a.label}?`,
       {
         modal: true,
-        detail: `The open document is exactly what will be sent to ${where}. This is the first request with ${p.label}'s current address and sending rules; you won't be asked again until they change. Snagboat: Preview Advisor Digest shows a payload any time.`,
+        detail: `The open document is exactly what will be sent to ${where}. This is the first request with ${a.label}'s current address and sending rules; you won't be asked again until they change. Snagboat: Preview Advisor Digest shows a payload any time.`,
       },
       'Send'
     );
     if (choice !== 'Send') return false;
-    await this.deps.globalState.update(APPROVED_KEY, { ...approvals, [p.id]: approvalKey(p) });
+    const approvals = this.deps.globalState.get<Record<string, string>>(APPROVED_KEY, {});
+    await this.deps.globalState.update(APPROVED_KEY, { ...approvals, [a.id]: approvalKey(a) });
     return true;
   }
 
   /**
-   * One request for a capability: the provider set for it, its key and model,
-   * your approval of the exact payload, then the answer, audited if hosted.
-   * Undefined when you stopped it or it failed (already reported).
+   * One request for an ability: the advisor set for it (or the one asked
+   * for), its key and model, your approval of the exact payload, then the
+   * answer, audited if hosted. Undefined when you stopped it or it failed
+   * (already reported).
    */
-  async ask(
-    capability: Capability,
-    build: (p: ProviderConfig) => Promise<ChatMessage[] | undefined>,
-    opts: { title: string; json?: boolean; quiet?: boolean }
-  ): Promise<Asked | undefined> {
-    if (opts.quiet) return this.askQuietly(capability, build, opts);
-    const p = await this.provider(capability);
-    if (!p) return undefined;
-    const apiKey = await this.apiKey(p);
+  async ask(ability: Capability, build: (ctx: AskContext) => Promise<ChatMessage[] | undefined>, opts: AskOptions): Promise<Asked | undefined> {
+    if (opts.quiet) return this.askQuietly(ability, build, opts);
+    const found = this.advisorFor(ability, opts.advisorId);
+    if (typeof found === 'string') {
+      void vscode.window.showErrorMessage(`Snagboat: ${found}.`, 'Open Settings').then((c) => c && vscode.commands.executeCommand('workbench.action.openSettings', 'snagboat.advisor'));
+      return undefined;
+    }
+    const { advisor: a, policy } = found;
+    const apiKey = await this.apiKey(a);
     if (apiKey === null) return undefined;
-    const model = await this.model(p, apiKey);
+    const model = await this.model(a, apiKey);
     if (!model) return undefined;
-    const messages = await build(p);
+    const messages = await build({ advisor: a, ability, policy });
     if (!messages) return undefined;
     const body = completionBody(model, messages, opts.json);
-    if (!(await this.approved(p, body))) return undefined;
-    const provider = { ...p, model };
+    if (!(await this.approved(a, body))) return undefined;
+    const advisor = { ...a, model };
     try {
-      const completion = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Snagboat: ${opts.title} with ${p.label} (${model})…`, cancellable: false }, () =>
-        complete(provider, messages, apiKey, this.fetchImpl, opts.json)
+      const completion = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Snagboat: ${opts.title} with ${a.label} (${model})…`, cancellable: false }, () =>
+        complete(advisor, messages, apiKey, this.fetchImpl, opts.json)
       );
-      await this.auditRequest(provider, capability, body, 'ok');
-      return { completion, provider, messages };
+      await this.auditRequest(advisor, ability, body, 'ok');
+      return { completion, advisor, messages };
     } catch (err) {
-      await this.auditRequest(provider, capability, body, 'error');
-      void vscode.window.showErrorMessage(`Snagboat: ${p.label} (${p.baseUrl}) didn't answer: ${err instanceof Error ? err.message : String(err)}`);
+      await this.auditRequest(advisor, ability, body, 'error');
+      void vscode.window.showErrorMessage(`Snagboat: ${a.label} (${a.baseUrl}) didn't answer: ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     }
   }
 
   /**
-   * For requests made while you work (nudges): never a prompt, picker, or
-   * approval dialog. If the provider still needs a key, a model, or your
-   * approval, it doesn't ask, and says why in the output.
+   * For requests made while you work (the live nudge line): never a prompt,
+   * picker, or approval dialog. If the advisor still needs a key, a model, or
+   * your approval, it doesn't ask, and says why in the output.
    */
-  private async askQuietly(capability: Capability, build: (p: ProviderConfig) => Promise<ChatMessage[] | undefined>, opts: { title: string; json?: boolean }): Promise<Asked | undefined> {
+  private async askQuietly(ability: Capability, build: (ctx: AskContext) => Promise<ChatMessage[] | undefined>, opts: AskOptions): Promise<Asked | undefined> {
     const skip = (why: string) => {
       this.deps.output.appendLine(`Advisor: skipped ${opts.title}: ${why}`);
       return undefined;
     };
-    const id = config().get<string>(`${capability}Provider`, 'local');
-    const p = this.providers().find((x) => x.id === id);
-    if (!p) return skip(`no provider "${id}" in snagboat.advisor.providers`);
-    if (!p.model) return skip(`${p.label} has no model set yet; use Explain once to pick one`);
-    const apiKey = p.kind === 'hosted' ? await this.deps.secrets.get(secretKey(p.id)) : undefined;
-    if (p.kind === 'hosted' && !apiKey) return skip(`${p.label} needs an API key`);
-    if (this.deps.globalState.get<Record<string, string>>(APPROVED_KEY, {})[p.id] !== approvalKey(p)) return skip(`you haven't approved what ${p.label} receives yet; use Explain once to see and approve it`);
-    const messages = await build(p);
+    const found = this.advisorFor(ability, opts.advisorId);
+    if (typeof found === 'string') return skip(found);
+    const { advisor: a, policy } = found;
+    if (!a.model) return skip(`${a.label} has no model set yet; use Explain once to pick one`);
+    const apiKey = a.locality === 'hosted' ? await this.deps.secrets.get(secretKey(a.id)) : undefined;
+    if (a.locality === 'hosted' && !apiKey) return skip(`${a.label} needs an API key`);
+    if (!this.isApproved(a)) return skip(`you haven't approved what ${a.label} receives yet; use Explain once to see and approve it`);
+    const messages = await build({ advisor: a, ability, policy });
     if (!messages) return undefined;
-    const body = completionBody(p.model, messages, opts.json);
+    const body = completionBody(a.model, messages, opts.json);
     try {
-      const completion = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: `Snagboat: ${opts.title}…` }, () => complete(p, messages, apiKey, this.fetchImpl, opts.json));
-      await this.auditRequest(p, capability, body, 'ok');
-      return { completion, provider: p, messages };
+      const completion = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: `Snagboat: ${opts.title}…` }, () => complete(a, messages, apiKey, this.fetchImpl, opts.json));
+      await this.auditRequest(a, ability, body, 'ok');
+      return { completion, advisor: a, messages };
     } catch (err) {
-      await this.auditRequest(p, capability, body, 'error');
-      return skip(`${p.label} didn't answer: ${err instanceof Error ? err.message : String(err)}`);
+      await this.auditRequest(a, ability, body, 'error');
+      return skip(`${a.label} didn't answer: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   /** A warning to show above an answer whose prompt the server cut to fit its context window, or ''. */
   static cutWarning(asked: Asked, smaller: string): string {
-    const { completion, provider: p, messages } = asked;
+    const { completion, advisor: a, messages } = asked;
     if (!promptWasCut(completion, messages)) return '';
-    return `${p.label} read only ${completion.promptTokens?.toLocaleString()} tokens of a longer request, so it saw only part of it and may miss things. Its context window is too small: ${p.kind === 'local' ? 'for Ollama, restart it with a larger one (for example `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`), or ' : ''}${smaller}.`;
+    return `${a.label} read only ${completion.promptTokens?.toLocaleString()} tokens of a longer request, so it saw only part of it and may miss things. Its context window is too small: ${a.locality === 'local' ? 'for Ollama, restart it with a larger one (for example `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`), or ' : ''}${smaller}.`;
   }
 
-  async explain(req: ExplainRequest): Promise<void> {
-    let focus: ExplainFocus = { kind: 'session' };
+  /** How an answer is labelled. */
+  static label(asked: Asked): string {
+    return describeAdvisor(asked.advisor);
+  }
+
+  /** Explain (summarize) a session, turn, or finding, with the ability's default advisor or the one given. */
+  async explain(req: ExplainRequest, advisorId?: string): Promise<void> {
+    let focus: SessionFocus = { kind: 'session' };
     let gone = false;
     const asked = await this.ask(
-      'explain',
-      async (p) => {
+      'summarize-session',
+      async ({ policy }) => {
         const input = await this.deps.digestInput(req.sessionId, req.turnId);
         if (!input) {
           gone = true;
           return undefined;
         }
-        const digest = buildDigest(input, p.policy);
+        const digest = buildDigest(input, policy);
         if (req.heuristicId) focus = { kind: 'finding', heuristicId: req.heuristicId, summary: digest.findings.find((f) => f.heuristic === req.heuristicId)?.summary ?? '' };
         else if (req.turnId) focus = { kind: 'turn', turn: digest.turns[0]?.turn ?? 0 };
-        return explainMessages(digest, focus);
+        return summarizeSessionMessages(digest, focus);
       },
-      { title: 'explaining' }
+      { title: 'explaining', advisorId }
     );
     if (gone) void vscode.window.showWarningMessage('Snagboat: that session is no longer in the log.');
     if (!asked) return;
-    const f = focus as ExplainFocus;
+    const f = focus as SessionFocus;
     const about = f.kind === 'session' ? 'this session' : f.kind === 'turn' ? `turn ${f.turn}` : `the ${f.heuristicId} finding`;
-    const header = `> **Model output** from ${asked.provider.label}, model \`${asked.provider.model}\`, ${new Date().toLocaleString()}. Explaining ${about} of session \`${req.sessionId.slice(0, 8)}\` from Snagboat's digest. It's a suggestion: check it against the session.\n\n`;
+    const header = `> **Model output** from ${Advisor.label(asked)}, ${new Date().toLocaleString()}. Explaining ${about} of session \`${req.sessionId.slice(0, 8)}\` from Snagboat's digest. It's a suggestion: check it against the session.\n\n`;
     const cut = Advisor.cutWarning(asked, 'explain a turn or finding instead, which sends much less');
     const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: header + (cut ? `> **Warning:** ${cut}\n\n` : '') + asked.completion.text + '\n' });
     await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
   }
 
-  private async auditRequest(p: ProviderConfig, capability: Capability, body: string, outcome: 'ok' | 'error'): Promise<void> {
-    if (p.kind !== 'hosted') return;
-    const entry = AuditLog.entryFor(body, { ts: new Date().toISOString(), provider: p.id, baseUrl: p.baseUrl, model: p.model, capability, outcome }, config().get<boolean>('auditPayloads', false));
+  private async auditRequest(a: AdvisorConfig, ability: Capability, body: string, outcome: 'ok' | 'error'): Promise<void> {
+    if (a.locality !== 'hosted') return;
+    const entry = AuditLog.entryFor(body, { ts: new Date().toISOString(), provider: a.id, kind: a.kind, baseUrl: a.baseUrl, model: a.model, capability: ability, outcome }, config().get<boolean>('auditPayloads', false));
     await this.deps.audit.append(entry).catch((err) => this.deps.output.appendLine(`Advisor: couldn't write the audit log: ${String(err)}`));
   }
 }

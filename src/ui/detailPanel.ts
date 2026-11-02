@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { DetailState, DetailTab, isDetailMessage, resolveTargetFile } from './detailModel';
 import { SessionController } from './sessionController';
 import { SuggestionsController } from './suggestionsController';
-import { ExplainRequest } from '../advisor/advisor';
+import { Capability, ExplainRequest } from '../advisor/advisor';
 
 const UPDATE_DEBOUNCE_MS = 500;
 
@@ -14,6 +14,8 @@ export interface DetailPanelHooks {
   sessions: SessionController;
   suggestions: SuggestionsController;
   explain(req: ExplainRequest): Promise<void>;
+  /** Lets the person pick among the advisors offering an ability; undefined when they didn't. */
+  pickAdvisor(ability: Capability): Promise<string | undefined>;
   /** Today's UTC day key, for the session list's default day. */
   today(): string;
 }
@@ -155,6 +157,11 @@ export class DetailPanel implements vscode.Disposable {
       case 'askAdvisor':
         await this.hooks.suggestions.askAdvisor();
         break;
+      case 'askAnotherAdvisor': {
+        const advisorId = await this.hooks.pickAdvisor('propose-heuristics');
+        if (advisorId) await this.hooks.suggestions.askAdvisor(advisorId);
+        break;
+      }
       case 'tweakSuggestion':
         this.hooks.suggestions.tweak(message.id, message.threshold);
         break;

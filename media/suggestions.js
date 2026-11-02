@@ -22,6 +22,8 @@
   discoverBtn.addEventListener('click', () => vscode.postMessage({ type: 'discover' }));
   const adviseBtn = el('button', { text: 'Ask the advisor', title: 'Ask the advisor model to name these candidates, propose rules, and group shell commands. You see what it will send first.' });
   adviseBtn.addEventListener('click', () => vscode.postMessage({ type: 'askAdvisor' }));
+  const adviseOtherBtn = el('button', { text: 'Ask another advisor…', title: 'Pick one of the other advisors that can propose heuristics.' });
+  adviseOtherBtn.addEventListener('click', () => vscode.postMessage({ type: 'askAnotherAdvisor' }));
   const status = el('p', { class: 'muted small' });
   const advisorNote = el('div', { class: 'small' });
   const notes = el('div');
@@ -33,7 +35,7 @@
 
   suggestionsRoot.append(
     el('section', { 'aria-label': 'Discovery' }, [
-      el('div', { class: 'panel-head' }, [el('h2', { text: 'Suggested heuristics' }), el('span', { class: 'spacer' }), adviseBtn, discoverBtn]),
+      el('div', { class: 'panel-head' }, [el('h2', { text: 'Suggested heuristics' }), el('span', { class: 'spacer' }), adviseBtn, adviseOtherBtn, discoverBtn]),
       status,
       advisorNote,
       notes,
@@ -126,6 +128,8 @@
     const a = view.advisor;
     adviseBtn.hidden = !a.available || view.status !== 'ready' || view.notes.length > 0;
     adviseBtn.disabled = a.status === 'asking';
+    adviseOtherBtn.hidden = adviseBtn.hidden || !a.several;
+    adviseOtherBtn.disabled = adviseBtn.disabled;
     adviseBtn.textContent = a.status === 'done' ? 'Ask the advisor again' : 'Ask the advisor';
     const advisorParts = [];
     if (a.status === 'asking') advisorParts.push(el('p', { class: 'muted', text: 'Asking the advisor…' }));
