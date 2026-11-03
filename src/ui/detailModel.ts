@@ -6,6 +6,7 @@ import { NormalizedEvent } from '../core/types';
 import { FindingView } from '../heuristics/findingsRegistry';
 import { agentEventTotal } from './format';
 import { toolCategoryLabel } from '../core/toolCategory';
+import { EXPLORE_SESSION_CAP } from './visualizers';
 
 /** Newest events sent to the timeline; the store's own window caps it further (24h). */
 export const TIMELINE_LIMIT = 1000;
@@ -77,9 +78,11 @@ export type DetailMessage =
   | { type: 'applyAdvisorThreshold'; heuristic: string; setting: string }
   | { type: 'removeSaved'; section: 'rules' | 'categories'; id: string }
   | { type: 'explain'; sessionId: string; turnId?: string; heuristicId?: string }
-  | { type: 'tactics'; sessionId: string };
+  | { type: 'tactics'; sessionId: string }
+  | { type: 'explore'; sessionIds: string[] }
+  | { type: 'closeExplorer' };
 
-export type DetailTab = 'overview' | 'sessions' | 'suggestions';
+export type DetailTab = 'overview' | 'sessions' | 'suggestions' | 'explore';
 
 export function isDetailMessage(value: unknown): value is DetailMessage {
   if (typeof value !== 'object' || value === null) return false;
@@ -94,17 +97,20 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
     case 'openFile':
       return typeof m.target === 'string';
     case 'tab':
-      return m.tab === 'overview' || m.tab === 'sessions' || m.tab === 'suggestions';
+      return m.tab === 'overview' || m.tab === 'sessions' || m.tab === 'suggestions' || m.tab === 'explore';
     case 'listSessions':
       return m.day === undefined || (typeof m.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m.day));
     case 'openSession':
       return typeof m.sessionId === 'string';
     case 'closeSession':
+    case 'closeExplorer':
     case 'discover':
     case 'askAdvisor':
     case 'askAnotherAdvisor':
     case 'clearDismissed':
       return true;
+    case 'explore':
+      return Array.isArray(m.sessionIds) && m.sessionIds.length <= EXPLORE_SESSION_CAP && m.sessionIds.every((id) => typeof id === 'string');
     case 'tweakSuggestion':
       return typeof m.id === 'string' && typeof m.threshold === 'number' && Number.isFinite(m.threshold) && m.threshold > 0;
     case 'acceptSuggestion':

@@ -105,6 +105,12 @@ export class DetailPanel implements vscode.Disposable {
     void this.panel.webview.postMessage({ type: 'state', state: this.hooks.buildState(this.isOpenable) });
     if (this.activeTab === 'sessions') this.postSessions();
     if (this.activeTab === 'suggestions') this.postSuggestions();
+    if (this.activeTab === 'explore') this.postExplorer();
+  }
+
+  private postExplorer(): void {
+    if (!this.panel) return;
+    void this.panel.webview.postMessage({ type: 'explorer', state: this.hooks.sessions.explorerState() });
   }
 
   private postSuggestions(): void {
@@ -147,6 +153,7 @@ export class DetailPanel implements vscode.Disposable {
       case 'tab':
         this.activeTab = message.tab;
         if (message.tab === 'sessions') this.postSessions();
+        if (message.tab === 'explore') this.postExplorer();
         if (message.tab === 'suggestions') {
           this.postSuggestions();
           // The first visit runs discovery; after that, only Discover again does.
@@ -204,6 +211,14 @@ export class DetailPanel implements vscode.Disposable {
       case 'closeSession':
         this.hooks.sessions.close();
         void this.panel?.webview.postMessage({ type: 'session', view: null });
+        break;
+      case 'explore':
+        await this.hooks.sessions.explore(message.sessionIds);
+        this.postExplorer();
+        break;
+      case 'closeExplorer':
+        this.hooks.sessions.closeExplorer();
+        void this.panel?.webview.postMessage({ type: 'explorer', state: null });
         break;
       case 'acknowledge':
         this.hooks.acknowledge(message.heuristicId);
