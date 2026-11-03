@@ -22,7 +22,6 @@
     { slot: 3, label: 'Other agents', match: () => true },
   ];
   const seriesOf = (agent) => SERIES.find((s) => s.match(agent));
-  const SVG_NS = 'http://www.w3.org/2000/svg';
   const DAY_MS = 24 * 60 * 60 * 1000;
 
   // Shared with sessions.js, which keeps its own keys in the same saved state.
@@ -30,60 +29,15 @@
     vscode.setState({ ...(vscode.getState() || {}), range: ui.range, agent: ui.agent, kind: ui.kind, status: ui.status, search: ui.search, ...(extra || {}) });
   }
 
-  function el(tag, props, children) {
-    const node = document.createElement(tag);
-    for (const [k, v] of Object.entries(props || {})) {
-      if (v === undefined || v === null || v === false) continue;
-      if (k === 'text') node.textContent = v;
-      else if (k === 'class') node.className = v;
-      else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
-      else node.setAttribute(k, v === true ? '' : String(v));
-    }
-    for (const child of [].concat(children || [])) {
-      if (child !== null && child !== undefined && child !== false) node.append(child);
-    }
-    return node;
-  }
-
-  function svg(tag, attrs) {
-    const node = document.createElementNS(SVG_NS, tag);
-    for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, String(v));
-    return node;
-  }
-
-  const fmt = (n) => n.toLocaleString();
-  function compact(n) {
-    if (n >= 1e9) return `${+(n / 1e9).toFixed(1)}B`;
-    if (n >= 1e6) return `${+(n / 1e6).toFixed(1)}M`;
-    if (n >= 1e3) return `${+(n / 1e3).toFixed(1)}K`;
-    return String(n);
-  }
-  function niceMax(v) {
-    if (v <= 0) return 1;
-    const pow = Math.pow(10, Math.floor(Math.log10(v)));
-    for (const step of [1, 2, 5, 10]) if (step * pow >= v) return step * pow;
-    return 10 * pow;
-  }
-  /** Shortens text for a cell, keeping the full text for a tooltip. */
-  function clip(text, max) {
-    return text.length > max ? `${text.slice(0, max - 1)}\u2026` : text;
-  }
-
-  function formatTime(ts) {
-    const d = new Date(ts);
-    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    return d.toDateString() === new Date().toDateString()
-      ? time
-      : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
-  }
-  function formatDay(day) {
-    return new Date(`${day}T00:00:00Z`).toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  }
+  // DOM, SVG, and formatting helpers come from shared.js (loaded first).
+  const shared = window.snagboatShared;
+  const { el, svg, compact, fmt, niceMax, clip, formatTime, formatDay } = shared;
 
   // ---------- layout (built once) ----------
 
   const app = document.getElementById('app');
   const tooltip = document.getElementById('tooltip');
+  const { showTip, hideTip } = shared.tipFor(tooltip);
 
   const updatedNote = el('p', { class: 'muted small' });
   const captureNote = el('p', { class: 'muted small' });
@@ -182,8 +136,9 @@
     ])
   );
 
-  // Helpers for sessions.js (same document, same CSP nonce).
-  window.snagboat = { vscode, el, svg, compact, fmt, formatTime, formatDay, clip, persist, sessionsRoot, suggestionsRoot, selectTab, tooltip };
+  // For sessions.js and suggestions.js (same document, same CSP nonce): the
+  // shared helpers again, plus what only this page has.
+  window.snagboat = { ...shared, vscode, persist, sessionsRoot, suggestionsRoot, selectTab, tooltip, showTip, hideTip };
 
   // ---------- header ----------
 
@@ -363,7 +318,7 @@
       const show = (evt) => showTooltip(row, present, evt, hit);
       hit.addEventListener('mousemove', show);
       hit.addEventListener('focus', show);
-      hit.addEventListener('mouseleave', hideTooltip);
+      hit.addEventListener('mouseleave', hideTip);
       // A day's column opens the Sessions list for that day.
       if (row.total > 0) {
         hit.style.cursor = 'pointer';
@@ -372,7 +327,7 @@
           vscode.postMessage({ type: 'listSessions', day: row.date });
         });
       }
-      hit.addEventListener('blur', hideTooltip);
+      hit.addEventListener('blur', hideTip);
       root.insertBefore(hit, root.firstChild);
     });
 
@@ -396,8 +351,9 @@
     );
   }
 
+  // The chart's own tooltip: series swatches and a total, anchored to the column on focus.
   function showTooltip(row, present, evt, target) {
-    if (row.total === 0) return hideTooltip();
+    if (row.total === 0) return hideTip();
     tooltip.replaceChildren(
       el('div', { text: `${formatDay(row.date)} (UTC)` }),
       ...present
@@ -416,10 +372,6 @@
     const left = Math.min(window.innerWidth - tw - 8, anchor.left + anchor.width / 2 + 12);
     tooltip.style.left = `${Math.max(8, left)}px`;
     tooltip.style.top = `${Math.max(8, anchor.top - tooltip.offsetHeight - 8)}px`;
-  }
-
-  function hideTooltip() {
-    tooltip.hidden = true;
   }
 
   // ---------- timeline ----------

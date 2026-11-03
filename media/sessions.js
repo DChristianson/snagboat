@@ -5,7 +5,7 @@
 (function () {
   const S = window.snagboat;
   if (!S) return;
-  const { vscode, el, svg, compact, fmt, formatTime, clip, persist, sessionsRoot, tooltip } = S;
+  const { vscode, el, svg, compact, fmt, formatTime, clip, persist, sessionsRoot, showTip, hideTip, ms, short, duration, agentName, modelShort, fit, findNode, pathTo } = S;
   const saved = vscode.getState() || {};
 
   const ui = {
@@ -68,44 +68,7 @@
   sessionsRoot.append(listSection, sessionSection);
 
   // ---------- helpers ----------
-  const ms = (ts) => Date.parse(ts);
-  const short = (id) => id.slice(0, 8);
-  function duration(fromTs, toTs) {
-    const m = Math.round((ms(toTs) - ms(fromTs)) / 60000);
-    return m < 60 ? `${m}m` : m < 48 * 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${Math.round(m / 1440)}d`;
-  }
   const isLive = (s) => Date.now() - ms(s.lastTs) < 10 * 60 * 1000;
-  const agentName = (a) => (a === 'claude-code' ? 'Claude Code' : a === 'copilot' ? 'Copilot' : a);
-  const modelShort = (m) => m.replace(/^claude-/, '').replace(/-\d{8}$/, '');
-  function findNode(node, id) {
-    if (node.id === id) return node;
-    for (const c of node.children) {
-      const f = findNode(c, id);
-      if (f) return f;
-    }
-    return null;
-  }
-  function pathTo(node, id, acc = []) {
-    if (node.id === id) return [...acc, node];
-    for (const c of node.children) {
-      const p = pathTo(c, id, [...acc, node]);
-      if (p) return p;
-    }
-    return null;
-  }
-  function showTip(evt, rows) {
-    tooltip.replaceChildren(...rows.map((r) => (typeof r === 'string' ? el('div', { text: r }) : el('div', { class: 'row' }, [el('span', { text: r[0] }), el('span', { text: r[1] })]))));
-    tooltip.hidden = false;
-    const tw = tooltip.offsetWidth;
-    tooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - tw - 8, evt.clientX + 12))}px`;
-    tooltip.style.top = `${Math.max(8, evt.clientY - tooltip.offsetHeight - 10)}px`;
-  }
-  const hideTip = () => (tooltip.hidden = true);
-  /** Truncates text to fit a width (about 7px per character at 12px), with an ellipsis. */
-  function fit(text, widthPx) {
-    const max = Math.floor((widthPx - 12) / 7);
-    return max < 2 ? '' : text.length <= max ? text : text.slice(0, Math.max(1, max - 1)) + '\u2026';
-  }
 
   // ---------- session list ----------
   function renderList() {
