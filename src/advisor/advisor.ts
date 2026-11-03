@@ -6,6 +6,7 @@ import { AdvisorConfig, approvalKey, Capability, CAPABILITY_LABELS, describeAdvi
 import { AuditLog } from './audit';
 import { buildDigest, DigestInput, DigestPolicy } from './digest';
 import { defaultPromptFiles, promptDir, PromptLayers, resolvePrompts } from './prompts';
+import { ModelTiers, proposeTacticsMessages } from './proposeTactics';
 import { SessionFocus, summarizeSessionMessages } from './summarizeSession';
 import { ChatMessage, complete, completionBody, Completion, FetchLike, listModels, promptWasCut } from './providers';
 
@@ -328,6 +329,36 @@ export class Advisor {
     const cut = Advisor.cutWarning(asked, 'explain a turn or finding instead, which sends much less');
     const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: header + (cut ? `> **Warning:** ${cut}\n\n` : '') + asked.completion.text + '\n' });
     await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+  }
+
+  /** Tactics for a session: whether model use and prompt tactics could be refined, with the ability's default advisor or the one given. */
+  async tactics(sessionId: string, advisorId?: string): Promise<void> {
+    let gone = false;
+    const asked = await this.ask(
+      'propose-tactics',
+      async ({ policy, prompts }) => {
+        const input = await this.deps.digestInput(sessionId);
+        if (!input) {
+          gone = true;
+          return undefined;
+        }
+        return proposeTacticsMessages([buildDigest(input, policy)], prompts, Advisor.modelTiers());
+      },
+      { title: 'proposing tactics', advisorId }
+    );
+    if (gone) void vscode.window.showWarningMessage('Snagboat: that session is no longer in the log.');
+    if (!asked) return;
+    const header = `> **Model output** from ${Advisor.label(asked)}, ${new Date().toLocaleString()}. Tactics for session \`${sessionId.slice(0, 8)}\` from Snagboat's digest. Suggestions to judge against the session; nothing is changed.\n\n`;
+    const cut = Advisor.cutWarning(asked, 'ask about a shorter session, which sends less');
+    const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: header + (cut ? `> **Warning:** ${cut}\n\n` : '') + asked.completion.text + '\n' });
+    await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+  }
+
+  /** `snagboat.advisor.modelTiers`, when set. */
+  static modelTiers(): ModelTiers | undefined {
+    const v = config().get<Record<string, unknown>>('modelTiers', {});
+    const tiers = Object.fromEntries(Object.entries(v).filter(([k, t]) => k.trim() && typeof t === 'string' && t.trim()).map(([k, t]) => [k.trim(), (t as string).trim()]));
+    return Object.keys(tiers).length > 0 ? tiers : undefined;
   }
 
   private async auditRequest(a: AdvisorConfig, ability: Capability, body: string, outcome: 'ok' | 'error'): Promise<void> {

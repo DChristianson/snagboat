@@ -49,6 +49,8 @@ export interface DigestInput {
   /** Workspace folders, for relative paths. */
   roots: string[];
   contextLimit?: (model: string | undefined) => number | undefined;
+  /** At most this many turns (default 40), keeping turns with findings and the latest ones. */
+  maxTurns?: number;
 }
 
 interface TokenSums {
@@ -234,14 +236,15 @@ export function buildDigest(input: DigestInput, policy: DigestPolicy): SessionDi
 
   // Which turns go in: the one asked about, or as many as fit, keeping turns with findings and the latest ones.
   let chosen: number[];
+  const maxTurns = input.maxTurns ?? MAX_TURNS;
   if (input.turnId !== undefined) {
     const i = turnOrder.indexOf(input.turnId);
     chosen = i >= 0 ? [i] : [];
-  } else if (turnOrder.length <= MAX_TURNS) {
+  } else if (turnOrder.length <= maxTurns) {
     chosen = turnOrder.map((_, i) => i);
   } else {
-    const keep = new Set(turnOrder.map((t, i) => (findingTurns.has(t) ? i : -1)).filter((i) => i >= 0).slice(-MAX_TURNS / 2));
-    for (let i = turnOrder.length - 1; i >= 0 && keep.size < MAX_TURNS; i--) keep.add(i);
+    const keep = new Set(turnOrder.map((t, i) => (findingTurns.has(t) ? i : -1)).filter((i) => i >= 0).slice(-Math.floor(maxTurns / 2)));
+    for (let i = turnOrder.length - 1; i >= 0 && keep.size < maxTurns; i--) keep.add(i);
     chosen = [...keep].sort((a, b) => a - b);
   }
 

@@ -25,7 +25,7 @@ The turn tree shows where the session's tokens went: by prompt, then main agent 
 
 The context timeline shows how much context each model call sent, split into cache read, cache creation, and fresh input, with your prompts, compactions, findings, and each model's largest-seen and limit lines. Expand it for output tokens, subagent lanes, and drag-to-zoom.
 
-Findings include earlier ones, found by replaying the session through the heuristics when you open it, as well as active ones. Select a prompt (in the tree or on the timeline) to read what you asked. **Explain session**, **Explain turn** on a selected prompt, and **Explain** on a finding ask the [advisor](../README.md#advisor-optional).
+Findings include earlier ones, found by replaying the session through the heuristics when you open it, as well as active ones. Select a prompt (in the tree or on the timeline) to read what you asked. **Explain session**, **Explain turn** on a selected prompt, and **Explain** on a finding ask the [advisor](../README.md#advisor-optional); **Tactics** asks it whether the models used fit each turn and whether a different way of prompting would have cost less. With `snagboat.advisor.headlines` on, each ended session gets a one-line headline from the advisor under its name in the list.
 
 Findings ("Show in session"), session ids in the Overview timeline, and the daily chart's bars all link into a session, as does **Snagboat: Open Session...**.
 
@@ -53,7 +53,7 @@ Off by default. With `snagboat.nudges.notify` set to `warnings` or `all`, a find
 - rules to retire or add;
 - how findings were shown in the status bar, with suggested changes to Snagboat.
 
-It names heuristics, rules, models, and session ids, never prompts, paths, or commands. Afterwards, **Ask the Advisor** has a model add two sections to the file, labelled as model output: a summary of the week, and how findings were shown with suggested changes. **Ask Another Advisor** appears when several advisors offer those. `snagboat.advisor.weeklyReview` (off by default) writes the review once a week by itself.
+It names heuristics, rules, models, and session ids, never prompts, paths, or commands. Afterwards, **Ask the Advisor** has a model add three sections to the file, labelled as model output: a summary of the week, how findings were shown with suggested changes, and tactics to try from the two costliest sessions. **Ask Another Advisor** appears when several advisors offer those. `snagboat.advisor.weeklyReview` (off by default) writes the review once a week by itself.
 
 ## Commands
 
@@ -67,6 +67,7 @@ It names heuristics, rules, models, and session ids, never prompts, paths, or co
 | **Snagboat: Relabel Shell Calls** | Re-applies the shell sub-categories in use to this workspace's past shell calls, after counting them and asking. |
 | **Snagboat: Explain Session...** | Asks the advisor about a session you pick. |
 | **Snagboat: Explain Session with Advisor...** | The same, with an advisor you pick, when several can explain. |
+| **Snagboat: Propose Tactics for Session...** | Asks the advisor whether model use or prompt tactics could be refined in a session you pick. |
 | **Snagboat: Preview Advisor Digest...** | Shows a session's digest exactly as an advisor would get it for an ability. |
 | **Snagboat: Set Advisor API Key...** | Stores a hosted advisor's key in VS Code's secret storage (leave it empty to remove). |
 | **Snagboat: Write Default Advisor Prompts...** | Writes an advisor's default persona and per-ability instructions to `~/.snagboat/advisors/<id>/` to edit from (see [settings.md](settings.md#installed-advisors)). |

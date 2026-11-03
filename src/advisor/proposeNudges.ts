@@ -1,6 +1,6 @@
 import { Review } from '../review/review';
 import { DigestPolicy, digestText, SessionDigest } from './digest';
-import { PromptLayers, systemPrompt } from './prompts';
+import { oneLine, PromptLayers, systemPrompt } from './prompts';
 import { ChatMessage } from './providers';
 
 /**
@@ -45,7 +45,5 @@ export function nudgeLineMessages(digest: SessionDigest, heuristicId: string, su
 
 /** The answer as one line for the tooltip, or undefined when it had nothing specific to say. */
 export function nudgeLine(text: string): string | undefined {
-  const line = text.replace(/\s+/g, ' ').trim().replace(/^["'“]|["'”]$/g, '');
-  if (!line || /^nothing specific\.?$/i.test(line)) return undefined;
-  return line.length > 240 ? `${line.slice(0, 239)}…` : line;
+  return oneLine(text, 240);
 }

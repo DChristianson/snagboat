@@ -20,7 +20,7 @@ import { HEURISTIC_GLOSSARY } from './glossary';
  */
 
 /** Each ability's forms: one system prompt each; forms of one ability share its instruction. */
-export type PromptForm = 'summarize-session' | 'summarize-week' | 'propose-heuristics' | 'propose-nudges/review' | 'propose-nudges/live';
+export type PromptForm = 'summarize-session' | 'summarize-session/headline' | 'summarize-week' | 'propose-heuristics' | 'propose-nudges/review' | 'propose-nudges/live' | 'propose-tactics';
 
 export const DEFAULT_PERSONA =
   "You are Snagboat's advisor. Snagboat watches AI coding agents (Claude Code, GitHub Copilot) in VS Code and records what they did: turns (one per prompt), model calls with token counts, tool calls by category, failures, compactions, and findings from its heuristics. You help the person see what their agent sessions cost and where they went wrong, plainly and specifically.";
@@ -35,7 +35,7 @@ export const DEFAULT_INSTRUCTIONS: Record<Capability, string> = {
   'propose-nudges':
     "You are reviewing how Snagboat's findings were shown this week, in the status bar (an icon, a line of text, and a tooltip), in notifications when they're on, and in the detail view. For each snapshot pattern, judge whether the most important finding was easy to see, and why, naming the snapshot by its time; use the response numbers (acknowledged, ended unacknowledged, muted) to say which findings got seen. Propose up to three changes, each a nudge, a setting, or a change to how findings look, and only ones the snapshots or response numbers support. When a finding has just fired while the person is working, say the most useful thing they could do now, judged against what the turn's prompt asked for.",
   'propose-tactics':
-    "Judge whether the model's tier fit each turn's ask, and whether prompt tactics (planning first, smaller asks, running a command directly) would have cut the cost. Name the turns.",
+    "Judge whether the model's tier fit each turn's ask (a top-tier model running a one-line command, or a small model on a hard design question), and whether prompt tactics (planning first, smaller asks, running a command directly, a clearer ask) would have cut the cost or the trouble. Name the turns that show it, with their model and what they cost, and say when the digest does not show enough to tell.",
 };
 
 const DATA_DIGEST =
@@ -79,7 +79,23 @@ export const FIXED: Record<PromptForm, string> = {
     DATA_DIGEST,
     'Reply with one sentence of at most 25 words, about this turn. No preamble, no headings, no quotes. If the digest does not show enough to say anything specific, reply with exactly: nothing specific.',
   ].join('\n\n'),
+  'summarize-session/headline': [
+    DATA_DIGEST,
+    'Reply with one line of at most 15 words: what the person was trying to do in this session and how it went. No preamble, no headings, no quotes. If the digest does not show enough to tell, reply with exactly: nothing specific.',
+  ].join('\n\n'),
+  'propose-tactics': [
+    DATA_DIGEST,
+    'Each turn carries "model" (the model that did its work), "prompt" where the sending rules allow it, token counts, and its tools. "modelTiers", when present, maps fragments of model names to the person\'s own tiers; otherwise judge a model\'s tier from its name, and say so.',
+    `Answer in Markdown, under three headings: "Model use", "Prompt tactics", and "What to try", naming turns by their number (and session, when there are several). ${NO_ACTION}`,
+  ].join('\n\n'),
 };
+
+/** A model's answer as one line, or undefined when it said it had nothing specific. */
+export function oneLine(text: string, max: number): string | undefined {
+  const line = text.replace(/\s+/g, ' ').trim().replace(/^["'“]|["'”]$/g, '');
+  if (!line || /^nothing specific\.?$/i.test(line)) return undefined;
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
 
 export function abilityOf(form: PromptForm): Capability {
   return form.split('/')[0] as Capability;
