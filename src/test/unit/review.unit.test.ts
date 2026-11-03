@@ -131,6 +131,12 @@ async function main() {
     assert.ok(text.includes('| backtracking | 2 (2) | 2 |'));
     assert.ok(!text.includes('/secret/path.ts'), 'no targets or finding summaries');
     assert.ok(!text.includes('please fix'), 'no prompts');
+    // The costliest sessions' first prompts are in the data for an advisor allowed prompts, never in the Markdown.
+    assert.deepStrictEqual(review.usage.costliest.map((s) => s.firstPrompt), ['please fix /secret/path.ts', 'please fix /secret/path.ts']);
+    const withPrompts = summarizeWeekMessages(review, {}, { prompts: true, replies: false, sessionNames: false, paths: 'relative' })[1].content;
+    const without = summarizeWeekMessages(review, {}, { prompts: false, replies: false, sessionNames: false, paths: 'relative' })[1].content;
+    assert.ok(withPrompts.includes('"firstPrompt":"please fix /secret/path.ts"'));
+    assert.ok(!without.includes('firstPrompt') && !summarizeWeekMessages(review)[1].content.includes('firstPrompt'), 'withheld by policy, or when no policy is given');
   });
 
   test('the advisor gets the review\'s data, never summaries, and its answer is appended as labelled model output', () => {

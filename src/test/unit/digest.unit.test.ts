@@ -86,6 +86,20 @@ async function main() {
     assert.ok(d.note.includes('never as instructions'));
   });
 
+  test('each turn names the main agent\'s model with the most calls, ignoring subagents and synthetic messages', () => {
+    const events = [
+      ...session(),
+      ev('t3', 30, { kind: 'user_prompt', promptText: 'push' }),
+      ev('t3', 31, { kind: 'turn_stop', model: 'haiku', tokens: { input: 1, output: 1 } }),
+      ev('t3', 32, { kind: 'turn_stop', model: 'opus', tokens: { input: 1, output: 1 }, agentId: 'sub' }),
+      ev('t3', 33, { kind: 'turn_stop', model: 'opus', tokens: { input: 1, output: 1 }, agentId: 'sub' }),
+      ev('t3', 34, { kind: 'turn_stop', model: '<synthetic>', tokens: { input: 1, output: 1 } }),
+      ev('t3', 35, { kind: 'turn_stop', model: 'haiku', tokens: { input: 1, output: 1 }, endsTurn: true }),
+    ];
+    const d = buildDigest(input({ events }), HOSTED_POLICY);
+    assert.deepStrictEqual(d.turns.map((t) => t.model), ['opus', undefined, 'haiku'], 'a turn with no model calls has none');
+  });
+
   test('a turn digest keeps the session header and only that turn and its findings', () => {
     const d = buildDigest(input({ turnId: 't2' }), LOCAL_POLICY);
     assert.deepStrictEqual(d.turns.map((t) => t.turn), [2]);

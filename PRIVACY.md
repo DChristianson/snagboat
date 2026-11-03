@@ -63,7 +63,8 @@ Digests are built from the stored events for one request and contain:
 - **Always:** session and turn ids, times, counts of turns, model calls, and tool calls; token counts and context peaks; tool categories, failures, compactions; findings, with summaries redacted the same way as targets.
 - **Shell commands:** only their category and command name (`tests-builds: npm`). Never arguments, environment variables, or the rest of the line.
 - **File paths:** relative to the workspace, or, when outside it or when `send.paths` is `hashed`, a short hash that keeps the extension (`file-3dbaa72f.md`).
-- **Prompt text:** for local providers by default; for hosted ones only with `send.prompts`. Capped at 1,000 characters per turn, after the redaction applied at capture.
+- **Prompt text:** for local advisors by default; for hosted ones only with `send.prompts`, per ability. Capped at 1,000 characters per turn, after the redaction applied at capture. The week's summary sends the first prompt of each of the five costliest sessions under the same rule; the Markdown review file never contains it.
+- **Each turn's model** (the main agent's model with the most calls), with the other counts.
 - **Session names:** local by default; hosted only with `send.sessionNames`.
 - **Reply excerpts:** never, unless a provider has `send.replies`.
 

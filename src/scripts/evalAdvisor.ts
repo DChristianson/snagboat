@@ -3,7 +3,7 @@
  * models or advisors, and writes their answers side by side, so default
  * models and prompts are picked from real use. Dev tooling only; never shipped.
  *
- *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--base-url <url>] [--ability summarize-session|propose-heuristics] [--sessions 2] [--all-projects | <session.jsonl> ...]
+ *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--base-url <url>] [--ability summarize-session|propose-heuristics] [--prompts both|on|off] [--sessions 2] [--all-projects | <session.jsonl> ...]
  *   npm run eval:advisor -- --advisor spend,risk [--settings <settings.json>] [--ability ...] ...
  *
  * --models asks each model at --base-url (Ollama on this machine by default)
@@ -18,6 +18,10 @@
  * the sessions and asks each run to name its candidates, propose rules, and
  * group shell commands, through the Suggestions tab's own controller, so
  * what's kept or dropped is exactly what the tab would show.
+ *
+ * --prompts (summarize-session only; default both) runs each case with and
+ * without the turns' prompt text, so the gain from prompts is measured, not
+ * assumed. A hosted run never gets prompts its sending rules withhold.
  *
  * A provider off this machine needs SNAGBOAT_EVAL_API_KEY.
  *
@@ -236,7 +240,12 @@ async function main(): Promise<number> {
   const baseUrl = (arg(args, '--base-url') ?? 'http://localhost:11434/v1').replace(/\/+$/, '');
   const sessionCount = Number(arg(args, '--sessions') ?? 2);
   const ability = arg(args, '--ability') ?? arg(args, '--capability') ?? 'summarize-session';
+  const promptsMode = arg(args, '--prompts') ?? 'both';
   const allProjects = flag(args, '--all-projects');
+  if (!['both', 'on', 'off'].includes(promptsMode)) {
+    console.error('--prompts takes both, on, or off');
+    return 1;
+  }
   let runs: Run[];
   try {
     runs = runsFromArgs(models, baseUrl, advisorIds, settingsFile);
@@ -266,6 +275,20 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  // With and without prompts, as --prompts says; a run whose rules withhold prompts (hosted, by default) never gets them.
+  const variants = promptsMode === 'both' ? [true, false] : [promptsMode === 'on'];
+  runs = runs.flatMap((run) =>
+    variants
+      .filter((withPrompts) => !withPrompts || run.provider.locality === 'local' || run.policy('summarize-session')?.prompts)
+      .map((withPrompts): Run => ({
+        ...run,
+        label: variants.length > 1 ? `${run.label} · ${withPrompts ? 'prompts' : 'no prompts'}` : run.label,
+        policy: (a) => {
+          const p = run.policy(a);
+          return p && { ...p, prompts: withPrompts };
+        },
+      }))
+  );
   const report: string[] = [`# Advisor evaluation: summarize a session (Explain)`, '', `${new Date().toISOString()} · runs: ${runs.map((r) => `${r.label} (${r.provider.baseUrl}; sends ${describePolicy(r.policy('summarize-session') ?? HOSTED_POLICY)})`).join(', ')}`, ''];
   // Each run gets digests under its own sending rules; the report shows the first run's.
   const casesByRun = runs.map((run) => {
