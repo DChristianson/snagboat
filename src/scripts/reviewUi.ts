@@ -5,21 +5,23 @@
  * are found while building Snagboat, not only in a user's review. Dev tooling
  * only; never shipped.
  *
- *   npm run review:ui [-- [--fixture] [--days 7] [--models a,b [--base-url <url>]] [--all-projects | <session.jsonl> ...]]
+ *   npm run review:ui [-- [--fixture] [--days 7] [--models a,b [--base-url <url>] | --advisor a,b [--settings <path>]] [--all-projects | <session.jsonl> ...]]
  *
  * --fixture uses the redacted transcript in src/test/fixtures; otherwise this
- * project's transcripts. --models also asks each model for the advisor's
- * review of the same data and writes the answers to out/eval/. The console
- * shows heuristic ids, severities, and checks only.
+ * project's transcripts. --models (or --advisor, from your VS Code settings,
+ * with each advisor's own prompts; see evalAdvisor.ts) also asks each for the
+ * advisor's two parts of the review (the week's summary, and how findings
+ * were shown) over the same data, and writes the answers to out/eval/. The
+ * console shows heuristic ids, severities, and checks only.
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { complete, FetchLike, isLocalUrl, ProviderConfig } from '../advisor/providers';
-import { HOSTED_POLICY, LOCAL_POLICY } from '../advisor/digest';
-import { builtInHeuristics } from '../heuristics/builtIns';
+import { FetchLike, complete } from '../advisor/providers';
 import { proposeNudgesMessages } from '../advisor/proposeNudges';
 import { advisorSection, summarizeWeekMessages } from '../advisor/summarizeWeek';
+import { builtInHeuristics } from '../heuristics/builtIns';
 import { buildReview } from '../review/review';
+import { runsFromArgs } from './evalAdvisor';
 import { defaultSessions, sessionEvents } from './replayHeuristics';
 
 function arg(args: string[], name: string): string | undefined {
@@ -34,6 +36,8 @@ async function main(): Promise<number> {
   const args = process.argv.slice(2);
   const days = Number(arg(args, '--days') ?? 7);
   const models = (arg(args, '--models') ?? '').split(',').map((m) => m.trim()).filter(Boolean);
+  const advisorIds = (arg(args, '--advisor') ?? '').split(',').map((m) => m.trim()).filter(Boolean);
+  const settingsFile = arg(args, '--settings');
   const baseUrl = (arg(args, '--base-url') ?? 'http://localhost:11434/v1').replace(/\/+$/, '');
   const fixtureAt = args.indexOf('--fixture');
   if (fixtureAt >= 0) args.splice(fixtureAt, 1);
@@ -62,29 +66,33 @@ async function main(): Promise<number> {
   console.log(p.checks.length ? '\nChecks:' : '\nChecks: nothing to fix.');
   for (const c of p.checks) console.log(`  ${c.id}: ${c.title} (${c.moments} of ${p.moments})\n    ${c.recommendation}`);
 
-  if (models.length === 0) return 0;
-  const local = isLocalUrl(baseUrl);
-  const apiKey = local ? undefined : process.env.SNAGBOAT_EVAL_API_KEY;
-  if (!local && !apiKey) {
-    console.error(`${baseUrl} is off this machine: set SNAGBOAT_EVAL_API_KEY.`);
+  if (models.length === 0 && advisorIds.length === 0) return 0;
+  let runs;
+  try {
+    runs = runsFromArgs(models, baseUrl, advisorIds, settingsFile);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
-  const report = [`# Advisor evaluation: review`, '', `${new Date().toISOString()} · ${baseUrl} · models: ${models.join(', ')}`, ''];
+  const report = [`# Advisor evaluation: review`, '', `${new Date().toISOString()} · runs: ${runs.map((r) => r.label).join(', ')}`, ''];
   const parts = [
-    { title: "The advisor's summary of the week", messages: summarizeWeekMessages(review) },
-    { title: 'The advisor on how findings were shown', messages: proposeNudgesMessages(review) },
+    { ability: 'summarize-week' as const, title: "The advisor's summary of the week", build: summarizeWeekMessages },
+    { ability: 'propose-nudges' as const, title: 'The advisor on how findings were shown', build: proposeNudgesMessages },
   ];
-  for (const model of models) {
-    const provider: ProviderConfig = { id: 'eval', label: 'eval', baseUrl, model, locality: local ? 'local' : 'hosted', policy: local ? LOCAL_POLICY : HOSTED_POLICY };
-    report.push(`## ${model}`);
+  for (const run of runs) {
+    report.push(`## ${run.label}`);
     for (const part of parts) {
+      if (!run.policy(part.ability)) {
+        console.log(`\n${run.label}, ${part.title}: doesn't offer ${part.ability}`);
+        continue;
+      }
       const started = Date.now();
       try {
-        const c = await complete(provider, part.messages, apiKey, fetch as unknown as FetchLike);
-        console.log(`\n${model}, ${part.title}: ${((Date.now() - started) / 1000).toFixed(1)}s, read ${c.promptTokens ?? '?'} tokens`);
-        report.push(advisorSection(`${part.title} (${((Date.now() - started) / 1000).toFixed(1)}s)`, c.text, `eval, model \`${model}\``).replace(/^## /m, '### '));
+        const c = await complete(run.provider, part.build(review, run.prompts(part.ability)), run.apiKey, fetch as unknown as FetchLike);
+        console.log(`\n${run.label}, ${part.title}: ${((Date.now() - started) / 1000).toFixed(1)}s, read ${c.promptTokens ?? '?'} tokens`);
+        report.push(advisorSection(`${part.title} (${((Date.now() - started) / 1000).toFixed(1)}s)`, c.text, run.label).replace(/^## /m, '### '));
       } catch (err) {
-        console.log(`\n${model}, ${part.title}: error: ${err instanceof Error ? err.message : String(err)}`);
+        console.log(`\n${run.label}, ${part.title}: error: ${err instanceof Error ? err.message : String(err)}`);
         report.push('', `### ${part.title}`, '', `Error: ${err instanceof Error ? err.message : String(err)}`, '');
       }
     }

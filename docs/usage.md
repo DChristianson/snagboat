@@ -69,6 +69,7 @@ It names heuristics, rules, models, and session ids, never prompts, paths, or co
 | **Snagboat: Explain Session with Advisor...** | The same, with an advisor you pick, when several can explain. |
 | **Snagboat: Preview Advisor Digest...** | Shows a session's digest exactly as an advisor would get it for an ability. |
 | **Snagboat: Set Advisor API Key...** | Stores a hosted advisor's key in VS Code's secret storage (leave it empty to remove). |
+| **Snagboat: Write Default Advisor Prompts...** | Writes an advisor's default persona and per-ability instructions to `~/.snagboat/advisors/<id>/` to edit from (see [settings.md](settings.md#installed-advisors)). |
 | **Snagboat: Write Review** | Writes this workspace's weekly review (above). |
 | **Snagboat: Backfill Sessions from Transcripts...** | Re-reads the transcripts behind days logged by older versions and rewrites those days, so their sessions get turns, turn ends, and tool calls, and their past findings are complete. It shows what will change and asks first. |
 | **Snagboat: Remove Captured Text** | Deletes stored prompts and reply excerpts, keeping the events, and can turn capture off. |

@@ -39,6 +39,8 @@ const ASKABLE: ReadonlySet<AdvisorKind> = new Set(['model']);
 export interface AbilityConfig {
   /** What the advisor may receive for this ability. */
   policy: DigestPolicy;
+  /** A file replacing Snagboat's instruction for this ability (see ./prompts.ts). */
+  promptFile?: string;
 }
 
 export interface AdvisorConfig extends ProviderConfig {
@@ -47,6 +49,9 @@ export interface AdvisorConfig extends ProviderConfig {
   abilities: Partial<Record<Capability, AbilityConfig>>;
   /** Which setting it came from, so a model picked on first use is written back to the right one. */
   source: 'advisors' | 'providers';
+  /** Its persona and strategy, as text in the setting, or in a file (see ./prompts.ts). */
+  persona?: string;
+  personaFile?: string;
 }
 
 export function isCapability(v: unknown): v is Capability {
@@ -104,6 +109,8 @@ export function parseAdvisors(advisorsValue: unknown, providersValue: unknown): 
       kind,
       abilities,
       source: 'advisors',
+      ...(typeof entry.persona === 'string' && entry.persona.trim() ? { persona: entry.persona.trim() } : {}),
+      ...(typeof entry.personaFile === 'string' && entry.personaFile.trim() ? { personaFile: entry.personaFile.trim() } : {}),
     });
   }
   return { advisors, problems };
@@ -128,8 +135,10 @@ function parseAbilities(value: unknown, policy: DigestPolicy, where: string, pro
     }
     if (v === false) continue;
     if (v === true) abilities[name] = { policy };
-    else if (isObject(v)) abilities[name] = { policy: sendPolicy(v.send, policy) };
-    else {
+    else if (isObject(v)) {
+      const promptFile = typeof v.prompt === 'string' && v.prompt.trim() ? v.prompt.trim() : undefined;
+      abilities[name] = { policy: sendPolicy(v.send, policy), ...(promptFile ? { promptFile } : {}) };
+    } else {
       problems.push(`${where}: ability "${name}" must be true, false, or an object`);
       return undefined;
     }
@@ -141,7 +150,8 @@ function parseAbilities(value: unknown, policy: DigestPolicy, where: string, pro
 /**
  * What an approval covers: where requests go and what each ability may
  * contain. Changing either asks again; changing the model, or a prompt,
- * doesn't.
+ * doesn't (a prompt changes what's asked, not what data is sent, and the
+ * approval document shows it).
  */
 export function approvalKey(a: AdvisorConfig): string {
   const abilities = CAPABILITIES.filter((c) => a.abilities[c]).map((c) => [c, a.abilities[c]!.policy]);
