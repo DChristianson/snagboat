@@ -31,7 +31,7 @@ export const LEGACY_DEFAULT_SETTINGS: Record<string, Capability> = {
   nudgeProvider: 'propose-nudges',
 };
 
-/** How an advisor is asked. Only `model` can be asked today; the others are reserved for the phase 5 spikes. */
+/** How an advisor is asked. Only `model` can be asked today; the others are reserved for the planned HypAware and agent advisors. */
 export type AdvisorKind = 'model' | 'hypaware' | 'agent';
 const KINDS: readonly AdvisorKind[] = ['model', 'hypaware', 'agent'];
 const ASKABLE: ReadonlySet<AdvisorKind> = new Set(['model']);
