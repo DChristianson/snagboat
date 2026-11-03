@@ -74,6 +74,7 @@ export type DetailMessage =
   | { type: 'dismissSuggestion'; id: string }
   | { type: 'clearDismissed' }
   | { type: 'applyThreshold'; heuristic: string; setting: string }
+  | { type: 'applyAdvisorThreshold'; heuristic: string; setting: string }
   | { type: 'removeSaved'; section: 'rules' | 'categories'; id: string }
   | { type: 'explain'; sessionId: string; turnId?: string; heuristicId?: string }
   | { type: 'tactics'; sessionId: string };
@@ -111,6 +112,7 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
     case 'dismissSuggestion':
       return typeof m.id === 'string';
     case 'applyThreshold':
+    case 'applyAdvisorThreshold':
       return typeof m.heuristic === 'string' && typeof m.setting === 'string';
     case 'explain':
       return typeof m.sessionId === 'string' && (m.turnId === undefined || typeof m.turnId === 'string') && (m.heuristicId === undefined || typeof m.heuristicId === 'string');

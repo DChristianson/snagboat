@@ -9,6 +9,7 @@ import { ReplayEpisode } from '../../heuristics/replay';
 import { ResponseEpisode, ResponseLog, ResponseTracker, responseStats } from '../../heuristics/responses';
 import { Finding } from '../../heuristics/types';
 import { momentsFrom, presentationChecks, snapshotAt } from '../../review/presentation';
+import { heuristicEffectiveness } from '../../review/effectiveness';
 import { buildReview, isoWeek, renderReview } from '../../review/review';
 import { proposeNudgesMessages } from '../../advisor/proposeNudges';
 import { advisorSection, summarizeWeekMessages } from '../../advisor/summarizeWeek';
@@ -166,6 +167,23 @@ async function main() {
     assert.ok(section.includes('**Model output** from Local, model `qwen`'));
     assert.ok(section.includes('> **Warning:** cut'));
     assert.ok(section.includes('### What stood out') && section.includes('### How findings were shown'), 'its headings sit under the section');
+  });
+
+  test('effectiveness pairs replayed episodes with recorded responses and mutes, one row per heuristic', () => {
+    const events = [
+      ev('s1', 't1', 0, { kind: 'user_prompt' }),
+      ...Array.from({ length: 4 }, (_, i) => ev('s1', 't1', 1 + i, { kind: 'tool_call', toolName: 'Bash', toolCategory: 'tests-builds', target: 'npm test', status: 'failure' })),
+      ev('s1', 't1', 6, { kind: 'turn_stop', model: 'opus', tokens: { input: 10, output: 5 }, endsTurn: true }),
+    ];
+    const responses: ResponseEpisode[] = [
+      { heuristicId: 'backtracking', severity: 'warn', startedAt: at(3), endedAt: at(6), acknowledgedAt: at(4) },
+      { heuristicId: 'user:gone', severity: 'info', startedAt: at(3), endedAt: at(6) },
+    ];
+    const { rows } = heuristicEffectiveness(events, builtInHeuristics(), () => ({}), undefined, responses, ['user:gone']);
+    const back = rows.find((r) => r.id === 'backtracking')!;
+    assert.deepStrictEqual([back.episodes, back.sessions, back.response?.acknowledged, back.muted], [1, 1, 1, false]);
+    const gone = rows.find((r) => r.id === 'user:gone')!;
+    assert.deepStrictEqual([gone.episodes, gone.response?.expiredUnacknowledged, gone.muted], [0, 1, true], 'a response with no replayed episode still makes a row');
   });
 
   test('reviews are named by ISO week', () => {

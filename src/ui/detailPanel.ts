@@ -182,6 +182,9 @@ export class DetailPanel implements vscode.Disposable {
       case 'applyThreshold':
         await this.hooks.suggestions.applyThreshold(message.heuristic, message.setting);
         break;
+      case 'applyAdvisorThreshold':
+        await this.hooks.suggestions.applyAdvisorThreshold(message.heuristic, message.setting);
+        break;
       case 'explain':
         await this.hooks.explain({ sessionId: message.sessionId, ...(message.turnId ? { turnId: message.turnId } : {}), ...(message.heuristicId ? { heuristicId: message.heuristicId } : {}) });
         break;

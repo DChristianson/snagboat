@@ -19,7 +19,8 @@ import { sessionDigestInput } from './advisor/source';
 import { Advisor, Capability } from './advisor/advisor';
 import { CAPABILITY_LABELS } from './advisor/advisors';
 import { AuditLog } from './advisor/audit';
-import { proposeHeuristicsMessages } from './advisor/proposeHeuristics';
+import { EffectivenessInput, proposeHeuristicsMessages } from './advisor/proposeHeuristics';
+import { heuristicEffectiveness } from './review/effectiveness';
 import { nudgeLine, nudgeLineMessages, proposeNudgesMessages } from './advisor/proposeNudges';
 import { proposeTacticsMessages } from './advisor/proposeTactics';
 import { headlineLine, headlineMessages } from './advisor/summarizeSession';
@@ -275,6 +276,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       return { text: asked.completion.text, provider: asked.advisor.label, model: asked.advisor.model, ...(warning ? { warning } : {}) };
     },
     advisorCount: () => advisor.offering('propose-heuristics').length,
+    effectiveness: async (events): Promise<EffectivenessInput[]> => {
+      const since = events.reduce((min, e) => (e.ts < min ? e.ts : min), new Date().toISOString());
+      const episodes = (await responseLog.readAll()).filter((e) => e.startedAt >= since);
+      const titles = new Map(ruleStore.list('rules').map((r) => [r.doc.id, typeof r.doc.title === 'string' ? r.doc.title : r.doc.id]));
+      return heuristicEffectiveness(events, heuristics, heuristicSettings, contextLimitFor, episodes, findings.mutedHeuristics()).rows.map((r) => ({
+        id: r.id,
+        ...(titles.has(r.id) ? { title: titles.get(r.id) } : {}),
+        builtIn: !r.id.includes(':'),
+        episodes: r.episodes,
+        warnings: r.warnings,
+        sessions: r.sessions,
+        ...(r.response ? { acknowledged: r.response.acknowledged, medianMinutesToAcknowledge: r.response.medianMinutesToAcknowledge, expiredUnacknowledged: r.response.expiredUnacknowledged } : {}),
+        muted: r.muted,
+      }));
+    },
     roots: () => roots(),
     source: discoverySource,
     days: discoveryDays,

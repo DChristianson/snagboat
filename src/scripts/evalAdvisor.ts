@@ -39,7 +39,8 @@ import * as os from 'os';
 import { Capability } from '../advisor/advisors';
 import { buildDigest, digestForReading, DigestFinding, DigestPolicy, HOSTED_POLICY, LOCAL_POLICY, SessionDigest } from '../advisor/digest';
 import { PromptLayers } from '../advisor/prompts';
-import { proposeHeuristicsMessages } from '../advisor/proposeHeuristics';
+import { proposeHeuristicsMessages, weakAction } from '../advisor/proposeHeuristics';
+import { heuristicEffectiveness } from '../review/effectiveness';
 import { proposeTacticsMessages } from '../advisor/proposeTactics';
 import { complete, Completion, FetchLike, isLocalUrl, promptWasCut, ProviderConfig } from '../advisor/providers';
 import { SessionFocus, summarizeSessionMessages } from '../advisor/summarizeSession';
@@ -192,6 +193,8 @@ async function evalPropose(events: NormalizedEvent[], runs: Run[]): Promise<stri
         dismissed: () => [],
         setDismissed: async () => undefined,
         sessionName: () => undefined,
+        // No recorded responses or mutes outside the extension: episodes only.
+        effectiveness: async (evs) => heuristicEffectiveness(evs, builtInHeuristics(), () => ({}), undefined, [], []).rows.map((r) => ({ id: r.id, builtIn: true, episodes: r.episodes, warnings: r.warnings, sessions: r.sessions, muted: false })),
         propose: async (build) => {
           const messages = proposeHeuristicsMessages(build(policy), run.prompts('propose-heuristics'));
           sent = messages.reduce((n, m) => n + m.content.length, 0);
@@ -228,8 +231,11 @@ async function evalPropose(events: NormalizedEvent[], runs: Run[]): Promise<stri
         report.push(`Error: ${error}`, '');
         continue;
       }
-      report.push('**Names for discovery candidates**', '', ...(named.length ? named.map((c) => `- \`${c.id}\` → **${c.title}**: ${c.summary}${c.suggestedAction ? ` — ${c.suggestedAction}` : ''}`) : ['- none']), '');
-      report.push('**Rules it proposed (kept)**', '', ...(rules.length ? rules.map((c) => `- **${c.title}** (\`${c.id}\`): replay ${c.episodes} episodes in ${c.sessions} sessions\n\n  \`\`\`json\n  ${JSON.stringify(c.rule)}\n  \`\`\``) : ['- none']), '');
+      // Actionability is the person's call; "weak?" flags an action that only says to look.
+      const judge = (action: string | undefined) => `${weakAction(action ?? '') ? ' *(weak action?)*' : ''} ☐ actionable`;
+      report.push('**Names for discovery candidates** (judge each: does the summary name a cause and the action something to do?)', '', ...(named.length ? named.map((c) => `- \`${c.id}\` → **${c.title}**: ${c.summary}${c.suggestedAction ? ` — ${c.suggestedAction}` : ''}${judge(c.suggestedAction)}`) : ['- none']), '');
+      report.push('**Rules it proposed (kept)**', '', ...(rules.length ? rules.map((c) => `- **${c.title}** (\`${c.id}\`): replay ${c.episodes} episodes in ${c.sessions} sessions${judge(c.suggestedAction)}\n\n  \`\`\`json\n  ${JSON.stringify(c.rule)}\n  \`\`\``) : ['- none']), '');
+      report.push('**Retire and threshold proposals**', '', ...(v.advisor.retire.length || v.advisor.thresholds.length ? [...v.advisor.retire.map((r) => `- retire \`${r.id}\`: ${r.reason}`), ...v.advisor.thresholds.map((t) => `- ${t.heuristic} ${t.setting}: ${t.current} → ${t.value}: ${t.reason}`)] : ['- none']), '');
       report.push('**Shell categories (kept)**', '', ...(categories.length ? categories.map((c) => `- **${c.label}**: ${c.match.join(', ')} (${Math.round(c.share * 100)}% of shell calls)`) : ['- none']), '');
       report.push('**Dropped**', '', ...(v.advisor.problems.length ? v.advisor.problems.map((p) => `- ${p}`) : ['- nothing']), '');
     } finally {

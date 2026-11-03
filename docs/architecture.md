@@ -50,7 +50,7 @@ flowchart LR
 | EventStore | [src/core](../src/core/): `eventStore`, `sessions`, `turns`, `dailyHistory`, `contextLimits`, `toolCategory` | In memory, rehydrated from the log |
 | Heuristics | [src/heuristics](../src/heuristics/): `engine`, `builtIns` and the eight heuristics, `rule`, `ruleHeuristic`, `ruleStore`, `findingsRegistry`, `replay`, `responses` | `rules.json` in global storage; mutes in `workspaceState` |
 | Discovery | [src/discovery](../src/discovery/); [src/ui](../src/ui/): `suggestionsController`, `ruleTransfer` | Dismissed suggestions in global state |
-| Review | [src/review](../src/review/): `review`, `presentation` | `~/.snagboat/reviews/*.md` |
+| Review | [src/review](../src/review/): `review`, `presentation`, `effectiveness` (how each heuristic did, shared with propose-heuristics) | `~/.snagboat/reviews/*.md` |
 | Nudger | [src/nudges/nudger.ts](../src/nudges/nudger.ts) | In memory (see the nudge refinements in the [roadmap](roadmap.md#planned-tasks)) |
 | Advisor | [src/advisor](../src/advisor/): `digest`, `providers`, `advisors`, `advisor`, `audit`, `prompts` (the three layers of every system prompt), one module per ability: `summarizeSession` (with the headline form), `summarizeWeek`, `proposeHeuristics`, `proposeNudges`, `proposeTactics`; and `headlines` (the per-session cache and what's due) | `advisor-audit.jsonl` in global storage, API keys in `SecretStorage`, approved payloads in `globalState`; `~/.snagboat/advisors/<id>/` for an advisor's persona and prompt files ([tuning](design/trusted-advisor.md#tuning-an-advisor)) |
 | UI | [src/ui](../src/ui/): `statusBar`, `detailPanel`, `detailModel`, `sessionController`, `sessionModel`; [media/](../media/); [src/extension.ts](../src/extension.ts) wires everything together | |

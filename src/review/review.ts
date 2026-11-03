@@ -3,10 +3,10 @@ import { baseCategory, categoryLabel } from '../core/toolCategory';
 import { NormalizedEvent } from '../core/types';
 import { DiscoveryResult } from '../discovery/discover';
 import { compactTokens } from '../heuristics/settings';
-import { FindingReplay, ReplayEpisode } from '../heuristics/replay';
 import { Provenance } from '../heuristics/ruleStore';
-import { ResponseEpisode, ResponseStats, responseStats } from '../heuristics/responses';
+import { ResponseEpisode, ResponseStats } from '../heuristics/responses';
 import { Heuristic } from '../heuristics/types';
+import { heuristicEffectiveness } from './effectiveness';
 import { CheckResult, momentsFrom, presentationChecks, snapshotAt, UiSnapshot } from './presentation';
 
 /**
@@ -111,27 +111,9 @@ export function buildReview(input: ReviewInput): Review {
     byCategory.set(c, s);
   }
 
-  // Each session replayed through the heuristics in use, as the live engine would have run them.
-  const sessionEvents = new Map<string, NormalizedEvent[]>();
-  for (const e of events) sessionEvents.set(e.sessionId, [...(sessionEvents.get(e.sessionId) ?? []), e]);
-  const episodes: ReplayEpisode[] = [];
-  const episodeSessions = new Map<string, Set<string>>();
-  for (const [sessionId, list] of sessionEvents) {
-    const replay = new FindingReplay(input.heuristics, input.settingsFor, input.contextLimit);
-    for (const e of list) replay.ingest(e);
-    for (const ep of replay.episodes()) {
-      episodes.push(ep);
-      episodeSessions.set(ep.heuristicId, new Set([...(episodeSessions.get(ep.heuristicId) ?? []), sessionId]));
-    }
-  }
-  const responses = responseStats(input.responses);
-  const fired = new Map<string, { episodes: number; warnings: number }>();
-  for (const ep of episodes) {
-    const f = fired.get(ep.heuristicId) ?? { episodes: 0, warnings: 0 };
-    f.episodes += 1;
-    if (ep.severity === 'warn') f.warnings += 1;
-    fired.set(ep.heuristicId, f);
-  }
+  // Each session replayed through the heuristics in use, as the live engine would have run them, with the recorded responses.
+  const { rows, episodes, responses } = heuristicEffectiveness(events, input.heuristics, input.settingsFor, input.contextLimit, input.responses, input.muted);
+  const fired = new Map(rows.filter((r) => r.episodes > 0).map((r) => [r.id, { episodes: r.episodes, warnings: r.warnings }]));
 
   const retire: Review['retire'] = [];
   for (const rule of input.savedRules) {
@@ -170,9 +152,7 @@ export function buildReview(input: ReviewInput): Review {
         .sort((a, b) => b.tokens - a.tokens)
         .slice(0, 5),
     },
-    heuristics: [...new Set([...fired.keys(), ...responses.keys()])]
-      .map((id) => ({ id, episodes: fired.get(id)?.episodes ?? 0, warnings: fired.get(id)?.warnings ?? 0, sessions: episodeSessions.get(id)?.size ?? 0, response: responses.get(id) }))
-      .sort((a, b) => b.episodes - a.episodes),
+    heuristics: rows.map(({ muted: _muted, ...row }) => row),
     retire,
     add,
     thresholds,
