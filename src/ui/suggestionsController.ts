@@ -1,5 +1,6 @@
 import { buildDigest, DigestPolicy, DigestTurn } from '../advisor/digest';
-import { categoryDoc, MAX_EXAMPLES_PER_CANDIDATE, MAX_FAMILIES, MAX_PROPOSE_CANDIDATES, MAX_TOOL_NAMES, parseProposals, ProposeInput } from '../advisor/proposeHeuristics';
+import { Probe } from '../discovery/probes';
+import { categoryDoc, EffectivenessInput, MAX_EXAMPLES_PER_CANDIDATE, MAX_FAMILIES, MAX_PROPOSE_CANDIDATES, MAX_TOOL_NAMES, parseProposals, ProposeInput } from '../advisor/proposeHeuristics';
 import { parseShellSubCategory, ShellSubCategory } from '../core/toolCategory';
 import { NormalizedEvent } from '../core/types';
 import { Baseline, Candidate, DiscoveryOptions, DiscoveryRun, runDiscovery, Score, ThresholdSuggestion } from '../discovery/discover';
@@ -71,6 +72,10 @@ export interface AdvisorState {
   warning?: string;
   /** What was dropped from its answer, and why. */
   problems: string[];
+  /** Heuristics or rules it proposes retiring; saved rules can be removed from the tab, built-ins muted from the status bar. */
+  retire: Array<{ id: string; title: string; reason: string; saved: boolean }>;
+  /** Threshold changes it proposes for built-ins, each applied with a click. */
+  thresholds: Array<{ heuristic: string; setting: string; value: number; current: number; kind: Probe['kind']; reason: string }>;
 }
 
 /** What the advisor's answer came back as. */
@@ -108,6 +113,8 @@ export interface SuggestionsHooks {
   propose?(build: (policy: DigestPolicy) => ProposeInput, advisorId?: string): Promise<AdvisorAnswer | undefined>;
   /** How many advisors offer to propose heuristics, so the tab can offer another. */
   advisorCount?(): number;
+  /** How the current heuristics and rules did over these events, for the advisor to judge what to retire or re-threshold. */
+  effectiveness?(events: NormalizedEvent[]): Promise<EffectivenessInput[]>;
   /** Workspace folders, for relative paths in example digests. */
   roots(): string[];
   /** The workspace discovery reads, recorded with each accepted rule. */
@@ -177,7 +184,7 @@ export class SuggestionsController {
   }
 
   private static noAdvice(): AdvisorResults {
-    return { status: 'idle', problems: [], names: new Map(), rules: [], categories: [] };
+    return { status: 'idle', problems: [], retire: [], thresholds: [], names: new Map(), rules: [], categories: [] };
   }
 
   private candidate(id: string): Candidate | undefined {
@@ -204,6 +211,8 @@ export class SuggestionsController {
     const toolCounts = new Map<string, number>();
     for (const e of run.events) if (e.kind === 'tool_call' && e.toolName) toolCounts.set(e.toolName, (toolCounts.get(e.toolName) ?? 0) + 1);
     const toolNames = [...toolCounts].map(([name, calls]) => ({ name, calls })).sort((a, b) => b.calls - a.calls);
+    const effectiveness = (await this.hooks.effectiveness?.(run.events)) ?? [];
+    const thresholds = run.result.thresholds.map((t) => ({ heuristic: t.heuristic, setting: t.setting, describes: t.describes, current: t.current, currentShare: t.currentShare, ...(t.suggested !== undefined ? { suggested: t.suggested, suggestedShare: t.suggestedShare } : {}) }));
     const build = (policy: DigestPolicy): ProposeInput => ({
       turns: run.result.turns,
       sessions: run.result.sessions,
@@ -226,6 +235,8 @@ export class SuggestionsController {
       }),
       shell: { shellCalls: run.result.shell.shellCalls, families: run.result.shell.families.slice(0, MAX_FAMILIES).map((f) => ({ name: f.name, calls: f.calls })) },
       toolNames: toolNames.slice(0, MAX_TOOL_NAMES),
+      ...(effectiveness.length > 0 ? { effectiveness } : {}),
+      ...(thresholds.length > 0 ? { thresholds } : {}),
     });
     const before = this.advisor;
     this.advisor = { ...SuggestionsController.noAdvice(), status: 'asking' };
@@ -236,7 +247,7 @@ export class SuggestionsController {
       this.notify();
       return;
     }
-    const proposals = parseProposals(answer.text, new Set(candidates.map((c) => c.rule.id)));
+    const proposals = parseProposals(answer.text, new Set(candidates.map((c) => c.rule.id)), { heuristicIds: new Set(effectiveness.map((e) => e.id)), thresholds });
     const results: AdvisorResults = { ...SuggestionsController.noAdvice(), status: 'done', provider: answer.provider, model: answer.model, at: this.hooks.now(), problems: proposals.problems, ...(answer.warning ? { warning: answer.warning } : {}) };
     for (const n of proposals.names) {
       const c = candidates.find((x) => x.rule.id === n.id)!;
@@ -273,7 +284,24 @@ export class SuggestionsController {
       if (reach.calls === 0) results.problems.push(`category "${c.label}" was dropped: it matches none of your shell calls`);
       else results.categories.push({ category: value, ...reach });
     }
+    const savedIds = new Set(this.hooks.store.list('rules').map((s) => s.doc.id));
+    results.retire = proposals.retire.map((r) => ({ id: r.id, title: effectiveness.find((e) => e.id === r.id)?.title ?? r.id, reason: r.reason, saved: savedIds.has(r.id) }));
+    results.thresholds = proposals.thresholds.flatMap((t) => {
+      const known = run.result.thresholds.find((k) => k.heuristic === t.heuristic && k.setting === t.setting);
+      return known && t.value !== known.current ? [{ ...t, current: known.current, kind: known.kind }] : [];
+    });
     this.advisor = results;
+    this.notify();
+  }
+
+  /** Applies a threshold the advisor proposed (a value checked when its answer was read, never one from the page). */
+  async applyAdvisorThreshold(heuristic: string, setting: string): Promise<void> {
+    const t = this.advisor.thresholds.find((x) => x.heuristic === heuristic && x.setting === setting);
+    const known = this.run?.result.thresholds.find((s) => s.heuristic === heuristic && s.setting === setting);
+    if (!t || !known) return;
+    await this.hooks.applySetting(heuristic, setting, t.value);
+    known.current = t.value;
+    this.advisor = { ...this.advisor, thresholds: this.advisor.thresholds.filter((x) => x !== t) };
     this.notify();
   }
 
@@ -427,6 +455,8 @@ export class SuggestionsController {
         several: (this.hooks.advisorCount?.() ?? 0) > 1,
         status: this.advisor.status,
         problems: this.advisor.problems,
+        retire: this.advisor.retire,
+        thresholds: this.advisor.thresholds,
         ...(this.advisor.provider ? { provider: this.advisor.provider, model: this.advisor.model, at: this.advisor.at } : {}),
         ...(this.advisor.warning ? { warning: this.advisor.warning } : {}),
       },

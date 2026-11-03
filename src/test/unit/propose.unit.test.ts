@@ -56,24 +56,40 @@ const ANSWER = JSON.stringify({
     { label: 'Git', match: ['git'] },
     { label: 'Docker', match: ['docker'] },
   ],
+  retire: [
+    { id: 'user:never', reason: 'it never fired' },
+    { id: 'verbal-hedge', reason: 'always muted' },
+    { id: 'user:unknown', reason: 'made up' },
+  ],
+  thresholds: [
+    { heuristic: 'runaway-turn', setting: 'maxModelCalls', value: 40, reason: 'your tail is far below 100' },
+    { heuristic: 'runaway-turn', setting: 'nope', value: 1, reason: 'x' },
+    { heuristic: 'runaway-turn', setting: 'maxModelCalls', value: -3, reason: 'x' },
+  ],
 });
+const EFFECTIVENESS = [
+  { id: 'user:never', title: 'Never fires', builtIn: false, episodes: 0, warnings: 0, sessions: 0, muted: false },
+  { id: 'verbal-hedge', builtIn: true, episodes: 4, warnings: 0, sessions: 2, acknowledged: 0, expiredUnacknowledged: 4, muted: true },
+];
 
-async function withController(answer: string | undefined, fn: (c: SuggestionsController, seen: { policies: DigestPolicy[]; inputs: ProposeInput[] }, store: RuleStore) => Promise<void>) {
+async function withController(answer: string | undefined, fn: (c: SuggestionsController, seen: { policies: DigestPolicy[]; inputs: ProposeInput[]; applied: Array<[string, string, number]> }, store: RuleStore) => Promise<void>) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-propose-'));
   try {
     const store = new RuleStore(dir);
     await store.load();
-    const seen = { policies: [] as DigestPolicy[], inputs: [] as ProposeInput[] };
+    await store.save('rules', { id: 'user:never', title: 'Never fires', scope: 'turn', measure: { type: 'count', filter: { kind: 'compaction' } }, when: { gte: 99 }, severity: 'info', summary: 'x' }, { proposedBy: 'you', addedAt: at(0) });
+    const seen = { policies: [] as DigestPolicy[], inputs: [] as ProposeInput[], applied: [] as Array<[string, string, number]> };
     const c = new SuggestionsController({
       loadEvents: async () => history(),
       options: () => ({ existing: builtInHeuristics(), settingsFor: () => ({}) }),
       store,
       settingsRules: () => ({ origin: 'settings', rules: [], categories: [] }),
       rulesChanged: () => undefined,
-      applySetting: async () => undefined,
+      applySetting: async (heuristic, setting, value) => void seen.applied.push([heuristic, setting, value]),
       dismissed: () => [],
       setDismissed: async () => undefined,
       sessionName: () => undefined,
+      effectiveness: async () => EFFECTIVENESS,
       propose: async (build): Promise<AdvisorAnswer | undefined> => {
         seen.policies.push(HOSTED_POLICY);
         seen.inputs.push(build(HOSTED_POLICY));
@@ -138,6 +154,27 @@ async function main() {
       assert.deepStrictEqual(input.shell.families.map((f) => f.name).sort(), ['cat', 'curl', 'ls', 'wget']);
       assert.deepStrictEqual(input.toolNames.map((t) => t.name), ['Read', 'Bash'], 'most calls first');
       assert.ok(LOCAL_POLICY.prompts, 'a local provider would get prompts');
+      assert.deepStrictEqual(input.effectiveness, EFFECTIVENESS, 'how the current heuristics did goes along');
+      assert.ok(input.thresholds!.some((t) => t.heuristic === 'runaway-turn' && t.setting === 'maxModelCalls' && t.current === 100), 'and the built-in thresholds against the history');
+      const [system, user] = proposeHeuristicsMessages(input);
+      assert.ok(user.content.includes('"effectiveness":[') && user.content.includes('"thresholds":['));
+      assert.ok(system.content.includes('"retire":') && system.content.includes('is not enough'), 'the answer shape and the actionability rubric');
+    }));
+
+  test('retire and threshold proposals are kept only for what the advisor was told about, and a threshold applies with a click', () =>
+    withController(ANSWER, async (c, seen) => {
+      await c.askAdvisor();
+      const v = c.view();
+      assert.deepStrictEqual(v.advisor.retire.map((r) => [r.id, r.title, r.saved]), [['user:never', 'Never fires', true], ['verbal-hedge', 'verbal-hedge', false]]);
+      assert.deepStrictEqual(v.advisor.thresholds.map((t) => [t.heuristic, t.setting, t.current, t.value]), [['runaway-turn', 'maxModelCalls', 100, 40]]);
+      const problems = v.advisor.problems.join('\n');
+      for (const expected of ['retire proposal for user:unknown was dropped', 'threshold proposal for runaway-turn nope was dropped', 'runaway-turn maxModelCalls was dropped: its value']) assert.ok(problems.includes(expected), expected);
+      await c.applyAdvisorThreshold('runaway-turn', 'maxModelCalls');
+      assert.deepStrictEqual(seen.applied, [['runaway-turn', 'maxModelCalls', 40]]);
+      assert.deepStrictEqual(c.view().advisor.thresholds, [], 'applied: gone from the list');
+      assert.strictEqual(c.view().thresholds.find((t) => t.heuristic === 'runaway-turn' && t.setting === 'maxModelCalls')!.current, 40, 'and the built-in row shows the new value');
+      await c.applyAdvisorThreshold('runaway-turn', 'maxModelCalls');
+      assert.strictEqual(seen.applied.length, 1, 'applying twice does nothing');
     }));
 
   test('valid proposals are shown and scored; invalid ones are dropped with the reason', () =>
@@ -170,6 +207,7 @@ async function main() {
       await c.acceptCategory('advisor:shell/network');
       const rules = store.list('rules');
       assert.deepStrictEqual(rules.map((r) => [r.doc.id, r.doc.title, r.provenance.proposedBy]), [
+        ['user:never', 'Never fires', 'you'],
         [READS, 'Re-reading one file', 'discovery'],
         ['advisor:shadow-mine', 'Many shell calls', 'advisor'],
       ]);

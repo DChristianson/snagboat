@@ -140,6 +140,21 @@
     if (a.problems.length) {
       advisorParts.push(el('details', {}, [el('summary', { text: `${plural(a.problems.length, 'part')} of its answer dropped` }), el('ul', {}, a.problems.map((p) => el('li', { text: p })))]));
     }
+    // What it thinks should go, and thresholds it would change: model output, each a click to act on, nothing applied by itself.
+    if (a.retire && a.retire.length) {
+      advisorParts.push(el('p', { class: 'muted small', text: 'It proposes retiring:' }));
+      advisorParts.push(el('ul', {}, a.retire.map((r) => el('li', {}, [
+        el('strong', { text: r.title }), el('span', { class: 'muted small', text: ` ${r.id}` }), el('span', { text: r.reason ? `: ${r.reason}` : '' }),
+        r.saved ? el('button', { class: 'link', text: ' Remove', onclick: () => vscode.postMessage({ type: 'removeSaved', section: 'rules', id: r.id }) }) : el('span', { class: 'muted small', text: ' (a built-in: mute it from the status bar, or raise its threshold below)' }),
+      ]))));
+    }
+    if (a.thresholds && a.thresholds.length) {
+      advisorParts.push(el('p', { class: 'muted small', text: 'It proposes changing thresholds:' }));
+      advisorParts.push(el('ul', {}, a.thresholds.map((t) => el('li', {}, [
+        el('span', { text: `${t.heuristic} ${t.setting}: ${value(t.current, t.kind)} → ${value(t.value, t.kind)}${t.reason ? ` (${t.reason})` : ''} ` }),
+        el('button', { class: 'link', text: 'Apply', title: 'Write this value to your user settings', onclick: () => vscode.postMessage({ type: 'applyAdvisorThreshold', heuristic: t.heuristic, setting: t.setting }) }),
+      ]))));
+    }
     advisorNote.replaceChildren(...advisorParts);
     if (view.status === 'ready' && view.notes.length === 0 && view.candidates.length === 0) {
       candidatesHost.replaceChildren(el('p', { class: 'muted', text: 'Nothing stands out from your usual turns.' }));

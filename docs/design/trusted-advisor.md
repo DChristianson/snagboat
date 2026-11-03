@@ -1,6 +1,6 @@
 # Design: self-discovered heuristics and a trusted advisor
 
-Status: accepted; phases 1 to 4 and 6 done (rule engine, discovery, providers and Explain, advisor-proposed heuristics, live nudges), and the periodic review is done. Phase 5 was replanned on 2026-10-30 as [installed advisors](#installed-advisors) and its [abilities](#abilities) were fixed at five on 2026-11-02; the advisor model (step 1), prompts per advisor (step 2), and prompt text in every ability (step 3), and the session headline and `propose-tactics` (step 4) are built. What was left of the review's presentation work, and everything about UX optimization and telemetry, moved to a new [phase 7](#phases). See [heuristics.md](../heuristics.md#rules) and [roadmap.md](../roadmap.md#planned-tasks).
+Status: accepted; phases 1 to 4 and 6 done (rule engine, discovery, providers and Explain, advisor-proposed heuristics, live nudges), and the periodic review is done. Phase 5 was replanned on 2026-10-30 as [installed advisors](#installed-advisors) and its [abilities](#abilities) were fixed at five on 2026-11-02; the advisor model (step 1), prompts per advisor (step 2), and prompt text in every ability (step 3), the session headline and `propose-tactics` (step 4), and effectiveness as input to `propose-heuristics` (step 5) are built; the spikes (step 6) remain. What was left of the review's presentation work, and everything about UX optimization and telemetry, moved to a new [phase 7](#phases). A heartbeat that tells stalled, asleep, unobserved, and unknown gaps apart is planned as [phase 8](#phases). See [heuristics.md](../heuristics.md#rules) and [roadmap.md](../roadmap.md#planned-tasks).
 
 ## Summary
 
@@ -177,7 +177,7 @@ Five abilities, fixed on 2026-11-02 (the code keeps `Capability` as the type's n
 | --- | --- | --- | --- | --- | --- |
 | `summarize-session` | Characterizes what happened in a session, with an optional focus on one turn or one finding | **Explain** on a session, turn, or finding in the Sessions tab, on a notification, and **Snagboat: Explain Session...**; the short form is the **session headline**: opt-in (`snagboat.advisor.headlines`), asked quietly once a session has been idle past the `stalled` window, cached per session, shown in the session list and the open session's summary line | The session digest, or its header plus one turn, or one finding | Markdown under What happened / Likely cause / What to try; the short form one line | Done, both forms |
 | `summarize-week` | Characterizes what happened in a week: costs, what kept going wrong, what the costliest sessions were for | **Ask the Advisor** after **Snagboat: Write Review** | The review's usage (by model, day, category; costliest sessions) and which heuristics fired; the costliest sessions' first prompts are planned, policy permitting | Markdown, "What stood out", appended to the review | Done |
-| `propose-heuristics` | Examines how well the current heuristics and rules work and proposes new ones: names for discovery's candidates, rules of its own, shell categories | **Ask the advisor** in the Suggestions tab | Discovery's candidates with example turn digests, shell command families, tool names; effectiveness data (episodes, responses, mutes per heuristic) is planned | JSON (names, rules, categories), validated like hand-written rules and scored by replay; retire and threshold proposals planned | Done; effectiveness input planned (phase 5) |
+| `propose-heuristics` | Examines how well the current heuristics and rules work and proposes new ones: names for discovery's candidates, rules of its own, shell categories | **Ask the advisor** in the Suggestions tab | Discovery's candidates with example turn digests, shell command families, tool names, how each current heuristic and rule did (episodes, acknowledged, ended unacknowledged, muted), and the built-in thresholds against the person's history | JSON (names, rules, categories, retire, thresholds), validated like hand-written rules and scored by replay; retire and threshold proposals may name only what was sent, and a threshold applies with a click | Done |
 | `propose-nudges` | Examines whether findings got seen and proposes new or better nudges; also writes the live line under a finding | Review form: **Ask the Advisor** after a review. Live form: when a finding nudges, with `snagboat.nudges.advisor` on | Review form: heuristic and response stats, status bar snapshots with findings as ids, the fixed checks. Live form: the turn's digest | Review form: Markdown, "How findings were shown" and "Suggested changes to Snagboat". Live form: one line of at most 25 words, or "nothing specific" | Done |
 | `propose-tactics` | Suggests refinements to model use and prompt tactics: a high-effort model on mundane turns or the reverse, prompts that cause long turns | **Tactics** on a session in the Sessions tab, **Snagboat: Propose Tactics for Session...**, and a third section of the review | A session digest, or the two costliest sessions' digests (20 turns each), with per-turn prompt (policy permitting), model, calls, tokens, and tool mix, plus `snagboat.advisor.modelTiers` when set | Markdown under Model use / Prompt tactics / What to try | Done |
 
@@ -255,7 +255,7 @@ Live nudges are rate-limited (at most one per turn, none while you're typing a p
    2. **Prompts per advisor (done).** Each advisor's system prompts in three layers: a persona and strategy per advisor (token spend and model choice, or risk in the context; gentle or sarcastic), an instruction per ability, and a fixed tail Snagboat always appends (data-handling rules and the output shape). Defaults written out on request, replaced per advisor from settings or files, shown in the approval document, compared in `eval:advisor` by advisor id. So several local advisors can share a model and differ in what they watch for and how they say it. See [tuning an advisor](#tuning-an-advisor).
    3. **Prompt text in every ability (done).** The instructions for Explain, the live nudge, and propose use the prompt as the goal; the week's summary gets the costliest sessions' first prompts; all under the per-ability policy; `eval:advisor --prompts both` runs with and without prompts. The digest gains each turn's model, for `propose-tactics`. See [prompt text as context](#prompt-text-as-context).
    4. **New forms and the new ability (done).** The session headline (`summarize-session`'s short form, opt-in, cached per session in workspace state, one quiet ask at a time); `propose-tactics` on a session and in the review, with an optional table of your own model tiers.
-   5. **Heuristic effectiveness as input to `propose-heuristics`**, with retire and threshold proposals, and an actionability rubric in the instruction and in `eval:advisor`.
+   5. **Heuristic effectiveness as input to `propose-heuristics` (done).** The review's per-heuristic rows (episodes, responses, mutes; `src/review/effectiveness.ts`, shared with the review) and the built-in thresholds go with discovery's candidates; the answer gains `retire` and `thresholds`, validated against what was sent, shown in the Suggestions tab (Remove for a saved rule, Apply for a threshold). The actionability rubric is in the default instruction, and `eval:advisor` flags weak actions and leaves a box for the person's judgment.
    6. **Spikes.** HypAware's API and authentication, and what a workspace insight needs from Snagboat; then the HypAware advisor. Recommendations from the agents over real history (replies, and Claude Code's `/insights` report if it's readable); then an `agent` advisor if the spike finds enough. Docs first; either kind is built only if its spike warrants it.
 6. **Live nudges (done).** Notifications for findings, opt-in with `snagboat.nudges.notify`, at most one per episode and per turn; early warnings through a `progress` hook on heuristics (`runaway-turn`, `context-pressure`, and rules with `earlyWarning`); and an opt-in advisor line in the tooltip that never prompts mid-work. Not done: holding nudges while you type a prompt, since the agent's input box isn't visible to Snagboat.
 7. **Presentation, UX optimization, and telemetry (new, 2026-10-30).** Everything about whether Snagboat's output gets seen and how it should look, collected from the old phase 5 and the roadmap, to be taken up after phase 5 and after the agent's review has run on real history:
@@ -265,6 +265,62 @@ Live nudges are rate-limited (at most one per turn, none while you're typing a p
    - [consolidating how insights, reports, and reviews are presented](../roadmap.md#planned-tasks) as one design, which decides where phase 5's new abilities (headlines, digests, annotated maps) appear;
    - the [prototypes of session visualizations and ways to specify preferences](../roadmap.md#planned-tasks), including the annotated session map and the week-in-one-picture from the abilities list;
    - the presentation review's checks extended to whatever surfaces result.
+8. **Heartbeat and quiet gaps (new, 2026-11-03; not started).** A transcript only shows that nothing happened between two timestamps: a sleeping laptop and an absent person look the same. A heartbeat records what the machine was doing, so each quiet gap gets one of four states, and heuristics and advisors stop reading sleep as a stuck agent or an inattentive person. It doesn't depend on phases 5 or 7. None of these signals has been tried yet; step 1 confirms them, including the details of the `Notification` hook and `window.state.active`.
+
+   **The states.** Machine state and the person's presence are separate questions, since walking away is often why a laptop sleeps. The states describe the machine and what Snagboat could see; presence is a weaker, optional signal on top.
+
+   | State | Meaning | How it's known |
+   | --- | --- | --- |
+   | `stalled` | The machine was awake and observed, and the agent made no progress. Carries `waitingOn`: `permission`, `tool`, or `unknown` | The heartbeat ticked on time throughout |
+   | `asleep` | The machine was suspended, so the agent couldn't progress if it ran there | A wall-clock gap of 2 minutes or more between ticks of the 30-second poll timer, within one running extension host |
+   | `unobserved` | Snagboat wasn't running. The machine may have been awake or asleep, and an agent in a terminal may have kept working | A hole between the last recorded heartbeat and the next activation |
+   | `unknown` | There's no heartbeat data to judge by | The gap predates phase 8, or its heartbeat records have aged out |
+
+   A gap can pass through several states (40 minutes asleep, then 20 awake), so gaps are split into segments, and only `stalled` segments count as a stall.
+
+   **Limits of the signals.**
+   - Use wall-clock time for tick gaps, since monotonic clocks may not count time asleep, depending on the OS. A blocked event loop also delays ticks, which is why the threshold is minutes rather than seconds.
+   - Over Remote-SSH, the extension host keeps ticking while the laptop sleeps, so the heartbeat measures the remote machine. That's the right question, because the agent keeps running there too.
+   - Old sessions stay `unknown`. On macOS, `pmset -g log` could backfill some sleep history, but it's platform-specific and not part of this phase.
+   - How the gap ended helps only a little: a prompt or interrupt means the person came back, while the agent continuing could mean a wake, a permission approval, or a slow tool.
+   - `vscode.window.state.active` is one-way: active means present, but inactive could mean the person is in a browser.
+
+   **Heuristic fixes.**
+   - **False alerts on wake.** `stalled` measures `now - lastActivityTs` (`src/heuristics/stalled.ts`), so closing the lid mid-turn for 40 minutes can warn on opening it, before the agent has had a chance to resume. It should fire on `stalled` time only.
+   - **Replay.** `FindingReplay` ticks straight through quiet gaps (`src/heuristics/replay.ts`), creating stall episodes during sleep that couldn't have fired live. It should use the recorded gaps, and go on behaving as it does today for `unknown` history, labeled as such.
+   - **Effectiveness.** Sleep-only episodes shouldn't count in `src/review/effectiveness.ts`, and neither should findings that expired while the machine slept, since they weren't ignored.
+   - **The abandoned rule.** A turn quiet past `maxMinutes` (180) is treated as abandoned, and an overnight sleep mid-turn hits that. A turn that was suspended is interrupted instead, and may need resuming because a tool or connection may have died. The window should count `stalled` time, with suspended turns reported as such.
+   - **Activation.** A stall deliberately fires as soon as a window opens if the turn was already quiet (`src/extension.ts`). That needs deciding: see the open question below.
+
+   **Advisors.** The cause is classified in code and handed to the model as a label, so it doesn't invent a story from timestamps. Digests gain gaps in minutes, not clock times:
+
+   ```json
+   {"quietGaps": [{"minutes": 47, "state": "asleep", "endedBy": "agent"}]}
+   ```
+
+   And `stalled` in `src/advisor/glossary.ts`, which says the data can't tell, becomes:
+
+   ```text
+   - stalled: an unfinished turn with no agent activity for a while, counting only
+     time the machine was awake and observed. waitingOn says what it was waiting
+     for: permission, tool, or unknown.
+
+   Quiet gaps: use the states given, and don't infer a cause from timestamps or time
+   of day. "asleep" is not the agent being slow or the person being unresponsive,
+   and it's not an ignored finding. "unobserved" and "unknown" are not evidence of
+   anything, so say the cause is unknown. Only call a turn stuck when its state is
+   stalled and it wasn't waiting on the person.
+   ```
+
+   `eval:advisor` gains a fixture per state, checking that no answer blames the person or the agent for an `asleep` gap.
+
+   **In this order:**
+   1. **Heartbeat.** Record alive spans and gaps from the poll timer, per machine, in a small log of their own rather than as events, since a `NormalizedEvent` belongs to a session. Heuristics reach it through a new `ReadonlyEventStore` query, keeping `ctx.store` the only way in, and replay loads it. Retention follows `rawDays`. Then the `stalled`, replay, effectiveness, and abandoned fixes above, which stop the false alerts on their own.
+   2. **`waitingOn`.** Register Claude Code's `Notification` hook for permission and idle prompts, alongside `PostToolUse` and `Stop` (`src/adapters/claude-code/hooksConfig.ts`), and check whether a transcript can show a tool call with no result yet.
+   3. **Advisor labels.** `quietGaps` in the digests, the glossary change, and the `eval:advisor` fixtures.
+   4. **Presence (optional).** Add `window.state` only if it proves worth it, since it's the weakest signal and a new kind of data about the person.
+
+   **Privacy.** Sleep gaps reveal when someone's laptop was in use, so PRIVACY.md needs to cover them, and they stay coarse, local, and under the advisor's data policy.
 
 ## Open questions
 
@@ -274,13 +330,14 @@ Live nudges are rate-limited (at most one per turn, none while you're typing a p
   - Proposing heuristics (same day, `--capability propose`): asking for JSON mode broke both, since Ollama refuses it for qwen3.5 and llama3.1 looped until aborted, so the request asks for JSON in words and the parser finds it. llama3.1's 2,048-token window cut the 4,500-token request every time. qwen3.5 (about 2 minutes) named all four candidates well and grouped shell commands sensibly. Its first rules filtered `toolName` on shell commands (`sed`) and could never fire, so the prompt now explains `toolName` and lists the tool names seen, and rules that would never have fired on your history are dropped. Its second try gave two rules that fire (8 and 20 episodes in 3 sessions). It kept writing "{value}M tokens" for an already-formatted value, so a unit glued to a placeholder is now removed.
   - The review (same day, `npm run review:ui --models qwen3.5`): the first try failed at exactly 5 minutes, because Node's `fetch` gives up on headers that slow and Ollama sends none until it's done. Completions are now streamed. Streamed, qwen3.5 answered in 3.6 minutes and rightly recommended notifications for warnings. It also read `stalled` as agent hangs (see the `stalled` note in the roadmap) and asked for token counts that the snapshot had only left out, so the review prompt now explains elided counts and carries a short glossary of the built-in heuristics.
   - So far: no default model is set (you pick from your server's models on first use). Turn and finding explanations fit any local model; whole sessions need a larger context window. Explain now warns when a server reads far less than it was sent, and local requests may take up to 10 minutes. Still open: whether to compact the digest (pretty JSON costs about 30%), and whether to turn thinking off for reasoning models.
-- **Actionability and value of rules (noted 2026-10-28, not started).** Proposals should be judged on whether they name a cause and an action the person can take, not only on whether they fire. "Check what the agent is doing, it may be a problem" is weak. Strong ones name the cause and the fix:
+- **Actionability and value of rules (noted 2026-10-28; a first cut built 2026-11-03: the rubric in the propose-heuristics instruction, a weak-action hint and a judgment box per proposal in `eval:advisor`).** Proposals should be judged on whether they name a cause and an action the person can take, not only on whether they fire. "Check what the agent is doing, it may be a problem" is weak. Strong ones name the cause and the fix:
   - the agent is downloading software with known vulnerabilities, so set guardrails;
   - the prompts are too complex for the model's tier, so plan more before prompting;
   - the model's tier is too high for the prompt, so drop to a smaller model (see the model-fit heuristic in the roadmap).
 
   This needs an evaluation of actionability and value alongside replay scoring (episodes, overlap). That might mean a rubric applied in `npm run eval:advisor`, a stronger requirement in the propose prompt, or both. Discovery's own suggested actions are generic today and would be judged the same way.
-- **Telling an inattentive user apart from a stalled agent** (noted 2026-10-28): see the `stalled` entry in the [roadmap](../roadmap.md#planned-tasks). It affects what Explain and proposals say about idle time.
+- **Telling an inattentive user apart from a stalled agent** (noted 2026-10-28; planned as [phase 8](#phases), 2026-11-03): see the `stalled` entry in the [roadmap](../roadmap.md#planned-tasks). It affects what Explain and proposals say about idle time.
+- **Whether `unobserved` time counts toward a stall** (noted 2026-11-03): today a stall fires as soon as a window opens if the turn was already quiet, on purpose. Counting only observed time would drop that alert, including for an agent that really did hang in a terminal while VS Code was closed. Keeping it would alert on a laptop that just woke with VS Code closed beforehand. One option is to report it at activation as `unobserved`, without blaming the agent. Decide in phase 8, step 1.
 - **Whether local interaction counts add enough** to be worth building, beyond the agent's review of snapshots and the response-to-findings signals. Decide in phase 7, after the agent's review has run on real history.
 - **How HypAware is asked** (noted 2026-10-30): its API, authentication, what a workspace insight needs from Snagboat, and whether its answers fit the digest's egress controls as they are or need a policy of their own. A spike in phase 5 answers this.
 - **Whether the agents' recommendations are minable** (noted 2026-10-30): how many a week of replies holds, whether Claude Code's `/insights` report is readable and stable enough to quote, and whether Copilot keeps anything comparable. A spike over real history, before the `agent` kind is designed further.
@@ -318,4 +375,5 @@ From the replanning of 2026-10-30:
 | HypAware's two roles | The advisor role is phase 5; the event-source role is an adapter and stays in the roadmap |
 | Agents' recommendations | A spike over real history first; an `agent` advisor only if it finds enough |
 | Where UX and telemetry work goes | Phase 7, after phase 5: screenshots for vision models, local interaction counts, efficacy measures, consolidating surfaces, and the visualization and preference prototypes |
+| How quiet gaps are told apart | A heartbeat from the poll timer sorts them into `stalled`, `asleep`, `unobserved`, and `unknown` in code (phase 8); advisors get the label and don't infer a cause from timestamps |
 | Retention of shell targets and file paths | One clock: they live as long as their event (`rawDays`). A separate, shorter clock was considered and dropped. |
