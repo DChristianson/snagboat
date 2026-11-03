@@ -74,9 +74,19 @@ Accepted rules and categories live in `rules.json` in Snagboat's global storage,
 
 An entry in `snagboat.advisors` is a model advisor: `id`, `label`, `baseUrl`, `model`, and `send` as for a provider, plus `abilities`, which names what it offers. Leave `abilities` out to offer everything; otherwise each ability is `true`, `false`, or an object with its own `send` rules over the advisor's. Several advisors can offer one ability: `snagboat.advisor.defaults` picks the one used, and the others are a click away (**Ask another advisor** in the Suggestions tab, **Ask Another Advisor** on the review notification, and **Snagboat: Explain Session with Advisor...**). Every answer names the advisor and its model. A hosted advisor's first request shows the exact payload and asks; changing its address or any ability's `send` rules asks again.
 
+**Prompts.** Each advisor can have its own persona and strategy, for every ability it offers: `persona` (text in the setting) or `personaFile` (a path; `~` allowed), or the file `~/.snagboat/advisors/<id>/persona.md` when it exists. Each ability can have its own instruction: `"prompt": "<path>"` in the ability's object, or `~/.snagboat/advisors/<id>/<ability>.md`. Snagboat always appends its own data-handling rules and the answer's shape after your text, so a persona can't change what is sent or how answers are read. **Snagboat: Write Default Advisor Prompts...** writes an advisor's defaults to its folder, each under a comment that is dropped when read, to edit from; an empty file means the default. Two local advisors on the same model with different personas, for example:
+
 ```jsonc
 "snagboat.advisors": [
-  { "id": "local", "label": "Local (Ollama)", "baseUrl": "http://localhost:11434/v1", "model": "qwen3.5" },
+  {
+    "id": "spend", "label": "Token spend", "baseUrl": "http://localhost:11434/v1", "model": "qwen3.5",
+    "persona": "You are Snagboat's advisor, and you care about one thing: what each turn cost and whether a cheaper model or a shorter prompt would have done. Be blunt and specific; name turns and token counts."
+  },
+  {
+    "id": "risk", "label": "Context risk", "baseUrl": "http://localhost:11434/v1", "model": "qwen3.5",
+    "personaFile": "~/.snagboat/advisors/risk/persona.md",   // a gentler voice, watching context size and compactions
+    "abilities": { "summarize-session": { "prompt": "~/prompts/explain-risk.md" }, "propose-heuristics": true }
+  },
   {
     "id": "hosted", "label": "OpenAI", "baseUrl": "https://api.openai.com/v1", "model": "gpt-5",
     "abilities": {
@@ -86,8 +96,10 @@ An entry in `snagboat.advisors` is a model advisor: `id`, `label`, `baseUrl`, `m
     }
   }
 ],
-"snagboat.advisor.defaults": { "summarize-week": "hosted" }
+"snagboat.advisor.defaults": { "summarize-session": "spend", "summarize-week": "hosted" }
 ```
+
+`npm run eval:advisor -- --advisor spend,risk` asks both over the same sessions, with their own prompts, and writes the answers side by side.
 
 ## Notifications
 

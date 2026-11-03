@@ -1,7 +1,11 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { AdvisorConfig, approvalKey, Capability, CAPABILITY_LABELS, describeAdvisor, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from './advisors';
 import { AuditLog } from './audit';
 import { buildDigest, DigestInput, DigestPolicy } from './digest';
+import { defaultPromptFiles, promptDir, PromptLayers, resolvePrompts } from './prompts';
 import { SessionFocus, summarizeSessionMessages } from './summarizeSession';
 import { ChatMessage, complete, completionBody, Completion, FetchLike, listModels, promptWasCut } from './providers';
 
@@ -19,11 +23,13 @@ export interface AdvisorDeps {
 
 export type { Capability } from './advisors';
 
-/** What a request is built for: the advisor asked, the ability, and what it may receive for it. */
+/** What a request is built for: the advisor asked, the ability, what it may receive for it, and its prompt layers. */
 export interface AskContext {
   advisor: AdvisorConfig;
   ability: Capability;
   policy: DigestPolicy;
+  /** The advisor's persona and this ability's instruction, where they replace Snagboat's defaults. */
+  prompts: PromptLayers;
 }
 
 /** An answer, with the advisor (and model) that gave it and what it was asked. */
@@ -47,6 +53,15 @@ export interface AskOptions {
   quiet?: boolean;
   /** A particular advisor instead of the ability's default. */
   advisorId?: string;
+}
+
+/** A prompt file's text, or undefined when there is none. */
+function readPromptFile(file: string): string | undefined {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
 }
 
 function config(): vscode.WorkspaceConfiguration {
@@ -85,13 +100,39 @@ export class Advisor {
     return (legacy && config().get<string>(legacy)) || 'local';
   }
 
-  private advisorFor(ability: Capability, advisorId?: string): { advisor: AdvisorConfig; policy: DigestPolicy } | string {
+  private advisorFor(ability: Capability, advisorId?: string): AskContext | string {
     const id = advisorId ?? this.defaultId(ability);
     const a = this.advisors().find((x) => x.id === id);
     if (!a) return `no advisor "${id}" in snagboat.advisors or snagboat.advisor.providers`;
     const offered = a.abilities[ability];
     if (!offered) return `${a.label} doesn't offer "${ability}"`;
-    return { advisor: a, policy: offered.policy };
+    const { problems, ...prompts } = resolvePrompts(a, ability, readPromptFile, os.homedir());
+    for (const p of problems) this.deps.output.appendLine(`Advisor: ${p}`);
+    return { advisor: a, ability, policy: offered.policy, prompts };
+  }
+
+  /**
+   * Snagboat: Write Default Advisor Prompts: writes an advisor's default
+   * persona and the instruction for each ability it offers to
+   * ~/.snagboat/advisors/<id>/, to edit from.
+   */
+  async writeDefaultPrompts(): Promise<void> {
+    const advisors = this.advisors();
+    const a = advisors.length === 1 ? advisors[0] : (await vscode.window.showQuickPick(advisors.map((x) => ({ label: x.label, description: x.id, a: x })), { placeHolder: 'Write default prompts for which advisor?' }))?.a;
+    if (!a) return;
+    const dir = promptDir(os.homedir(), a.id);
+    const files = defaultPromptFiles(a);
+    const existing = files.filter((f) => fs.existsSync(path.join(dir, f.name))).map((f) => f.name);
+    let write = files;
+    if (existing.length > 0) {
+      const choice = await vscode.window.showWarningMessage(`${dir} already has ${existing.join(', ')}.`, { modal: true, detail: 'Overwrite them with the defaults, or write only the missing files?' }, 'Overwrite', 'Only Missing');
+      if (!choice) return;
+      if (choice === 'Only Missing') write = files.filter((f) => !existing.includes(f.name));
+    }
+    await fs.promises.mkdir(dir, { recursive: true });
+    for (const f of write) await fs.promises.writeFile(path.join(dir, f.name), f.text);
+    void vscode.window.showInformationMessage(`Snagboat: wrote ${write.length ? write.map((f) => f.name).join(', ') : 'nothing'} to ${dir}. Edit them; Snagboat reads them on each request.`);
+    await vscode.window.showTextDocument(vscode.Uri.file(path.join(dir, 'persona.md')), { preview: false });
   }
 
   /** Lets you pick among the advisors offering an ability; undefined when there's nothing to choose or you didn't. */
@@ -195,12 +236,12 @@ export class Advisor {
       void vscode.window.showErrorMessage(`Snagboat: ${found}.`, 'Open Settings').then((c) => c && vscode.commands.executeCommand('workbench.action.openSettings', 'snagboat.advisor'));
       return undefined;
     }
-    const { advisor: a, policy } = found;
+    const { advisor: a } = found;
     const apiKey = await this.apiKey(a);
     if (apiKey === null) return undefined;
     const model = await this.model(a, apiKey);
     if (!model) return undefined;
-    const messages = await build({ advisor: a, ability, policy });
+    const messages = await build(found);
     if (!messages) return undefined;
     const body = completionBody(model, messages, opts.json);
     if (!(await this.approved(a, body))) return undefined;
@@ -230,12 +271,12 @@ export class Advisor {
     };
     const found = this.advisorFor(ability, opts.advisorId);
     if (typeof found === 'string') return skip(found);
-    const { advisor: a, policy } = found;
+    const { advisor: a } = found;
     if (!a.model) return skip(`${a.label} has no model set yet; use Explain once to pick one`);
     const apiKey = a.locality === 'hosted' ? await this.deps.secrets.get(secretKey(a.id)) : undefined;
     if (a.locality === 'hosted' && !apiKey) return skip(`${a.label} needs an API key`);
     if (!this.isApproved(a)) return skip(`you haven't approved what ${a.label} receives yet; use Explain once to see and approve it`);
-    const messages = await build({ advisor: a, ability, policy });
+    const messages = await build(found);
     if (!messages) return undefined;
     const body = completionBody(a.model, messages, opts.json);
     try {
@@ -266,7 +307,7 @@ export class Advisor {
     let gone = false;
     const asked = await this.ask(
       'summarize-session',
-      async ({ policy }) => {
+      async ({ policy, prompts }) => {
         const input = await this.deps.digestInput(req.sessionId, req.turnId);
         if (!input) {
           gone = true;
@@ -275,7 +316,7 @@ export class Advisor {
         const digest = buildDigest(input, policy);
         if (req.heuristicId) focus = { kind: 'finding', heuristicId: req.heuristicId, summary: digest.findings.find((f) => f.heuristic === req.heuristicId)?.summary ?? '' };
         else if (req.turnId) focus = { kind: 'turn', turn: digest.turns[0]?.turn ?? 0 };
-        return summarizeSessionMessages(digest, focus);
+        return summarizeSessionMessages(digest, focus, prompts);
       },
       { title: 'explaining', advisorId }
     );

@@ -63,6 +63,10 @@
         "title": "Snagboat: Set Advisor API Key..."
       },
       {
+        "command": "snagboat.writeAdvisorPrompts",
+        "title": "Snagboat: Write Default Advisor Prompts..."
+      },
+      {
         "command": "snagboat.writeReview",
         "title": "Snagboat: Write Review"
       },
@@ -987,7 +991,7 @@
         "snagboat.advisors": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Installed advisors: each a model (an OpenAI-compatible endpoint, local or hosted) with the abilities it offers and what it may receive for each. Several advisors can offer the same ability; `snagboat.advisor.defaults` picks the one used, and the rest are offered as **Ask another advisor**. Entries in `snagboat.advisor.providers` are read as advisors offering every ability. See [the advisor](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#the-advisor).",
+          "markdownDescription": "Installed advisors: each a model (an OpenAI-compatible endpoint, local or hosted) with the abilities it offers and what it may receive for each. Each can have its own persona (`persona`) and a prompt file per ability, so several advisors on one model can watch for different things in different voices. Several advisors can offer the same ability; `snagboat.advisor.defaults` picks the one used, and the rest are offered as **Ask another advisor**. Entries in `snagboat.advisor.providers` are read as advisors offering every ability. See [the advisor](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#the-advisor).",
           "items": {
             "type": "object",
             "required": [
@@ -1019,6 +1023,14 @@
               "model": {
                 "type": "string",
                 "description": "Leave empty to pick from the provider's models on first use."
+              },
+              "persona": {
+                "type": "string",
+                "markdownDescription": "Its persona and strategy, for every ability it offers: who it is, what it watches for, and its tone. Replaces Snagboat's default first layer of each system prompt; Snagboat's data-handling rules and the answer's shape are always appended. For a long one, use `personaFile`. See [tuning an advisor](https://github.com/DChristianson/snagboat/blob/main/docs/design/trusted-advisor.md#tuning-an-advisor)."
+              },
+              "personaFile": {
+                "type": "string",
+                "markdownDescription": "A file holding the persona instead (`~` allowed). Without either, `~/.snagboat/advisors/<id>/persona.md` is read when it exists. **Snagboat: Write Default Advisor Prompts...** writes the defaults there to edit from."
               },
               "send": {
                 "type": "object",
@@ -1088,6 +1100,10 @@
                                 "description": "File paths relative to the workspace, or hashed (default: relative)."
                               }
                             }
+                          },
+                          "prompt": {
+                            "type": "string",
+                            "markdownDescription": "A file replacing Snagboat's instruction for this ability (`~` allowed). Without it, `~/.snagboat/advisors/<id>/summarize-session.md` is read when it exists."
                           }
                         }
                       }
@@ -1130,6 +1146,10 @@
                                 "description": "File paths relative to the workspace, or hashed (default: relative)."
                               }
                             }
+                          },
+                          "prompt": {
+                            "type": "string",
+                            "markdownDescription": "A file replacing Snagboat's instruction for this ability (`~` allowed). Without it, `~/.snagboat/advisors/<id>/summarize-week.md` is read when it exists."
                           }
                         }
                       }
@@ -1172,6 +1192,10 @@
                                 "description": "File paths relative to the workspace, or hashed (default: relative)."
                               }
                             }
+                          },
+                          "prompt": {
+                            "type": "string",
+                            "markdownDescription": "A file replacing Snagboat's instruction for this ability (`~` allowed). Without it, `~/.snagboat/advisors/<id>/propose-heuristics.md` is read when it exists."
                           }
                         }
                       }
@@ -1214,6 +1238,10 @@
                                 "description": "File paths relative to the workspace, or hashed (default: relative)."
                               }
                             }
+                          },
+                          "prompt": {
+                            "type": "string",
+                            "markdownDescription": "A file replacing Snagboat's instruction for this ability (`~` allowed). Without it, `~/.snagboat/advisors/<id>/propose-nudges.md` is read when it exists."
                           }
                         }
                       }
@@ -1256,6 +1284,10 @@
                                 "description": "File paths relative to the workspace, or hashed (default: relative)."
                               }
                             }
+                          },
+                          "prompt": {
+                            "type": "string",
+                            "markdownDescription": "A file replacing Snagboat's instruction for this ability (`~` allowed). Without it, `~/.snagboat/advisors/<id>/propose-tactics.md` is read when it exists."
                           }
                         }
                       }
@@ -1445,7 +1477,7 @@
     "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js && node ./out/test/unit/digest.unit.test.js && node ./out/test/unit/advisor.unit.test.js && node ./out/test/unit/propose.unit.test.js && node ./out/test/unit/review.unit.test.js && node ./out/test/unit/nudges.unit.test.js"
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js && node ./out/test/unit/digest.unit.test.js && node ./out/test/unit/advisor.unit.test.js && node ./out/test/unit/prompts.unit.test.js && node ./out/test/unit/propose.unit.test.js && node ./out/test/unit/review.unit.test.js && node ./out/test/unit/nudges.unit.test.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",

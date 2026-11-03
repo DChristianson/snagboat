@@ -1,39 +1,59 @@
 /**
- * Runs the advisor's Explain over digests of your own sessions with several
- * models, and writes their answers side by side, so default models are picked
- * from real use. Dev tooling only; never shipped.
+ * Runs an advisor ability over digests of your own sessions with several
+ * models or advisors, and writes their answers side by side, so default
+ * models and prompts are picked from real use. Dev tooling only; never shipped.
  *
- *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--ability summarize-session|propose-heuristics] [--base-url <url>] [--sessions 2] [--all-projects | <session.jsonl> ...]
+ *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--base-url <url>] [--ability summarize-session|propose-heuristics] [--sessions 2] [--all-projects | <session.jsonl> ...]
+ *   npm run eval:advisor -- --advisor spend,risk [--settings <settings.json>] [--ability ...] ...
  *
- * --ability propose-heuristics (or the older "propose") runs discovery over the sessions and asks each model
- * to name its candidates, propose rules, and group shell commands, through
- * the Suggestions tab's own controller, so what's kept or dropped is exactly
- * what the tab would show.
+ * --models asks each model at --base-url (Ollama on this machine by default)
+ * with Snagboat's default prompts and the address's sending rules. --advisor
+ * asks advisors from your VS Code settings instead (snagboat.advisors and
+ * snagboat.advisor.providers, read from the user settings.json or --settings),
+ * each with its own model, sending rules, persona, and prompt files, so two
+ * advisors on the same model compare two prompt sets on the same digests.
+ * Each advisor needs its "model" set.
  *
- * --base-url defaults to Ollama on this machine. A provider off this machine
- * needs SNAGBOAT_EVAL_API_KEY and gets the hosted sending rules (no prompts or
- * session names), exactly as the extension would send.
+ * --ability propose-heuristics (or the older "propose") runs discovery over
+ * the sessions and asks each run to name its candidates, propose rules, and
+ * group shell commands, through the Suggestions tab's own controller, so
+ * what's kept or dropped is exactly what the tab would show.
  *
- * Each session gives up to three cases: Explain the session, its busiest turn,
- * and its first finding. Answers are checked automatically (the three
- * headings, no absolute paths, whether the server cut the prompt to fit its
- * context window); judging quality is yours, from the report. The console gets
- * counts and timings only. The report, with digests and answers, is written to
- * out/eval/, which isn't committed.
+ * A provider off this machine needs SNAGBOAT_EVAL_API_KEY.
+ *
+ * For summarize-session, each session gives up to three cases: the session,
+ * its busiest turn, and its first finding. Answers are checked automatically
+ * (the three headings, no absolute paths, whether the server cut the prompt
+ * to fit its context window); judging quality is yours, from the report. The
+ * console gets counts and timings only. The report, with digests and answers,
+ * is written to out/eval/, which isn't committed.
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { buildDigest, digestForReading, DigestFinding, HOSTED_POLICY, LOCAL_POLICY, SessionDigest } from '../advisor/digest';
-import { SessionFocus, summarizeSessionMessages } from '../advisor/summarizeSession';
+import * as os from 'os';
+import { Capability } from '../advisor/advisors';
+import { buildDigest, digestForReading, DigestFinding, DigestPolicy, HOSTED_POLICY, LOCAL_POLICY, SessionDigest } from '../advisor/digest';
+import { PromptLayers } from '../advisor/prompts';
+import { proposeHeuristicsMessages } from '../advisor/proposeHeuristics';
 import { complete, Completion, FetchLike, isLocalUrl, promptWasCut, ProviderConfig } from '../advisor/providers';
+import { SessionFocus, summarizeSessionMessages } from '../advisor/summarizeSession';
 import { builtInHeuristics } from '../heuristics/builtIns';
 import { FindingReplay } from '../heuristics/replay';
-import { NormalizedEvent } from '../core/types';
-import { defaultSessions, sessionEvents } from './replayHeuristics';
-import * as os from 'os';
-import { proposeHeuristicsMessages } from '../advisor/proposeHeuristics';
 import { RuleStore } from '../heuristics/ruleStore';
+import { NormalizedEvent } from '../core/types';
 import { SuggestionsController } from '../ui/suggestionsController';
+import { advisorsFromSettings } from './advisorSettings';
+import { defaultSessions, sessionEvents } from './replayHeuristics';
+
+/** One thing to ask: a model with default prompts, or an advisor from settings. */
+export interface Run {
+  label: string;
+  provider: ProviderConfig;
+  apiKey?: string;
+  /** Undefined when the advisor doesn't offer the ability. */
+  policy(ability: Capability): DigestPolicy | undefined;
+  prompts(ability: Capability): PromptLayers;
+}
 
 interface Case {
   label: string;
@@ -43,7 +63,7 @@ interface Case {
 }
 
 interface Result {
-  model: string;
+  run: Run;
   ms: number;
   completion?: Completion;
   error?: string;
@@ -60,8 +80,43 @@ function arg(args: string[], name: string): string | undefined {
   return v;
 }
 
+function flag(args: string[], name: string): boolean {
+  const i = args.indexOf(name);
+  if (i >= 0) args.splice(i, 1);
+  return i >= 0;
+}
+
+/** The runs from --models or --advisor; a readable error when neither works. */
+export function runsFromArgs(models: string[], baseUrl: string, advisorIds: string[], settingsFile: string | undefined): Run[] {
+  const hostedKey = process.env.SNAGBOAT_EVAL_API_KEY;
+  if (advisorIds.length > 0) {
+    return advisorsFromSettings(advisorIds, settingsFile).map(({ advisor, prompts }) => {
+      if (!advisor.model) throw new Error(`advisor "${advisor.id}" has no model set; set "model" in its settings entry`);
+      if (advisor.locality === 'hosted' && !hostedKey) throw new Error(`advisor "${advisor.id}" is off this machine: set SNAGBOAT_EVAL_API_KEY`);
+      return {
+        label: `${advisor.id} (${advisor.model})`,
+        provider: advisor,
+        ...(advisor.locality === 'hosted' ? { apiKey: hostedKey } : {}),
+        policy: (ability) => advisor.abilities[ability]?.policy,
+        prompts,
+      };
+    });
+  }
+  if (models.length === 0) throw new Error('pass --models, e.g. --models qwen3.5:latest,llama3.1:latest, or --advisor <id> from your settings');
+  const local = isLocalUrl(baseUrl);
+  if (!local && !hostedKey) throw new Error(`${baseUrl} is off this machine: set SNAGBOAT_EVAL_API_KEY`);
+  const policy = local ? LOCAL_POLICY : HOSTED_POLICY;
+  return models.map((model) => ({
+    label: model,
+    provider: { id: 'eval', label: 'eval', baseUrl, model, locality: local ? 'local' : 'hosted', policy },
+    ...(local ? {} : { apiKey: hostedKey }),
+    policy: () => policy,
+    prompts: () => ({}),
+  }));
+}
+
 /** Up to three cases per session: the whole session, its busiest turn, and its first finding. */
-function casesFor(events: NormalizedEvent[], policy: typeof LOCAL_POLICY, roots: string[]): Case[] {
+function casesFor(events: NormalizedEvent[], policy: DigestPolicy, roots: string[]): Case[] {
   const sessionId = events[0].sessionId;
   const replay = new FindingReplay(builtInHeuristics(), () => ({}));
   for (const e of events) replay.ingest(e);
@@ -96,10 +151,18 @@ function check(text: string, completion: Completion | undefined, messages: Retur
   };
 }
 
-/** Asks each model to propose heuristics from one discovery, and reports what the Suggestions tab would keep. */
-async function evalPropose(events: NormalizedEvent[], models: string[], baseUrl: string, apiKey: string | undefined, local: boolean, policy: typeof LOCAL_POLICY): Promise<string[]> {
-  const report: string[] = [`# Advisor evaluation: propose heuristics`, '', `${new Date().toISOString()} · ${baseUrl} · models: ${models.join(', ')}`, ''];
-  for (const model of models) {
+const describePolicy = (p: DigestPolicy) => `${[p.prompts && 'prompts', p.replies && 'replies', p.sessionNames && 'session names'].filter(Boolean).join(', ') || 'no text'}; paths ${p.paths}`;
+
+/** Asks each run to propose heuristics from one discovery, and reports what the Suggestions tab would keep. */
+async function evalPropose(events: NormalizedEvent[], runs: Run[]): Promise<string[]> {
+  const report: string[] = [`# Advisor evaluation: propose heuristics`, '', `${new Date().toISOString()} · runs: ${runs.map((r) => r.label).join(', ')}`, ''];
+  for (const run of runs) {
+    const policy = run.policy('propose-heuristics');
+    if (!policy) {
+      console.log(`${run.label.padEnd(30)} doesn't offer propose-heuristics`);
+      report.push(`## ${run.label}`, '', "Doesn't offer propose-heuristics.", '');
+      continue;
+    }
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-eval-'));
     try {
       const store = new RuleStore(dir);
@@ -119,16 +182,15 @@ async function evalPropose(events: NormalizedEvent[], models: string[], baseUrl:
         setDismissed: async () => undefined,
         sessionName: () => undefined,
         propose: async (build) => {
-          const messages = proposeHeuristicsMessages(build(policy));
+          const messages = proposeHeuristicsMessages(build(policy), run.prompts('propose-heuristics'));
           sent = messages.reduce((n, m) => n + m.content.length, 0);
-          const p: ProviderConfig = { id: 'eval', label: 'eval', baseUrl, model, locality: local ? 'local' : 'hosted', policy };
           const started = Date.now();
           try {
             // No JSON mode: Ollama refuses it for some models (qwen3.5) and loops on others; the parser finds the JSON.
-            const completion = await complete(p, messages, apiKey, fetch as unknown as FetchLike);
+            const completion = await complete(run.provider, messages, run.apiKey, fetch as unknown as FetchLike);
             ms = Date.now() - started;
             read = completion.promptTokens;
-            return { text: completion.text, provider: 'eval', model, ...(promptWasCut(completion, messages) ? { warning: 'prompt cut' } : {}) };
+            return { text: completion.text, provider: run.label, model: run.provider.model, ...(promptWasCut(completion, messages) ? { warning: 'prompt cut' } : {}) };
           } catch (err) {
             ms = Date.now() - started;
             error = err instanceof Error ? err.message : String(err);
@@ -147,10 +209,10 @@ async function evalPropose(events: NormalizedEvent[], models: string[], baseUrl:
       const rules = v.candidates.filter((c) => c.source === 'advisor');
       const categories = v.shell.candidates.filter((c) => c.source === 'advisor');
       console.log(
-        `${model.padEnd(20)} ${(ms / 1000).toFixed(1).padStart(6)}s  read ${read ?? '?'} of ~${Math.round(sent / 3.5)} tokens  ` +
+        `${run.label.padEnd(30)} ${(ms / 1000).toFixed(1).padStart(6)}s  read ${read ?? '?'} of ~${Math.round(sent / 3.5)} tokens  ` +
           (error ? `error: ${error.slice(0, 80)}` : `named ${named.length}/${v.candidates.filter((c) => c.source === 'discovery').length}, rules kept ${rules.length}, categories kept ${categories.length}, dropped ${v.advisor.problems.length}${v.advisor.warning ? ', PROMPT CUT' : ''}`)
       );
-      report.push(`## ${model} (${(ms / 1000).toFixed(1)}s, read ${read ?? '?'} of ~${Math.round(sent / 3.5)} tokens${v.advisor.warning ? ', prompt cut' : ''})`, '');
+      report.push(`## ${run.label} (${(ms / 1000).toFixed(1)}s, read ${read ?? '?'} of ~${Math.round(sent / 3.5)} tokens${v.advisor.warning ? ', prompt cut' : ''}; sends ${describePolicy(policy)})`, '');
       if (error) {
         report.push(`Error: ${error}`, '');
         continue;
@@ -169,24 +231,21 @@ async function evalPropose(events: NormalizedEvent[], models: string[], baseUrl:
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
   const models = (arg(args, '--models') ?? '').split(',').map((m) => m.trim()).filter(Boolean);
+  const advisorIds = (arg(args, '--advisor') ?? '').split(',').map((m) => m.trim()).filter(Boolean);
+  const settingsFile = arg(args, '--settings');
   const baseUrl = (arg(args, '--base-url') ?? 'http://localhost:11434/v1').replace(/\/+$/, '');
   const sessionCount = Number(arg(args, '--sessions') ?? 2);
   const ability = arg(args, '--ability') ?? arg(args, '--capability') ?? 'summarize-session';
-  const allAt = args.indexOf('--all-projects');
-  if (allAt >= 0) args.splice(allAt, 1);
-  if (models.length === 0) {
-    console.error('Pass --models, e.g. --models qwen3.5:latest,llama3.1:latest');
+  const allProjects = flag(args, '--all-projects');
+  let runs: Run[];
+  try {
+    runs = runsFromArgs(models, baseUrl, advisorIds, settingsFile);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
-  const local = isLocalUrl(baseUrl);
-  const apiKey = local ? undefined : process.env.SNAGBOAT_EVAL_API_KEY;
-  if (!local && !apiKey) {
-    console.error(`${baseUrl} is off this machine: set SNAGBOAT_EVAL_API_KEY.`);
-    return 1;
-  }
-  const policy = local ? LOCAL_POLICY : HOSTED_POLICY;
 
-  const files = args.length > 0 ? args : defaultSessions(allAt >= 0);
+  const files = args.length > 0 ? args : defaultSessions(allProjects);
   const sessions = files
     .map((f) => sessionEvents(f))
     .filter((events) => new Set(events.filter((e) => e.kind === 'user_prompt').map((e) => e.turnId)).size >= 3)
@@ -196,62 +255,62 @@ async function main(): Promise<number> {
     console.error('No sessions with 3 or more turns found.');
     return 1;
   }
+  const outDir = path.join(process.cwd(), 'out', 'eval');
+  fs.mkdirSync(outDir, { recursive: true });
   if (ability === 'propose-heuristics' || ability === 'propose') {
     // Discovery wants history, not the latest few sessions: read them all.
-    const report = await evalPropose(files.flatMap((f) => sessionEvents(f)), models, baseUrl, apiKey, local, policy);
-    const outDir = path.join(process.cwd(), 'out', 'eval');
-    fs.mkdirSync(outDir, { recursive: true });
+    const report = await evalPropose(files.flatMap((f) => sessionEvents(f)), runs);
     const file = path.join(outDir, `propose-${new Date().toISOString().replace(/[:.]/g, '-')}.md`);
     fs.writeFileSync(file, report.join('\n') + '\n');
     console.log(`\nReport: ${file}`);
     return 0;
   }
-  const cases = sessions.flatMap((events) => casesFor(events, policy, [process.cwd()]));
 
-  const report: string[] = [
-    `# Advisor evaluation: summarize a session (Explain)`,
-    '',
-    `${new Date().toISOString()} · ${baseUrl} (${local ? 'local' : 'hosted'} sending rules) · models: ${models.join(', ')}`,
-    '',
-  ];
-  const all: Array<{ c: Case; results: Result[]; chars: number }> = [];
-  for (const c of cases) {
-    const messages = summarizeSessionMessages(c.digest, c.focus);
-    const chars = messages.reduce((n, m) => n + m.content.length, 0);
+  const report: string[] = [`# Advisor evaluation: summarize a session (Explain)`, '', `${new Date().toISOString()} · runs: ${runs.map((r) => `${r.label} (${r.provider.baseUrl}; sends ${describePolicy(r.policy('summarize-session') ?? HOSTED_POLICY)})`).join(', ')}`, ''];
+  // Each run gets digests under its own sending rules; the report shows the first run's.
+  const casesByRun = runs.map((run) => {
+    const policy = run.policy('summarize-session');
+    return policy ? sessions.flatMap((events) => casesFor(events, policy, [process.cwd()])) : [];
+  });
+  const shown = casesByRun.find((c) => c.length > 0) ?? [];
+  const all: Array<{ c: Case; results: Result[] }> = [];
+  for (const [i, c] of shown.entries()) {
     const results: Result[] = [];
-    for (const model of models) {
-      const p: ProviderConfig = { id: 'eval', label: 'eval', baseUrl, model, locality: local ? 'local' : 'hosted', policy };
+    for (const [r, run] of runs.entries()) {
+      const mine = casesByRun[r][i];
+      if (!mine) {
+        console.log(`${c.label.padEnd(40)} ${run.label.padEnd(30)} doesn't offer summarize-session`);
+        continue;
+      }
+      const messages = summarizeSessionMessages(mine.digest, mine.focus, run.prompts('summarize-session'));
+      const chars = messages.reduce((n, m) => n + m.content.length, 0);
       const started = Date.now();
       try {
-        const completion = await complete(p, messages, apiKey, fetch as unknown as FetchLike);
-        results.push({ model, ms: Date.now() - started, completion, checks: check(completion.text, completion, messages) });
+        const completion = await complete(run.provider, messages, run.apiKey, fetch as unknown as FetchLike);
+        results.push({ run, ms: Date.now() - started, completion, checks: check(completion.text, completion, messages) });
       } catch (err) {
-        results.push({ model, ms: Date.now() - started, error: err instanceof Error ? err.message : String(err), checks: { headings: false, noAbsolutePaths: true, truncated: false } });
+        results.push({ run, ms: Date.now() - started, error: err instanceof Error ? err.message : String(err), checks: { headings: false, noAbsolutePaths: true, truncated: false } });
       }
-      const r = results[results.length - 1];
-      const flags = r.error ? `error: ${r.error.slice(0, 80)}` : `${r.checks.headings ? 'headings ok' : 'MISSING HEADINGS'}${r.checks.truncated ? ', PROMPT CUT' : ''}${r.checks.noAbsolutePaths ? '' : ', ABSOLUTE PATH'}`;
-      console.log(`${c.label.padEnd(40)} ${model.padEnd(20)} ${(r.ms / 1000).toFixed(1).padStart(6)}s  read ${r.completion?.promptTokens ?? '?'} of ~${Math.round(chars / 3.5)} tokens  ${flags}`);
+      const res = results[results.length - 1];
+      const flags = res.error ? `error: ${res.error.slice(0, 80)}` : `${res.checks.headings ? 'headings ok' : 'MISSING HEADINGS'}${res.checks.truncated ? ', PROMPT CUT' : ''}${res.checks.noAbsolutePaths ? '' : ', ABSOLUTE PATH'}`;
+      console.log(`${c.label.padEnd(40)} ${run.label.padEnd(30)} ${(res.ms / 1000).toFixed(1).padStart(6)}s  read ${res.completion?.promptTokens ?? '?'} of ~${Math.round(chars / 3.5)} tokens  ${flags}`);
     }
-    all.push({ c, results, chars });
+    all.push({ c, results });
   }
 
-  report.push('| Case | Model | Seconds | Prompt tokens read / ~sent | Output tokens | Headings | Prompt cut | Absolute paths |', '| --- | --- | --- | --- | --- | --- | --- | --- |');
-  for (const { c, results, chars } of all) {
+  report.push('| Case | Run | Seconds | Prompt tokens read | Output tokens | Headings | Prompt cut | Absolute paths |', '| --- | --- | --- | --- | --- | --- | --- | --- |');
+  for (const { c, results } of all) {
     for (const r of results) {
-      report.push(
-        `| ${c.label} | ${r.model} | ${(r.ms / 1000).toFixed(1)} | ${r.completion?.promptTokens ?? '?'} / ${Math.round(chars / 3.5)} | ${r.completion?.completionTokens ?? '?'} | ${r.error ? 'error' : r.checks.headings ? 'yes' : 'no'} | ${r.checks.truncated ? 'yes' : 'no'} | ${r.checks.noAbsolutePaths ? 'none' : 'yes'} |`
-      );
+      report.push(`| ${c.label} | ${r.run.label} | ${(r.ms / 1000).toFixed(1)} | ${r.completion?.promptTokens ?? '?'} | ${r.completion?.completionTokens ?? '?'} | ${r.error ? 'error' : r.checks.headings ? 'yes' : 'no'} | ${r.checks.truncated ? 'yes' : 'no'} | ${r.checks.noAbsolutePaths ? 'none' : 'yes'} |`);
     }
   }
   for (const { c, results } of all) {
-    report.push('', `## ${c.label}`, '', `<details><summary>Digest (sent compact; indented here)</summary>`, '', '```json', digestForReading(c.digest), '```', '', '</details>');
-    for (const r of results) report.push('', `### ${r.model} (${(r.ms / 1000).toFixed(1)}s)`, '', r.error ? `Error: ${r.error}` : r.completion!.text);
+    report.push('', `## ${c.label}`, '', `<details><summary>Digest (sent compact; indented here; under the first run's sending rules)</summary>`, '', '```json', digestForReading(c.digest), '```', '', '</details>');
+    for (const r of results) report.push('', `### ${r.run.label} (${(r.ms / 1000).toFixed(1)}s)`, '', r.error ? `Error: ${r.error}` : r.completion!.text);
   }
-  if (all.some(({ results }) => results.some((r) => r.checks.truncated)) && local) {
+  if (all.some(({ results }) => results.some((r) => r.checks.truncated && r.run.provider.locality === 'local'))) {
     report.push('', '> Some prompts were cut to fit the server\'s context window. For Ollama, start it with a larger one, e.g. `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`.');
   }
-  const outDir = path.join(process.cwd(), 'out', 'eval');
-  fs.mkdirSync(outDir, { recursive: true });
   const file = path.join(outDir, `advisor-${new Date().toISOString().replace(/[:.]/g, '-')}.md`);
   fs.writeFileSync(file, report.join('\n') + '\n');
   console.log(`\nReport: ${file}`);

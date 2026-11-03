@@ -246,7 +246,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     setDismissed: (ids) => Promise.resolve(context.globalState.update(DISMISSED_SUGGESTIONS_KEY, ids)),
     sessionName: (id) => sessionIndex.get(id)?.name,
     propose: async (build, advisorId) => {
-      const asked = await advisor.ask('propose-heuristics', async ({ policy }) => proposeHeuristicsMessages(build(policy)), { title: 'proposing heuristics', advisorId });
+      const asked = await advisor.ask('propose-heuristics', async ({ policy, prompts }) => proposeHeuristicsMessages(build(policy), prompts), { title: 'proposing heuristics', advisorId });
       if (!asked) return undefined;
       const warning = Advisor.cutWarning(asked, 'dismiss candidates you don\'t need and ask again, which sends less');
       return { text: asked.completion.text, provider: asked.advisor.label, model: asked.advisor.model, ...(warning ? { warning } : {}) };
@@ -452,7 +452,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     return { file, review };
   };
   /** The two abilities a review asks for, each appended to the file as its own labelled section. */
-  const REVIEW_ABILITIES: Array<{ ability: Capability; title: string; progress: string; build: (r: Review) => ReturnType<typeof summarizeWeekMessages> }> = [
+  const REVIEW_ABILITIES: Array<{ ability: Capability; title: string; progress: string; build: typeof summarizeWeekMessages }> = [
     { ability: 'summarize-week', title: "The advisor's summary of the week", progress: 'summarizing the week', build: summarizeWeekMessages },
     { ability: 'propose-nudges', title: 'The advisor on how findings were shown', progress: 'reviewing how findings were shown', build: proposeNudgesMessages },
   ];
@@ -465,7 +465,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     let appended = false;
     for (const { ability, title, progress, build } of REVIEW_ABILITIES) {
       if (advisorId && !advisor.advisors().find((a) => a.id === advisorId)?.abilities[ability]) continue;
-      const asked = await advisor.ask(ability, async () => build(written.review), { title: progress, advisorId });
+      const asked = await advisor.ask(ability, async ({ prompts }) => build(written.review, prompts), { title: progress, advisorId });
       if (!asked) continue;
       const warning = Advisor.cutWarning(asked, 'its context window is too small for a week of data');
       await fs.promises.appendFile(written.file, advisorSection(title, asked.completion.text, Advisor.label(asked), warning || undefined));
@@ -524,11 +524,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     void advisor
       .ask(
         'propose-nudges',
-        async ({ policy }) => {
+        async ({ policy, prompts }) => {
           const input = await digestInput(sessionId, turnId);
           if (!input) return undefined;
           const digest = buildDigest(input, policy);
-          return nudgeLineMessages(digest, nudge.heuristicId, digest.findings.find((f) => f.heuristic === nudge.heuristicId)?.summary ?? '', false);
+          return nudgeLineMessages(digest, nudge.heuristicId, digest.findings.find((f) => f.heuristic === nudge.heuristicId)?.summary ?? '', false, prompts);
         },
         { title: `asking the advisor about ${nudge.heuristicId}`, quiet: true }
       )
@@ -624,6 +624,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       if (sessionId) await advisor.explain({ sessionId }, advisorId);
     }),
     vscode.commands.registerCommand('snagboat.setAdvisorKey', () => advisor.setKey()),
+    vscode.commands.registerCommand('snagboat.writeAdvisorPrompts', () => advisor.writeDefaultPrompts()),
     vscode.commands.registerCommand('snagboat.writeReview', async () => {
       const written = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Snagboat: writing the review…' }, () => writeReview());
       await vscode.window.showTextDocument(vscode.Uri.file(written.file), { preview: false });
