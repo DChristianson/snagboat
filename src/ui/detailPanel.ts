@@ -14,6 +14,8 @@ export interface DetailPanelHooks {
   sessions: SessionController;
   suggestions: SuggestionsController;
   explain(req: ExplainRequest): Promise<void>;
+  /** Tactics for a session: whether model use and prompt tactics could be refined. */
+  tactics(sessionId: string): Promise<void>;
   /** Lets the person pick among the advisors offering an ability; undefined when they didn't. */
   pickAdvisor(ability: Capability): Promise<string | undefined>;
   /** Today's UTC day key, for the session list's default day. */
@@ -182,6 +184,9 @@ export class DetailPanel implements vscode.Disposable {
         break;
       case 'explain':
         await this.hooks.explain({ sessionId: message.sessionId, ...(message.turnId ? { turnId: message.turnId } : {}), ...(message.heuristicId ? { heuristicId: message.heuristicId } : {}) });
+        break;
+      case 'tactics':
+        await this.hooks.tactics(message.sessionId);
         break;
       case 'removeSaved':
         await this.hooks.suggestions.removeSaved(message.section, message.id);

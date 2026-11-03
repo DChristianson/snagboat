@@ -12,13 +12,19 @@ import { SessionController } from './ui/sessionController';
 import { FindingReplay } from './heuristics/replay';
 import { runBackfill } from './backfill/command';
 import { runRelabel } from './backfill/relabel';
-import { buildDigest, digestForReading } from './advisor/digest';
+import { buildDigest, digestForReading, DigestPolicy } from './advisor/digest';
+import { PromptLayers } from './advisor/prompts';
+import { ChatMessage } from './advisor/providers';
 import { sessionDigestInput } from './advisor/source';
 import { Advisor, Capability } from './advisor/advisor';
 import { CAPABILITY_LABELS } from './advisor/advisors';
 import { AuditLog } from './advisor/audit';
 import { proposeHeuristicsMessages } from './advisor/proposeHeuristics';
 import { nudgeLine, nudgeLineMessages, proposeNudgesMessages } from './advisor/proposeNudges';
+import { proposeTacticsMessages } from './advisor/proposeTactics';
+import { headlineLine, headlineMessages } from './advisor/summarizeSession';
+import { Headliner, HeadlineEntry } from './advisor/headlines';
+import { positiveNumberOr } from './heuristics/settings';
 import { Nudge, Nudger, NudgeSettings, NotifyLevel } from './nudges/nudger';
 import { ResponseLog, ResponseTracker } from './heuristics/responses';
 import { buildReview, isoWeek, renderReview, Review } from './review/review';
@@ -57,6 +63,15 @@ const MUTED_HEURISTICS_KEY = 'snagboat.mutedHeuristics';
 // Global: saved rules are shared by every workspace, so a dismissed suggestion stays dismissed everywhere.
 const DISMISSED_SUGGESTIONS_KEY = 'snagboat.dismissedSuggestions';
 const RESPONDING_SINCE_KEY = 'snagboat.respondingSince';
+const HEADLINES_KEY = 'snagboat.headlines';
+/** Headlines are asked for sessions that ended within this many days. */
+const HEADLINE_DAYS = 7;
+const HEADLINE_INTERVAL_MS = 60_000;
+/** After a quiet ask is skipped (no model, key, or approval yet), wait this long before trying again. */
+const HEADLINE_BACKOFF_MS = 30 * 60_000;
+/** The review's tactics section: this many of the costliest sessions, this many turns each. */
+const REVIEW_TACTICS_SESSIONS = 2;
+const REVIEW_TACTICS_TURNS = 20;
 
 // Generous placeholder sizing, comfortably covering every planned heuristic's
 // short window (minutes) without yet reading heuristic settings -- revisited
@@ -214,11 +229,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  const sessions = new SessionController(sessionIndex, eventLog, () => contextLimits.all(), {
-    active: () => findings.list(),
-    newReplay: () => new FindingReplay(heuristics, heuristicSettings, contextLimitFor),
-    muted: () => findings.mutedHeuristics(),
-  });
+  // Session headlines (opt-in): one line per ended session, asked quietly of the summarize-session advisor, one at a time.
+  const headliner = new Headliner(context.workspaceState.get<Record<string, HeadlineEntry>>(HEADLINES_KEY, {}), (cache) => Promise.resolve(context.workspaceState.update(HEADLINES_KEY, cache)));
+  const sessions = new SessionController(
+    sessionIndex,
+    eventLog,
+    () => contextLimits.all(),
+    {
+      active: () => findings.list(),
+      newReplay: () => new FindingReplay(heuristics, heuristicSettings, contextLimitFor),
+      muted: () => findings.mutedHeuristics(),
+    },
+    { headline: (id) => headliner.get(id) }
+  );
   // Discovery reads only this workspace's history; each workspace's log is separate.
   const discoveryDays = () => Math.max(1, vscode.workspace.getConfiguration('snagboat.discovery').get<number>('days', 30));
   const discoverySource = () => vscode.workspace.name ?? 'this window';
@@ -272,6 +295,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const detailPanel = new DetailPanel(context.extensionUri, {
     suggestions,
     explain: (req) => advisor.explain(req),
+    tactics: (sessionId) => advisor.tactics(sessionId),
     pickAdvisor: (ability) => advisor.pickAdvisor(ability),
     buildState: (isOpenable) =>
       buildDetailState({
@@ -451,10 +475,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     await fs.promises.writeFile(file, renderReview(review));
     return { file, review };
   };
-  /** The two abilities a review asks for, each appended to the file as its own labelled section. */
-  const REVIEW_ABILITIES: Array<{ ability: Capability; title: string; progress: string; build: typeof summarizeWeekMessages }> = [
-    { ability: 'summarize-week', title: "The advisor's summary of the week", progress: 'summarizing the week', build: summarizeWeekMessages },
-    { ability: 'propose-nudges', title: 'The advisor on how findings were shown', progress: 'reviewing how findings were shown', build: proposeNudgesMessages },
+  /** The abilities a review asks for, each appended to the file as its own labelled section. */
+  const REVIEW_ABILITIES: Array<{ ability: Capability; title: string; progress: string; build: (r: Review, prompts: PromptLayers, policy: DigestPolicy) => Promise<ChatMessage[] | undefined> }> = [
+    { ability: 'summarize-week', title: "The advisor's summary of the week", progress: 'summarizing the week', build: async (r, prompts, policy) => summarizeWeekMessages(r, prompts, policy) },
+    { ability: 'propose-nudges', title: 'The advisor on how findings were shown', progress: 'reviewing how findings were shown', build: async (r, prompts, policy) => proposeNudgesMessages(r, prompts, policy) },
+    {
+      ability: 'propose-tactics',
+      title: 'The advisor on tactics to try',
+      progress: 'proposing tactics',
+      // The costliest sessions' digests, a few turns each, under this ability's sending rules.
+      build: async (r, prompts, policy) => {
+        const digests = [];
+        for (const s of r.usage.costliest.slice(0, REVIEW_TACTICS_SESSIONS)) {
+          const input = await digestInput(s.sessionId);
+          if (input) digests.push(buildDigest({ ...input, maxTurns: REVIEW_TACTICS_TURNS }, policy));
+        }
+        return digests.length > 0 ? proposeTacticsMessages(digests, prompts, Advisor.modelTiers()) : undefined;
+      },
+    },
   ];
   /**
    * Asks for the advisor's part of a written review: the week's summary and the
@@ -465,7 +503,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     let appended = false;
     for (const { ability, title, progress, build } of REVIEW_ABILITIES) {
       if (advisorId && !advisor.advisors().find((a) => a.id === advisorId)?.abilities[ability]) continue;
-      const asked = await advisor.ask(ability, async ({ prompts, policy }) => build(written.review, prompts, policy), { title: progress, advisorId });
+      const asked = await advisor.ask(ability, ({ prompts, policy }) => build(written.review, prompts, policy), { title: progress, advisorId });
       if (!asked) continue;
       const warning = Advisor.cutWarning(asked, 'its context window is too small for a week of data');
       await fs.promises.appendFile(written.file, advisorSection(title, asked.completion.text, Advisor.label(asked), warning || undefined));
@@ -542,6 +580,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
 
   const weeklyTimer = setInterval(() => void weeklyReview(), RETENTION_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(weeklyTimer) });
+
+  let headlining = false;
+  let headlineBackoffUntil = 0;
+  const headlineTick = async () => {
+    if (headlining || Date.now() < headlineBackoffUntil || !vscode.workspace.getConfiguration('snagboat.advisor').get<boolean>('headlines', false)) return;
+    const now = new Date().toISOString();
+    const idleMinutes = positiveNumberOr(heuristicSettings('stalled').minutes, 15);
+    const all = sessionIndex.list();
+    await headliner.prune(new Set(all.map((s) => s.sessionId)));
+    const [due] = headliner.due(all, now, idleMinutes, HEADLINE_DAYS);
+    if (!due) return;
+    headlining = true;
+    try {
+      const asked = await advisor.ask(
+        'summarize-session',
+        async ({ policy, prompts }) => {
+          const input = await digestInput(due.sessionId);
+          return input ? headlineMessages(buildDigest(input, policy), prompts) : undefined;
+        },
+        { title: `headlining session ${due.sessionId.slice(0, 8)}`, quiet: true }
+      );
+      if (!asked) {
+        headlineBackoffUntil = Date.now() + HEADLINE_BACKOFF_MS;
+        return;
+      }
+      await headliner.record(due.sessionId, due.lastTs, headlineLine(asked.completion.text), asked.advisor.model, now);
+      detailPanel.scheduleUpdate();
+    } finally {
+      headlining = false;
+    }
+  };
+  const headlineTimer = setInterval(() => void headlineTick(), HEADLINE_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(headlineTimer) });
   // A minute in, so activation and catching up on transcripts come first.
   const firstWeekly = setTimeout(() => void weeklyReview(), 60_000);
   context.subscriptions.push({ dispose: () => clearTimeout(firstWeekly) });
@@ -616,6 +687,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     vscode.commands.registerCommand('snagboat.explainSession', async () => {
       const sessionId = await pickSession('Explain a session (most recent first)');
       if (sessionId) await advisor.explain({ sessionId });
+    }),
+    vscode.commands.registerCommand('snagboat.tacticsSession', async () => {
+      const sessionId = await pickSession('Propose tactics for a session (most recent first)');
+      if (sessionId) await advisor.tactics(sessionId);
     }),
     vscode.commands.registerCommand('snagboat.explainSessionWith', async () => {
       const advisorId = await advisor.pickAdvisor('summarize-session', 'Which advisor should explain it?');

@@ -1,11 +1,12 @@
 import { digestText, SessionDigest } from './digest';
-import { PromptLayers, systemPrompt } from './prompts';
+import { oneLine, PromptLayers, systemPrompt } from './prompts';
 import { ChatMessage } from './providers';
 
 /**
  * Summarize a session: what happened in a session, one turn of it, or one
  * finding, as Markdown shown beside the session. The Sessions tab calls it
- * Explain. The system prompt's layers are in ./prompts.ts.
+ * Explain. The short form is the headline: one line per ended session, for
+ * the session list. The system prompt's layers are in ./prompts.ts.
  */
 
 /** What the summary is about. */
@@ -28,4 +29,17 @@ export function summarizeSessionMessages(digest: SessionDigest, focus: SessionFo
     { role: 'system', content: systemPrompt('summarize-session', prompts) },
     { role: 'user', content: `${question(focus)}\n\nDigest:\n${digestText(digest)}` },
   ];
+}
+
+/** The short form: a one-line headline for a session that has ended. */
+export function headlineMessages(digest: SessionDigest, prompts: PromptLayers = {}): ChatMessage[] {
+  return [
+    { role: 'system', content: systemPrompt('summarize-session/headline', prompts) },
+    { role: 'user', content: `Give this session a headline.\n\nDigest:\n${digestText(digest)}` },
+  ];
+}
+
+/** The headline as one line for the session list, or undefined when the model had nothing specific. */
+export function headlineLine(text: string): string | undefined {
+  return oneLine(text, 120);
 }

@@ -3,7 +3,7 @@
  * models or advisors, and writes their answers side by side, so default
  * models and prompts are picked from real use. Dev tooling only; never shipped.
  *
- *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--base-url <url>] [--ability summarize-session|propose-heuristics] [--prompts both|on|off] [--sessions 2] [--all-projects | <session.jsonl> ...]
+ *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--base-url <url>] [--ability summarize-session|propose-tactics|propose-heuristics] [--prompts both|on|off] [--sessions 2] [--all-projects | <session.jsonl> ...]
  *   npm run eval:advisor -- --advisor spend,risk [--settings <settings.json>] [--ability ...] ...
  *
  * --models asks each model at --base-url (Ollama on this machine by default)
@@ -26,9 +26,10 @@
  * A provider off this machine needs SNAGBOAT_EVAL_API_KEY.
  *
  * For summarize-session, each session gives up to three cases: the session,
- * its busiest turn, and its first finding. Answers are checked automatically
- * (the three headings, no absolute paths, whether the server cut the prompt
- * to fit its context window); judging quality is yours, from the report. The
+ * its busiest turn, and its first finding; for propose-tactics, one case per
+ * session. Answers are checked automatically (the ability's three headings,
+ * no absolute paths, whether the server cut the prompt to fit its context
+ * window); judging quality is yours, from the report. The
  * console gets counts and timings only. The report, with digests and answers,
  * is written to out/eval/, which isn't committed.
  */
@@ -39,6 +40,7 @@ import { Capability } from '../advisor/advisors';
 import { buildDigest, digestForReading, DigestFinding, DigestPolicy, HOSTED_POLICY, LOCAL_POLICY, SessionDigest } from '../advisor/digest';
 import { PromptLayers } from '../advisor/prompts';
 import { proposeHeuristicsMessages } from '../advisor/proposeHeuristics';
+import { proposeTacticsMessages } from '../advisor/proposeTactics';
 import { complete, Completion, FetchLike, isLocalUrl, promptWasCut, ProviderConfig } from '../advisor/providers';
 import { SessionFocus, summarizeSessionMessages } from '../advisor/summarizeSession';
 import { builtInHeuristics } from '../heuristics/builtIns';
@@ -74,7 +76,11 @@ interface Result {
   checks: { headings: boolean; noAbsolutePaths: boolean; truncated: boolean };
 }
 
-const HEADINGS = ['what happened', 'likely cause', 'what to try'];
+/** The Markdown abilities this script runs case by case: their headings, and how a case's messages are built. */
+const CASE_ABILITIES: Record<string, { ability: Capability; headings: string[]; sessionOnly: boolean; messages: (c: Case, run: Run) => ReturnType<typeof summarizeSessionMessages> }> = {
+  'summarize-session': { ability: 'summarize-session', headings: ['what happened', 'likely cause', 'what to try'], sessionOnly: false, messages: (c, run) => summarizeSessionMessages(c.digest, c.focus, run.prompts('summarize-session')) },
+  'propose-tactics': { ability: 'propose-tactics', headings: ['model use', 'prompt tactics', 'what to try'], sessionOnly: true, messages: (c, run) => proposeTacticsMessages([c.digest], run.prompts('propose-tactics')) },
+};
 
 function arg(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -119,8 +125,8 @@ export function runsFromArgs(models: string[], baseUrl: string, advisorIds: stri
   }));
 }
 
-/** Up to three cases per session: the whole session, its busiest turn, and its first finding. */
-function casesFor(events: NormalizedEvent[], policy: DigestPolicy, roots: string[]): Case[] {
+/** Up to three cases per session: the whole session, its busiest turn, and its first finding (or the session only). */
+function casesFor(events: NormalizedEvent[], policy: DigestPolicy, roots: string[], sessionOnly = false): Case[] {
   const sessionId = events[0].sessionId;
   const replay = new FindingReplay(builtInHeuristics(), () => ({}));
   for (const e of events) replay.ingest(e);
@@ -128,6 +134,7 @@ function casesFor(events: NormalizedEvent[], policy: DigestPolicy, roots: string
   const input = { sessionId, events, findings, roots };
   const short = sessionId.slice(0, 8);
   const cases: Case[] = [{ label: `session ${short}`, sessionId, digest: buildDigest(input, policy), focus: { kind: 'session' } }];
+  if (sessionOnly) return cases;
 
   const toolsByTurn = new Map<string, number>();
   for (const e of events) if (e.kind === 'tool_call' && e.turnId) toolsByTurn.set(e.turnId, (toolsByTurn.get(e.turnId) ?? 0) + 1);
@@ -146,10 +153,10 @@ function casesFor(events: NormalizedEvent[], policy: DigestPolicy, roots: string
   return cases;
 }
 
-function check(text: string, completion: Completion | undefined, messages: ReturnType<typeof summarizeSessionMessages>): Result['checks'] {
+function check(text: string, completion: Completion | undefined, messages: ReturnType<typeof summarizeSessionMessages>, headings: string[]): Result['checks'] {
   const lower = text.toLowerCase();
   return {
-    headings: HEADINGS.every((h) => lower.includes(h)),
+    headings: headings.every((h) => lower.includes(h)),
     noAbsolutePaths: !/(^|[\s"'`(])\/(Users|home|private|var|tmp)\//.test(text),
     truncated: !!completion && promptWasCut(completion, messages),
   };
@@ -275,11 +282,16 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  const spec = CASE_ABILITIES[ability];
+  if (!spec) {
+    console.error(`--ability takes ${[...Object.keys(CASE_ABILITIES), 'propose-heuristics'].join(', ')}`);
+    return 1;
+  }
   // With and without prompts, as --prompts says; a run whose rules withhold prompts (hosted, by default) never gets them.
   const variants = promptsMode === 'both' ? [true, false] : [promptsMode === 'on'];
   runs = runs.flatMap((run) =>
     variants
-      .filter((withPrompts) => !withPrompts || run.provider.locality === 'local' || run.policy('summarize-session')?.prompts)
+      .filter((withPrompts) => !withPrompts || run.provider.locality === 'local' || run.policy(spec.ability)?.prompts)
       .map((withPrompts): Run => ({
         ...run,
         label: variants.length > 1 ? `${run.label} · ${withPrompts ? 'prompts' : 'no prompts'}` : run.label,
@@ -289,11 +301,11 @@ async function main(): Promise<number> {
         },
       }))
   );
-  const report: string[] = [`# Advisor evaluation: summarize a session (Explain)`, '', `${new Date().toISOString()} · runs: ${runs.map((r) => `${r.label} (${r.provider.baseUrl}; sends ${describePolicy(r.policy('summarize-session') ?? HOSTED_POLICY)})`).join(', ')}`, ''];
+  const report: string[] = [`# Advisor evaluation: ${spec.ability}`, '', `${new Date().toISOString()} · runs: ${runs.map((r) => `${r.label} (${r.provider.baseUrl}; sends ${describePolicy(r.policy(spec.ability) ?? HOSTED_POLICY)})`).join(', ')}`, ''];
   // Each run gets digests under its own sending rules; the report shows the first run's.
   const casesByRun = runs.map((run) => {
-    const policy = run.policy('summarize-session');
-    return policy ? sessions.flatMap((events) => casesFor(events, policy, [process.cwd()])) : [];
+    const policy = run.policy(spec.ability);
+    return policy ? sessions.flatMap((events) => casesFor(events, policy, [process.cwd()], spec.sessionOnly)) : [];
   });
   const shown = casesByRun.find((c) => c.length > 0) ?? [];
   const all: Array<{ c: Case; results: Result[] }> = [];
@@ -302,15 +314,15 @@ async function main(): Promise<number> {
     for (const [r, run] of runs.entries()) {
       const mine = casesByRun[r][i];
       if (!mine) {
-        console.log(`${c.label.padEnd(40)} ${run.label.padEnd(30)} doesn't offer summarize-session`);
+        console.log(`${c.label.padEnd(40)} ${run.label.padEnd(30)} doesn't offer ${spec.ability}`);
         continue;
       }
-      const messages = summarizeSessionMessages(mine.digest, mine.focus, run.prompts('summarize-session'));
+      const messages = spec.messages(mine, run);
       const chars = messages.reduce((n, m) => n + m.content.length, 0);
       const started = Date.now();
       try {
         const completion = await complete(run.provider, messages, run.apiKey, fetch as unknown as FetchLike);
-        results.push({ run, ms: Date.now() - started, completion, checks: check(completion.text, completion, messages) });
+        results.push({ run, ms: Date.now() - started, completion, checks: check(completion.text, completion, messages, spec.headings) });
       } catch (err) {
         results.push({ run, ms: Date.now() - started, error: err instanceof Error ? err.message : String(err), checks: { headings: false, noAbsolutePaths: true, truncated: false } });
       }

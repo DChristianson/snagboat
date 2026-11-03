@@ -55,6 +55,8 @@ export interface SessionFindingMark {
 
 export interface SessionView {
   summary: SessionSummary;
+  /** The advisor's one-line headline, when headlines are on and it has one (model output). */
+  headline?: string;
   /** Every prompt message; several can share a turn, and share its index. */
   prompts: Array<{ turnId: string; ts: string; index: number; text?: string }>;
   calls: TimelineCall[];

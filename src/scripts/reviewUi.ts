@@ -75,6 +75,7 @@ async function main(): Promise<number> {
     return 1;
   }
   const report = [`# Advisor evaluation: review`, '', `${new Date().toISOString()} · runs: ${runs.map((r) => r.label).join(', ')}`, ''];
+  // The tactics section needs each session's digest, which the extension builds from its log; here, only the two review abilities over the review's own data.
   const parts = [
     { ability: 'summarize-week' as const, title: "The advisor's summary of the week", build: summarizeWeekMessages },
     { ability: 'propose-nudges' as const, title: 'The advisor on how findings were shown', build: proposeNudgesMessages },

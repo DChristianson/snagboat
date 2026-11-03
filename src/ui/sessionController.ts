@@ -10,6 +10,13 @@ export interface SessionListPayload {
   /** Days with sessions, newest first, for the day picker. */
   days: string[];
   sessions: SessionSummary[];
+  /** The advisor's headline per session, where there is one (model output). */
+  headlines: Record<string, string>;
+}
+
+export interface SessionExtras {
+  /** The advisor's headline for a session, when headlines are on. */
+  headline?: (sessionId: string) => string | undefined;
 }
 
 interface FindingLike {
@@ -45,13 +52,20 @@ export class SessionController {
     private readonly index: SessionIndex,
     private readonly eventLog: EventLog,
     private readonly marks: () => Record<string, ModelContextMarks>,
-    private readonly findings: SessionFindingSources
+    private readonly findings: SessionFindingSources,
+    private readonly extras: SessionExtras = {}
   ) {}
 
   list(day: string | undefined, today: string): SessionListPayload {
     const days = this.index.days();
     const chosen = day ?? (days.includes(today) ? today : days[0] ?? today);
-    return { day: chosen, days, sessions: this.index.forDay(chosen) };
+    const sessions = this.index.forDay(chosen);
+    const headlines: Record<string, string> = {};
+    for (const s of sessions) {
+      const h = this.extras.headline?.(s.sessionId);
+      if (h) headlines[s.sessionId] = h;
+    }
+    return { day: chosen, days, sessions, headlines };
   }
 
   /** Loads a session's events from its days' raw files; undefined if it's unknown or no longer retained. */
@@ -93,7 +107,9 @@ export class SessionController {
   view(): SessionView | undefined {
     if (!this.openId) return undefined;
     const summary = this.index.get(this.openId);
-    return summary ? buildSessionView(summary, this.openEvents, this.marks(), this.sessionFindings()) : undefined;
+    if (!summary) return undefined;
+    const headline = this.extras.headline?.(this.openId);
+    return { ...buildSessionView(summary, this.openEvents, this.marks(), this.sessionFindings()), ...(headline ? { headline } : {}) };
   }
 
   /**

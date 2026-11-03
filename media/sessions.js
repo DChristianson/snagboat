@@ -34,6 +34,8 @@
   const explain = (extra) => vscode.postMessage({ type: 'explain', sessionId: ui.view.summary.sessionId, ...(extra || {}) });
   const explainBtn = el('button', { text: 'Explain session', title: 'Ask the advisor model what happened in this session' });
   explainBtn.addEventListener('click', () => explain());
+  const tacticsBtn = el('button', { text: 'Tactics', title: 'Ask the advisor model whether the models used fit each turn, and whether a different way of prompting would have cost less' });
+  tacticsBtn.addEventListener('click', () => vscode.postMessage({ type: 'tactics', sessionId: ui.view.summary.sessionId }));
   const promptPanel = el('section', { class: 'prompt-panel', 'aria-label': 'Prompt', hidden: true });
   const treeHost = el('div', { class: 'tree-host' });
   const expandBtn = el('button', {});
@@ -56,7 +58,7 @@
   ]);
   const findingsSection = el('section', { class: 'session-findings', 'aria-label': 'Findings in this session' });
   const sessionSection = el('section', { class: 'session-view', hidden: true }, [
-    el('div', { class: 'session-head' }, [crumbs, el('span', { class: 'spacer' }), explainBtn, closeBtn]),
+    el('div', { class: 'session-head' }, [crumbs, el('span', { class: 'spacer' }), explainBtn, tacticsBtn, closeBtn]),
     sessionMeta,
     treeHost,
     promptPanel,
@@ -129,11 +131,11 @@
         el('td', { class: 'num', text: fmt(s.modelCalls) }),
         el('td', { class: 'num', text: compact(s.tokens) }),
         el('td', { class: 'num', text: duration(s.firstTs, s.lastTs) }),
-        el(
-          'td',
-          { title: s.name ? `${s.name} (${s.sessionId})` : s.sessionId },
-          s.name ? [el('span', { text: clip(s.name, 48) }), el('span', { class: 'muted', text: ` ${short(s.sessionId)}` })] : [el('span', { class: 'muted', text: short(s.sessionId) })]
-        ),
+        el('td', { title: s.name ? `${s.name} (${s.sessionId})` : s.sessionId }, [
+          ...(s.name ? [el('span', { text: clip(s.name, 48) }), el('span', { class: 'muted', text: ` ${short(s.sessionId)}` })] : [el('span', { class: 'muted', text: short(s.sessionId) })]),
+          // The advisor's headline, model output, under the name.
+          list.headlines && list.headlines[s.sessionId] ? el('div', { class: 'muted small', text: clip(list.headlines[s.sessionId], 90), title: `Headline by the advisor (model output): ${list.headlines[s.sessionId]}` }) : null,
+        ]),
       ]);
       const openIt = () => {
         persist({ sessionId: s.sessionId });
@@ -169,7 +171,7 @@
     });
     crumbs.replaceChildren(...items);
     const s = v.summary;
-    sessionMeta.textContent = `${agentName(s.agent)} \u00b7 ${s.models.map(modelShort).join(', ')} \u00b7 ${fmt(s.prompts)} prompts \u00b7 ${fmt(s.modelCalls)} model calls \u00b7 ${fmt(s.toolCalls)} tool calls \u00b7 ${compact(s.tokens)} tokens${s.subagents ? ` \u00b7 ${s.subagents} subagents` : ''}${isLive(s) ? ' \u00b7 live' : ''}`;
+    sessionMeta.textContent = `${agentName(s.agent)} \u00b7 ${s.models.map(modelShort).join(', ')} \u00b7 ${fmt(s.prompts)} prompts \u00b7 ${fmt(s.modelCalls)} model calls \u00b7 ${fmt(s.toolCalls)} tool calls \u00b7 ${compact(s.tokens)} tokens${s.subagents ? ` \u00b7 ${s.subagents} subagents` : ''}${isLive(s) ? ' \u00b7 live' : ''}${v.headline ? ` \u00b7 advisor: ${v.headline}` : ''}`;
   }
 
   const sessionLabel = (s) => (s.name ? clip(s.name, 60) : short(s.sessionId));
