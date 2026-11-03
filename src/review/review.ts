@@ -14,7 +14,9 @@ import { CheckResult, momentsFrom, presentationChecks, snapshotAt, UiSnapshot } 
  * heuristics fired and how you responded, rules to retire or add, and how
  * findings were shown. Written as Markdown for you to keep. It names
  * heuristics, rules, models, and session ids; never prompts, replies,
- * targets, paths, or session names. See docs/design/trusted-advisor.md.
+ * targets, paths, or session names. The one exception is in the data, not
+ * the Markdown: each costliest session's first prompt, kept for an advisor
+ * allowed to see prompts. See docs/design/trusted-advisor.md.
  */
 
 export interface ReviewInput {
@@ -54,7 +56,8 @@ export interface Review {
     byModel: Array<{ model: string } & TokenSum>;
     byDay: Array<{ day: string } & TokenSum>;
     byCategory: Array<{ category: string; calls: number; failures: number }>;
-    costliest: Array<{ sessionId: string; turns: number; tokens: number }>;
+    /** The first prompt is never rendered; it goes only to an advisor whose policy allows prompts. */
+    costliest: Array<{ sessionId: string; turns: number; tokens: number; firstPrompt?: string }>;
   };
   heuristics: Array<{ id: string; episodes: number; warnings: number; sessions: number; response?: ResponseStats }>;
   retire: Array<{ id: string; title: string; reason: string }>;
@@ -66,6 +69,8 @@ export interface Review {
 
 /** Snapshots kept for the advisor's review. */
 const MAX_SNAPSHOTS = 15;
+/** A costliest session's first prompt, clipped as the digest clips prompts. */
+const MAX_FIRST_PROMPT = 1000;
 
 const tokensOf = (e: NormalizedEvent) => (e.tokens ? (e.tokens.input ?? 0) + (e.tokens.output ?? 0) + (e.tokens.cacheRead ?? 0) + (e.tokens.cacheCreation ?? 0) : 0);
 
@@ -85,7 +90,7 @@ export function buildReview(input: ReviewInput): Review {
 
   const byModel = new Map<string, TokenSum>();
   const byDay = new Map<string, TokenSum>();
-  const bySession = new Map<string, TokenSum & { turns: Set<string> }>();
+  const bySession = new Map<string, TokenSum & { turns: Set<string>; firstPrompt?: string }>();
   for (const e of calls) {
     bump(byModel, e.model ?? 'unknown', e);
     bump(byDay, e.ts.slice(0, 10), e);
@@ -94,6 +99,7 @@ export function buildReview(input: ReviewInput): Review {
     const s = bySession.get(e.sessionId) ?? { tokens: 0, calls: 0, turns: new Set<string>() };
     s.tokens += tokensOf(e);
     if (e.kind === 'user_prompt' && e.turnId) s.turns.add(e.turnId);
+    if (e.kind === 'user_prompt' && e.promptText && !s.firstPrompt) s.firstPrompt = e.promptText.length > MAX_FIRST_PROMPT ? `${e.promptText.slice(0, MAX_FIRST_PROMPT - 1)}…` : e.promptText;
     bySession.set(e.sessionId, s);
   }
   const byCategory = new Map<string, { calls: number; failures: number }>();
@@ -159,7 +165,10 @@ export function buildReview(input: ReviewInput): Review {
       byModel: [...byModel].map(([model, s]) => ({ model, ...s })).sort((a, b) => b.tokens - a.tokens),
       byDay: [...byDay].map(([day, s]) => ({ day, ...s })).sort((a, b) => a.day.localeCompare(b.day)),
       byCategory: [...byCategory].map(([category, s]) => ({ category, ...s })).sort((a, b) => b.calls - a.calls),
-      costliest: [...bySession].map(([sessionId, s]) => ({ sessionId, turns: s.turns.size, tokens: s.tokens })).sort((a, b) => b.tokens - a.tokens).slice(0, 5),
+      costliest: [...bySession]
+        .map(([sessionId, s]) => ({ sessionId, turns: s.turns.size, tokens: s.tokens, ...(s.firstPrompt ? { firstPrompt: s.firstPrompt } : {}) }))
+        .sort((a, b) => b.tokens - a.tokens)
+        .slice(0, 5),
     },
     heuristics: [...new Set([...fired.keys(), ...responses.keys()])]
       .map((id) => ({ id, episodes: fired.get(id)?.episodes ?? 0, warnings: fired.get(id)?.warnings ?? 0, sessions: episodeSessions.get(id)?.size ?? 0, response: responses.get(id) }))

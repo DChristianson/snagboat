@@ -73,6 +73,8 @@ export interface DigestTurn {
   prompt?: string;
   modelCalls: number;
   subagentModelCalls: number;
+  /** The main agent's model with the most calls in the turn, for judging whether it fit the ask. */
+  model?: string;
   tokens: TokenSums;
   contextPeak?: { tokens: number; percentOfLimit?: number };
   compactions: number;
@@ -194,6 +196,9 @@ export function buildDigest(input: DigestInput, policy: DigestPolicy): SessionDi
       const limit = e.contextLimit ?? input.contextLimit?.(e.model);
       peak = { tokens: size, ...(limit ? { percentOfLimit: Math.round((100 * size) / limit) } : {}) };
     }
+    const modelCounts = new Map<string, number>();
+    for (const e of calls) if (!e.agentId && e.model && e.model !== '<synthetic>') modelCounts.set(e.model, (modelCounts.get(e.model) ?? 0) + 1);
+    const model = [...modelCounts].sort((a, b) => b[1] - a[1])[0]?.[0];
     const tools = new Map<string, DigestTool>();
     for (const e of list.filter((x) => x.kind === 'tool_call')) {
       const target = redactTarget(e, input.roots, policy.paths);
@@ -215,6 +220,7 @@ export function buildDigest(input: DigestInput, policy: DigestPolicy): SessionDi
       ...(policy.prompts && prompt ? { prompt: clip(prompt, MAX_PROMPT) } : {}),
       modelCalls: calls.length,
       subagentModelCalls: calls.filter((e) => e.agentId).length,
+      ...(model ? { model } : {}),
       tokens,
       ...(peak ? { contextPeak: peak } : {}),
       compactions: list.filter((e) => e.kind === 'compaction').length,

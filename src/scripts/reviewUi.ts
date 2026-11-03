@@ -88,7 +88,7 @@ async function main(): Promise<number> {
       }
       const started = Date.now();
       try {
-        const c = await complete(run.provider, part.build(review, run.prompts(part.ability)), run.apiKey, fetch as unknown as FetchLike);
+        const c = await complete(run.provider, part.build(review, run.prompts(part.ability), run.policy(part.ability)), run.apiKey, fetch as unknown as FetchLike);
         console.log(`\n${run.label}, ${part.title}: ${((Date.now() - started) / 1000).toFixed(1)}s, read ${c.promptTokens ?? '?'} tokens`);
         report.push(advisorSection(`${part.title} (${((Date.now() - started) / 1000).toFixed(1)}s)`, c.text, run.label).replace(/^## /m, '### '));
       } catch (err) {

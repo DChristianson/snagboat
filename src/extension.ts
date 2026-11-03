@@ -465,7 +465,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     let appended = false;
     for (const { ability, title, progress, build } of REVIEW_ABILITIES) {
       if (advisorId && !advisor.advisors().find((a) => a.id === advisorId)?.abilities[ability]) continue;
-      const asked = await advisor.ask(ability, async ({ prompts }) => build(written.review, prompts), { title: progress, advisorId });
+      const asked = await advisor.ask(ability, async ({ prompts, policy }) => build(written.review, prompts, policy), { title: progress, advisorId });
       if (!asked) continue;
       const warning = Advisor.cutWarning(asked, 'its context window is too small for a week of data');
       await fs.promises.appendFile(written.file, advisorSection(title, asked.completion.text, Advisor.label(asked), warning || undefined));

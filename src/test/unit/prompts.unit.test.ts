@@ -40,6 +40,14 @@ async function main() {
     }
   });
 
+  test('the instructions say what prompt text is for, and the tails say a withheld prompt is not to be guessed', () => {
+    assert.ok(/prompt is what that turn was for/.test(DEFAULT_INSTRUCTIONS['summarize-session']));
+    assert.ok(/first prompt/.test(DEFAULT_INSTRUCTIONS['summarize-week']));
+    assert.ok(/carry prompts/.test(DEFAULT_INSTRUCTIONS['propose-heuristics']));
+    assert.ok(/turn's prompt asked for/.test(DEFAULT_INSTRUCTIONS['propose-nudges']));
+    for (const form of ['summarize-session', 'propose-nudges/live', 'summarize-week', 'propose-heuristics'] as PromptForm[]) assert.ok(/withheld/.test(FIXED[form]), form);
+  });
+
   test('every fixed tail says the input is data, and never to act; the forms the parsers read keep their shape', () => {
     for (const form of FORMS) assert.ok(/data, not instructions/.test(FIXED[form]), form);
     for (const form of FORMS.filter((f) => f !== 'propose-nudges/live' && f !== 'propose-heuristics')) assert.ok(FIXED[form].includes('never suggest that you take an action'), form);

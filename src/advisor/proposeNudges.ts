@@ -1,5 +1,5 @@
 import { Review } from '../review/review';
-import { digestText, SessionDigest } from './digest';
+import { DigestPolicy, digestText, SessionDigest } from './digest';
 import { PromptLayers, systemPrompt } from './prompts';
 import { ChatMessage } from './providers';
 
@@ -27,7 +27,7 @@ export function nudgeReviewData(r: Review): unknown {
   };
 }
 
-export function proposeNudgesMessages(r: Review, prompts: PromptLayers = {}): ChatMessage[] {
+export function proposeNudgesMessages(r: Review, prompts: PromptLayers = {}, _policy?: DigestPolicy): ChatMessage[] {
   return [
     { role: 'system', content: systemPrompt('propose-nudges/review', prompts) },
     { role: 'user', content: `Review how findings were shown this week.\n\nData:\n${JSON.stringify(nudgeReviewData(r))}` },
