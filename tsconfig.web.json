@@ -2,12 +2,11 @@
   // Type-checks the web demo's page code (src/web, which touches the DOM) and
   // what it imports from the session model. The root tsconfig has no DOM lib
   // and excludes the page, so `tsc -p .` stays node-only; `npm run build:web`
-  // runs this one. No node types: a node global in the bundle's graph is an
-  // error here, as a node import is in esbuild.
+  // runs this one. Node types stay on (type-only imports reach fs-touching
+  // modules); esbuild's browser build is what rejects a node import.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": [],
     "noEmit": true
   },
   "include": ["src/web/**/*.ts"]
