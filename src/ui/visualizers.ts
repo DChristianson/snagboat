@@ -233,6 +233,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Who acted on whom, as a grid: messages, delegation, model calls, and tool calls, by count.',
     tags: { category: ['actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'] },
   },
+  {
+    id: 'swimlane',
+    title: 'Swimlane',
+    description: 'Who had the ball, in order: lanes for you, each agent, and tool calls, with hand-offs between them.',
+    tags: { category: ['conversational', 'actor'], purpose: ['informative', 'expressive'], level: ['session'], dimension: ['communication', 'actor'] },
+  },
 ];
 
 /**
