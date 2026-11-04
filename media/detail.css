@@ -268,6 +268,62 @@ input[type="search"] { min-width: 220px; }
 .session-view.expanded .tree-host { margin-bottom: 4px; }
 .context-chart .mark-label { fill: var(--ink); }
 
+/* Explorer charts (media/viz/*.js beyond the two ported views): the same
+   grid, axis, hover, and mark conventions as the context chart. */
+.viz-chart { width: 100%; display: block; }
+.viz-chart .grid { stroke: var(--rule); stroke-width: 1; shape-rendering: crispEdges; }
+.viz-chart .axis-label { fill: var(--ink-muted); font-size: 11px; }
+.viz-chart .row-label { fill: var(--ink); font-size: 12px; }
+.viz-chart .hit { fill: transparent; }
+.viz-chart .mark-label { fill: var(--ink); }
+/* Session strips: turn blocks take the tree's shades; the selected turn is outlined. */
+.strips-chart .strip-turn { stroke: var(--rule); stroke-width: 1; }
+.strips-chart .turn-0 { fill: var(--turn-0); }
+.strips-chart .turn-1 { fill: var(--turn-1); }
+.strips-chart .node-unlinked { fill: rgba(128, 128, 128, 0.3); stroke-dasharray: 4 3; }
+.strips-chart .strip-turn-hit { cursor: pointer; }
+.strips-chart .strip-turn-hit:hover .strip-turn, .strips-chart .strip-turn-hit:focus .strip-turn { stroke: var(--vscode-focusBorder, var(--series-1)); }
+.strips-chart .strip-turn-hit:focus { outline: none; }
+.strips-chart .strip-selected { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.strips-chart .strip-compaction .hit:hover { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15)); }
+.strips-legend { margin-top: 6px; }
+.swatch.swatch-turn-0 { background: var(--turn-0); outline: 1px solid var(--rule); }
+.swatch.swatch-turn-1 { background: var(--turn-1); outline: 1px solid var(--rule); }
+.swatch.swatch-compaction { width: 2px; background: var(--warn); }
+.swatch.swatch-warn { width: 0; height: 0; border-radius: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--warn); }
+.swatch.swatch-info { width: 0; height: 0; border-radius: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--info); }
+/* Cost per prompt: stacked columns in the series colors (by agent) or the category colors (by tool category). */
+.cost-chart .cost-col { cursor: pointer; }
+.cost-chart .cost-col:focus { outline: none; }
+.cost-chart .cost-col:hover .hit, .cost-chart .cost-col:focus .hit { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15)); }
+.cost-chart .cat-1 { fill: var(--cat-1); }
+.cost-chart .cat-2 { fill: var(--cat-2); }
+.cost-chart .cat-3 { fill: var(--cat-3); }
+.cost-chart .cat-4 { fill: var(--cat-4); }
+.cost-chart .cat-5 { fill: var(--cat-5); }
+.cost-chart .cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.cost-chart .col-outline { fill: none; stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.cost-chart .group-label { fill: var(--ink); }
+.cost-legend { margin-top: 6px; }
+/* Context fill: one line per session in a fixed hue order (series 1, then
+   the five category colors), repeated with a dashed stroke past six. */
+.fill-chart .fill-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.line-0 { stroke: var(--series-1); fill: var(--series-1); background: var(--series-1); color: var(--series-1); }
+.line-1 { stroke: var(--cat-1); fill: var(--cat-1); background: var(--cat-1); color: var(--cat-1); }
+.line-2 { stroke: var(--cat-2); fill: var(--cat-2); background: var(--cat-2); color: var(--cat-2); }
+.line-3 { stroke: var(--cat-3); fill: var(--cat-3); background: var(--cat-3); color: var(--cat-3); }
+.line-4 { stroke: var(--cat-4); fill: var(--cat-4); background: var(--cat-4); color: var(--cat-4); }
+.line-5 { stroke: var(--cat-5); fill: var(--cat-5); background: var(--cat-5); color: var(--cat-5); }
+.fill-chart .hover-layer { fill: transparent; }
+.fill-chart .fill-hover { fill: var(--surface); stroke: var(--ink); stroke-width: 2; }
+.fill-chart .fill-selected { fill: none; stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.fill-chart .compaction-dot { fill: var(--warn); stroke: var(--surface); stroke-width: 1.5; }
+.fill-chart .fill-compaction:hover .compaction-dot { stroke: var(--ink); }
+.swatch.line-swatch { height: 3px; border-radius: 1px; }
+.swatch.line-swatch.dashed { background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px); }
+.swatch.swatch-compaction-dot { border-radius: 50%; background: var(--warn); }
+.fill-legend { margin-top: 6px; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }

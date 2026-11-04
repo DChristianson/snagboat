@@ -88,6 +88,24 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Context sent by each model call over clock time, with prompts, compactions, findings, and limits.',
     tags: { category: ['temporal', 'quantitative', 'state'], purpose: ['informative'], level: ['session'], dimension: ['time', 'quantity'] },
   },
+  {
+    id: 'session-strips',
+    title: 'Session strips',
+    description: 'One row per session over clock time: turns as blocks, compactions as ticks, findings as badges. Idle gaps stay visible.',
+    tags: { category: ['temporal', 'state'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time'] },
+  },
+  {
+    id: 'cost-per-prompt',
+    title: 'Cost per prompt',
+    description: 'One column per turn, tokens stacked by agent or by tool category, sessions side by side on one y axis.',
+    tags: { category: ['quantitative', 'conversational'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+  },
+  {
+    id: 'context-fill',
+    title: 'Context fill',
+    description: 'Context size per call by call index, one line per session, so sessions line up by progress rather than clock.',
+    tags: { category: ['state', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'] },
+  },
 ];
 
 /**
