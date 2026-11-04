@@ -50,7 +50,7 @@ async function main() {
     assert.deepStrictEqual(validateCatalog(CATALOG, TAXONOMY), []);
     assert.deepStrictEqual(Object.keys(TAXONOMY), ['category', 'purpose', 'level', 'dimension']);
     assert.deepStrictEqual(Object.keys(TAXONOMY.category.values), ['temporal', 'actor', 'conversational', 'dependency', 'quantitative', 'state', 'semantic']);
-    assert.deepStrictEqual(CATALOG.map((v) => v.id), ['turn-tree', 'context-timeline', 'session-strips', 'cost-per-prompt', 'context-fill', 'sequence-diagram', 'event-graph', 'actor-graph', 'prompt-terms', 'gantt', 'treemap', 'heatmap', 'tool-ribbon']);
+    assert.deepStrictEqual(CATALOG.map((v) => v.id), ['turn-tree', 'context-timeline', 'session-strips', 'cost-per-prompt', 'context-fill', 'sequence-diagram', 'event-graph', 'actor-graph', 'prompt-terms', 'gantt', 'treemap', 'heatmap', 'tool-ribbon', 'week-picture']);
   });
 
   test('a broken catalog names each problem', () => {
