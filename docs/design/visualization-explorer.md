@@ -211,6 +211,17 @@ These four were taken ahead of the order above, because each fills a gap in the 
 
 They needed `SessionView` to carry each tool call (name, category, status; never its target or arguments) and each model call's reply excerpt.
 
+#### Later additions
+
+From the recommended order and the views named in earlier drafts, each its own pull request:
+
+| Visualizer | category | purpose | level | dimension |
+| --- | --- | --- | --- | --- |
+| Gantt and waterfall | temporal | informative | session | time, actor, hierarchy |
+<!-- rows -->
+
+**Gantt and waterfall** draws both forms named in the proposal behind one toggle. Events have no durations, so a bar is the span from a turn's or agent's first event to its last, and calls are ticks. Waiting isn't told apart from working until [phase 8](trusted-advisor.md#phases) labels quiet gaps, and the view's note says so. The waterfall's selected turn gets its own chart rather than zooming the first, so the session's shape stays in view while reading one turn.
+
 ### What comes next
 
 Then the rest of the proposal's tables, category by category, as the data allows. Three of its guidelines are already in this design and should hold for every view added: preserve event identity (the shared selection), separate observed from inferred (the turn tree's ≈ and hatching), and make expressive views lead to the underlying events rather than end in a picture. Its cross-cutting encodings (node size, edge thickness, typed edges, glow for an active agent) are the vocabulary for the graph views when they come. Semantic views depend on derived representations, embeddings or model labels, which Snagboat doesn't produce; they wait on the advisor, and on a decision about what derived data to keep. Prompt terms doesn't change that: it counts words in the page at draw time and keeps nothing, and it says it's word counts rather than a model's reading.

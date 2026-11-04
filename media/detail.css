@@ -464,6 +464,33 @@ input[type="search"] { min-width: 220px; }
 .terms-prompt[aria-current="true"] { background: var(--vscode-list-activeSelectionBackground, rgba(128, 128, 128, 0.2)); color: var(--vscode-list-activeSelectionForeground, var(--ink)); }
 .terms-prompt[aria-current="true"] .muted { color: inherit; }
 
+/* Gantt and waterfall: bars for spans, ticks for moments; turn shades as the tree's. */
+.gantt-chart .gantt-rule { stroke: var(--rule); stroke-width: 1; shape-rendering: crispEdges; opacity: 0.5; }
+.gantt-chart .gantt-span { stroke: var(--rule); stroke-width: 1; }
+.gantt-chart .turn-0 { fill: var(--turn-0); }
+.gantt-chart .turn-1 { fill: var(--turn-1); }
+.gantt-chart .gantt-unlinked { fill: rgba(128, 128, 128, 0.3); stroke-dasharray: 4 3; }
+.gantt-chart .gantt-bar.clickable { cursor: pointer; }
+.gantt-chart .gantt-bar:focus { outline: none; }
+.gantt-chart .gantt-bar.clickable:hover .gantt-span, .gantt-chart .gantt-bar:focus .gantt-span { stroke: var(--vscode-focusBorder, var(--series-1)); }
+.gantt-chart .gantt-span.gantt-selected { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.gantt-chart .gantt-tick { pointer-events: none; }
+.gantt-chart .gantt-tick-call { fill: var(--ink); }
+.gantt-chart .gantt-tick-prompt { fill: var(--series-1); }
+.gantt-chart .gantt-cat-0 { fill: var(--ink-muted); }
+.gantt-chart .gantt-cat-1 { fill: var(--cat-1); }
+.gantt-chart .gantt-cat-2 { fill: var(--cat-2); }
+.gantt-chart .gantt-cat-3 { fill: var(--cat-3); }
+.gantt-chart .gantt-cat-4 { fill: var(--cat-4); }
+.gantt-chart .gantt-cat-5 { fill: var(--cat-5); }
+.gantt-chart .gantt-fail { stroke: var(--warn); stroke-width: 1.5; }
+.gantt-chart .gantt-compaction { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+.gantt-legend { margin-top: 6px; }
+.gantt-detail-head { margin: 12px 0 2px; }
+.swatch.swatch-gantt-call { width: 2px; background: var(--ink); }
+.swatch.swatch-gantt-prompt { width: 2px; background: var(--series-1); }
+.swatch.swatch-gantt-fail { background: none; outline: 1.5px solid var(--warn); outline-offset: -1.5px; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
