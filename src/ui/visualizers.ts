@@ -227,6 +227,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Where tokens went: from sessions, through the main agent or subagents, to models.',
     tags: { category: ['actor', 'quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
   },
+  {
+    id: 'adjacency-matrix',
+    title: 'Adjacency matrix',
+    description: 'Who acted on whom, as a grid: messages, delegation, model calls, and tool calls, by count.',
+    tags: { category: ['actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'] },
+  },
 ];
 
 /**

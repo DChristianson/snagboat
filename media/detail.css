@@ -683,6 +683,17 @@ input[type="search"] { min-width: 220px; }
 .sankey-model { fill: var(--ink-muted); background: var(--ink-muted); }
 .sankey-chart .sankey-label { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
 
+/* Adjacency matrix */
+.viz-chart.adj-chart { width: auto; max-width: none; }
+.adj-chart .heat-empty { fill: var(--ink-muted); fill-opacity: 0.05; }
+.adj-chart .heat-cell { cursor: pointer; }
+.adj-chart .heat-cell:focus { outline: none; }
+.adj-chart .heat-cell:hover .heat, .adj-chart .heat-cell:focus .heat { stroke: var(--vscode-focusBorder, var(--ink)); stroke-width: 1.5; }
+.adj-chart .adj-inferred { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 3 2; }
+.adj-chart .adj-on { stroke: var(--ink); stroke-width: 2; stroke-dasharray: none; }
+.adj-chart .adj-count { fill: var(--ink); font-size: 10px; pointer-events: none; paint-order: stroke; stroke: var(--surface); stroke-width: 2.5px; stroke-linejoin: round; }
+.swatch.swatch-adj-inferred { background: none; outline: 1px dashed var(--ink); outline-offset: -1px; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
