@@ -601,6 +601,20 @@ input[type="search"] { min-width: 220px; }
 .scatter-chart .scatter-on { stroke: var(--ink); stroke-width: 2.5; fill-opacity: 1; }
 .swatch.scatter-key { border-radius: 50%; }
 
+/* Bubble chart */
+.bubble-chart .bubble { cursor: pointer; }
+.bubble-chart .bubble:focus { outline: none; }
+.bubble-chart .bubble-dot { fill-opacity: 0.55; stroke: var(--surface); stroke-width: 1; }
+.bubble-chart .bubble:hover .bubble-dot, .bubble-chart .bubble:focus .bubble-dot { fill-opacity: 0.8; }
+.bubble-chart .bubble-warn { fill: var(--warn); }
+.bubble-chart .bubble-info { fill: var(--info); }
+.bubble-chart .bubble-clean { fill: var(--ink-muted); }
+.bubble-chart .bubble-on { stroke: var(--ink); stroke-width: 2.5; }
+.bubble-chart .bubble-label { fill: var(--ink); font-size: 11px; pointer-events: none; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.swatch.swatch-bubble-warn { border-radius: 50%; background: var(--warn); }
+.swatch.swatch-bubble-info { border-radius: 50%; background: var(--info); }
+.swatch.swatch-bubble-clean { border-radius: 50%; background: var(--ink-muted); }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
