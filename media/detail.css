@@ -642,6 +642,15 @@ input[type="search"] { min-width: 220px; }
 .cal-chart .cal-day { cursor: pointer; }
 .cal-chart .cal-day:hover, .cal-chart .cal-day:focus { outline: none; stroke: var(--vscode-focusBorder, var(--ink)); stroke-width: 1.5; }
 
+/* Radar */
+.viz-chart.radar-chart { width: auto; max-width: 100%; height: auto; }
+.radar-chart .radar-ring { fill: none; stroke: var(--rule); stroke-width: 1; }
+.radar-chart .radar-shape { fill-opacity: 0.12; stroke-width: 2; pointer-events: none; }
+.radar-chart .radar-shape.ring { fill-opacity: 0; stroke-dasharray: 4 3; }
+.radar-chart .radar-on { fill-opacity: 0.3; stroke-width: 3; }
+.radar-chart .radar-pt { cursor: pointer; }
+.radar-chart .radar-pt:hover, .radar-chart .radar-pt:focus { outline: none; stroke: var(--ink); stroke-width: 1.5; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
