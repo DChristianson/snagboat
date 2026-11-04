@@ -170,7 +170,7 @@
         legend.replaceChildren(
           key('swatch-turn-0', 'turn'),
           key('swatch-turn-1', 'next turn'),
-          rows.some((r) => r.unlinked) ? key('swatch-unlinked', 'unlinked calls') : null,
+          ...(rows.some((r) => r.unlinked) ? [key('swatch-unlinked', 'unlinked calls')] : []),
           key('swatch-compaction', 'compaction'),
           key('swatch-warn', 'finding (warning)'),
           key('swatch-info', 'finding (info)')
