@@ -1,19 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { eventDay } from './eventDay';
 import { NormalizedEvent } from './types';
 
-const DAY_FILE_PATTERN = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
+// eventDay lives in its own fs-free module (the session index and the web
+// demo use it); it's still available from here.
+export { eventDay };
 
-/**
- * The UTC day an event belongs to, from its own timestamp: events are filed
- * under the day they happened, not the day they were written, so catching up
- * on an old transcript doesn't pile history into today's file. Falls back to
- * today for a missing or unparseable timestamp.
- */
-export function eventDay(event: NormalizedEvent): string {
-  const ms = Date.parse(event.ts);
-  return new Date(Number.isNaN(ms) ? Date.now() : ms).toISOString().slice(0, 10);
-}
+const DAY_FILE_PATTERN = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
 
 /** What rehydrating from the raw log needs: an EventLog, or a snapshot of one read once. */
 export interface EventLogReader {
@@ -32,6 +26,11 @@ export class EventLog implements EventLogReader {
 
   constructor(storageDir: string) {
     this.eventsDir = path.join(storageDir, 'events');
+  }
+
+  /** The folder the daily files are in. */
+  get dir(): string {
+    return this.eventsDir;
   }
 
   async init(): Promise<void> {

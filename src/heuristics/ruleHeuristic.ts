@@ -1,4 +1,4 @@
-import { contextSize } from '../core/contextLimits';
+import { contextSize } from '../core/contextMarks';
 import { isConversationEvent } from '../core/sessions';
 import { categoryMatches } from '../core/toolCategory';
 import { currentTurnsIn } from '../core/turns';

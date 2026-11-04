@@ -4,7 +4,7 @@ import * as path from 'path';
 import { NormalizedEvent } from '../../core/types';
 import { classifyTool } from '../../core/toolCategory';
 import { makeExcerpt, makePromptText, redactSecrets } from '../../core/excerpt';
-import { sessionNameId } from '../../core/sessions';
+import { sessionNameId } from '../../core/sessionNames';
 
 /**
  * Copilot agent sessions, read from the Copilot CLI's own event log at
