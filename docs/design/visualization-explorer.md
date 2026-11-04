@@ -218,6 +218,7 @@ From the recommended order and the views named in earlier drafts, each its own p
 | Visualizer | category | purpose | level | dimension |
 | --- | --- | --- | --- | --- |
 | Gantt and waterfall | temporal | informative | session | time, actor, hierarchy |
+| Treemap | quantitative | expressive, informative | session, project | quantity, hierarchy |
 <!-- rows -->
 
 **Gantt and waterfall** draws both forms named in the proposal behind one toggle. Events have no durations, so a bar is the span from a turn's or agent's first event to its last, and calls are ticks. Waiting isn't told apart from working until [phase 8](trusted-advisor.md#phases) labels quiet gaps, and the view's note says so. The waterfall's selected turn gets its own chart rather than zooming the first, so the session's shape stays in view while reading one turn.

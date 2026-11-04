@@ -491,6 +491,22 @@ input[type="search"] { min-width: 220px; }
 .swatch.swatch-gantt-prompt { width: 2px; background: var(--series-1); }
 .swatch.swatch-gantt-fail { background: none; outline: 1.5px solid var(--warn); outline-offset: -1.5px; }
 
+/* Treemap: leaves in the tree's category colors, labels haloed so they read on any of them. */
+.treemap-chart .treemap-frame { fill: none; stroke: var(--rule); stroke-width: 1; }
+.treemap-chart .treemap-group { fill: var(--ink); font-size: 11px; font-weight: 600; }
+.treemap-chart .treemap-leaf { cursor: pointer; }
+.treemap-chart .treemap-leaf:focus { outline: none; }
+.treemap-chart .treemap-leaf:hover .treemap-block, .treemap-chart .treemap-leaf:focus .treemap-block { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.treemap-chart .cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.treemap-chart .cat-1 { fill: var(--cat-1); }
+.treemap-chart .cat-2 { fill: var(--cat-2); }
+.treemap-chart .cat-3 { fill: var(--cat-3); }
+.treemap-chart .cat-4 { fill: var(--cat-4); }
+.treemap-chart .cat-5 { fill: var(--cat-5); }
+.treemap-chart .treemap-label { fill: var(--ink); font-size: 11px; pointer-events: none; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.treemap-chart .treemap-selected { fill: none; stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2.5; pointer-events: none; }
+.treemap-legend { margin-top: 6px; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
