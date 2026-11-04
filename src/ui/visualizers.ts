@@ -215,6 +215,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Every turn as a line across six measures, each axis on its own scale, colored by session.',
     tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'] },
   },
+  {
+    id: 'streamgraph',
+    title: 'Streamgraph',
+    description: 'How a session’s activity changed over time: tokens by agent or model, or tool calls by category.',
+    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['session'], dimension: ['time', 'quantity', 'actor'] },
+  },
 ];
 
 /**
