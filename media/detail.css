@@ -268,6 +268,31 @@ input[type="search"] { min-width: 220px; }
 .session-view.expanded .tree-host { margin-bottom: 4px; }
 .context-chart .mark-label { fill: var(--ink); }
 
+/* Explorer charts (media/viz/*.js beyond the two ported views): the same
+   grid, axis, hover, and mark conventions as the context chart. */
+.viz-chart { width: 100%; display: block; }
+.viz-chart .grid { stroke: var(--rule); stroke-width: 1; shape-rendering: crispEdges; }
+.viz-chart .axis-label { fill: var(--ink-muted); font-size: 11px; }
+.viz-chart .row-label { fill: var(--ink); font-size: 12px; }
+.viz-chart .hit { fill: transparent; }
+.viz-chart .mark-label { fill: var(--ink); }
+/* Session strips: turn blocks take the tree's shades; the selected turn is outlined. */
+.strips-chart .strip-turn { stroke: var(--rule); stroke-width: 1; }
+.strips-chart .turn-0 { fill: var(--turn-0); }
+.strips-chart .turn-1 { fill: var(--turn-1); }
+.strips-chart .node-unlinked { fill: rgba(128, 128, 128, 0.3); stroke-dasharray: 4 3; }
+.strips-chart .strip-turn-hit { cursor: pointer; }
+.strips-chart .strip-turn-hit:hover .strip-turn, .strips-chart .strip-turn-hit:focus .strip-turn { stroke: var(--vscode-focusBorder, var(--series-1)); }
+.strips-chart .strip-turn-hit:focus { outline: none; }
+.strips-chart .strip-selected { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.strips-chart .strip-compaction .hit:hover { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15)); }
+.strips-legend { margin-top: 6px; }
+.swatch.swatch-turn-0 { background: var(--turn-0); outline: 1px solid var(--rule); }
+.swatch.swatch-turn-1 { background: var(--turn-1); outline: 1px solid var(--rule); }
+.swatch.swatch-compaction { width: 2px; background: var(--warn); }
+.swatch.swatch-warn { width: 0; height: 0; border-radius: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--warn); }
+.swatch.swatch-info { width: 0; height: 0; border-radius: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--info); }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
