@@ -191,6 +191,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Each session by span and tokens, with area for tool calls and color for its worst finding.',
     tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'] },
   },
+  {
+    id: 'sunburst',
+    title: 'Sunburst',
+    description: 'The turn tree as rings: sessions, prompts, agents, then tool categories, with angle for tokens.',
+    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy', 'actor'] },
+  },
 ];
 
 /**

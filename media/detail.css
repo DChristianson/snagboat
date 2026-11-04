@@ -615,6 +615,26 @@ input[type="search"] { min-width: 220px; }
 .swatch.swatch-bubble-info { border-radius: 50%; background: var(--info); }
 .swatch.swatch-bubble-clean { border-radius: 50%; background: var(--ink-muted); }
 
+/* Sunburst */
+.viz-chart.sun-chart { width: auto; max-width: 100%; height: auto; }
+.sun-chart .sun-arc { stroke: var(--surface); stroke-width: 0.75; }
+.sun-chart .sun-arc[role="button"] { cursor: pointer; }
+.sun-chart .sun-arc:hover, .sun-chart .sun-arc:focus { outline: none; stroke: var(--vscode-focusBorder, var(--ink)); stroke-width: 1.5; }
+.sun-chart .sun-on { stroke: var(--ink); stroke-width: 1.5; }
+.sun-chart .sun-session { stroke: var(--surface); fill-opacity: 0.8; }
+.sun-chart .sun-turn-0 { fill: var(--turn-0); }
+.sun-chart .sun-turn-1 { fill: var(--turn-1); }
+.sun-chart .sun-agent-0 { fill: var(--turn-0); fill-opacity: 0.6; }
+.sun-chart .sun-agent-1 { fill: var(--turn-1); fill-opacity: 0.6; }
+.sun-chart .sun-unlinked { fill: rgba(128, 128, 128, 0.3); }
+.sun-chart .cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.sun-chart .cat-1 { fill: var(--cat-1); }
+.sun-chart .cat-2 { fill: var(--cat-2); }
+.sun-chart .cat-3 { fill: var(--cat-3); }
+.sun-chart .cat-4 { fill: var(--cat-4); }
+.sun-chart .cat-5 { fill: var(--cat-5); }
+.sun-chart .week-total { fill: var(--ink); font-size: 18px; font-weight: 600; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
