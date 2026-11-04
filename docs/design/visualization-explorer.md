@@ -213,7 +213,7 @@ They needed `SessionView` to carry each tool call (name, category, status; never
 
 #### Later additions
 
-From the recommended order and the views named in earlier drafts, each its own pull request:
+From the recommended order and the views named in earlier drafts, then the views in the proposal's tables that `SessionView` can already feed, each its own pull request:
 
 | Visualizer | category | purpose | level | dimension |
 | --- | --- | --- | --- | --- |
@@ -222,11 +222,14 @@ From the recommended order and the views named in earlier drafts, each its own p
 | Heatmap | quantitative, temporal | expressive, informative | project | quantity, time |
 | Tool-call ribbon | dependency, conversational | expressive, informative | session | dependency, communication |
 | Week in one picture | temporal, quantitative | expressive | project | time, quantity |
+| Histogram | quantitative | informative | session, project | quantity |
 <!-- rows -->
 
 **Gantt and waterfall** draws both forms named in the proposal behind one toggle. Events have no durations, so a bar is the span from a turn's or agent's first event to its last, and calls are ticks. Waiting isn't told apart from working until [phase 8](trusted-advisor.md#phases) labels quiet gaps, and the view's note says so. The waterfall's selected turn gets its own chart rather than zooming the first, so the session's shape stays in view while reading one turn.
 
 **Week in one picture** counts the loaded sessions, not the whole week, because the explorer's contract is the picked sessions; the cap of eight applies, and the note says so. The rings give outer days more area than inner ones, so color rather than size carries the value, and a table carries the numbers. With the agent-and-subagent graph covered by the actor graph, every view this document names is now built.
+
+The distribution and comparison views share helpers in `media/shared.js`, which reach a visualizer through `ctx`: per-turn numbers (`turnStats`), the measurements (`METRICS`, `metricValues`), `quantile` and `density`, `heatScale`, `modeButtons`, and the slide's layout (`vizPanel`).
 
 ### What comes next
 
