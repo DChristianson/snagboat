@@ -1,6 +1,6 @@
 # Design: visualization explorer
 
-Status: **accepted** (2026-11-03; decisions confirmed the same day). The visualization part of [phase 7](trusted-advisor.md#phases) of the advisor design, and the "visualizing sessions" half of the [prototype task](../roadmap.md#planned-tasks) in the roadmap. Steps 1–5 are built (2026-11-03); where the build differed from the text, the [implementation notes](#implementation-notes) at the end say how. Step 6 has built [every view this document names](#built-so-far); the rest of the proposal remains a catalog to draw from.
+Status: **accepted** (2026-11-03; decisions confirmed the same day). The visualization part of [phase 7](trusted-advisor.md#phases) of the advisor design, and the "visualizing sessions" half of the [prototype task](../roadmap.md#planned-tasks) in the roadmap. Steps 1–5 are built (2026-11-03); where the build differed from the text, the [implementation notes](#implementation-notes) at the end say how. Step 6 has built [every view this document names, and thirteen more](#built-so-far) from the proposal's tables; the rest of the proposal remains a catalog to draw from.
 
 ## Summary
 
@@ -234,6 +234,7 @@ From the recommended order and the views named in earlier drafts, then the views
 | Streamgraph | temporal, quantitative | expressive | session | time, quantity, actor |
 | Sankey | actor, quantitative | expressive, informative | session, project | quantity, actor |
 | Adjacency matrix | actor | informative | session, project | actor, communication, quantity |
+| Swimlane | conversational, actor | informative, expressive | session | communication, actor |
 <!-- rows -->
 
 **Gantt and waterfall** draws both forms named in the proposal behind one toggle. Events have no durations, so a bar is the span from a turn's or agent's first event to its last, and calls are ticks. Waiting isn't told apart from working until [phase 8](trusted-advisor.md#phases) labels quiet gaps, and the view's note says so. The waterfall's selected turn gets its own chart rather than zooming the first, so the session's shape stays in view while reading one turn.
@@ -244,7 +245,7 @@ The distribution and comparison views share helpers in `media/shared.js`, which 
 
 ### What comes next
 
-The proposal's other tables stay a catalog to consider, category by category, as the data allows; none is planned yet. Three of its guidelines are already in this design and should hold for every view added: preserve event identity (the shared selection), separate observed from inferred (the turn tree's ≈ and hatching), and make expressive views lead to the underlying events rather than end in a picture. Its cross-cutting encodings (node size, edge thickness, typed edges, glow for an active agent) are the vocabulary for the graph views when they come. Semantic views depend on derived representations, embeddings or model labels, which Snagboat doesn't produce; they wait on the advisor, and on a decision about what derived data to keep. Prompt terms doesn't change that: it counts words in the page at draw time and keeps nothing, and it says it's word counts rather than a model's reading.
+The rest of the proposal's tables stay a catalog to consider, none planned yet. Those left mostly need something `SessionView` doesn't have: the dependency views need links between events and what they produced, the state views need states someone has defined, and the semantic views need derived data. Three of its guidelines are already in this design and should hold for every view added: preserve event identity (the shared selection), separate observed from inferred (the turn tree's ≈ and hatching), and make expressive views lead to the underlying events rather than end in a picture. Its cross-cutting encodings (node size, edge thickness, typed edges, glow for an active agent) are the vocabulary for the graph views when they come. Semantic views depend on derived representations, embeddings or model labels, which Snagboat doesn't produce; they wait on the advisor, and on a decision about what derived data to keep. Prompt terms doesn't change that: it counts words in the page at draw time and keeps nothing, and it says it's word counts rather than a model's reading.
 
 ## Decisions
 
