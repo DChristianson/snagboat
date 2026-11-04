@@ -167,6 +167,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'How a measurement is spread: tokens per call, time between calls, or per-turn counts, stacked by session.',
     tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity'] },
   },
+  {
+    id: 'box-violin',
+    title: 'Box and violin',
+    description: 'How a measurement varies from session to session: density, quartiles, and outliers, one row each.',
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['project'], dimension: ['quantity'] },
+  },
 ];
 
 /**

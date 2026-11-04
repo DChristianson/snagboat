@@ -572,6 +572,19 @@ input[type="search"] { min-width: 220px; }
 .hist-bar:focus { outline: none; }
 .hist-bar:hover .hit, .hist-bar:focus .hit { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15)); }
 
+/* Box and violin */
+.box-chart .box-row { cursor: pointer; }
+.box-chart .box-row:focus { outline: none; }
+.box-chart .box-row:hover .hit, .box-chart .box-row:focus .hit { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.1)); }
+.box-chart .violin { fill: var(--series-1); fill-opacity: 0.25; }
+.box-chart .whisker { stroke: var(--ink); stroke-width: 1; }
+.box-chart .box { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
+.box-chart .box-on { stroke-width: 2.5; }
+.box-chart .median { stroke: var(--ink); stroke-width: 2.5; }
+.box-chart .outlier { fill: var(--cat-1); cursor: pointer; }
+.box-chart .outlier:focus { outline: none; stroke: var(--ink); stroke-width: 1.5; }
+.viz-chart .heat-row-on { font-weight: 600; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
