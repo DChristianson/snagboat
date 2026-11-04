@@ -672,6 +672,17 @@ input[type="search"] { min-width: 220px; }
 .stream-chart .cat-4 { fill: var(--cat-4); }
 .stream-chart .cat-5 { fill: var(--cat-5); }
 
+/* Sankey: ribbons as in the tool-call ribbon */
+.sankey-chart .ribbon { cursor: pointer; }
+.sankey-chart .ribbon:focus { outline: none; }
+.sankey-chart .ribbon-shape { fill-opacity: 0.4; stroke: none; }
+.sankey-chart .ribbon:hover .ribbon-shape, .sankey-chart .ribbon:focus .ribbon-shape { fill-opacity: 0.7; }
+.sankey-chart .ribbon-on .ribbon-shape { fill-opacity: 0.9; stroke: var(--ink); stroke-width: 1; }
+.sankey-chart .ribbon-dim .ribbon-shape { fill-opacity: 0.08; }
+.sankey-chart .sankey-node { stroke: none; }
+.sankey-model { fill: var(--ink-muted); background: var(--ink-muted); }
+.sankey-chart .sankey-label { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }

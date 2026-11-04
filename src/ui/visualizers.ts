@@ -221,6 +221,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'How a session’s activity changed over time: tokens by agent or model, or tool calls by category.',
     tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['session'], dimension: ['time', 'quantity', 'actor'] },
   },
+  {
+    id: 'sankey',
+    title: 'Sankey',
+    description: 'Where tokens went: from sessions, through the main agent or subagents, to models.',
+    tags: { category: ['actor', 'quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+  },
 ];
 
 /**
