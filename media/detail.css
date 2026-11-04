@@ -335,8 +335,10 @@ input[type="search"] { min-width: 220px; }
   gap: 16px;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
+  overflow-y: hidden;
   scrollbar-width: thin;
   padding-bottom: 6px;
+  box-sizing: border-box;
 }
 .strip:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 .slide {
@@ -347,36 +349,81 @@ input[type="search"] { min-width: 220px; }
   border-radius: 4px;
   padding: 10px 12px;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
-.slide-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-.slide-host { width: 100%; }
+.slide-head { flex: none; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+/* The strip's height is set to fit the window (fitStrip in explore.js); a taller drawing scrolls here. */
+.slide-host { flex: 1; min-height: 0; width: 100%; overflow-y: auto; scrollbar-width: thin; scrollbar-gutter: stable; }
 .stacked { border-top: 1px solid var(--rule); padding-top: 8px; margin-top: 12px; }
 .stacked:first-child { border-top: none; margin-top: 0; padding-top: 0; }
 .stack-head { display: flex; align-items: baseline; gap: 4px; margin-bottom: 6px; }
 .viz-host { width: 100%; }
-.nav { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+/* Sticky for windows too short to fit the strip, and over the puck (20) so nothing covers it. */
+.nav {
+  position: sticky;
+  bottom: 0;
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 6px 0;
+  flex-wrap: wrap;
+  background: var(--surface);
+}
+.carousel[data-puck$="left"] .nav { margin-left: auto; }
 .dots { display: flex; gap: 6px; align-items: center; }
 .dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--ink-muted); background: none; padding: 0; }
 .dot[aria-current="true"] { background: var(--vscode-button-background); border-color: var(--vscode-button-background); }
 .puck {
+  --puck-size: min(420px, calc(100vw - 32px), calc(100vh - 32px));
   position: fixed;
-  right: 16px;
-  bottom: 16px;
   z-index: 20; /* above .tooltip (10) */
-  width: min(320px, calc(100vw - 32px));
+  width: var(--puck-size);
+  height: var(--puck-size);
+  box-sizing: border-box;
+  padding: calc(var(--puck-size) * 0.08) calc(var(--puck-size) * 0.12); /* keeps the content inside the circle */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
   background: var(--vscode-editorWidget-background, var(--surface));
   color: var(--ink);
   border: 1px solid var(--rule);
-  border-radius: 8px;
   box-shadow: 0 6px 24px var(--vscode-widget-shadow);
   font-size: 0.9em;
 }
-.puck-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
-.puck.collapsed .puck-head { border-bottom: none; }
+.puck[data-corner^="top"] { top: 16px; }
+.puck[data-corner^="bottom"] { bottom: 16px; }
+.puck[data-corner$="left"] { left: 16px; }
+.puck[data-corner$="right"] { right: 16px; }
+.puck.dragging, .puck.dragging * { cursor: grabbing; }
+.puck-head {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 2px 8px;
+  padding-bottom: 6px;
+  text-align: center;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.puck-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.puck-desc { margin: 0 0 4px; text-align: center; }
+.puck-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px 8px; margin-top: 8px; text-align: center; }
+/* Collapsed: a small circle with the title and position; the whole of it is the toggle. */
+.puck.collapsed { --puck-size: 96px; padding: 0 10px; }
 .puck.collapsed .puck-body { display: none; }
-.puck-body { padding: 8px 10px 10px; }
-.puck-desc { margin: 0 0 4px; }
-.puck-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.puck.collapsed .puck-head { flex-direction: column; flex-wrap: nowrap; align-items: center; padding: 0; line-height: 1.2; }
+.puck.collapsed .puck-head strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.puck.collapsed .puck-toggle { position: absolute; inset: 0; border-radius: 50%; font-size: 0; cursor: inherit; }
+.puck.collapsed .puck-toggle:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)); }
 .facet { display: grid; grid-template-columns: 66px 1fr; gap: 6px; align-items: start; margin-top: 6px; }
 .facet .fname { color: var(--ink-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.05em; padding-top: 3px; }
 .tag {
