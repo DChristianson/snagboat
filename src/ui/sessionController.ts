@@ -3,7 +3,9 @@ import { EventLog } from '../core/eventLog';
 import { SessionIndex, SessionSummary } from '../core/sessions';
 import { NormalizedEvent } from '../core/types';
 import { FindingReplay } from '../heuristics/replay';
+import { buildExplorerState, ExplorerState } from './explorerModel';
 import { buildSessionView, FindingInput, SessionView } from './sessionModel';
+import { EXPLORE_SESSION_CAP } from './visualizers';
 
 export interface SessionListPayload {
   day: string;
@@ -35,18 +37,26 @@ export interface SessionFindingSources {
   muted?: () => string[];
 }
 
+interface LoadedSession {
+  events: NormalizedEvent[];
+  seen: Set<string>;
+  replay?: FindingReplay;
+}
+
 /**
- * Serves the Sessions tab: the session list per day, and one open session's
- * view. The open session's events are loaded once from its days' raw files
- * and then kept current from live events, so updates never re-read files.
- * Past findings come from replaying the session's events through the
- * heuristics once on open, then feeding the replay each live event.
+ * Serves the Sessions tab and the Explore tab: the session list per day, the
+ * Sessions tab's one open session, and the explorer's small set. Each loaded
+ * session's events are read once from its days' raw files and then kept
+ * current from live events, so updates never re-read files. Past findings
+ * come from replaying the session's events through the heuristics once on
+ * load, then feeding that replay each live event. The open session and the
+ * explore set share one map, so a session in both is loaded once, and
+ * changing either set never evicts a member of the other.
  */
 export class SessionController {
+  private readonly loaded = new Map<string, LoadedSession>();
   private openId?: string;
-  private openEvents: NormalizedEvent[] = [];
-  private openSeen = new Set<string>();
-  private replay?: FindingReplay;
+  private exploreIds: string[] = [];
 
   constructor(
     private readonly index: SessionIndex,
@@ -68,48 +78,103 @@ export class SessionController {
     return { day: chosen, days, sessions, headlines };
   }
 
-  /** Loads a session's events from its days' raw files; undefined if it's unknown or no longer retained. */
+  /**
+   * Opens a session for the Sessions tab, (re)loading its events from its
+   * days' raw files; undefined if it's unknown or no longer retained. The
+   * previously open session stays loaded only if the explorer has it.
+   */
   async open(sessionId: string): Promise<SessionView | undefined> {
-    const summary = this.index.get(sessionId);
-    if (!summary) return undefined;
-    await this.eventLog.flush(); // include appends still queued
-    const events: NormalizedEvent[] = [];
-    for (const day of summary.days) for (const e of await this.eventLog.readDay(day)) if (e.sessionId === sessionId) events.push(e);
-    events.sort((a, b) => a.ts.localeCompare(b.ts));
+    const loaded = await this.load(sessionId);
+    if (!loaded) return undefined;
+    const previous = this.openId;
     this.openId = sessionId;
-    this.openEvents = events;
-    this.openSeen = new Set(events.map((e) => e.eventId));
-    this.replay = this.findings.newReplay?.();
-    for (const e of events) this.replay?.ingest(e);
+    if (previous && previous !== sessionId) this.evict(previous);
     return this.view();
   }
 
   close(): void {
+    const previous = this.openId;
     this.openId = undefined;
-    this.openEvents = [];
-    this.openSeen.clear();
-    this.replay = undefined;
+    if (previous) this.evict(previous);
   }
 
   get openSessionId(): string | undefined {
     return this.openId;
   }
 
-  /** Keeps the open session current; returns true if the event belonged to it. */
+  /**
+   * Sets the explore set to these ids, in order, at most EXPLORE_SESSION_CAP
+   * of them. Ids not loaded yet are read from their days' files the way
+   * open() reads; ones already loaded (including the open session) aren't
+   * re-read. Sessions no longer in either set are evicted. Unknown ids stay
+   * in the set and show up in the state as not loaded.
+   */
+  async explore(sessionIds: string[]): Promise<ExplorerState> {
+    const ids = [...new Set(sessionIds)].slice(0, EXPLORE_SESSION_CAP);
+    for (const id of ids) if (!this.loaded.has(id)) await this.load(id);
+    const previous = this.exploreIds;
+    this.exploreIds = ids;
+    for (const id of previous) if (!ids.includes(id)) this.evict(id);
+    return this.explorerState();
+  }
+
+  /** The explore set, in picked order, with a view for each loaded session. */
+  explorerState(): ExplorerState {
+    return buildExplorerState(this.exploreIds, (id) => this.viewOf(id));
+  }
+
+  get exploredSessionIds(): string[] {
+    return [...this.exploreIds];
+  }
+
+  closeExplorer(): void {
+    const previous = this.exploreIds;
+    this.exploreIds = [];
+    for (const id of previous) this.evict(id);
+  }
+
+  /** Keeps every loaded session current; returns true if the event belonged to one of them. */
   ingest(event: NormalizedEvent): boolean {
-    if (!this.openId || event.sessionId !== this.openId || this.openSeen.has(event.eventId)) return false;
-    this.openSeen.add(event.eventId);
-    this.openEvents.push(event);
-    this.replay?.ingest(event);
+    const session = this.loaded.get(event.sessionId);
+    if (!session || session.seen.has(event.eventId)) return false;
+    session.seen.add(event.eventId);
+    session.events.push(event);
+    session.replay?.ingest(event);
     return true;
   }
 
+  /** The Sessions tab's open session. */
   view(): SessionView | undefined {
-    if (!this.openId) return undefined;
-    const summary = this.index.get(this.openId);
+    return this.openId ? this.viewOf(this.openId) : undefined;
+  }
+
+  /** Reads a session's events from its days' raw files and replays them; undefined if it's unknown or no longer retained. */
+  private async load(sessionId: string): Promise<LoadedSession | undefined> {
+    const summary = this.index.get(sessionId);
     if (!summary) return undefined;
-    const headline = this.extras.headline?.(this.openId);
-    return { ...buildSessionView(summary, this.openEvents, this.marks(), this.sessionFindings()), ...(headline ? { headline } : {}) };
+    await this.eventLog.flush(); // include appends still queued
+    const events: NormalizedEvent[] = [];
+    for (const day of summary.days) for (const e of await this.eventLog.readDay(day)) if (e.sessionId === sessionId) events.push(e);
+    events.sort((a, b) => a.ts.localeCompare(b.ts));
+    const replay = this.findings.newReplay?.();
+    for (const e of events) replay?.ingest(e);
+    const loaded: LoadedSession = { events, seen: new Set(events.map((e) => e.eventId)), replay };
+    this.loaded.set(sessionId, loaded);
+    return loaded;
+  }
+
+  /** Drops a session's events unless the other tab still has it. */
+  private evict(sessionId: string): void {
+    if (sessionId === this.openId || this.exploreIds.includes(sessionId)) return;
+    this.loaded.delete(sessionId);
+  }
+
+  private viewOf(sessionId: string): SessionView | undefined {
+    const session = this.loaded.get(sessionId);
+    const summary = this.index.get(sessionId);
+    if (!session || !summary) return undefined;
+    const headline = this.extras.headline?.(sessionId);
+    return { ...buildSessionView(summary, session.events, this.marks(), this.sessionFindings(session.replay)), ...(headline ? { headline } : {}) };
   }
 
   /**
@@ -117,12 +182,12 @@ export class SessionController {
    * at the end that shares events with a live finding of the same heuristic is
    * that finding, so it shows once, as active.
    */
-  private sessionFindings(): FindingInput[] {
+  private sessionFindings(replay: FindingReplay | undefined): FindingInput[] {
     const muted = new Set(this.findings.muted?.() ?? []);
     const active = this.findings.active().filter((f) => !muted.has(f.heuristicId));
     const out: FindingInput[] = [];
     const matched = new Set<FindingLike>();
-    for (const ep of this.replay?.episodes() ?? []) {
+    for (const ep of replay?.episodes() ?? []) {
       if (muted.has(ep.heuristicId)) continue;
       const refs = new Set(ep.eventRefs);
       const live = ep.open ? active.find((f) => !matched.has(f) && f.heuristicId === ep.heuristicId && f.eventRefs.some((r) => refs.has(r))) : undefined;

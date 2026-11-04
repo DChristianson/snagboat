@@ -370,6 +370,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     heldEvents = [];
     try {
       const openSession = sessions.openSessionId;
+      const explored = sessions.exploredSessionIds;
+      sessions.closeExplorer(); // so explore() below re-reads them from the reloaded log
       aggregate.reset();
       todayAggregate.reset();
       dailyHistory.reset();
@@ -387,6 +389,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       }
       await eventStore.rehydrateFrom(logged);
       if (openSession) await sessions.open(openSession);
+      if (explored.length > 0) await sessions.explore(explored);
     } finally {
       const held = heldEvents;
       heldEvents = undefined;
@@ -841,6 +844,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         dailyHistory.reset();
         sessionIndex.reset();
         sessions.close();
+        sessions.closeExplorer();
         eventStore.reset();
         loggedIds.clear();
       });
