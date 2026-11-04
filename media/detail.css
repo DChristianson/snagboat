@@ -651,6 +651,17 @@ input[type="search"] { min-width: 220px; }
 .radar-chart .radar-pt { cursor: pointer; }
 .radar-chart .radar-pt:hover, .radar-chart .radar-pt:focus { outline: none; stroke: var(--ink); stroke-width: 1.5; }
 
+/* Parallel coordinates */
+.par-chart .par-axis { stroke: var(--ink-muted); stroke-width: 1; }
+.par-chart .par-line { cursor: pointer; }
+.par-chart .par-line:focus { outline: none; }
+.par-chart .par-stroke { fill: none; stroke-width: 1.25; stroke-opacity: 0.6; }
+.par-chart .par-stroke.ring { stroke-dasharray: 4 3; }
+.par-chart .par-hit { fill: none; stroke: transparent; stroke-width: 8; }
+.par-chart .par-line:hover .par-stroke, .par-chart .par-line:focus .par-stroke { stroke-opacity: 1; stroke-width: 2.5; }
+.par-chart .par-on .par-stroke { stroke-opacity: 1; stroke-width: 3; }
+.par-chart .par-dim .par-stroke { stroke-opacity: 0.15; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }

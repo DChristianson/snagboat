@@ -209,6 +209,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'A profile of each session over seven measures, each axis scaled to the largest among those loaded.',
     tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
   },
+  {
+    id: 'parallel-coords',
+    title: 'Parallel coordinates',
+    description: 'Every turn as a line across six measures, each axis on its own scale, colored by session.',
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'] },
+  },
 ];
 
 /**
