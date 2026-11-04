@@ -16,14 +16,14 @@
   window.addEventListener('message', (evt) => {
     const d = evt.data;
     if (!d) return;
-    if (d.type === 'sessions') for (const cb of listeners.sessions) cb(d.list);
+    if (d.type === 'exploreSessions') for (const cb of listeners.sessions) cb(d.list);
     else if (d.type === 'explorer') for (const cb of listeners.explorer) cb(d.state);
     else if (d.type === 'session') openId = d.view ? d.view.summary.sessionId : null;
   });
 
   const source = {
-    listSessions(day) {
-      vscode.postMessage({ type: 'listSessions', ...(day ? { day } : {}) });
+    listSessions() {
+      vscode.postMessage({ type: 'listExploreSessions' });
     },
     loadSessions(ids) {
       vscode.postMessage({ type: 'explore', sessionIds: ids });

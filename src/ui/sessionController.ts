@@ -3,7 +3,7 @@ import { EventLog } from '../core/eventLog';
 import { SessionIndex } from '../core/sessions';
 import { NormalizedEvent } from '../core/types';
 import { FindingReplay } from '../heuristics/replay';
-import { buildExplorerState, ExplorerState, SessionListPayload } from './explorerModel';
+import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState, SessionListPayload } from './explorerModel';
 import { buildSessionView, FindingInput, SessionView } from './sessionModel';
 import { EXPLORE_SESSION_CAP } from './visualizers';
 
@@ -70,6 +70,17 @@ export class SessionController {
       if (h) headlines[s.sessionId] = h;
     }
     return { day: chosen, days, sessions, headlines };
+  }
+
+  /** Every retained session for the Explore tab's picker, newest start first. */
+  listAll(): ExploreSessionList {
+    const sessions = byNewestStart(this.index.list());
+    const headlines: Record<string, string> = {};
+    for (const s of sessions) {
+      const h = this.extras.headline?.(s.sessionId);
+      if (h) headlines[s.sessionId] = h;
+    }
+    return { sessions, headlines };
   }
 
   /**

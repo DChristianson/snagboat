@@ -9,5 +9,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "noEmit": true
   },
-  "include": ["src/web/**/*.ts"]
+  "include": ["src/web/**/*.ts"],
+  // An extending config inherits `exclude`, and the root's leaves out the page.
+  "exclude": []
 }

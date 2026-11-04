@@ -134,7 +134,25 @@ async function main() {
     assert.deepStrictEqual((await controller.explore(['S1', 'S1', 'S2'])).sessions.map((s) => s.summary.sessionId), ['S1', 'S2']);
   });
 
+  test('the picker lists every session across days, newest start first, with headlines', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-explorer-'));
+    const log = new EventLog(dir);
+    await log.init();
+    const idx = new SessionIndex();
+    const started = (sessionId: string, ts: string, lastTs: string) => [e({ kind: 'user_prompt', turnId: 'p1', sessionId, ts }), e({ kind: 'turn_stop', turnId: 'p1', sessionId, ts: lastTs, model: 'opus', tokens: { input: 1, output: 1 } })];
+    // "old" has the latest activity but the earliest start, so sorting by activity would put it first.
+    for (const ev of [...started('old', '2026-10-20T10:00:00.000Z', '2026-10-23T10:00:00.000Z'), ...started('new', '2026-10-22T10:00:00.000Z', '2026-10-22T11:00:00.000Z'), ...started('mid', '2026-10-21T10:00:00.000Z', '2026-10-21T11:00:00.000Z')]) {
+      log.append(ev);
+      idx.ingest(ev);
+    }
+    const controller = new SessionController(idx, log, () => ({}), { active: () => [] }, { headline: (id) => (id === 'mid' ? 'A headline' : undefined) });
+    const list = controller.listAll();
+    assert.deepStrictEqual(list.sessions.map((s) => s.sessionId), ['new', 'mid', 'old']);
+    assert.deepStrictEqual(list.headlines, { mid: 'A headline' });
+  });
+
   test('explorer messages from the page are validated', () => {
+    assert.ok(isDetailMessage({ type: 'listExploreSessions' }));
     assert.ok(isDetailMessage({ type: 'tab', tab: 'explore' }));
     assert.ok(isDetailMessage({ type: 'explore', sessionIds: [] }));
     assert.ok(isDetailMessage({ type: 'explore', sessionIds: ['a', 'b'] }));

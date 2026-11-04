@@ -518,17 +518,15 @@ input[type="search"] { min-width: 220px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--ink-muted); background: none; padding: 0; }
 .dot[aria-current="true"] { background: var(--vscode-button-background); border-color: var(--vscode-button-background); }
 .puck {
-  --puck-size: min(420px, calc(100vw - 32px), calc(100vh - 32px));
   position: fixed;
   z-index: 20; /* above .tooltip (10) */
-  width: var(--puck-size);
-  height: var(--puck-size);
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
   box-sizing: border-box;
-  padding: calc(var(--puck-size) * 0.08) calc(var(--puck-size) * 0.12); /* keeps the content inside the circle */
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  border-radius: 50%;
+  border-radius: 20px;
   overflow: hidden;
   background: var(--vscode-editorWidget-background, var(--surface));
   color: var(--ink);
@@ -546,21 +544,20 @@ input[type="search"] { min-width: 220px; }
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  justify-content: center;
   gap: 2px 8px;
   padding-bottom: 6px;
-  text-align: center;
   cursor: grab;
   user-select: none;
   touch-action: none;
 }
 .puck-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
-.puck-desc { margin: 0 0 4px; text-align: center; }
-.puck-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px 8px; margin-top: 8px; text-align: center; }
+.puck-toggle { margin-left: auto; }
+.puck-desc { margin: 0 0 4px; }
+.puck-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 8px; }
 /* Collapsed: a small circle with the title and position; the whole of it is the toggle. */
-.puck.collapsed { --puck-size: 96px; padding: 0 10px; }
+.puck.collapsed { width: 96px; height: 96px; padding: 0 10px; justify-content: center; border-radius: 50%; }
 .puck.collapsed .puck-body { display: none; }
-.puck.collapsed .puck-head { flex-direction: column; flex-wrap: nowrap; align-items: center; padding: 0; line-height: 1.2; }
+.puck.collapsed .puck-head { flex-direction: column; flex-wrap: nowrap; align-items: center; padding: 0; line-height: 1.2; text-align: center; }
 .puck.collapsed .puck-head strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .puck.collapsed .puck-toggle { position: absolute; inset: 0; border-radius: 50%; font-size: 0; cursor: inherit; }
 .puck.collapsed .puck-toggle:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)); }

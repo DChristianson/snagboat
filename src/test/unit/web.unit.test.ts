@@ -28,9 +28,7 @@ async function main() {
 
   test('the index lists the synthetic sessions with prompts, calls, a compaction, and a subagent', () => {
     const set = new EventSet(syntheticEvents());
-    const list = set.list(undefined, '2000-01-01');
-    assert.strictEqual(list.day, SYNTHETIC_DAY, 'defaults to the newest day when today has none');
-    assert.deepStrictEqual(list.days, [SYNTHETIC_DAY]);
+    const list = set.listAll();
     assert.deepStrictEqual(list.sessions.map((s) => s.sessionId).sort(), syntheticSessionIds().sort());
     assert.deepStrictEqual(list.headlines, {});
     for (const s of list.sessions) {
@@ -120,14 +118,13 @@ async function main() {
     assert.strictEqual(set.explorerState(Array.from({ length: 12 }, (_, i) => `s${i}`)).notLoaded.length, 8);
   });
 
-  test('loaded events replace the examples: a day list from what was read', () => {
+  test('loaded events replace the examples: a list from what was read', () => {
     const events = [e({ kind: 'user_prompt', turnId: 'p1', ts: at(0) }), call('opus', 50_000, 1, { turnId: 'p1', endsTurn: true })];
     const set = new EventSet(parseJsonl(events.map((x) => JSON.stringify(x)).join('\n')).events);
-    const list = set.list();
-    assert.strictEqual(list.day, '2026-10-22');
+    const list = set.listAll();
     assert.strictEqual(list.sessions.length, 1);
     assert.strictEqual(set.explorerState(['S1']).sessions[0].calls.length, 1);
-    assert.deepStrictEqual(new EventSet([]).list(undefined, '2026-01-01'), { day: '2026-01-01', days: [], sessions: [], headlines: {} });
+    assert.deepStrictEqual(new EventSet([]).listAll(), { sessions: [], headlines: {} });
   });
 
   let failures = 0;
