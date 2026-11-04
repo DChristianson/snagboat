@@ -149,6 +149,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Patterns across sessions: tokens by session and hour, tool calls by session and category, or findings by heuristic and day.',
     tags: { category: ['quantitative', 'temporal'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'] },
   },
+  {
+    id: 'tool-ribbon',
+    title: 'Tool-call ribbon',
+    description: 'Which tool category followed which within turns: sources on the left, what came next on the right, ribbons as wide as the step was common.',
+    tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'] },
+  },
 ];
 
 /**

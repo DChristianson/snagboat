@@ -523,6 +523,24 @@ input[type="search"] { min-width: 220px; }
 .swatch.heat-swatch { background: var(--series-1); opacity: var(--heat-opacity); }
 .heat-legend { margin-top: 6px; }
 
+/* Tool-call ribbon: ribbons take their source's category color, translucent so crossings stay readable. */
+.ribbon-cat-start { fill: var(--ink-muted); }
+.ribbon-cat-0 { fill: rgba(128, 128, 128, 0.7); }
+.ribbon-cat-1 { fill: var(--cat-1); }
+.ribbon-cat-2 { fill: var(--cat-2); }
+.ribbon-cat-3 { fill: var(--cat-3); }
+.ribbon-cat-4 { fill: var(--cat-4); }
+.ribbon-cat-5 { fill: var(--cat-5); }
+.ribbon-chart .ribbon { cursor: pointer; }
+.ribbon-chart .ribbon:focus { outline: none; }
+.ribbon-chart .ribbon-shape { fill-opacity: 0.45; }
+.ribbon-chart .ribbon:hover .ribbon-shape, .ribbon-chart .ribbon:focus .ribbon-shape { fill-opacity: 0.75; }
+.ribbon-chart .ribbon-on .ribbon-shape { fill-opacity: 0.9; stroke: var(--ink); stroke-width: 1; }
+.ribbon-chart .ribbon-dim .ribbon-shape { fill-opacity: 0.1; }
+.ribbon-legend { margin-top: 6px; }
+.ribbon-turns-head { margin: 10px 0 4px; }
+.swatch.swatch-ribbon-start { background: var(--ink-muted); }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
