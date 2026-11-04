@@ -44,7 +44,7 @@
       picked: Array.isArray(saved.picked) ? saved.picked.slice(0, CAP) : null, // null until the first show pre-checks the open session
       currentId: typeof saved.current === 'string' ? saved.current : null,
       filters: saved.filters && typeof saved.filters === 'object' ? saved.filters : {},
-      collapsed: !!saved.collapsed,
+      collapsed: saved.collapsed !== false, // starts collapsed
       corner: CORNERS.includes(saved.corner) ? saved.corner : 'bottom-right',
       selection: saved.selection && typeof saved.selection === 'object' ? saved.selection : null,
       list: null, // { day, days, sessions, headlines }
