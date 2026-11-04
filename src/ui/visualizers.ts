@@ -143,6 +143,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Tokens as area: by session, turn, and tool category, or by tool category across sessions.',
     tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy'] },
   },
+  {
+    id: 'heatmap',
+    title: 'Heatmap',
+    description: 'Patterns across sessions: tokens by session and hour, tool calls by session and category, or findings by heuristic and day.',
+    tags: { category: ['quantitative', 'temporal'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'] },
+  },
 ];
 
 /**
