@@ -185,6 +185,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Every turn as a point: how long it ran against its tokens, model calls, or tool calls, on log axes.',
     tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'] },
   },
+  {
+    id: 'bubble',
+    title: 'Bubble chart',
+    description: 'Each session by span and tokens, with area for tool calls and color for its worst finding.',
+    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'] },
+  },
 ];
 
 /**
