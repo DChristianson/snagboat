@@ -258,7 +258,7 @@ export class DetailPanel implements vscode.Disposable {
     const nonce = crypto.randomBytes(16).toString('base64');
     // In load order: the shared helpers, the page, the visualizer registry and
     // the visualizers, then the tabs that draw through them.
-    const scripts = ['shared.js', 'detail.js', 'viz/registry.js', 'viz/turnTree.js', 'viz/contextTimeline.js', 'viz/sessionStrips.js', 'viz/costPerPrompt.js', 'viz/contextFill.js', 'viz/sequenceDiagram.js', 'viz/eventGraph.js', 'viz/actorGraph.js', 'viz/promptTerms.js', 'viz/gantt.js', 'viz/treemap.js', 'viz/heatmap.js', 'viz/toolRibbon.js', 'viz/weekPicture.js', 'viz/histogram.js', 'viz/boxViolin.js', 'viz/ridgeline.js', 'viz/scatter.js', 'viz/bubble.js', 'sessions.js', 'explore.js', 'exploreSource.js', 'suggestions.js']
+    const scripts = ['shared.js', 'detail.js', 'viz/registry.js', 'viz/turnTree.js', 'viz/contextTimeline.js', 'viz/sessionStrips.js', 'viz/costPerPrompt.js', 'viz/contextFill.js', 'viz/sequenceDiagram.js', 'viz/eventGraph.js', 'viz/actorGraph.js', 'viz/promptTerms.js', 'viz/gantt.js', 'viz/treemap.js', 'viz/heatmap.js', 'viz/toolRibbon.js', 'viz/weekPicture.js', 'viz/histogram.js', 'viz/boxViolin.js', 'viz/ridgeline.js', 'viz/scatter.js', 'viz/bubble.js', 'viz/sunburst.js', 'sessions.js', 'explore.js', 'exploreSource.js', 'suggestions.js']
       .map((file) => webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, ...file.split('/'))))
       .map((uri) => `<script nonce="${nonce}" src="${uri}"></script>`)
       .join('\n');
