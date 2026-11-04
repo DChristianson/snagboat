@@ -180,6 +180,18 @@ input[type="search"] { min-width: 220px; }
 .tabs { display: flex; gap: 4px; }
 .tab { border-radius: 4px 4px 0 0; border-bottom: 2px solid transparent; background: none; color: var(--ink-muted); }
 .tab[aria-selected="true"] { border-bottom-color: var(--vscode-focusBorder, var(--series-1)); color: var(--ink); font-weight: 600; }
+.tab .exp {
+  font-size: 0.7em;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
 
 /* Sessions tab */
 .spacer { flex: 1; }
@@ -255,6 +267,78 @@ input[type="search"] { min-width: 220px; }
 .brush { fill: var(--vscode-editor-selectionBackground, rgba(57, 135, 229, 0.25)); }
 .session-view.expanded .tree-host { margin-bottom: 4px; }
 .context-chart .mark-label { fill: var(--ink); }
+
+/* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
+.picker { margin-top: 12px; }
+.picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
+.picker td.pick input { margin: 0; vertical-align: middle; }
+.carousel { margin-top: 18px; }
+.strip {
+  position: relative;
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+  padding-bottom: 6px;
+}
+.strip:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.slide {
+  flex: 0 0 100%;
+  min-width: 0;
+  scroll-snap-align: start;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+.slide-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.slide-host { width: 100%; }
+.stacked { border-top: 1px solid var(--rule); padding-top: 8px; margin-top: 12px; }
+.stacked:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+.stack-head { display: flex; align-items: baseline; gap: 4px; margin-bottom: 6px; }
+.viz-host { width: 100%; }
+.nav { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.dots { display: flex; gap: 6px; align-items: center; }
+.dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--ink-muted); background: none; padding: 0; }
+.dot[aria-current="true"] { background: var(--vscode-button-background); border-color: var(--vscode-button-background); }
+.puck {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 20; /* above .tooltip (10) */
+  width: min(320px, calc(100vw - 32px));
+  background: var(--vscode-editorWidget-background, var(--surface));
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px var(--vscode-widget-shadow);
+  font-size: 0.9em;
+}
+.puck-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+.puck.collapsed .puck-head { border-bottom: none; }
+.puck.collapsed .puck-body { display: none; }
+.puck-body { padding: 8px 10px 10px; }
+.puck-desc { margin: 0 0 4px; }
+.puck-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.facet { display: grid; grid-template-columns: 66px 1fr; gap: 6px; align-items: start; margin-top: 6px; }
+.facet .fname { color: var(--ink-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.05em; padding-top: 3px; }
+.tag {
+  font-size: 0.9em;
+  line-height: 18px;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: none;
+  color: var(--ink-muted);
+}
+.tag.has { color: var(--ink); border-color: var(--ink); }
+.tag.on { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border-color: var(--vscode-button-background); }
+.tag:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground)); }
+.tag.on:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background)); }
+@media (prefers-reduced-motion: reduce) {
+  .strip { scroll-behavior: auto; }
+}
 
 /* Suggestions */
 .suggestion .summary input.threshold { width: 7em; margin: 0 2px; }

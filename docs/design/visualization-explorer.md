@@ -231,3 +231,15 @@ Confirmed in review on 2026-11-03.
 - [Conversation-aware view](conversation-view.md), whose two views are ported, and whose cost-per-prompt view is built here.
 - [Trusted advisor, phase 7](trusted-advisor.md#phases), which this is part of.
 - The charts' rules of form and color are the ones the existing charts follow (one axis, fixed categorical order, validated palettes, a legend for two or more series, a table or labels where contrast is low); `detail.css` records the validated colors.
+
+## Implementation notes
+
+Step 2 (the Explore tab and the two ported visualizers) differs from the text above in these details:
+
+- **`update` takes options.** The contract is `update(sessions, selection, options)`: `options` is what the host passes per render (`{ expanded }` from the Sessions tab, nothing from the explorer), since it changes over time; `ctx` carries only the helpers, the tooltip pair, and `select`. The full contract is in the header of `media/viz/registry.js`.
+- **Instances expose a little more than the three methods.** The turn tree has `focus(nodeId)`, which the Sessions tab's breadcrumb calls; the context timeline has `zoomAll()` and `zoomTo(range | null)`, which "Show whole session" and a finding's Show call. A visualizer's selection may carry `focusId` (the tree's), which the tree adopts on `update` when present and otherwise keeps its own.
+- **The timeline's "Showing …" note moved into the visualizer**, under its chart, so the explorer shows it too; the Sessions tab's panel head (Expand, Show whole session) stays chrome.
+- **Where the shared code lives.** The helpers both the page and the visualizers use are `media/shared.js` (`window.snagboatShared`); the registry is `media/viz/registry.js`; the webview's source object is `media/exploreSource.js`, the only explorer file that touches VS Code. The source contract gained `closeExplorer()`, `onSessions(cb)`, `onExplorer(cb)`, and `openSessionId()` beyond the four methods named above; it is documented in the header of `media/explore.js`.
+- **The picker has an Unload button** (the `closeExplorer` message), and repeats the session cap (8) since `ExplorerState` doesn't carry it.
+- **The tab is labeled "Explore" with an "experimental" badge** rather than the literal "Explore (experimental)".
+- **The puck sits above the tooltip layer** as designed (`z-index` 20 over the tooltip's 10), so a tooltip raised near the bottom-right corner is covered by it; collapsing the puck is the remedy for now.

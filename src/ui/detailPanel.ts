@@ -242,9 +242,12 @@ export class DetailPanel implements vscode.Disposable {
 
   private html(webview: vscode.Webview, mediaRoot: vscode.Uri): string {
     const nonce = crypto.randomBytes(16).toString('base64');
-    const script = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'detail.js'));
-    const sessionsScript = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'sessions.js'));
-    const suggestionsScript = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'suggestions.js'));
+    // In load order: the shared helpers, the page, the visualizer registry and
+    // the visualizers, then the tabs that draw through them.
+    const scripts = ['shared.js', 'detail.js', 'viz/registry.js', 'viz/turnTree.js', 'viz/contextTimeline.js', 'sessions.js', 'explore.js', 'exploreSource.js', 'suggestions.js']
+      .map((file) => webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, ...file.split('/'))))
+      .map((uri) => `<script nonce="${nonce}" src="${uri}"></script>`)
+      .join('\n');
     const style = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'detail.css'));
     return `<!DOCTYPE html>
 <html lang="en">
@@ -258,9 +261,7 @@ export class DetailPanel implements vscode.Disposable {
 <body>
 <main id="app" aria-live="polite"><p class="muted">Loading…</p></main>
 <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
-<script nonce="${nonce}" src="${script}"></script>
-<script nonce="${nonce}" src="${sessionsScript}"></script>
-<script nonce="${nonce}" src="${suggestionsScript}"></script>
+${scripts}
 </body>
 </html>`;
   }
