@@ -64,6 +64,7 @@ export type DetailMessage =
   | { type: 'openFile'; target: string }
   | { type: 'tab'; tab: DetailTab }
   | { type: 'listSessions'; day?: string }
+  | { type: 'listExploreSessions' }
   | { type: 'openSession'; sessionId: string }
   | { type: 'closeSession' }
   | { type: 'discover' }
@@ -104,6 +105,7 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
       return typeof m.sessionId === 'string';
     case 'closeSession':
     case 'closeExplorer':
+    case 'listExploreSessions':
     case 'discover':
     case 'askAdvisor':
     case 'askAnotherAdvisor':

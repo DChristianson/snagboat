@@ -10,12 +10,12 @@
 //   window.snagboatExplore.shown()  forwards to the mounted tab (for the page's tab switch)
 //
 // source, a plain object:
-//   listSessions(day?)   ask for the session list for a day (or the default day); answered through onSessions
+//   listSessions()       ask for every session, newest start first; answered through onSessions
 //   loadSessions(ids)    load these sessions for the explorer, in this order; answered through onExplorer
 //   closeExplorer()      unload them; answered through onExplorer with null
 //   getState()           the tab's saved state, {} the first time
 //   setState(partial)    merge these keys into the saved state
-//   onSessions(cb)       cb({ day, days, sessions, headlines }) on each list push
+//   onSessions(cb)       cb({ sessions, headlines }) on each list push
 //   onExplorer(cb)       cb(ExplorerState | null) on each explorer push (src/ui/explorerModel.ts)
 //   openSessionId()      the session open in the Sessions tab, or null (pre-checked the first time)
 //
@@ -47,7 +47,7 @@
       collapsed: saved.collapsed !== false, // starts collapsed
       corner: CORNERS.includes(saved.corner) ? saved.corner : 'bottom-right',
       selection: saved.selection && typeof saved.selection === 'object' ? saved.selection : null,
-      list: null, // { day, days, sessions, headlines }
+      list: null, // { sessions, headlines }
       taxonomy: null,
       catalog: [],
       sessions: [], // SessionView[] loaded, in picked order
@@ -59,8 +59,6 @@
     const sessionLabel = (s) => (s.name ? clip(s.name, 48) : short(s.sessionId));
 
     // ---------- layout ----------
-    const daySelect = el('select', { 'aria-label': 'Day' });
-    daySelect.addEventListener('change', () => source.listSessions(daySelect.value));
     const pickNote = el('span', { class: 'muted small' });
     const loadBtn = el('button', { text: 'Load', title: 'Load the picked sessions into the explorer' });
     loadBtn.addEventListener('click', () => {
@@ -76,7 +74,7 @@
     const listHost = el('div', { class: 'session-list' });
     const loadedNote = el('p', { class: 'muted small' });
     const picker = el('section', { class: 'picker', 'aria-label': 'Pick sessions' }, [
-      el('div', { class: 'controls' }, [el('label', { class: 'muted small', text: 'Day ' }), daySelect, el('span', { class: 'spacer' }), pickNote, loadBtn, unloadBtn]),
+      el('div', { class: 'controls' }, [el('span', { class: 'muted small', text: 'Sessions, newest first' }), el('span', { class: 'spacer' }), pickNote, loadBtn, unloadBtn]),
       listHost,
       loadedNote,
     ]);
@@ -229,13 +227,8 @@
         listHost.replaceChildren(el('p', { class: 'muted', text: 'Loading…' }));
         return;
       }
-      const wanted = list.days.length ? list.days : [list.day];
-      if ([...daySelect.options].map((o) => o.value).join() !== wanted.join()) {
-        daySelect.replaceChildren(...wanted.map((d) => el('option', { value: d, text: d })));
-      }
-      daySelect.value = list.day;
       if (list.sessions.length === 0) {
-        listHost.replaceChildren(el('p', { class: 'muted', text: 'No agent sessions on this day.' }));
+        listHost.replaceChildren(el('p', { class: 'muted', text: 'No agent sessions yet.' }));
         return;
       }
       const rows = list.sessions.map((s) => {
@@ -271,14 +264,17 @@
         tr.addEventListener('keydown', (e) => e.key === 'Enter' && toggle());
         return tr;
       });
-      listHost.replaceChildren(
-        el('div', { class: 'list-wrap' }, [
-          el('table', {}, [
-            el('thead', {}, [el('tr', {}, ['', 'Started', 'Agent', 'Models', 'Prompts', 'Model calls', 'Tokens', 'Span', 'Session'].map((h, i) => el('th', { class: i === 0 ? 'pick' : i >= 4 && i <= 7 ? 'num' : undefined, text: h })))]),
-            el('tbody', {}, rows),
-          ]),
-        ])
-      );
+      // The list is rebuilt on every pick and push, and can be long now: keep its scroll position.
+      const scrolled = listHost.querySelector('.list-wrap');
+      const scrollTop = scrolled ? scrolled.scrollTop : 0;
+      const wrap = el('div', { class: 'list-wrap' }, [
+        el('table', {}, [
+          el('thead', {}, [el('tr', {}, ['', 'Started', 'Agent', 'Models', 'Prompts', 'Model calls', 'Tokens', 'Span', 'Session'].map((h, i) => el('th', { class: i === 0 ? 'pick' : i >= 4 && i <= 7 ? 'num' : undefined, text: h })))]),
+          el('tbody', {}, rows),
+        ]),
+      ]);
+      listHost.replaceChildren(wrap);
+      wrap.scrollTop = scrollTop;
     }
 
     function renderLoaded() {
@@ -568,7 +564,7 @@
     const tab = {
       /** The tab was just made visible: ask for what it hasn't got, and lay out at its real width. */
       shown() {
-        if (!st.list) source.listSessions();
+        source.listSessions();
         if (!st.picked) {
           const open = source.openSessionId();
           st.picked = open ? [open] : [];

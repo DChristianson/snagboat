@@ -3,15 +3,14 @@ import { SessionIndex } from '../core/sessions';
 import { NormalizedEvent } from '../core/types';
 import { builtInHeuristics } from '../heuristics/builtIns';
 import { FindingReplay } from '../heuristics/replay';
-import { buildExplorerState, ExplorerState, SessionListPayload } from '../ui/explorerModel';
+import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState } from '../ui/explorerModel';
 import { buildSessionView, FindingInput, SessionView } from '../ui/sessionModel';
 import { EXPLORE_SESSION_CAP } from '../ui/visualizers';
 import { buildMarks } from './marks';
 
 /**
  * The web demo's stand-in for the extension's log, index, context limits,
- * and SessionController, over events held in memory: the session list per
- * day, and the explorer's state for picked ids. A view is built the way
+ * and SessionController, over events held in memory: the session list, and the explorer's state for picked ids. A view is built the way
  * SessionController.explore builds one (the session's events in time order,
  * a fresh replay of the built-in heuristics with their default settings, and
  * buildSessionView with the marks and the replay's episodes), without the
@@ -34,11 +33,9 @@ export class EventSet {
     for (const list of this.bySession.values()) list.sort((a, b) => a.ts.localeCompare(b.ts));
   }
 
-  /** The sessions of a day, as the extension lists them; the day defaults to today, else the newest. */
-  list(day?: string, today = new Date().toISOString().slice(0, 10)): SessionListPayload {
-    const days = this.index.days();
-    const chosen = day ?? (days.includes(today) ? today : days[0] ?? today);
-    return { day: chosen, days, sessions: this.index.forDay(chosen), headlines: {} };
+  /** Every session for the picker, as the extension lists them: newest start first. */
+  listAll(): ExploreSessionList {
+    return { sessions: byNewestStart(this.index.list()), headlines: {} };
   }
 
   /** The explorer's state for these ids, in order, at most EXPLORE_SESSION_CAP of them. */

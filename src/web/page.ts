@@ -1,4 +1,4 @@
-import { ExplorerState, SessionListPayload } from '../ui/explorerModel';
+import { ExploreSessionList, ExplorerState } from '../ui/explorerModel';
 import { EventSet } from './eventSet';
 import { parseJsonl } from './jsonl';
 import { syntheticEvents, syntheticSessionIds } from './synthetic';
@@ -18,12 +18,12 @@ const STATE_KEY = 'snagboat.explore';
 
 /** The source object media/explore.js expects (see its header). */
 interface ExploreSource {
-  listSessions(day?: string): void;
+  listSessions(): void;
   loadSessions(ids: string[]): void;
   closeExplorer(): void;
   getState(): Record<string, unknown>;
   setState(partial: Record<string, unknown>): void;
-  onSessions(cb: (list: SessionListPayload) => void): void;
+  onSessions(cb: (list: ExploreSessionList) => void): void;
   onExplorer(cb: (state: ExplorerState | null) => void): void;
   openSessionId(): string | null;
 }
@@ -58,10 +58,10 @@ function writeState(state: Record<string, unknown>): void {
 
 /** A source over one event set: lists and loads synchronously, since everything is in memory. */
 function sourceOver(data: EventSet): ExploreSource {
-  const listeners = { sessions: [] as Array<(list: SessionListPayload) => void>, explorer: [] as Array<(state: ExplorerState | null) => void> };
+  const listeners = { sessions: [] as Array<(list: ExploreSessionList) => void>, explorer: [] as Array<(state: ExplorerState | null) => void> };
   return {
-    listSessions(day) {
-      const list = data.list(day);
+    listSessions() {
+      const list = data.listAll();
       for (const cb of listeners.sessions) cb(list);
     },
     loadSessions(ids) {
@@ -155,7 +155,7 @@ export function startPage(): void {
     dataNote.textContent = notes.join(' ');
     examplesBtn.hidden = false;
     examplesNote.hidden = true;
-    mountExplorer(data, data.list().sessions.slice(0, 2).map((s) => s.sessionId));
+    mountExplorer(data, data.listAll().sessions.slice(0, 2).map((s) => s.sessionId));
   }
 
   filesInput.addEventListener('change', () => {
