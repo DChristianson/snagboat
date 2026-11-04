@@ -37,7 +37,7 @@ interface SessionSpec {
 const SPECS: SessionSpec[] = [
   { id: '7f3a9c2e-5d1b-4e8a-9c0f-2b6d8e1a4c73', name: 'Explorer carousel', agent: 'claude-code', model: 'claude-opus-4-1-20250805', startHour: 9, turns: 14, growth: [3_000, 21_000], compactAt: 190_000, churnTurn: 6, subagentTurns: [3, 9, 12] },
   { id: 'b41d0e77-8a2c-4f61-b3e5-7d9f0c2a6e18', name: 'Fix hook routing', agent: 'claude-code', model: 'claude-sonnet-4-5-20250929', startHour: 11, turns: 7, growth: [3_000, 15_000], compactAt: 190_000, subagentTurns: [4] },
-  { id: 'c9a2f118-3e7d-4b05-a6c1-5f8e2d7b9a40', name: 'README pass', agent: 'copilot', model: 'gpt-5.2', startHour: 13, turns: 6, growth: [1_000, 5_000], contextLimit: 128_000, subagentTurns: [] },
+  { id: 'c9a2f118-3e7d-4b05-a6c1-5f8e2d7b9a40', name: 'README pass', agent: 'copilot', model: 'gpt-5.2', startHour: 13, turns: 6, growth: [800, 3_500], contextLimit: 128_000, subagentTurns: [] },
   { id: '1e8d5b60-9c4f-4a27-8d3b-0e6a1f5c7b92', agent: 'claude-code', model: 'claude-sonnet-4-5-20250929', startHour: 15, turns: 5, growth: [3_000, 12_000], compactAt: 190_000, subagentTurns: [] },
 ];
 
@@ -56,22 +56,37 @@ const PROMPTS = [
 const TOOLS: Record<AgentId, Array<{ name: string; category: EventToolCategory; target: string }>> = {
   'claude-code': [
     { name: 'Read', category: 'file-read', target: 'src/core/retention.ts' },
+    { name: 'Read', category: 'file-read', target: 'src/core/eventLog.ts' },
+    { name: 'Read', category: 'file-read', target: 'docs/usage.md' },
     { name: 'Grep', category: 'search', target: 'applyRetention' },
+    { name: 'Glob', category: 'search', target: 'src/**/*.test.ts' },
     { name: 'Edit', category: 'file-edit', target: 'src/core/retention.ts' },
     { name: 'Edit', category: 'file-edit', target: 'src/test/unit/retention.unit.test.ts' },
+    { name: 'Edit', category: 'file-edit', target: 'CHANGELOG.md' },
+    { name: 'Write', category: 'file-edit', target: 'docs/usage.md' },
     { name: 'Bash', category: 'tests-builds', target: 'npm run test:unit' },
+    { name: 'Bash', category: 'tests-builds', target: 'npm run build' },
     { name: 'Bash', category: 'version-control', target: 'git status --short' },
+    { name: 'Bash', category: 'version-control', target: 'git diff --stat' },
     { name: 'Bash', category: 'script', target: 'node scripts/licenses.js' },
-    { name: 'Read', category: 'file-read', target: 'docs/usage.md' },
+    { name: 'Bash', category: 'shell', target: 'ls -la out' },
   ],
   copilot: [
     { name: 'read_file', category: 'file-read', target: 'README.md' },
+    { name: 'read_file', category: 'file-read', target: 'docs/usage.md' },
+    { name: 'read_file', category: 'file-read', target: 'package.json' },
     { name: 'grep_search', category: 'search', target: 'Explore' },
+    { name: 'file_search', category: 'search', target: 'docs/**/*.md' },
     { name: 'edit_file', category: 'file-edit', target: 'README.md' },
+    { name: 'edit_file', category: 'file-edit', target: 'docs/usage.md' },
     { name: 'run_in_terminal', category: 'tests-builds', target: 'npm run build' },
+    { name: 'run_in_terminal', category: 'version-control', target: 'git log --oneline -5' },
   ],
   'generic-fs': [],
 };
+
+/** The tool the churn turn keeps calling. */
+const CHURN_TOOL = TOOLS['claude-code'][5];
 
 /** Park-Miller, as the wireframe used: a tiny generator with the same sequence everywhere. */
 function prng(seed: number): () => number {
@@ -135,7 +150,7 @@ function sessionEvents(spec: SessionSpec, rnd: () => number): NormalizedEvent[] 
         // Each call but the last asked for one or two tools; the churn turn keeps editing the same file.
         const count = churn ? 1 : 1 + Math.floor(rnd() * 2);
         for (let k = 0; k < count; k++) {
-          const tool = churn ? tools[2] : tools[Math.floor(rnd() * tools.length)];
+          const tool = churn ? CHURN_TOOL : tools[Math.floor(rnd() * tools.length)];
           t += 3 * SECOND + rnd() * 10 * SECOND;
           push(t, { kind: 'tool_call', turnId, toolName: tool.name, toolCategory: tool.category, target: tool.target, status: rnd() < 0.92 ? 'success' : 'failure' });
         }
