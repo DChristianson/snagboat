@@ -23,10 +23,17 @@
 // select(selection) for each visualizer it mounts (see media/viz/registry.js).
 //
 // Saved state: { picked: string[], current: visualizer id, filters: { facet: [values] },
-// collapsed: boolean, selection: { sessionId?, turnId?, range?, focusId? } | null }.
+// collapsed: boolean, corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
+// selection: { sessionId?, turnId?, range?, focusId? } | null }.
 (function () {
   // The most sessions the picker allows; matches EXPLORE_SESSION_CAP in src/ui/visualizers.ts.
   const CAP = 8;
+  const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+  // The strip never gets shorter than this; in a window too short for it, the page scrolls and the nav sticks to the window's bottom.
+  const MIN_STRIP_HEIGHT = 320;
+  // Below the nav: the body's bottom padding, and a little air.
+  const BELOW_NAV = 40;
+  const DRAG_THRESHOLD = 4; // px of movement before a press on the puck's head counts as a drag
   let mounted = null;
 
   function mount(root, source, ctx) {
@@ -38,6 +45,7 @@
       currentId: typeof saved.current === 'string' ? saved.current : null,
       filters: saved.filters && typeof saved.filters === 'object' ? saved.filters : {},
       collapsed: !!saved.collapsed,
+      corner: CORNERS.includes(saved.corner) ? saved.corner : 'bottom-right',
       selection: saved.selection && typeof saved.selection === 'object' ? saved.selection : null,
       list: null, // { day, days, sessions, headlines }
       taxonomy: null,
@@ -78,7 +86,8 @@
     const nextBtn = el('button', { text: 'Next ›', 'aria-label': 'Next visualizer' });
     const dots = el('div', { class: 'dots', role: 'group', 'aria-label': 'Go to a visualizer' });
     const navNote = el('span', { class: 'muted small', 'aria-live': 'polite' });
-    const carousel = el('section', { class: 'carousel', 'aria-label': 'Visualizers' }, [strip, el('div', { class: 'nav' }, [prevBtn, dots, nextBtn, navNote])]);
+    const nav = el('div', { class: 'nav' }, [prevBtn, dots, nextBtn, navNote]);
+    const carousel = el('section', { class: 'carousel', 'aria-label': 'Visualizers' }, [strip, nav]);
     prevBtn.addEventListener('click', () => step(-1));
     nextBtn.addEventListener('click', () => step(1));
     strip.addEventListener('keydown', (e) => {
@@ -94,7 +103,7 @@
 
     const puckTitle = el('strong', { text: 'Explore' });
     const puckPos = el('span', { class: 'muted small' });
-    const collapseBtn = el('button', { class: 'link', 'aria-expanded': String(!st.collapsed) });
+    const collapseBtn = el('button', { class: 'link puck-toggle', 'aria-expanded': String(!st.collapsed) });
     collapseBtn.addEventListener('click', () => {
       st.collapsed = !st.collapsed;
       save({ collapsed: st.collapsed });
@@ -111,13 +120,87 @@
     });
     const mismatchNote = el('p', { class: 'muted small', hidden: true });
     const puckBody = el('div', { class: 'puck-body' }, [puckDesc, facets, el('div', { class: 'puck-foot' }, [filterNote, el('span', { class: 'spacer' }), clearBtn]), mismatchNote]);
-    const puck = el('aside', { class: 'puck', 'aria-label': 'Current visualizer and tag filters' }, [el('div', { class: 'puck-head' }, [puckTitle, puckPos, el('span', { class: 'spacer' }), collapseBtn]), puckBody]);
+    const puckHead = el('div', { class: 'puck-head' }, [puckTitle, puckPos, collapseBtn]);
+    const puck = el('aside', { class: 'puck', 'aria-label': 'Current visualizer and tag filters' }, [puckHead, puckBody]);
     function renderCollapsed() {
       puck.classList.toggle('collapsed', st.collapsed);
-      collapseBtn.textContent = st.collapsed ? 'Expand' : 'Collapse';
+      const label = st.collapsed ? 'Expand' : 'Collapse';
+      collapseBtn.textContent = label;
+      collapseBtn.title = `${label}. Drag, or press an arrow key, to move the puck to another corner.`;
       collapseBtn.setAttribute('aria-expanded', String(!st.collapsed));
     }
     renderCollapsed();
+
+    // The puck sits in one of the window's corners. The carousel hears which, so its nav can stand clear.
+    function placePuck(corner) {
+      st.corner = corner;
+      puck.dataset.corner = corner;
+      carousel.dataset.puck = corner;
+    }
+    function movePuck(corner) {
+      placePuck(corner);
+      save({ corner });
+    }
+    placePuck(st.corner);
+
+    // Dragging by the head (the whole circle when collapsed) drops the puck in the corner of the quadrant it's let go in.
+    // Move and up are heard on the window: a quick drag leaves the head before the threshold is crossed.
+    let drag = null; // { id, x, y, moved } while pressed
+    let dragged = false; // the press that just ended was a drag, so its click isn't a click on the toggle
+    const onDragMove = (e) => {
+      if (e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x;
+      const dy = e.clientY - drag.y;
+      if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      if (!drag.moved) {
+        drag.moved = true;
+        puckHead.setPointerCapture(e.pointerId); // so a release outside the window still ends the drag
+        puck.classList.add('dragging');
+      }
+      puck.style.transform = `translate(${dx}px, ${dy}px)`;
+    };
+    const endDrag = (e, drop) => {
+      if (e.pointerId !== drag.id) return;
+      const { moved } = drag;
+      stopDragging();
+      if (!moved) return;
+      dragged = true;
+      if (drop) movePuck(`${e.clientY < window.innerHeight / 2 ? 'top' : 'bottom'}-${e.clientX < window.innerWidth / 2 ? 'left' : 'right'}`);
+    };
+    const onDragUp = (e) => endDrag(e, true);
+    const onDragCancel = (e) => endDrag(e, false);
+    function stopDragging() {
+      drag = null;
+      window.removeEventListener('pointermove', onDragMove);
+      window.removeEventListener('pointerup', onDragUp);
+      window.removeEventListener('pointercancel', onDragCancel);
+      puck.classList.remove('dragging');
+      puck.style.transform = '';
+    }
+    puckHead.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || drag) return;
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
+      dragged = false;
+      window.addEventListener('pointermove', onDragMove);
+      window.addEventListener('pointerup', onDragUp);
+      window.addEventListener('pointercancel', onDragCancel);
+    });
+    puckHead.addEventListener(
+      'click',
+      (e) => {
+        if (dragged) e.stopPropagation();
+        dragged = false;
+      },
+      true
+    );
+    // The keyboard's way to the same place: an arrow key crosses to that side, keeping the other axis.
+    puckHead.addEventListener('keydown', (e) => {
+      const [v, h] = st.corner.split('-');
+      const to = { ArrowUp: `top-${h}`, ArrowDown: `bottom-${h}`, ArrowLeft: `${v}-left`, ArrowRight: `${v}-right` }[e.key];
+      if (!to) return;
+      e.preventDefault();
+      movePuck(to);
+    });
 
     root.append(
       el('p', { class: 'muted small', text: 'Experimental: every visualizer draws the same loaded sessions its own way. The puck names the one in view and filters by its tags.' }),
@@ -125,6 +208,16 @@
       carousel,
       puck
     );
+
+    // ---------- pane height ----------
+    // The strip takes the height left in the window, so the nav under it stays
+    // in view and a drawing taller than that scrolls inside its slide. The
+    // height doesn't follow the slide, so the nav stays put between slides.
+    function fitStrip() {
+      if (!carousel.offsetParent) return; // the tab is hidden; shown() fits it
+      const top = strip.getBoundingClientRect().top + window.scrollY;
+      strip.style.height = `${Math.max(MIN_STRIP_HEIGHT, window.innerHeight - top - nav.offsetHeight - BELOW_NAV)}px`;
+    }
 
     // ---------- session picker ----------
     function renderPicker() {
@@ -456,12 +549,16 @@
     const onResize = () => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
+        fitStrip();
         for (const s of slides) for (const p of s.parts) p.instance.resize();
         const cur = current();
         if (cur && !cur.slide.hidden) strip.scrollTo({ left: cur.slide.offsetLeft, behavior: 'auto' });
       }, 150);
     };
     window.addEventListener('resize', onResize);
+    // What's above the strip changes height too (the picker's list, the notes, the web demo's header).
+    const pageObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(fitStrip) : null;
+    if (pageObserver) pageObserver.observe(document.body);
 
     renderPicker();
     renderLoaded();
@@ -482,12 +579,15 @@
           st.requested = true;
           source.loadSessions(st.picked);
         }
+        fitStrip();
         for (const s of slides) for (const p of s.parts) p.instance.resize();
         const cur = current();
         if (cur && !cur.slide.hidden) strip.scrollTo({ left: cur.slide.offsetLeft, behavior: 'auto' });
       },
       destroy() {
         window.removeEventListener('resize', onResize);
+        if (pageObserver) pageObserver.disconnect();
+        if (drag) stopDragging();
         if (io) io.disconnect();
         for (const s of slides) destroyParts(s);
         root.replaceChildren();
