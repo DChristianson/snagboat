@@ -131,6 +131,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'What your prompts were about: words you used, joined when they appear in the same prompt. Word counts, not a model’s reading.',
     tags: { category: ['semantic'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['content'] },
   },
+  {
+    id: 'gantt',
+    title: 'Gantt and waterfall',
+    description: 'Where the time went: rows for you, each agent, and each tool category over clock time, or one row per turn that opens into its own time axis.',
+    tags: { category: ['temporal'], purpose: ['informative'], level: ['session'], dimension: ['time', 'actor', 'hierarchy'] },
+  },
 ];
 
 /**
