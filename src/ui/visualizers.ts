@@ -94,6 +94,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'One row per session over clock time: turns as blocks, compactions as ticks, findings as badges. Idle gaps stay visible.',
     tags: { category: ['temporal', 'state'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time'] },
   },
+  {
+    id: 'cost-per-prompt',
+    title: 'Cost per prompt',
+    description: 'One column per turn, tokens stacked by agent or by tool category, sessions side by side on one y axis.',
+    tags: { category: ['quantitative', 'conversational'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+  },
 ];
 
 /**

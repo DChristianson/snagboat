@@ -292,6 +292,19 @@ input[type="search"] { min-width: 220px; }
 .swatch.swatch-compaction { width: 2px; background: var(--warn); }
 .swatch.swatch-warn { width: 0; height: 0; border-radius: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--warn); }
 .swatch.swatch-info { width: 0; height: 0; border-radius: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--info); }
+/* Cost per prompt: stacked columns in the series colors (by agent) or the category colors (by tool category). */
+.cost-chart .cost-col { cursor: pointer; }
+.cost-chart .cost-col:focus { outline: none; }
+.cost-chart .cost-col:hover .hit, .cost-chart .cost-col:focus .hit { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15)); }
+.cost-chart .cat-1 { fill: var(--cat-1); }
+.cost-chart .cat-2 { fill: var(--cat-2); }
+.cost-chart .cat-3 { fill: var(--cat-3); }
+.cost-chart .cat-4 { fill: var(--cat-4); }
+.cost-chart .cat-5 { fill: var(--cat-5); }
+.cost-chart .cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.cost-chart .col-outline { fill: none; stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.cost-chart .group-label { fill: var(--ink); }
+.cost-legend { margin-top: 6px; }
 
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
