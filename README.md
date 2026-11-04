@@ -126,6 +126,7 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
 - **Status bar:** today's tokens, agent events, and local edits, plus the most important active finding. Hover for the breakdown by agent and any health problems with Snagboat itself.
 - **Detail view** (click the status bar, or **Snagboat: Open Detail View**): the **Overview** tab has today's totals, findings to acknowledge or mute, a daily token chart, and a filterable 24-hour timeline.
 - **Sessions tab:** each day's sessions by name. Open one for its turn tree (where the tokens went, by prompt, agent, and tool category), its context timeline, and its findings, past ones included.
+- **Explore tab** (experimental): up to eight sessions through a carousel of visualizers, each drawing the same sessions its own way, with a puck that names the current one and filters by its tags. Try the views in your browser at <https://dchristianson.github.io/snagboat/>, over example sessions or your own files; nothing leaves your machine.
 - **Suggestions tab** (**Snagboat: Discover Heuristics**): rules, thresholds, and shell categories proposed from your own history, scored by replay; accept, adjust, or dismiss.
 - **Snagboat: Write Review** writes a weekly Markdown review of this workspace to `~/.snagboat/reviews/`.
 
@@ -181,7 +182,8 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 
 | Script | What it does |
 | --- | --- |
-| `npm run build` | Bundles `src/extension.ts` to `dist/extension.js` with esbuild |
+| `npm run build` | Bundles `src/extension.ts` to `dist/extension.js` with esbuild, and the web demo's bundle, so a Node import creeping into the browser-side model fails here |
+| `npm run build:web` | Builds the web demo into `out/web/`: type-checks the page, bundles it, and copies the explorer's scripts and stylesheet in; the Pages workflow deploys that folder |
 | `npm run watch` | Rebuilds on change |
 | `npm run test:unit` | Unit tests, no VS Code needed |
 | `npm test` | Compiles and bundles, then runs the integration suite in a real VS Code instance via `@vscode/test-electron` |
