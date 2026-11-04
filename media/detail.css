@@ -572,6 +572,157 @@ input[type="search"] { min-width: 220px; }
 .hist-bar:focus { outline: none; }
 .hist-bar:hover .hit, .hist-bar:focus .hit { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15)); }
 
+/* Box and violin */
+.box-chart .box-row { cursor: pointer; }
+.box-chart .box-row:focus { outline: none; }
+.box-chart .box-row:hover .hit, .box-chart .box-row:focus .hit { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.1)); }
+.box-chart .violin { fill: var(--series-1); fill-opacity: 0.25; }
+.box-chart .whisker { stroke: var(--ink); stroke-width: 1; }
+.box-chart .box { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
+.box-chart .box-on { stroke-width: 2.5; }
+.box-chart .median { stroke: var(--ink); stroke-width: 2.5; }
+.box-chart .outlier { fill: var(--cat-1); cursor: pointer; }
+.box-chart .outlier:focus { outline: none; stroke: var(--ink); stroke-width: 1.5; }
+.viz-chart .heat-row-on { font-weight: 600; }
+
+/* Ridgeline */
+.ridge-chart .ridge { cursor: default; }
+.ridge-chart .ridge[role="button"] { cursor: pointer; }
+.ridge-chart .ridge:focus { outline: none; }
+.ridge-chart .ridge-fill { fill: var(--series-1); fill-opacity: 0.35; stroke: var(--surface); stroke-width: 1; }
+.ridge-chart .ridge:hover .ridge-fill, .ridge-chart .ridge:focus .ridge-fill { fill-opacity: 0.6; }
+.ridge-chart .ridge-line { fill: none; stroke: var(--series-1); stroke-width: 1.5; }
+.ridge-chart .ridge-median { stroke: var(--ink); stroke-width: 2; }
+
+/* Scatter plot */
+.scatter-chart .scatter-pt { fill-opacity: 0.7; stroke-width: 1; cursor: pointer; }
+.scatter-chart .scatter-pt.ring { fill-opacity: 0; stroke-width: 2; }
+.scatter-chart .scatter-pt:hover, .scatter-chart .scatter-pt:focus { outline: none; fill-opacity: 1; }
+.scatter-chart .scatter-on { stroke: var(--ink); stroke-width: 2.5; fill-opacity: 1; }
+.swatch.scatter-key { border-radius: 50%; }
+
+/* Bubble chart */
+.bubble-chart .bubble { cursor: pointer; }
+.bubble-chart .bubble:focus { outline: none; }
+.bubble-chart .bubble-dot { fill-opacity: 0.55; stroke: var(--surface); stroke-width: 1; }
+.bubble-chart .bubble:hover .bubble-dot, .bubble-chart .bubble:focus .bubble-dot { fill-opacity: 0.8; }
+.bubble-chart .bubble-warn { fill: var(--warn); }
+.bubble-chart .bubble-info { fill: var(--info); }
+.bubble-chart .bubble-clean { fill: var(--ink-muted); }
+.bubble-chart .bubble-on { stroke: var(--ink); stroke-width: 2.5; }
+.bubble-chart .bubble-label { fill: var(--ink); font-size: 11px; pointer-events: none; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.swatch.swatch-bubble-warn { border-radius: 50%; background: var(--warn); }
+.swatch.swatch-bubble-info { border-radius: 50%; background: var(--info); }
+.swatch.swatch-bubble-clean { border-radius: 50%; background: var(--ink-muted); }
+
+/* Sunburst */
+.viz-chart.sun-chart { width: auto; max-width: 100%; height: auto; }
+.sun-chart .sun-arc { stroke: var(--surface); stroke-width: 0.75; }
+.sun-chart .sun-arc[role="button"] { cursor: pointer; }
+.sun-chart .sun-arc:hover, .sun-chart .sun-arc:focus { outline: none; stroke: var(--vscode-focusBorder, var(--ink)); stroke-width: 1.5; }
+.sun-chart .sun-on { stroke: var(--ink); stroke-width: 1.5; }
+.sun-chart .sun-session { stroke: var(--surface); fill-opacity: 0.8; }
+.sun-chart .sun-turn-0 { fill: var(--turn-0); }
+.sun-chart .sun-turn-1 { fill: var(--turn-1); }
+.sun-chart .sun-agent-0 { fill: var(--turn-0); fill-opacity: 0.6; }
+.sun-chart .sun-agent-1 { fill: var(--turn-1); fill-opacity: 0.6; }
+.sun-chart .sun-unlinked { fill: rgba(128, 128, 128, 0.3); }
+.sun-chart .cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.sun-chart .cat-1 { fill: var(--cat-1); }
+.sun-chart .cat-2 { fill: var(--cat-2); }
+.sun-chart .cat-3 { fill: var(--cat-3); }
+.sun-chart .cat-4 { fill: var(--cat-4); }
+.sun-chart .cat-5 { fill: var(--cat-5); }
+.sun-chart .week-total { fill: var(--ink); font-size: 18px; font-weight: 600; }
+
+/* Calendar heatmap, and the scroller for grids wider than the slide */
+.cal-scroll { overflow-x: auto; scrollbar-width: thin; }
+.viz-chart.cal-chart { width: auto; max-width: none; }
+.cal-chart .heat-empty { fill: var(--ink-muted); fill-opacity: 0.06; }
+.cal-chart .cal-day { cursor: pointer; }
+.cal-chart .cal-day:hover, .cal-chart .cal-day:focus { outline: none; stroke: var(--vscode-focusBorder, var(--ink)); stroke-width: 1.5; }
+
+/* Radar */
+.viz-chart.radar-chart { width: auto; max-width: 100%; height: auto; }
+.radar-chart .radar-ring { fill: none; stroke: var(--rule); stroke-width: 1; }
+.radar-chart .radar-shape { fill-opacity: 0.12; stroke-width: 2; pointer-events: none; }
+.radar-chart .radar-shape.ring { fill-opacity: 0; stroke-dasharray: 4 3; }
+.radar-chart .radar-on { fill-opacity: 0.3; stroke-width: 3; }
+.radar-chart .radar-pt { cursor: pointer; }
+.radar-chart .radar-pt:hover, .radar-chart .radar-pt:focus { outline: none; stroke: var(--ink); stroke-width: 1.5; }
+
+/* Parallel coordinates */
+.par-chart .par-axis { stroke: var(--ink-muted); stroke-width: 1; }
+.par-chart .par-line { cursor: pointer; }
+.par-chart .par-line:focus { outline: none; }
+.par-chart .par-stroke { fill: none; stroke-width: 1.25; stroke-opacity: 0.6; }
+.par-chart .par-stroke.ring { stroke-dasharray: 4 3; }
+.par-chart .par-hit { fill: none; stroke: transparent; stroke-width: 8; }
+.par-chart .par-line:hover .par-stroke, .par-chart .par-line:focus .par-stroke { stroke-opacity: 1; stroke-width: 2.5; }
+.par-chart .par-on .par-stroke { stroke-opacity: 1; stroke-width: 3; }
+.par-chart .par-dim .par-stroke { stroke-opacity: 0.15; }
+
+/* Streamgraph */
+.stream-chart .stream-layer { fill-opacity: 0.85; stroke: var(--surface); stroke-width: 0.5; cursor: pointer; }
+.stream-chart .stream-layer:hover { fill-opacity: 1; }
+.stream-chart .cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.stream-chart .cat-1 { fill: var(--cat-1); }
+.stream-chart .cat-2 { fill: var(--cat-2); }
+.stream-chart .cat-3 { fill: var(--cat-3); }
+.stream-chart .cat-4 { fill: var(--cat-4); }
+.stream-chart .cat-5 { fill: var(--cat-5); }
+
+/* Sankey: ribbons as in the tool-call ribbon */
+.sankey-chart .ribbon { cursor: pointer; }
+.sankey-chart .ribbon:focus { outline: none; }
+.sankey-chart .ribbon-shape { fill-opacity: 0.4; stroke: none; }
+.sankey-chart .ribbon:hover .ribbon-shape, .sankey-chart .ribbon:focus .ribbon-shape { fill-opacity: 0.7; }
+.sankey-chart .ribbon-on .ribbon-shape { fill-opacity: 0.9; stroke: var(--ink); stroke-width: 1; }
+.sankey-chart .ribbon-dim .ribbon-shape { fill-opacity: 0.08; }
+.sankey-chart .sankey-node { stroke: none; }
+.sankey-model { fill: var(--ink-muted); background: var(--ink-muted); }
+.sankey-chart .sankey-label { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+
+/* Adjacency matrix */
+.viz-chart.adj-chart { width: auto; max-width: none; }
+.adj-chart .heat-empty { fill: var(--ink-muted); fill-opacity: 0.05; }
+.adj-chart .heat-cell { cursor: pointer; }
+.adj-chart .heat-cell:focus { outline: none; }
+.adj-chart .heat-cell:hover .heat, .adj-chart .heat-cell:focus .heat { stroke: var(--vscode-focusBorder, var(--ink)); stroke-width: 1.5; }
+.adj-chart .adj-inferred { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 3 2; }
+.adj-chart .adj-on { stroke: var(--ink); stroke-width: 2; stroke-dasharray: none; }
+.adj-chart .adj-count { fill: var(--ink); font-size: 10px; pointer-events: none; paint-order: stroke; stroke: var(--surface); stroke-width: 2.5px; stroke-linejoin: round; }
+.swatch.swatch-adj-inferred { background: none; outline: 1px dashed var(--ink); outline-offset: -1px; }
+
+/* Swimlane */
+.swim-wrap { display: flex; align-items: flex-start; }
+.swim-scroll { overflow-x: auto; scrollbar-width: thin; min-width: 0; flex: 1; }
+.viz-chart.swim-labels { flex: none; width: auto; }
+.viz-chart.swim-chart { width: auto; max-width: none; }
+.swim-chart .swim-rule { stroke: var(--rule); stroke-width: 1; shape-rendering: crispEdges; }
+.swim-chart .swim-divider { stroke: var(--rule); stroke-width: 1; shape-rendering: crispEdges; opacity: 0.6; }
+.swim-chart .swim-link { fill: none; stroke: var(--ink-muted); stroke-width: 1.25; }
+.swim-chart .swim-band-hit { cursor: pointer; }
+.swim-chart .swim-band-hit:focus { outline: none; }
+.swim-chart .swim-band { stroke: var(--rule); stroke-width: 1; }
+.swim-chart .turn-0 { fill: var(--turn-0); }
+.swim-chart .turn-1 { fill: var(--turn-1); }
+.swim-chart .swim-band-hit:hover .swim-band, .swim-chart .swim-band-hit:focus .swim-band { stroke: var(--vscode-focusBorder, var(--series-1)); }
+.swim-chart .swim-on { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.swim-chart .swim-band-text { fill: var(--ink); font-size: 11px; font-weight: 600; pointer-events: none; }
+.swim-chart .swim-node { stroke: var(--surface); stroke-width: 1; }
+.swim-chart .swim-fail { stroke: var(--warn); stroke-width: 2; }
+.swim-chart .swim-count { fill: var(--ink); font-size: 10px; pointer-events: none; paint-order: stroke; stroke: var(--surface); stroke-width: 2.5px; stroke-linejoin: round; }
+.swim-chart .cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.swim-chart .cat-1 { fill: var(--cat-1); }
+.swim-chart .cat-2 { fill: var(--cat-2); }
+.swim-chart .cat-3 { fill: var(--cat-3); }
+.swim-chart .cat-4 { fill: var(--cat-4); }
+.swim-chart .cat-5 { fill: var(--cat-5); }
+.swim-prompt { fill: var(--series-1); background: var(--series-1); }
+.swim-call { fill: var(--ink-muted); background: var(--ink-muted); }
+.swim-compaction { fill: var(--warn); }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
@@ -663,7 +814,7 @@ input[type="search"] { min-width: 220px; }
 .puck-desc { margin: 0 0 4px; }
 .puck-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 8px; }
 /* Collapsed: a small circle with the title and position; the whole of it is the toggle. */
-.puck.collapsed { width: 96px; height: 96px; padding: 0 10px; justify-content: center; border-radius: 50%; }
+.puck.collapsed { width: 96px; height: 96px; padding: 0 6px; justify-content: center; border-radius: 50%; }
 .puck.collapsed .puck-body { display: none; }
 .puck.collapsed .puck-head { flex-direction: column; flex-wrap: nowrap; align-items: center; padding: 0; line-height: 1.2; text-align: center; }
 .puck.collapsed .puck-head strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }

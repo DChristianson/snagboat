@@ -167,6 +167,78 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'How a measurement is spread: tokens per call, time between calls, or per-turn counts, stacked by session.',
     tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity'] },
   },
+  {
+    id: 'box-violin',
+    title: 'Box and violin',
+    description: 'How a measurement varies from session to session: density, quartiles, and outliers, one row each.',
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['project'], dimension: ['quantity'] },
+  },
+  {
+    id: 'ridgeline',
+    title: 'Ridgeline',
+    description: 'The shape of a per-call measurement by session or by model, as overlapping density curves on one axis.',
+    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity'] },
+  },
+  {
+    id: 'scatter',
+    title: 'Scatter plot',
+    description: 'Every turn as a point: how long it ran against its tokens, model calls, or tool calls, on log axes.',
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'] },
+  },
+  {
+    id: 'bubble',
+    title: 'Bubble chart',
+    description: 'Each session by span and tokens, with area for tool calls and color for its worst finding.',
+    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'] },
+  },
+  {
+    id: 'sunburst',
+    title: 'Sunburst',
+    description: 'The turn tree as rings: sessions, prompts, agents, then tool categories, with angle for tokens.',
+    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy', 'actor'] },
+  },
+  {
+    id: 'calendar-heatmap',
+    title: 'Calendar heatmap',
+    description: 'The loaded sessions by day over weeks: tokens, model calls, or findings, a column per week.',
+    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'] },
+  },
+  {
+    id: 'radar',
+    title: 'Radar',
+    description: 'A profile of each session over seven measures, each axis scaled to the largest among those loaded.',
+    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+  },
+  {
+    id: 'parallel-coords',
+    title: 'Parallel coordinates',
+    description: 'Every turn as a line across six measures, each axis on its own scale, colored by session.',
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'] },
+  },
+  {
+    id: 'streamgraph',
+    title: 'Streamgraph',
+    description: 'How a session’s activity changed over time: tokens by agent or model, or tool calls by category.',
+    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['session'], dimension: ['time', 'quantity', 'actor'] },
+  },
+  {
+    id: 'sankey',
+    title: 'Sankey',
+    description: 'Where tokens went: from sessions, through the main agent or subagents, to models.',
+    tags: { category: ['actor', 'quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+  },
+  {
+    id: 'adjacency-matrix',
+    title: 'Adjacency matrix',
+    description: 'Who acted on whom, as a grid: messages, delegation, model calls, and tool calls, by count.',
+    tags: { category: ['actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'] },
+  },
+  {
+    id: 'swimlane',
+    title: 'Swimlane',
+    description: 'Who had the ball, in order: lanes for you, each agent, and tool calls, with hand-offs between them.',
+    tags: { category: ['conversational', 'actor'], purpose: ['informative', 'expressive'], level: ['session'], dimension: ['communication', 'actor'] },
+  },
 ];
 
 /**
