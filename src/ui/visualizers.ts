@@ -155,6 +155,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Which tool category followed which within turns: sources on the left, what came next on the right, ribbons as wide as the step was common.',
     tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'] },
   },
+  {
+    id: 'week-picture',
+    title: 'Week in one picture',
+    description: 'Seven days as rings around a 24-hour clock: tokens by hour as color, findings as dots, over the loaded sessions.',
+    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['project'], dimension: ['time', 'quantity'] },
+  },
 ];
 
 /**

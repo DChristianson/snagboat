@@ -541,6 +541,27 @@ input[type="search"] { min-width: 220px; }
 .ribbon-turns-head { margin: 10px 0 4px; }
 .swatch.swatch-ribbon-start { background: var(--ink-muted); }
 
+/* Week in one picture: rings of hours in the heatmap's ramp, with findings as dots. */
+.week-layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+.viz-chart.week-chart { width: auto; max-width: 100%; height: auto; flex: none; }
+.week-chart .week-empty { fill: var(--ink-muted); fill-opacity: 0.05; stroke: var(--surface); stroke-width: 0.5; }
+.week-chart .week-wedge { stroke: var(--surface); stroke-width: 0.5; }
+.week-chart .week-none { fill: var(--ink-muted); fill-opacity: 0.15; }
+.week-chart .week-cell { cursor: pointer; }
+.week-chart .week-cell:focus { outline: none; }
+.week-chart .week-cell:hover .week-wedge, .week-chart .week-cell:focus .week-wedge { stroke: var(--vscode-focusBorder, var(--ink)); stroke-width: 1.5; }
+.week-chart .week-selected, .week-chart .week-cell:hover .week-selected { stroke: var(--ink); stroke-width: 2; }
+.week-chart .week-finding { stroke: var(--surface); stroke-width: 1; pointer-events: none; }
+.week-chart .week-finding-warn { fill: var(--warn); }
+.week-chart .week-finding-info { fill: var(--info); }
+.week-chart .week-spoke { stroke: var(--rule); stroke-width: 1; pointer-events: none; }
+.week-chart .week-ring-label { fill: var(--ink); font-size: 10px; pointer-events: none; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.week-chart .week-total { fill: var(--ink); font-size: 18px; font-weight: 600; }
+.week-table { flex: 0 1 auto; width: auto; }
+.week-legend { margin-top: 6px; }
+.swatch.swatch-week-warn { border-radius: 50%; background: var(--warn); }
+.swatch.swatch-week-info { border-radius: 50%; background: var(--info); }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
