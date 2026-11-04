@@ -106,6 +106,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Context size per call by call index, one line per session, so sessions line up by progress rather than clock.',
     tags: { category: ['state', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'] },
   },
+  {
+    id: 'sequence-diagram',
+    title: 'Sequence diagram',
+    description: 'Who sent what to whom, in order: you, the main agent, subagents, and tool categories as lifelines, read top to bottom.',
+    tags: { category: ['conversational', 'actor'], purpose: ['informative'], level: ['session'], dimension: ['communication', 'actor', 'time'] },
+  },
 ];
 
 /**
