@@ -363,6 +363,48 @@ input[type="search"] { min-width: 220px; }
 .seq-band-selected, .seq-band-hit:hover .seq-band-selected { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
 .seq-turn-selected { fill: var(--vscode-editor-selectionHighlightBackground, rgba(57, 135, 229, 0.12)); }
 
+/* Event graph: shapes tell the node types apart; solid edges are observed order, dashed are inferred. */
+.viz-chart.eg-chart { width: auto; max-width: none; }
+.eg-legend { margin-bottom: 2px; }
+.eg-note { margin: 0 0 8px; }
+.eg-chart .eg-band { fill: transparent; stroke: var(--rule); stroke-width: 1; }
+.eg-chart .eg-selected .eg-band { fill: var(--vscode-editor-selectionHighlightBackground, rgba(57, 135, 229, 0.12)); stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.eg-chart .eg-dim { opacity: 0.55; }
+.eg-chart .eg-edge { fill: none; stroke-width: 1.25; }
+.eg-chart .eg-edge-observed { stroke: var(--ink); }
+.eg-chart .eg-edge-inferred { stroke: var(--ink-muted); stroke-dasharray: 4 3; }
+.eg-chart .eg-edge-retry { stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 1.5 3; stroke-linecap: round; }
+.eg-chart .eg-arrow-observed { fill: var(--ink); }
+.eg-chart .eg-arrow-inferred { fill: var(--ink-muted); }
+.eg-chart .eg-arrow-retry { fill: var(--warn); }
+.eg-chart .eg-node-prompt { cursor: pointer; }
+.eg-chart .eg-node-prompt:focus { outline: none; }
+.eg-chart .eg-prompt { stroke: var(--ink-muted); stroke-width: 1; }
+.eg-chart .eg-prompt.turn-0 { fill: var(--turn-0); }
+.eg-chart .eg-prompt.turn-1 { fill: var(--turn-1); }
+.eg-chart .eg-node-prompt:hover .eg-prompt, .eg-chart .eg-node-prompt:focus .eg-prompt { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.eg-chart .eg-prompt-label { fill: var(--ink); font-size: 11px; pointer-events: none; }
+.eg-chart .eg-call { fill: var(--series-1); stroke: var(--surface); stroke-width: 1; }
+.eg-chart .eg-compaction { fill: var(--warn); stroke: var(--surface); stroke-width: 1; }
+.eg-chart .eg-tool { stroke: var(--surface); stroke-width: 1; }
+.eg-chart .eg-cat-1 { fill: var(--cat-1); }
+.eg-chart .eg-cat-2 { fill: var(--cat-2); }
+.eg-chart .eg-cat-3 { fill: var(--cat-3); }
+.eg-chart .eg-cat-4 { fill: var(--cat-4); }
+.eg-chart .eg-cat-5 { fill: var(--cat-5); }
+.eg-chart .eg-cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.eg-chart .eg-fail-badge { fill: var(--surface); stroke: var(--warn); stroke-width: 1.25; }
+.eg-chart .eg-fail-x { fill: none; stroke: var(--warn); stroke-width: 1.5; stroke-linecap: round; }
+.eg-chart .eg-times { font-size: 10px; pointer-events: none; }
+.swatch.eg-key-prompt { width: 16px; border-radius: 5px; background: var(--turn-0); outline: 1px solid var(--ink-muted); }
+.swatch.eg-key-call { border-radius: 50%; background: var(--series-1); }
+.swatch.eg-key-tool { background: rgba(128, 128, 128, 0.5); }
+.swatch.eg-key-compaction { width: 8px; height: 8px; border-radius: 0; background: var(--warn); transform: rotate(45deg); }
+.swatch.eg-key-fail { border-radius: 50%; background: var(--surface); border: 1.5px solid var(--warn); box-sizing: border-box; }
+.swatch.eg-key-observed { width: 18px; height: 0; border-radius: 0; border-top: 1.5px solid var(--ink); }
+.swatch.eg-key-inferred { width: 18px; height: 0; border-radius: 0; border-top: 1.5px dashed var(--ink-muted); }
+.swatch.eg-key-retry { width: 18px; height: 0; border-radius: 0; border-top: 2px dotted var(--warn); }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }

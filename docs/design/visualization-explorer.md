@@ -205,6 +205,7 @@ These four were taken ahead of the order above, because each fills a gap in the 
 | Visualizer | category | purpose | level | dimension |
 | --- | --- | --- | --- | --- |
 | Sequence diagram | conversational, actor | informative | session | communication, actor, time |
+| Event graph | dependency, conversational | expressive, informative | session | dependency, communication |
 
 They needed `SessionView` to carry each tool call (name, category, status; never its target or arguments) and each model call's reply excerpt.
 

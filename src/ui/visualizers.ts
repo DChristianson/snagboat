@@ -112,6 +112,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Who sent what to whom, in order: you, the main agent, subagents, and tool categories as lifelines, read top to bottom.',
     tags: { category: ['conversational', 'actor'], purpose: ['informative'], level: ['session'], dimension: ['communication', 'actor', 'time'] },
   },
+  {
+    id: 'event-graph',
+    title: 'Event graph',
+    description: 'What led to what: prompts, model calls, tool calls, subagents, and compactions as nodes, with inferred links drawn dashed.',
+    tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'] },
+  },
 ];
 
 /**
