@@ -203,6 +203,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'The loaded sessions by day over weeks: tokens, model calls, or findings, a column per week.',
     tags: { category: ['temporal', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'] },
   },
+  {
+    id: 'radar',
+    title: 'Radar',
+    description: 'A profile of each session over seven measures, each axis scaled to the largest among those loaded.',
+    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+  },
 ];
 
 /**
