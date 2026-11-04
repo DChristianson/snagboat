@@ -47,6 +47,10 @@
         "title": "Snagboat: Open Session..."
       },
       {
+        "command": "snagboat.revealEventLog",
+        "title": "Snagboat: Reveal Event Log Folder"
+      },
+      {
         "command": "snagboat.previewDigest",
         "title": "Snagboat: Preview Advisor Digest..."
       },
