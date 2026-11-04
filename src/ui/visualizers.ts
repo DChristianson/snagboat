@@ -161,6 +161,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Seven days as rings around a 24-hour clock: tokens by hour as color, findings as dots, over the loaded sessions.',
     tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['project'], dimension: ['time', 'quantity'] },
   },
+  {
+    id: 'histogram',
+    title: 'Histogram',
+    description: 'How a measurement is spread: tokens per call, time between calls, or per-turn counts, stacked by session.',
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity'] },
+  },
 ];
 
 /**

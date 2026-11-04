@@ -562,6 +562,16 @@ input[type="search"] { min-width: 220px; }
 .swatch.swatch-week-warn { border-radius: 50%; background: var(--warn); }
 .swatch.swatch-week-info { border-radius: 50%; background: var(--info); }
 
+/* The legend under a chart that uses the shared slide layout, and the session colors' rings for the seventh session on (vizPanel and sessionClass in shared.js) */
+.viz-legend { margin-top: 6px; }
+.viz-chart .ring { fill-opacity: 0.25; }
+.swatch.ring { background: none; outline: 2px solid currentColor; outline-offset: -2px; }
+
+/* Histogram */
+.hist-bar { cursor: pointer; }
+.hist-bar:focus { outline: none; }
+.hist-bar:hover .hit, .hist-bar:focus .hit { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15)); }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
