@@ -179,6 +179,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'The shape of a per-call measurement by session or by model, as overlapping density curves on one axis.',
     tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity'] },
   },
+  {
+    id: 'scatter',
+    title: 'Scatter plot',
+    description: 'Every turn as a point: how long it ran against its tokens, model calls, or tool calls, on log axes.',
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'] },
+  },
 ];
 
 /**
