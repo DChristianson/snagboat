@@ -30,9 +30,11 @@ Press F5 in VS Code to launch an Extension Development Host. The **Run Extension
 | `src/core/` | Event bus, daily event log, retention and rollups, `EventStore`, aggregates, health, file tailing |
 | `src/adapters/<agent>/` | One folder per source (`claude-code`, `copilot`, `edit-tracker`). Parsing lives in `normalize.ts`, free of the `vscode` module so it can be unit tested |
 | `src/heuristics/` | The engine, the findings registry (acknowledge/mute), and one file per heuristic |
-| `src/ui/` | Status bar text, the detail view's panel and model; the page itself is `media/detail.js` and `media/detail.css` |
+| `src/ui/` | Status bar text, the detail view's panel and model, the session views, and the visualizer catalog (`visualizers.ts`); the page itself is under `media/` (`detail.js`, `sessions.js`, `suggestions.js`, `explore.js`, the shared helpers in `shared.js`, `detail.css`), with one file per visualizer under `media/viz/` |
+| `src/web/`, `web/` | The web demo: the page's code, example sessions, and in-memory session source, bundled for the browser; `web/index.html` and its stylesheet |
 | `src/scripts/transcripts.ts` | Dev tooling for Claude Code transcripts (`verify:transcripts`, fixture redaction) |
 | `scripts/licenses.js` | Generates `THIRD_PARTY_LICENSES.md` from what's actually bundled |
+| `scripts/webDemo.js` | Assembles the web demo under `out/web/` (`npm run build:web`) |
 | `src/test/unit/` | Unit tests |
 | `src/test/suite/` | Integration tests that run inside VS Code |
 

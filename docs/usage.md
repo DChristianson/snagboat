@@ -8,7 +8,7 @@ One item: today's tokens, agent events, and local edits (resetting at local midn
 
 ## Detail view
 
-Open it from the status bar, or with **Snagboat: Open Detail View**. It has three tabs.
+Open it from the status bar, or with **Snagboat: Open Detail View**. It has four tabs.
 
 ### Overview
 
@@ -28,6 +28,22 @@ The context timeline shows how much context each model call sent, split into cac
 Findings include earlier ones, found by replaying the session through the heuristics when you open it, as well as active ones. Select a prompt (in the tree or on the timeline) to read what you asked. **Explain session**, **Explain turn** on a selected prompt, and **Explain** on a finding ask the [advisor](../README.md#advisor-optional); **Tactics** asks it whether the models used fit each turn and whether a different way of prompting would have cost less. With `snagboat.advisor.headlines` on, each ended session gets a one-line headline from the advisor under its name in the list.
 
 Findings ("Show in session"), session ids in the Overview timeline, and the daily chart's bars all link into a session, as does **Snagboat: Open Session...**.
+
+### Explore (experimental)
+
+A place to try views and compare them on real data; whatever earns its keep later moves into the Sessions tab. Pick a day and check up to 8 sessions (the session open in the Sessions tab is checked the first time), then press **Load**; **Unload** drops them. Loaded sessions are kept current from live events, as the open session is.
+
+The visualizers sit in a carousel, one slide each. **Previous** and **Next**, the arrow keys when the strip has focus, and the row of dots move between them. Each slide has the visualizer's title and description above its drawing; a visualizer that works on one session at a time is drawn once per loaded session, stacked down the slide under the session's name. The five so far:
+
+- **Turn tree**: the Sessions tab's tree; with several sessions loaded, each session's tree hangs under one root, so zooming compares sessions first and drills into one below.
+- **Context timeline**: the Sessions tab's timeline, one per session.
+- **Session strips**: one row per session over clock time, turns as blocks, compactions as ticks, findings as badges, so idle gaps show.
+- **Cost per prompt**: one column per turn, sessions side by side on one y axis; two buttons above the chart stack the tokens by agent (main agent and subagents) or by tool category (the tree's approximate split, marked ≈).
+- **Context fill**: context size per main-agent call by call index, one line per session, with the first call after each compaction marked and each model's largest-seen and limit lines, so sessions line up by progress rather than by clock.
+
+Selecting a turn in one visualizer (a click on a prompt, block, column, or point) selects it in the others. The **puck** in the bottom-right corner names the current visualizer, gives its description, and shows its tags as chips in four facets: category (the question the view answers), purpose (informative or expressive), level (one session or a project's sessions), and dimension (what it highlights). Every value in the vocabulary is shown, with the current visualizer's outlined; hover a chip for what it means. Click a chip to narrow the carousel to visualizers with that tag: within a facet, picked values are ORed; across facets, ANDed. **Clear** removes the filters, and **Collapse** shrinks the puck to its title when it covers a chart. The picked sessions, the current visualizer, the filters, the puck, and the selection are remembered when the view reopens.
+
+The same views run as a web demo at <https://dchristianson.github.io/snagboat/>: over example sessions, or over your own daily files (`events/YYYY-MM-DD.jsonl`; **Snagboat: Reveal Event Log Folder** opens the folder they're in), read in your browser and sent nowhere. See [PRIVACY.md](../PRIVACY.md#the-web-demo).
 
 ### Suggestions
 
@@ -73,6 +89,7 @@ It names heuristics, rules, models, and session ids, never prompts, paths, or co
 | **Snagboat: Write Default Advisor Prompts...** | Writes an advisor's default persona and per-ability instructions to `~/.snagboat/advisors/<id>/` to edit from (see [settings.md](settings.md#installed-advisors)). |
 | **Snagboat: Write Review** | Writes this workspace's weekly review (above). |
 | **Snagboat: Backfill Sessions from Transcripts...** | Re-reads the transcripts behind days logged by older versions and rewrites those days, so their sessions get turns, turn ends, and tool calls, and their past findings are complete. It shows what will change and asks first. |
+| **Snagboat: Reveal Event Log Folder** | Shows this workspace's event log folder (the daily `events/<date>.jsonl` files) in your file manager, to load them into the [web demo](#explore-experimental). Says so instead if nothing has been logged yet. |
 | **Snagboat: Remove Captured Text** | Deletes stored prompts and reply excerpts, keeping the events, and can turn capture off. |
 | **Snagboat: Remove Claude Code Hooks from Project...** | Removes Snagboat's entries from a folder's `.claude/settings.json`, leaving your own hooks alone, and stops adding them there. |
 | **Snagboat: Clear Event Log** | Deletes this workspace's logged events after confirming. Adapter checkpoints are kept, so already-seen history isn't re-imported. |

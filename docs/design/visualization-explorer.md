@@ -1,6 +1,6 @@
 # Design: visualization explorer
 
-Status: **accepted** (2026-11-03; decisions confirmed the same day). The visualization part of [phase 7](trusted-advisor.md#phases) of the advisor design, and the "visualizing sessions" half of the [prototype task](../roadmap.md#planned-tasks) in the roadmap. Nothing is built yet.
+Status: **accepted** (2026-11-03; decisions confirmed the same day). The visualization part of [phase 7](trusted-advisor.md#phases) of the advisor design, and the "visualizing sessions" half of the [prototype task](../roadmap.md#planned-tasks) in the roadmap. Steps 1–5 are built (2026-11-03); where the build differed from the text, the [implementation notes](#implementation-notes) at the end say how. Step 6 is not started.
 
 ## Summary
 
@@ -173,11 +173,11 @@ The parts that touch disk (`EventLog`, `ContextLimits`, `RuleStore`, the adapter
 
 ## Steps
 
-1. **Model and catalog.** `src/ui/visualizers.ts` (taxonomy and catalog), `src/ui/explorerModel.ts`, the controller's session set, the messages, and their unit tests. Nothing visible yet.
-2. **Explore tab.** `media/explore.js` (tab, picker, carousel, puck, registry, behind the source object) and the two ported visualizers under `media/viz/`, with `sessions.js` drawing through them. Checked by hand in both themes: the Sessions tab looks and behaves as before, and the explorer shows the same two views for the same session.
-3. **New visualizers.** Session strips, cost per prompt, and context fill, one at a time, each a file under `media/viz/` and a catalog entry.
-4. **Web demo.** The browser bundle, the page with its file loader and synthetic sessions, the Pages workflow, the Reveal Event Log Folder command, and the PRIVACY.md paragraph. It can start as soon as step 2 is in, in parallel with step 3.
-5. **Docs.** A section in [usage.md](../usage.md), the detail webview paragraph in [architecture.md](../architecture.md), a link to the demo from the README, and the roadmap entry marked done; this document gains implementation notes where the build differed.
+1. **Model and catalog — done.** `src/ui/visualizers.ts` (taxonomy and catalog), `src/ui/explorerModel.ts`, the controller's session set, the messages, and their unit tests. Nothing visible yet.
+2. **Explore tab — done.** `media/explore.js` (tab, picker, carousel, puck, registry, behind the source object) and the two ported visualizers under `media/viz/`, with `sessions.js` drawing through them. Checked by hand in both themes: the Sessions tab looks and behaves as before, and the explorer shows the same two views for the same session.
+3. **New visualizers — done.** Session strips, cost per prompt, and context fill, one at a time, each a file under `media/viz/` and a catalog entry.
+4. **Web demo — done.** The browser bundle, the page with its file loader and synthetic sessions, the Pages workflow, the Reveal Event Log Folder command, and the PRIVACY.md paragraph. It can start as soon as step 2 is in, in parallel with step 3.
+5. **Docs — done.** A section in [usage.md](../usage.md), the detail webview paragraph in [architecture.md](../architecture.md), a link to the demo from the README, and the roadmap entry marked done; this document gains implementation notes where the build differed.
 
 6. **More visualizers, from the proposal.** After step 5, more views are added starting with the ones listed per category in the [visualization proposal](agent_conversation_visualization_design_proposal.docx) (see below). Each is its own change: a file under `media/viz/`, a catalog entry, and a note here. None is built before step 5.
 
