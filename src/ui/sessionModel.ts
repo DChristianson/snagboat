@@ -1,4 +1,4 @@
-import { contextSize, ModelContextMarks } from '../core/contextLimits';
+import { contextSize, ModelContextMarks } from '../core/contextMarks';
 import { eventTokens, isConversationEvent, SessionSummary } from '../core/sessions';
 import { NormalizedEvent } from '../core/types';
 import { EventToolCategory, ToolCategory, baseCategory, categoryLabel } from '../core/toolCategory';

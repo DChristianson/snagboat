@@ -1,5 +1,4 @@
-import * as crypto from 'crypto';
-import { eventDay } from './eventLog';
+import { eventDay } from './eventDay';
 import { NormalizedEvent } from './types';
 
 /** One conversation (a Claude Code or Copilot agent session), summarized for the Sessions list. */
@@ -27,11 +26,6 @@ export function isConversationEvent(event: NormalizedEvent): boolean {
   if (event.channel === 'inline') return false;
   if (event.agent === 'generic-fs') return false;
   return event.kind === 'user_prompt' || event.kind === 'turn_stop' || event.kind === 'tool_call' || event.kind === 'compaction';
-}
-
-/** Same session and name, same id: a name repeated (Claude Code repeats titles; a restart re-reads them) is dropped as already logged. */
-export function sessionNameId(agent: string, sessionId: string, name: string): string {
-  return `${agent}:session-name:${sessionId}:${crypto.createHash('sha256').update(name).digest('hex').slice(0, 16)}`;
 }
 
 export function eventTokens(event: NormalizedEvent): number {

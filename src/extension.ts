@@ -678,6 +678,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       const sessionId = await pickSession('Open a session (most recent first)');
       if (sessionId) detailPanel.show({ sessionId });
     }),
+    vscode.commands.registerCommand('snagboat.revealEventLog', async () => {
+      // Shows the daily files' folder in the file manager (to load them into the
+      // web demo), creating nothing: activation makes the folder, so an empty
+      // one means nothing has been logged yet either.
+      const dir = eventLog.dir;
+      if (!fs.existsSync(dir) || (await eventLog.listDays()).length === 0) {
+        void vscode.window.showInformationMessage(`Snagboat: no events have been logged yet (the event log folder is ${dir}).`);
+        return;
+      }
+      await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
+    }),
     vscode.commands.registerCommand('snagboat.previewDigest', async () => {
       const sessionId = await pickSession('Preview the advisor digest of a session (most recent first)');
       if (!sessionId) return;

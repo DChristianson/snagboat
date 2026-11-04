@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>Snagboat explorer</title>
+<link rel="stylesheet" href="detail.css">
+<link rel="stylesheet" href="web.css">
+</head>
+<body>
+<main id="app">
+  <header class="web-head">
+    <div class="title-row">
+      <h1>Snagboat</h1>
+      <a class="repo" href="https://github.com/DChristianson/snagboat">github.com/DChristianson/snagboat</a>
+    </div>
+    <p>The Explore tab of the Snagboat VS Code extension, in a browser, over example sessions: every visualizer draws the same sessions its own way.</p>
+    <section class="loader" aria-label="Load your own sessions">
+      <div id="drop" class="drop">
+        <p><label>Load your own sessions: <input id="files" type="file" multiple accept=".jsonl,application/jsonl,application/x-ndjson,text/plain"></label> or drop the daily files Snagboat writes (<code>events/YYYY-MM-DD.jsonl</code>) here.</p>
+        <p class="muted small">Files are read in this browser and nothing is sent anywhere: the page's security policy forbids network requests. In VS Code, <strong>Snagboat: Reveal Event Log Folder</strong> opens the folder the files are in.</p>
+      </div>
+      <p class="data-row"><span id="data-note" class="muted small" aria-live="polite"></span><button id="examples" type="button" hidden>Use example sessions</button></p>
+    </section>
+  </header>
+  <p id="examples-note" class="examples-note small">Example sessions: four generated ones, shaped like real Claude Code and Copilot sessions but not recorded from anyone. Load your own files above to explore yours.</p>
+  <div id="explore-root"></div>
+</main>
+<div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+<script src="shared.js"></script>
+<!-- viz-scripts: scripts/webDemo.js writes a tag per file under media/viz/ here, the registry first -->
+<script src="explore.js"></script>
+<script src="snagboat-web.js"></script>
+</body>
+</html>

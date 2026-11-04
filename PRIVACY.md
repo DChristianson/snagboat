@@ -118,6 +118,10 @@ Events are filed under the day they happened, so history caught up from an old t
 - `Snagboat: Remove Claude Code Hooks from Project...` (`snagboat.removeClaudeHooks`) removes Snagboat's hook entries from a folder's `.claude/settings.json` and turns off `snagboat.claudeCode.configureHooks` for it, so they aren't added back.
 - `snagboat.captureContent` (on by default) turns all text capture on or off; `snagboat.retention.textDays` sets how long prompts and replies are kept. The detail view shows whether capture is on and for how long text is kept.
 
+## The web demo
+
+The explorer also runs as a page on GitHub Pages (<https://dchristianson.github.io/snagboat/>), over example sessions by default. It can load the daily files Snagboat writes (`events/<date>.jsonl`; **Snagboat: Reveal Event Log Folder** opens the folder) when you choose them: they are read in your browser and sent nowhere. The page's content security policy forbids network requests (`connect-src 'none'`), and it has no analytics, no service worker, and no third-party script. It stores nothing beyond the explorer's small view state (picked session ids, the current visualizer, its filters) in the browser's local storage; loaded events live in the page's memory until the tab closes. GitHub sees the request for the page, as for any site, but none of the data.
+
 ## Design guardrails
 
 - Logs stay local. Any future sharing or sync feature must be a separate, clearly labeled opt-in.

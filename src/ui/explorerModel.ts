@@ -1,5 +1,16 @@
+import { SessionSummary } from '../core/sessions';
 import { SessionView } from './sessionModel';
 import { CATALOG, TAXONOMY, Taxonomy, VisualizerEntry } from './visualizers';
+
+/** The session list the Sessions and Explore tabs' pickers draw (the `sessions` message). */
+export interface SessionListPayload {
+  day: string;
+  /** Days with sessions, newest first, for the day picker. */
+  days: string[];
+  sessions: SessionSummary[];
+  /** The advisor's headline per session, where there is one (model output). */
+  headlines: Record<string, string>;
+}
 
 /**
  * Everything the Explore tab renders, sent whole on the `explorer` message
