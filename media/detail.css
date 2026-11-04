@@ -662,6 +662,16 @@ input[type="search"] { min-width: 220px; }
 .par-chart .par-on .par-stroke { stroke-opacity: 1; stroke-width: 3; }
 .par-chart .par-dim .par-stroke { stroke-opacity: 0.15; }
 
+/* Streamgraph */
+.stream-chart .stream-layer { fill-opacity: 0.85; stroke: var(--surface); stroke-width: 0.5; cursor: pointer; }
+.stream-chart .stream-layer:hover { fill-opacity: 1; }
+.stream-chart .cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.stream-chart .cat-1 { fill: var(--cat-1); }
+.stream-chart .cat-2 { fill: var(--cat-2); }
+.stream-chart .cat-3 { fill: var(--cat-3); }
+.stream-chart .cat-4 { fill: var(--cat-4); }
+.stream-chart .cat-5 { fill: var(--cat-5); }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
@@ -753,7 +763,7 @@ input[type="search"] { min-width: 220px; }
 .puck-desc { margin: 0 0 4px; }
 .puck-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 8px; }
 /* Collapsed: a small circle with the title and position; the whole of it is the toggle. */
-.puck.collapsed { width: 96px; height: 96px; padding: 0 10px; justify-content: center; border-radius: 50%; }
+.puck.collapsed { width: 96px; height: 96px; padding: 0 6px; justify-content: center; border-radius: 50%; }
 .puck.collapsed .puck-body { display: none; }
 .puck.collapsed .puck-head { flex-direction: column; flex-wrap: nowrap; align-items: center; padding: 0; line-height: 1.2; text-align: center; }
 .puck.collapsed .puck-head strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
