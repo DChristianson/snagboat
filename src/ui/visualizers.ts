@@ -137,6 +137,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'Where the time went: rows for you, each agent, and each tool category over clock time, or one row per turn that opens into its own time axis.',
     tags: { category: ['temporal'], purpose: ['informative'], level: ['session'], dimension: ['time', 'actor', 'hierarchy'] },
   },
+  {
+    id: 'treemap',
+    title: 'Treemap',
+    description: 'Tokens as area: by session, turn, and tool category, or by tool category across sessions.',
+    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy'] },
+  },
 ];
 
 /**
