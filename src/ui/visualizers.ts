@@ -173,6 +173,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'How a measurement varies from session to session: density, quartiles, and outliers, one row each.',
     tags: { category: ['quantitative'], purpose: ['informative'], level: ['project'], dimension: ['quantity'] },
   },
+  {
+    id: 'ridgeline',
+    title: 'Ridgeline',
+    description: 'The shape of a per-call measurement by session or by model, as overlapping density curves on one axis.',
+    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity'] },
+  },
 ];
 
 /**

@@ -585,6 +585,15 @@ input[type="search"] { min-width: 220px; }
 .box-chart .outlier:focus { outline: none; stroke: var(--ink); stroke-width: 1.5; }
 .viz-chart .heat-row-on { font-weight: 600; }
 
+/* Ridgeline */
+.ridge-chart .ridge { cursor: default; }
+.ridge-chart .ridge[role="button"] { cursor: pointer; }
+.ridge-chart .ridge:focus { outline: none; }
+.ridge-chart .ridge-fill { fill: var(--series-1); fill-opacity: 0.35; stroke: var(--surface); stroke-width: 1; }
+.ridge-chart .ridge:hover .ridge-fill, .ridge-chart .ridge:focus .ridge-fill { fill-opacity: 0.6; }
+.ridge-chart .ridge-line { fill: none; stroke: var(--series-1); stroke-width: 1.5; }
+.ridge-chart .ridge-median { stroke: var(--ink); stroke-width: 2; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
