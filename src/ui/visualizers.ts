@@ -118,6 +118,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'What led to what: prompts, model calls, tool calls, subagents, and compactions as nodes, with inferred links drawn dashed.',
     tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'] },
   },
+  {
+    id: 'actor-graph',
+    title: 'Actor graph',
+    description: 'Who worked with whom: you, agents, subagents, models, and tool categories, joined by typed edges sized by how often they interacted.',
+    tags: { category: ['actor'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'] },
+  },
 ];
 
 /**

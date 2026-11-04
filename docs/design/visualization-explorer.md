@@ -206,6 +206,7 @@ These four were taken ahead of the order above, because each fills a gap in the 
 | --- | --- | --- | --- | --- |
 | Sequence diagram | conversational, actor | informative | session | communication, actor, time |
 | Event graph | dependency, conversational | expressive, informative | session | dependency, communication |
+| Actor graph | actor | expressive, informative | session, project | actor, communication, quantity |
 
 They needed `SessionView` to carry each tool call (name, category, status; never its target or arguments) and each model call's reply excerpt.
 

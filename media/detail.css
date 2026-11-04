@@ -405,6 +405,37 @@ input[type="search"] { min-width: 220px; }
 .swatch.eg-key-inferred { width: 18px; height: 0; border-radius: 0; border-top: 1.5px dashed var(--ink-muted); }
 .swatch.eg-key-retry { width: 18px; height: 0; border-radius: 0; border-top: 2px dotted var(--warn); }
 
+/* Actor graph: shapes name the actor's kind, edge styles its relationship; delegation is dashed because it's inferred. */
+.actor-shape { stroke: var(--surface); stroke-width: 1.5; }
+.kind-you .actor-shape, .actor-key-shape.kind-you { fill: var(--ink); }
+.kind-agent .actor-shape, .actor-key-shape.kind-agent { fill: var(--series-1); }
+.kind-subagent .actor-shape, .actor-key-shape.kind-subagent { fill: var(--turn-1); stroke: var(--series-1); }
+.kind-model .actor-shape, .actor-key-shape.kind-model { fill: var(--ink-muted); }
+.actor-key-shape.kind-tool { fill: var(--cat-1); }
+.actor-shape.cat-1, .actor-edge.cat-1 { --actor-cat: var(--cat-1); }
+.actor-shape.cat-2, .actor-edge.cat-2 { --actor-cat: var(--cat-2); }
+.actor-shape.cat-3, .actor-edge.cat-3 { --actor-cat: var(--cat-3); }
+.actor-shape.cat-4, .actor-edge.cat-4 { --actor-cat: var(--cat-4); }
+.actor-shape.cat-5, .actor-edge.cat-5 { --actor-cat: var(--cat-5); }
+.actor-shape.cat-0, .actor-edge.cat-0 { --actor-cat: rgba(128, 128, 128, 0.7); }
+.kind-tool .actor-shape { fill: var(--actor-cat); }
+.actor-chart .actor-label { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.actor-edge { fill: none; stroke-opacity: 0.55; stroke-linecap: butt; }
+.actor-edge.edge-message { stroke: var(--ink); stroke-opacity: 0.8; }
+.actor-edge.edge-delegation { stroke: var(--series-1); stroke-dasharray: 7 4; stroke-opacity: 0.85; }
+.actor-edge.edge-model { stroke: var(--ink-muted); }
+.actor-edge.edge-tool { stroke: var(--actor-cat); }
+.actor-edge-hit { fill: none; stroke: transparent; }
+.actor-edge-group:hover .actor-edge { stroke-opacity: 1; }
+.actor-label { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.actor-node .hit { fill: transparent; }
+.actor-node.clickable { cursor: pointer; }
+.actor-node:focus { outline: none; }
+.actor-node:focus .actor-shape, .actor-node.active .actor-shape { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2.5; }
+.actor-chart .dim { opacity: 0.18; }
+.actor-legend { margin-top: 6px; }
+.actor-key { display: inline-block; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
