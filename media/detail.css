@@ -594,6 +594,13 @@ input[type="search"] { min-width: 220px; }
 .ridge-chart .ridge-line { fill: none; stroke: var(--series-1); stroke-width: 1.5; }
 .ridge-chart .ridge-median { stroke: var(--ink); stroke-width: 2; }
 
+/* Scatter plot */
+.scatter-chart .scatter-pt { fill-opacity: 0.7; stroke-width: 1; cursor: pointer; }
+.scatter-chart .scatter-pt.ring { fill-opacity: 0; stroke-width: 2; }
+.scatter-chart .scatter-pt:hover, .scatter-chart .scatter-pt:focus { outline: none; fill-opacity: 1; }
+.scatter-chart .scatter-on { stroke: var(--ink); stroke-width: 2.5; fill-opacity: 1; }
+.swatch.scatter-key { border-radius: 50%; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
