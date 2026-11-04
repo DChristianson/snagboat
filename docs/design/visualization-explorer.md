@@ -1,6 +1,6 @@
 # Design: visualization explorer
 
-Status: **accepted** (2026-11-03; decisions confirmed the same day). The visualization part of [phase 7](trusted-advisor.md#phases) of the advisor design, and the "visualizing sessions" half of the [prototype task](../roadmap.md#planned-tasks) in the roadmap. Steps 1–5 are built (2026-11-03); where the build differed from the text, the [implementation notes](#implementation-notes) at the end say how. Step 6 is not started.
+Status: **accepted** (2026-11-03; decisions confirmed the same day). The visualization part of [phase 7](trusted-advisor.md#phases) of the advisor design, and the "visualizing sessions" half of the [prototype task](../roadmap.md#planned-tasks) in the roadmap. Steps 1–5 are built (2026-11-03); where the build differed from the text, the [implementation notes](#implementation-notes) at the end say how. Step 6 is under way; [what it has built so far](#built-so-far) is below.
 
 ## Summary
 
@@ -91,7 +91,7 @@ Four facets. Values within a facet are not mutually exclusive: a visualizer give
 
 **Dimension**: the dimensions the visualization highlights. Not a strict or scientific list; it changes as views are added, and that's the facet where new values are expected first.
 
-`time`, `actor` (human, agent, tool), `hierarchy`, `dependency`, `communication`, `quantity` (cost)
+`time`, `actor` (human, agent, tool), `hierarchy`, `dependency`, `communication`, `quantity` (cost), `content` (what was said; added with prompt terms)
 
 The first visualizers, tagged:
 
@@ -198,7 +198,22 @@ The [visualization proposal](agent_conversation_visualization_design_proposal.do
 
 Four views named in earlier drafts of this design belong in step 6 too. Two are in the proposal's tables already: a **treemap of tokens by tool category across sessions** is its treemap, and an **agent-and-subagent graph** of who delegated to whom is its hierarchical tree or force-directed graph with delegation edges. Two are not, and are added here: a **tool-call ribbon** showing which tool category followed which within turns (dependency, conversational / hybrid / session / dependency, communication), nearest to the proposal's alluvial diagram but over transitions rather than stages, and the **week-in-one-picture** from the advisor's [abilities](trusted-advisor.md#abilities) (temporal, quantitative / expressive / project / time, quantity), nearest to its calendar heatmap but one picture of a week's sessions by day and hour, with tokens and findings, rather than a longer-period grid. Findings by heuristic and day, also from an earlier draft, is the heatmap row above.
 
-Then the rest of the proposal's tables, category by category, as the data allows. Three of its guidelines are already in this design and should hold for every view added: preserve event identity (the shared selection), separate observed from inferred (the turn tree's ≈ and hatching), and make expressive views lead to the underlying events rather than end in a picture. Its cross-cutting encodings (node size, edge thickness, typed edges, glow for an active agent) are the vocabulary for the graph views when they come. Semantic views depend on derived representations, embeddings or model labels, which Snagboat doesn't produce; they wait on the advisor, and on a decision about what derived data to keep.
+### Built so far
+
+These four were taken ahead of the order above, because each fills a gap in the taxonomy: no view was `semantic` or `dependency`, `actor` and `conversational` were only secondary tags, and nothing highlighted `communication`.
+
+| Visualizer | category | purpose | level | dimension |
+| --- | --- | --- | --- | --- |
+| Sequence diagram | conversational, actor | informative | session | communication, actor, time |
+| Event graph | dependency, conversational | expressive, informative | session | dependency, communication |
+| Actor graph | actor | expressive, informative | session, project | actor, communication, quantity |
+| Prompt terms | semantic | expressive | session, project | content |
+
+They needed `SessionView` to carry each tool call (name, category, status; never its target or arguments) and each model call's reply excerpt.
+
+### What comes next
+
+Then the rest of the proposal's tables, category by category, as the data allows. Three of its guidelines are already in this design and should hold for every view added: preserve event identity (the shared selection), separate observed from inferred (the turn tree's ≈ and hatching), and make expressive views lead to the underlying events rather than end in a picture. Its cross-cutting encodings (node size, edge thickness, typed edges, glow for an active agent) are the vocabulary for the graph views when they come. Semantic views depend on derived representations, embeddings or model labels, which Snagboat doesn't produce; they wait on the advisor, and on a decision about what derived data to keep. Prompt terms doesn't change that: it counts words in the page at draw time and keeps nothing, and it says it's word counts rather than a model's reading.
 
 ## Decisions
 

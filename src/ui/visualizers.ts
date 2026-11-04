@@ -56,6 +56,7 @@ export const TAXONOMY = {
       dependency: 'Dependency',
       communication: 'Communication',
       quantity: 'Quantity (cost)',
+      content: 'Content (what was said)',
     },
   },
 } satisfies Taxonomy;
@@ -105,6 +106,30 @@ export const CATALOG: VisualizerEntry[] = [
     title: 'Context fill',
     description: 'Context size per call by call index, one line per session, so sessions line up by progress rather than clock.',
     tags: { category: ['state', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'] },
+  },
+  {
+    id: 'sequence-diagram',
+    title: 'Sequence diagram',
+    description: 'Who sent what to whom, in order: you, the main agent, subagents, and tool categories as lifelines, read top to bottom.',
+    tags: { category: ['conversational', 'actor'], purpose: ['informative'], level: ['session'], dimension: ['communication', 'actor', 'time'] },
+  },
+  {
+    id: 'event-graph',
+    title: 'Event graph',
+    description: 'What led to what: prompts, model calls, tool calls, subagents, and compactions as nodes, with inferred links drawn dashed.',
+    tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'] },
+  },
+  {
+    id: 'actor-graph',
+    title: 'Actor graph',
+    description: 'Who worked with whom: you, agents, subagents, models, and tool categories, joined by typed edges sized by how often they interacted.',
+    tags: { category: ['actor'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'] },
+  },
+  {
+    id: 'prompt-terms',
+    title: 'Prompt terms',
+    description: 'What your prompts were about: words you used, joined when they appear in the same prompt. Word counts, not a model’s reading.',
+    tags: { category: ['semantic'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['content'] },
   },
 ];
 

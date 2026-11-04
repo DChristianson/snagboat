@@ -324,6 +324,146 @@ input[type="search"] { min-width: 220px; }
 .swatch.swatch-compaction-dot { border-radius: 50%; background: var(--warn); }
 .fill-legend { margin-top: 6px; }
 
+/* Sequence diagram: lifelines with typed arrows; the header sticks inside the slide's scrolling pane. */
+.seq-legend { margin-bottom: 8px; }
+.seq-key { flex: none; }
+.seq-head { position: sticky; top: 0; z-index: 1; min-width: 100%; background: var(--surface); border-bottom: 1px solid var(--rule); }
+.seq-head-svg, .seq-chart { display: block; }
+.seq-chart text, .seq-head-svg text { font-size: 11px; }
+.seq-life-label { fill: var(--ink); font-weight: 600; }
+.seq-head-svg .hit, .seq-chart .hit { fill: transparent; }
+.seq-life { stroke: var(--rule); stroke-width: 1; shape-rendering: crispEdges; }
+.seq-row:hover .hit { fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15)); }
+.seq-line { fill: none; stroke-width: 1.5; }
+.seq-tip-open { fill: none; stroke-width: 1.5; }
+.seq-label { fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.seq-prompt { stroke: var(--series-1); fill: var(--series-1); stroke-width: 2; }
+.seq-reply { stroke: var(--ink-muted); }
+.seq-tip-open.seq-reply { fill: none; }
+.seq-delegate { stroke: var(--ink); fill: var(--ink); }
+.seq-line.seq-delegate { stroke-dasharray: 6 4; }
+.seq-cat-0 { stroke: var(--ink-muted); fill: var(--ink-muted); }
+.seq-cat-1 { stroke: var(--cat-1); fill: var(--cat-1); }
+.seq-cat-2 { stroke: var(--cat-2); fill: var(--cat-2); }
+.seq-cat-3 { stroke: var(--cat-3); fill: var(--cat-3); }
+.seq-cat-4 { stroke: var(--cat-4); fill: var(--cat-4); }
+.seq-cat-5 { stroke: var(--cat-5); fill: var(--cat-5); }
+.seq-fail { fill: none; stroke: var(--warn); stroke-width: 2; }
+.seq-self { fill: var(--surface); stroke: var(--ink-muted); stroke-width: 1; }
+.seq-note { fill: var(--surface); stroke: var(--warn); stroke-width: 1; }
+.seq-note-text { stroke-width: 0; }
+.seq-more { fill: var(--ink-muted); }
+.seq-band.turn-0 { fill: var(--turn-0); }
+.seq-band.turn-1 { fill: var(--turn-1); }
+.seq-band-unlinked { fill: rgba(128, 128, 128, 0.25); }
+.seq-band-text { fill: var(--ink); font-weight: 600; }
+.seq-band-hit { cursor: pointer; }
+.seq-band-hit:focus { outline: none; }
+.seq-band-hit:hover .seq-band, .seq-band-hit:focus .seq-band { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 1; }
+.seq-band-selected, .seq-band-hit:hover .seq-band-selected { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.seq-turn-selected { fill: var(--vscode-editor-selectionHighlightBackground, rgba(57, 135, 229, 0.12)); }
+
+/* Event graph: shapes tell the node types apart; solid edges are observed order, dashed are inferred. */
+.viz-chart.eg-chart { width: auto; max-width: none; }
+.eg-legend { margin-bottom: 2px; }
+.eg-note { margin: 0 0 8px; }
+.eg-chart .eg-band { fill: transparent; stroke: var(--rule); stroke-width: 1; }
+.eg-chart .eg-selected .eg-band { fill: var(--vscode-editor-selectionHighlightBackground, rgba(57, 135, 229, 0.12)); stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.eg-chart .eg-dim { opacity: 0.55; }
+.eg-chart .eg-edge { fill: none; stroke-width: 1.25; }
+.eg-chart .eg-edge-observed { stroke: var(--ink); }
+.eg-chart .eg-edge-inferred { stroke: var(--ink-muted); stroke-dasharray: 4 3; }
+.eg-chart .eg-edge-retry { stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 1.5 3; stroke-linecap: round; }
+.eg-chart .eg-arrow-observed { fill: var(--ink); }
+.eg-chart .eg-arrow-inferred { fill: var(--ink-muted); }
+.eg-chart .eg-arrow-retry { fill: var(--warn); }
+.eg-chart .eg-node-prompt { cursor: pointer; }
+.eg-chart .eg-node-prompt:focus { outline: none; }
+.eg-chart .eg-prompt { stroke: var(--ink-muted); stroke-width: 1; }
+.eg-chart .eg-prompt.turn-0 { fill: var(--turn-0); }
+.eg-chart .eg-prompt.turn-1 { fill: var(--turn-1); }
+.eg-chart .eg-node-prompt:hover .eg-prompt, .eg-chart .eg-node-prompt:focus .eg-prompt { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.eg-chart .eg-prompt-label { fill: var(--ink); font-size: 11px; pointer-events: none; }
+.eg-chart .eg-call { fill: var(--series-1); stroke: var(--surface); stroke-width: 1; }
+.eg-chart .eg-compaction { fill: var(--warn); stroke: var(--surface); stroke-width: 1; }
+.eg-chart .eg-tool { stroke: var(--surface); stroke-width: 1; }
+.eg-chart .eg-cat-1 { fill: var(--cat-1); }
+.eg-chart .eg-cat-2 { fill: var(--cat-2); }
+.eg-chart .eg-cat-3 { fill: var(--cat-3); }
+.eg-chart .eg-cat-4 { fill: var(--cat-4); }
+.eg-chart .eg-cat-5 { fill: var(--cat-5); }
+.eg-chart .eg-cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.eg-chart .eg-fail-badge { fill: var(--surface); stroke: var(--warn); stroke-width: 1.25; }
+.eg-chart .eg-fail-x { fill: none; stroke: var(--warn); stroke-width: 1.5; stroke-linecap: round; }
+.eg-chart .eg-times { font-size: 10px; pointer-events: none; }
+.swatch.eg-key-prompt { width: 16px; border-radius: 5px; background: var(--turn-0); outline: 1px solid var(--ink-muted); }
+.swatch.eg-key-call { border-radius: 50%; background: var(--series-1); }
+.swatch.eg-key-tool { background: rgba(128, 128, 128, 0.5); }
+.swatch.eg-key-compaction { width: 8px; height: 8px; border-radius: 0; background: var(--warn); transform: rotate(45deg); }
+.swatch.eg-key-fail { border-radius: 50%; background: var(--surface); border: 1.5px solid var(--warn); box-sizing: border-box; }
+.swatch.eg-key-observed { width: 18px; height: 0; border-radius: 0; border-top: 1.5px solid var(--ink); }
+.swatch.eg-key-inferred { width: 18px; height: 0; border-radius: 0; border-top: 1.5px dashed var(--ink-muted); }
+.swatch.eg-key-retry { width: 18px; height: 0; border-radius: 0; border-top: 2px dotted var(--warn); }
+
+/* Actor graph: shapes name the actor's kind, edge styles its relationship; delegation is dashed because it's inferred. */
+.actor-shape { stroke: var(--surface); stroke-width: 1.5; }
+.kind-you .actor-shape, .actor-key-shape.kind-you { fill: var(--ink); }
+.kind-agent .actor-shape, .actor-key-shape.kind-agent { fill: var(--series-1); }
+.kind-subagent .actor-shape, .actor-key-shape.kind-subagent { fill: var(--turn-1); stroke: var(--series-1); }
+.kind-model .actor-shape, .actor-key-shape.kind-model { fill: var(--ink-muted); }
+.actor-key-shape.kind-tool { fill: var(--cat-1); }
+.actor-shape.cat-1, .actor-edge.cat-1 { --actor-cat: var(--cat-1); }
+.actor-shape.cat-2, .actor-edge.cat-2 { --actor-cat: var(--cat-2); }
+.actor-shape.cat-3, .actor-edge.cat-3 { --actor-cat: var(--cat-3); }
+.actor-shape.cat-4, .actor-edge.cat-4 { --actor-cat: var(--cat-4); }
+.actor-shape.cat-5, .actor-edge.cat-5 { --actor-cat: var(--cat-5); }
+.actor-shape.cat-0, .actor-edge.cat-0 { --actor-cat: rgba(128, 128, 128, 0.7); }
+.kind-tool .actor-shape { fill: var(--actor-cat); }
+.actor-chart .actor-label { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.actor-edge { fill: none; stroke-opacity: 0.55; stroke-linecap: butt; }
+.actor-edge.edge-message { stroke: var(--ink); stroke-opacity: 0.8; }
+.actor-edge.edge-delegation { stroke: var(--series-1); stroke-dasharray: 7 4; stroke-opacity: 0.85; }
+.actor-edge.edge-model { stroke: var(--ink-muted); }
+.actor-edge.edge-tool { stroke: var(--actor-cat); }
+.actor-edge-hit { fill: none; stroke: transparent; }
+.actor-edge-group:hover .actor-edge { stroke-opacity: 1; }
+.actor-label { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.actor-node .hit { fill: transparent; }
+.actor-node.clickable { cursor: pointer; }
+.actor-node:focus { outline: none; }
+.actor-node:focus .actor-shape, .actor-node.active .actor-shape { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2.5; }
+.actor-chart .dim { opacity: 0.18; }
+.actor-legend { margin-top: 6px; }
+.actor-key { display: inline-block; }
+
+/* Prompt terms: word circles in the first series color, joined by lines whose width is set per edge. */
+.terms-chart .term-line { stroke: var(--ink-muted); opacity: 0.35; }
+.terms-chart .term-line-hit { stroke: transparent; stroke-width: 8; }
+.terms-chart .term-edge.on .term-line { stroke: var(--ink); opacity: 0.8; }
+.terms-chart .term-edge:hover .term-line { opacity: 0.9; }
+.terms-chart .term-edge.dim .term-line { opacity: 0.08; }
+.terms-chart .term-node { cursor: pointer; }
+.terms-chart .term-node:focus { outline: none; }
+.terms-chart .term-dot { fill: var(--series-1); stroke: var(--surface); stroke-width: 1; }
+.terms-chart .term-label { fill: var(--ink); font-size: 12px; }
+.terms-chart .term-node:hover .term-dot, .terms-chart .term-node:focus .term-dot { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.terms-chart .term-node:focus-visible .term-label { text-decoration: underline; }
+.terms-chart .term-node.in-turn .term-dot { fill: var(--cat-1); }
+.terms-chart .term-node.in-turn .term-label { font-weight: 600; }
+.terms-chart .term-node.pinned .term-dot { stroke: var(--ink); stroke-width: 2.5; }
+.terms-chart .term-node.pinned .term-label { font-weight: 600; }
+.terms-chart .term-node.dim { opacity: 0.3; }
+.terms-legend { margin-top: 6px; }
+.swatch.swatch-term { border-radius: 50%; background: var(--series-1); }
+.swatch.swatch-term-turn { border-radius: 50%; background: var(--cat-1); }
+.swatch.swatch-term-pinned { border-radius: 50%; background: var(--series-1); outline: 2px solid var(--ink); outline-offset: -1px; }
+.terms-list-head { margin: 10px 0 4px; }
+.terms-prompts { list-style: none; margin: 0; padding: 0; }
+.terms-prompt { display: block; width: 100%; padding: 4px 6px; background: none; border: none; border-top: 1px solid var(--rule); border-radius: 0; color: var(--ink); text-align: left; overflow-wrap: anywhere; }
+.terms-prompt:hover { background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12)); }
+.terms-prompt[aria-current="true"] { background: var(--vscode-list-activeSelectionBackground, rgba(128, 128, 128, 0.2)); color: var(--vscode-list-activeSelectionForeground, var(--ink)); }
+.terms-prompt[aria-current="true"] .muted { color: inherit; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }

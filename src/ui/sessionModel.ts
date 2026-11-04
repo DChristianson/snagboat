@@ -18,6 +18,21 @@ export interface TimelineCall {
   cacheRead: number;
   cacheCreation: number;
   output: number;
+  /** The agent's reply excerpt on this call, when text capture is on. */
+  reply?: string;
+}
+
+/** One tool call, in order: its name and category only, never its target or arguments. */
+export interface TimelineTool {
+  ts: string;
+  turnId?: string;
+  agentId?: string;
+  name?: string;
+  /** Display label of the tool's category. */
+  category: string;
+  /** Color slot from CATEGORY_COLOR_GROUPS (1-5), or 0 for the neutral rest. */
+  colorGroup: number;
+  status: 'success' | 'failure' | 'unknown';
 }
 
 export interface TreeNode {
@@ -60,6 +75,7 @@ export interface SessionView {
   /** Every prompt message; several can share a turn, and share its index. */
   prompts: Array<{ turnId: string; ts: string; index: number; text?: string }>;
   calls: TimelineCall[];
+  tools: TimelineTool[];
   compactions: Array<{ ts: string; trigger: string; preTokens?: number; postTokens?: number }>;
   subagents: Array<{ agentId: string; firstTs: string; lastTs: string; calls: number }>;
   /** Per model used in this session: largest context seen and encountered limit (all workspaces). */
@@ -159,7 +175,15 @@ export function buildSessionView(
     cacheRead: e.tokens?.cacheRead ?? 0,
     cacheCreation: e.tokens?.cacheCreation ?? 0,
     output: e.tokens?.output ?? 0,
+    ...(e.textExcerpt ? { reply: e.textExcerpt } : {}),
   }));
+
+  const tools: TimelineTool[] = events
+    .filter((e) => e.kind === 'tool_call')
+    .map((e) => {
+      const category = e.toolCategory ?? 'other';
+      return { ts: e.ts, turnId: e.turnId, agentId: e.agentId, name: e.toolName, category: categoryLabel(category), colorGroup: categoryColorGroup(category), status: e.status };
+    });
 
   const compactions = events
     .filter((e) => e.kind === 'compaction')
@@ -250,7 +274,7 @@ export function buildSessionView(
     children: promptNodes,
   };
 
-  return { summary, prompts, calls, compactions, subagents, marks: sessionMarks, findings, tree, categoryGroups: CATEGORY_COLOR_GROUPS.map((g) => g.label) };
+  return { summary, prompts, calls, tools, compactions, subagents, marks: sessionMarks, findings, tree, categoryGroups: CATEGORY_COLOR_GROUPS.map((g) => g.label) };
 }
 
 /** Context sent by a timeline call (for tooltips and limit comparisons). */

@@ -83,6 +83,20 @@ async function main() {
     assert.strictEqual(callContext(view.calls[0]), 995, 'context excludes output');
   });
 
+  test('tool calls and reply excerpts reach the view in order, without targets', () => {
+    const ev: NormalizedEvent[] = [
+      { eventId: 'a', sessionId: 'T', agent: 'claude-code', ts: '2026-10-22T10:00:00.000Z', kind: 'user_prompt', turnId: 'p', status: 'unknown', raw: { adapter: 't', ref: 'n/a' } },
+      { eventId: 'b', sessionId: 'T', agent: 'claude-code', ts: '2026-10-22T10:00:02.000Z', kind: 'tool_call', turnId: 'p', agentId: 'sub', toolName: 'Edit', toolCategory: 'file-edit', target: '/secret/path', status: 'failure', raw: { adapter: 't', ref: 'n/a' } },
+      { eventId: 'c', sessionId: 'T', agent: 'claude-code', ts: '2026-10-22T10:00:01.000Z', kind: 'turn_stop', turnId: 'p', model: 'opus', tokens: { input: 1, output: 1 }, textExcerpt: 'done', status: 'success', raw: { adapter: 't', ref: 'n/a' } },
+    ];
+    const local = new SessionIndex();
+    for (const x of ev) local.ingest(x);
+    const view = buildSessionView(local.list()[0], ev, {});
+    assert.strictEqual(view.calls[0].reply, 'done');
+    assert.deepStrictEqual(view.tools, [{ ts: ev[1].ts, turnId: 'p', agentId: 'sub', name: 'Edit', category: 'File edit', colorGroup: 1, status: 'failure' }]);
+    assert.ok(!JSON.stringify(view.tools).includes('secret'));
+  });
+
   test('the turn tree: tokens add up at every level, subagents split out, categories approximate', () => {
     const idx = new SessionIndex();
     const events = sampleSession();
