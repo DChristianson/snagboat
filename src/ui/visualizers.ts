@@ -56,6 +56,7 @@ export const TAXONOMY = {
       dependency: 'Dependency',
       communication: 'Communication',
       quantity: 'Quantity (cost)',
+      content: 'Content (what was said)',
     },
   },
 } satisfies Taxonomy;
@@ -123,6 +124,12 @@ export const CATALOG: VisualizerEntry[] = [
     title: 'Actor graph',
     description: 'Who worked with whom: you, agents, subagents, models, and tool categories, joined by typed edges sized by how often they interacted.',
     tags: { category: ['actor'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'] },
+  },
+  {
+    id: 'prompt-terms',
+    title: 'Prompt terms',
+    description: 'What your prompts were about: words you used, joined when they appear in the same prompt. Word counts, not a model’s reading.',
+    tags: { category: ['semantic'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['content'] },
   },
 ];
 

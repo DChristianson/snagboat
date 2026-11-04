@@ -91,7 +91,7 @@ Four facets. Values within a facet are not mutually exclusive: a visualizer give
 
 **Dimension**: the dimensions the visualization highlights. Not a strict or scientific list; it changes as views are added, and that's the facet where new values are expected first.
 
-`time`, `actor` (human, agent, tool), `hierarchy`, `dependency`, `communication`, `quantity` (cost)
+`time`, `actor` (human, agent, tool), `hierarchy`, `dependency`, `communication`, `quantity` (cost), `content` (what was said; added with prompt terms)
 
 The first visualizers, tagged:
 
@@ -207,12 +207,13 @@ These four were taken ahead of the order above, because each fills a gap in the 
 | Sequence diagram | conversational, actor | informative | session | communication, actor, time |
 | Event graph | dependency, conversational | expressive, informative | session | dependency, communication |
 | Actor graph | actor | expressive, informative | session, project | actor, communication, quantity |
+| Prompt terms | semantic | expressive | session, project | content |
 
 They needed `SessionView` to carry each tool call (name, category, status; never its target or arguments) and each model call's reply excerpt.
 
 ### What comes next
 
-Then the rest of the proposal's tables, category by category, as the data allows. Three of its guidelines are already in this design and should hold for every view added: preserve event identity (the shared selection), separate observed from inferred (the turn tree's ≈ and hatching), and make expressive views lead to the underlying events rather than end in a picture. Its cross-cutting encodings (node size, edge thickness, typed edges, glow for an active agent) are the vocabulary for the graph views when they come. Semantic views depend on derived representations, embeddings or model labels, which Snagboat doesn't produce; they wait on the advisor, and on a decision about what derived data to keep.
+Then the rest of the proposal's tables, category by category, as the data allows. Three of its guidelines are already in this design and should hold for every view added: preserve event identity (the shared selection), separate observed from inferred (the turn tree's ≈ and hatching), and make expressive views lead to the underlying events rather than end in a picture. Its cross-cutting encodings (node size, edge thickness, typed edges, glow for an active agent) are the vocabulary for the graph views when they come. Semantic views depend on derived representations, embeddings or model labels, which Snagboat doesn't produce; they wait on the advisor, and on a decision about what derived data to keep. Prompt terms doesn't change that: it counts words in the page at draw time and keeps nothing, and it says it's word counts rather than a model's reading.
 
 ## Decisions
 

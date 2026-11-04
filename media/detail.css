@@ -436,6 +436,34 @@ input[type="search"] { min-width: 220px; }
 .actor-legend { margin-top: 6px; }
 .actor-key { display: inline-block; }
 
+/* Prompt terms: word circles in the first series color, joined by lines whose width is set per edge. */
+.terms-chart .term-line { stroke: var(--ink-muted); opacity: 0.35; }
+.terms-chart .term-line-hit { stroke: transparent; stroke-width: 8; }
+.terms-chart .term-edge.on .term-line { stroke: var(--ink); opacity: 0.8; }
+.terms-chart .term-edge:hover .term-line { opacity: 0.9; }
+.terms-chart .term-edge.dim .term-line { opacity: 0.08; }
+.terms-chart .term-node { cursor: pointer; }
+.terms-chart .term-node:focus { outline: none; }
+.terms-chart .term-dot { fill: var(--series-1); stroke: var(--surface); stroke-width: 1; }
+.terms-chart .term-label { fill: var(--ink); font-size: 12px; }
+.terms-chart .term-node:hover .term-dot, .terms-chart .term-node:focus .term-dot { stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2; }
+.terms-chart .term-node:focus-visible .term-label { text-decoration: underline; }
+.terms-chart .term-node.in-turn .term-dot { fill: var(--cat-1); }
+.terms-chart .term-node.in-turn .term-label { font-weight: 600; }
+.terms-chart .term-node.pinned .term-dot { stroke: var(--ink); stroke-width: 2.5; }
+.terms-chart .term-node.pinned .term-label { font-weight: 600; }
+.terms-chart .term-node.dim { opacity: 0.3; }
+.terms-legend { margin-top: 6px; }
+.swatch.swatch-term { border-radius: 50%; background: var(--series-1); }
+.swatch.swatch-term-turn { border-radius: 50%; background: var(--cat-1); }
+.swatch.swatch-term-pinned { border-radius: 50%; background: var(--series-1); outline: 2px solid var(--ink); outline-offset: -1px; }
+.terms-list-head { margin: 10px 0 4px; }
+.terms-prompts { list-style: none; margin: 0; padding: 0; }
+.terms-prompt { display: block; width: 100%; padding: 4px 6px; background: none; border: none; border-top: 1px solid var(--rule); border-radius: 0; color: var(--ink); text-align: left; overflow-wrap: anywhere; }
+.terms-prompt:hover { background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12)); }
+.terms-prompt[aria-current="true"] { background: var(--vscode-list-activeSelectionBackground, rgba(128, 128, 128, 0.2)); color: var(--vscode-list-activeSelectionForeground, var(--ink)); }
+.terms-prompt[aria-current="true"] .muted { color: inherit; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
