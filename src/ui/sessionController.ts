@@ -1,20 +1,14 @@
 import { ModelContextMarks } from '../core/contextLimits';
 import { EventLog } from '../core/eventLog';
-import { SessionIndex, SessionSummary } from '../core/sessions';
+import { SessionIndex } from '../core/sessions';
 import { NormalizedEvent } from '../core/types';
 import { FindingReplay } from '../heuristics/replay';
-import { buildExplorerState, ExplorerState } from './explorerModel';
+import { buildExplorerState, ExplorerState, SessionListPayload } from './explorerModel';
 import { buildSessionView, FindingInput, SessionView } from './sessionModel';
 import { EXPLORE_SESSION_CAP } from './visualizers';
 
-export interface SessionListPayload {
-  day: string;
-  /** Days with sessions, newest first, for the day picker. */
-  days: string[];
-  sessions: SessionSummary[];
-  /** The advisor's headline per session, where there is one (model output). */
-  headlines: Record<string, string>;
-}
+// The list's shape lives in explorerModel.ts (vscode- and fs-free, so the web demo shares it).
+export type { SessionListPayload } from './explorerModel';
 
 export interface SessionExtras {
   /** The advisor's headline for a session, when headlines are on. */

@@ -13,5 +13,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  // The web demo's page touches the DOM; tsconfig.web.json checks it (and src/web's pure modules are checked and tested here).
+  "exclude": ["src/web/main.ts", "src/web/page.ts"]
 }
