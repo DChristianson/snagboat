@@ -635,6 +635,13 @@ input[type="search"] { min-width: 220px; }
 .sun-chart .cat-5 { fill: var(--cat-5); }
 .sun-chart .week-total { fill: var(--ink); font-size: 18px; font-weight: 600; }
 
+/* Calendar heatmap, and the scroller for grids wider than the slide */
+.cal-scroll { overflow-x: auto; scrollbar-width: thin; }
+.viz-chart.cal-chart { width: auto; max-width: none; }
+.cal-chart .heat-empty { fill: var(--ink-muted); fill-opacity: 0.06; }
+.cal-chart .cal-day { cursor: pointer; }
+.cal-chart .cal-day:hover, .cal-chart .cal-day:focus { outline: none; stroke: var(--vscode-focusBorder, var(--ink)); stroke-width: 1.5; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }

@@ -197,6 +197,12 @@ export const CATALOG: VisualizerEntry[] = [
     description: 'The turn tree as rings: sessions, prompts, agents, then tool categories, with angle for tokens.',
     tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy', 'actor'] },
   },
+  {
+    id: 'calendar-heatmap',
+    title: 'Calendar heatmap',
+    description: 'The loaded sessions by day over weeks: tokens, model calls, or findings, a column per week.',
+    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'] },
+  },
 ];
 
 /**
