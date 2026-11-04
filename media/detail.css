@@ -507,6 +507,22 @@ input[type="search"] { min-width: 220px; }
 .treemap-chart .treemap-selected { fill: none; stroke: var(--vscode-focusBorder, var(--series-1)); stroke-width: 2.5; pointer-events: none; }
 .treemap-legend { margin-top: 6px; }
 
+/* Heatmap: a five-step ramp of the first series color, by opacity so it holds on either theme. */
+.heat-1 { --heat-opacity: 0.18; }
+.heat-2 { --heat-opacity: 0.36; }
+.heat-3 { --heat-opacity: 0.55; }
+.heat-4 { --heat-opacity: 0.77; }
+.heat-5 { --heat-opacity: 1; }
+.heat { fill: var(--series-1); fill-opacity: var(--heat-opacity); }
+.heat-chart .heat-empty { fill: var(--ink-muted); fill-opacity: 0.06; }
+.heat-chart .heat-cell { cursor: pointer; }
+.heat-chart .heat-cell:focus { outline: none; }
+.heat-chart .heat-cell:hover .heat, .heat-chart .heat-cell:focus .heat { stroke: var(--vscode-focusBorder, var(--ink)); stroke-width: 1.5; }
+.heat-chart .heat-selected { fill: none; stroke: var(--ink); stroke-width: 2; pointer-events: none; }
+.heat-chart .heat-row-on { font-weight: 600; }
+.swatch.heat-swatch { background: var(--series-1); opacity: var(--heat-opacity); }
+.heat-legend { margin-top: 6px; }
+
 /* Explore tab: picker, carousel, puck (see docs/design/visualization-explorer.md) */
 .picker { margin-top: 12px; }
 .picker th.pick, .picker td.pick { width: 1.4em; padding-right: 4px; }
