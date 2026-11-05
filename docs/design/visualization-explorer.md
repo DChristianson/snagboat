@@ -250,7 +250,7 @@ The rest of the proposal's tables stay a catalog to consider, none planned yet. 
 
 ## Hero visualizations
 
-Added 2026-11-04 from two sources, neither part of the proposal: the [concept pages](agent_visualization_concept_pages.pdf) (in `docs/design/`), one page per view with its purpose, visual model, encoding, interactions, and guardrails over a simple diagram; and a design canvas, which gives each concept a design language in a 1440×900 mockup, shown below. **Where they differ, the concept pages say what a view shows and the canvas says how it looks.** The differences are listed per view below.
+Added 2026-11-04 from two sources, neither part of the proposal: the [concept pages](agent_visualization_concept_pages.pdf) (in `docs/design/`), one page per view with its purpose, visual model, encoding, interactions, and guardrails over a simple diagram; and a design canvas, which gives each concept a design language in a 1440×900 mockup, shown below. ChatGPT (gpt-6) contributed to the design: it generated the concept pages. **Where they differ, the concept pages say what a view shows and the canvas says how it looks.** The differences are listed per view below.
 
 The views in step 6 answer a question in the page's shared look; a hero view also has a look of its own, chosen to suit its question, and is meant to be the view you show someone. They go last in the carousel.
 
