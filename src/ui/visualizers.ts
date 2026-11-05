@@ -65,6 +65,7 @@ export const TAXONOMY = {
     label: 'Design language',
     values: {
       standard: 'The page’s shared look: theme colors, in both themes',
+      cinematic: 'A dark field lit by the work moving through it: glow, particles, letterbox (Living Network)',
     },
   },
 } satisfies Taxonomy;
@@ -246,6 +247,13 @@ export const CATALOG: VisualizerEntry[] = [
     title: 'Swimlane',
     description: 'Who had the ball, in order: lanes for you, each agent, and tool calls, with hand-offs between them.',
     tags: { category: ['conversational', 'actor'], purpose: ['informative', 'expressive'], level: ['session'], dimension: ['communication', 'actor'], language: ['standard'] },
+  },
+  // Hero views: each carries a design language of its own, and they go last.
+  {
+    id: 'living-network',
+    title: 'Living Network',
+    description: 'You, the agent, subagents, and tool categories on a dark field, lit by the work moving between them as the session replays.',
+    tags: { category: ['actor', 'temporal'], purpose: ['expressive'], level: ['session'], dimension: ['actor', 'communication', 'time'], language: ['cinematic'] },
   },
 ];
 
