@@ -1493,6 +1493,7 @@
     "compile-tests": "tsc -p . --outDir out",
     "verify:transcripts": "npm run compile-tests && node ./out/scripts/transcripts.js verify",
     "replay:heuristics": "npm run compile-tests && node ./out/scripts/replayHeuristics.js",
+    "demo:traces": "npm run compile-tests && node ./out/scripts/demoTraces.js",
     "discover": "npm run compile-tests && node ./out/scripts/discover.js",
     "eval:advisor": "npm run compile-tests && node ./out/scripts/evalAdvisor.js",
     "review:ui": "npm run compile-tests && node ./out/scripts/reviewUi.js",
