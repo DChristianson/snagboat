@@ -8,6 +8,7 @@
 //
 //   window.snagboatExplore.mount(root, source, ctx) -> { shown(), destroy() }
 //   window.snagboatExplore.shown()  forwards to the mounted tab (for the page's tab switch)
+//   window.snagboatExplore.hidden() the tab was hidden: every slide stops (setActive(false))
 //
 // source, a plain object:
 //   listSessions()       ask for every session, newest start first; answered through onSessions
@@ -424,6 +425,16 @@
         if (near) updateSlide(s);
         else destroyParts(s);
       }
+      activate();
+    }
+
+    // Only the current slide runs: a visualizer that animates stops while it's a neighbor or the tab is hidden.
+    let tabVisible = true;
+    function activate() {
+      for (const s of slides) {
+        const on = tabVisible && s.entry.id === st.currentId && !s.slide.hidden;
+        for (const p of s.parts) if (typeof p.instance.setActive === 'function') p.instance.setActive(on);
+      }
     }
 
     function destroyParts(s) {
@@ -564,6 +575,7 @@
     const tab = {
       /** The tab was just made visible: ask for what it hasn't got, and lay out at its real width. */
       shown() {
+        tabVisible = true;
         source.listSessions();
         if (!st.picked) {
           const open = source.openSessionId();
@@ -579,6 +591,12 @@
         for (const s of slides) for (const p of s.parts) p.instance.resize();
         const cur = current();
         if (cur && !cur.slide.hidden) strip.scrollTo({ left: cur.slide.offsetLeft, behavior: 'auto' });
+        activate();
+      },
+      /** The tab was hidden: stop every slide. */
+      hidden() {
+        tabVisible = false;
+        activate();
       },
       destroy() {
         window.removeEventListener('resize', onResize);
@@ -598,6 +616,9 @@
     mount,
     shown() {
       if (mounted) mounted.shown();
+    },
+    hidden() {
+      if (mounted) mounted.hidden();
     },
   };
 })();

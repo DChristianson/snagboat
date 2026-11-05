@@ -95,7 +95,10 @@
     persist({ tab });
     if (notify) vscode.postMessage({ type: 'tab', tab });
     if (tab === 'sessions' && window.snagboatSessions) window.snagboatSessions.shown();
-    if (tab === 'explore' && window.snagboatExplore) window.snagboatExplore.shown();
+    if (window.snagboatExplore) {
+      if (tab === 'explore') window.snagboatExplore.shown();
+      else window.snagboatExplore.hidden();
+    }
   }
   for (const [name, label] of [['overview', 'Overview'], ['sessions', 'Sessions'], ['suggestions', 'Suggestions'], ['explore', 'Explore']]) {
     const btn = el('button', { id: `tab-${name}`, class: 'tab', role: 'tab', text: label });
