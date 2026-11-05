@@ -482,8 +482,9 @@
     playBtn.addEventListener('click', () => clock.toggle());
     const scrub = el('input', { type: 'range', min: 0, max: 0, step: 1, value: 0, class: 'replay-scrub', 'aria-label': label ? `Replay position in ${label}` : 'Replay position' });
     scrub.addEventListener('input', () => {
+      const n = Number(scrub.value); // read first: pausing re-syncs the bar, which resets the slider
       clock.pause();
-      clock.seekShown(Number(scrub.value));
+      clock.seekShown(n);
     });
     const speed = el(
       'select',
