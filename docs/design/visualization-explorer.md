@@ -182,7 +182,7 @@ The parts that touch disk (`EventLog`, `ContextLimits`, `RuleStore`, the adapter
 5. **Docs — done.** A section in [usage.md](../usage.md), the detail webview paragraph in [architecture.md](../architecture.md), a link to the demo from the README, and the roadmap entry marked done; this document gains implementation notes where the build differed.
 
 6. **More visualizers, from the proposal.** After step 5, more views are added starting with the ones listed per category in the [visualization proposal](agent_conversation_visualization_design_proposal.docx) (see below). Each is its own change: a file under `media/viz/`, a catalog entry, and a note here. None is built before step 5.
-7. **Hero visualizations — in progress.** First the [shared foundations](#shared-foundations), each its own change: the design language facet (done), shared replay (done), shared force layout, and demo traces. Then five views that each carry a design language, one per change, last in the carousel. See [Hero visualizations](#hero-visualizations).
+7. **Hero visualizations — in progress.** First the [shared foundations](#shared-foundations), each its own change: the design language facet (done), shared replay (done), shared force layout (done), and demo traces. Then five views that each carry a design language, one per change, last in the carousel. See [Hero visualizations](#hero-visualizations).
 
 Steps 1 and 2 are one pull request (the tab is empty without the catalog); the rest follow as the views land.
 
@@ -302,6 +302,8 @@ Living Network and Conversation Landscape both need a force layout and no view h
 
 - **Stable.** Starting positions come from actor ids rather than randomness, so one session always gets the same picture. It settles before drawing, and an update starts from the current positions, so nodes move gently. Any ambient drift is decoration on top, and doesn't change the positions.
 - **Named.** The caller passes the weights (interaction counts, delegation), and the view says on screen which model is on.
+
+**As built.** `ctx.forceLayout(nodes, links, { width, height, previous })` returns a map of positions inside the box. A node starts at an angle and distance taken from a hash of its id (`ctx.hashId`, FNV-1a), so neither input order nor chance moves it; each step pushes every pair apart, pulls linked ends to a rest length that shortens as the link gets heavier, pulls gently to the center, and separates nodes that overlap by their radii. A cold layout runs 300 steps; with `previous`, known nodes start where they were, a new node starts beside a neighbor that has a position, and it runs 100 gentler steps. A node can be pinned. `ctx.drift(id, t, amplitude)` is the decoration: a small smooth offset, the same for the same id, applied when drawing and never fed back into the layout. Every pair is compared, which is fine for the few dozen nodes these views draw after folding.
 
 #### Demo data
 

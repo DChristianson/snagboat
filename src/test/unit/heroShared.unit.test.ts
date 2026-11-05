@@ -36,7 +36,14 @@ interface Shared {
   countUpTo(events: Clock['events'], t: number): number;
   createReplay(opts: Record<string, unknown>): Clock;
   REPLAY_SPEEDS: number[];
+  forceLayout(nodes: Array<{ id: string; r?: number; pin?: Pt }>, links: Array<{ source: string; target: string; weight: number }>, opts: Record<string, unknown>): Map<string, Pt>;
+  drift(id: string, t: number, amplitude: number): { dx: number; dy: number };
 }
+interface Pt {
+  x: number;
+  y: number;
+}
+const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
 
 function loadShared(): Shared {
   const file = path.join(__dirname, '..', '..', '..', 'media', 'shared.js');
@@ -198,6 +205,79 @@ async function main() {
     clock.setSpeed(7);
     assert.strictEqual(clock.speed, 10);
     assert.deepStrictEqual([...shared.REPLAY_SPEEDS], [1, 10, 60, 600]);
+  });
+
+  // A star of an agent with tools and subagents, as Living Network will give it.
+  const star = () => {
+    const nodes = [{ id: 'you', r: 10 }, { id: 'agent', r: 12 }, ...Array.from({ length: 8 }, (_, i) => ({ id: `tool:${i}`, r: 6 })), { id: 'sub:a', r: 8 }, { id: 'sub:b', r: 8 }];
+    const links = [
+      { source: 'you', target: 'agent', weight: 20 },
+      ...Array.from({ length: 8 }, (_, i) => ({ source: 'agent', target: `tool:${i}`, weight: i === 0 ? 40 : 2 })),
+      { source: 'agent', target: 'sub:a', weight: 5 },
+      { source: 'agent', target: 'sub:b', weight: 5 },
+      { source: 'sub:a', target: 'tool:1', weight: 3 },
+    ];
+    return { nodes, links };
+  };
+  const box = { width: 600, height: 400 };
+
+  test('the force layout gives the same picture every time', () => {
+    const { nodes, links } = star();
+    const a = shared.forceLayout(nodes, links, box);
+    const b = shared.forceLayout(nodes, links, box);
+    assert.deepStrictEqual([...a.entries()], [...b.entries()]);
+    // Order of the input doesn't decide where a node goes first either.
+    const c = shared.forceLayout([...nodes].reverse(), links, box);
+    for (const n of nodes) assert.ok(Number.isFinite(c.get(n.id)!.x));
+  });
+
+  test('every node stays inside the box, clear of the padding', () => {
+    const { nodes, links } = star();
+    const pos = shared.forceLayout(nodes, links, { ...box, padding: 20 });
+    for (const n of nodes) {
+      const p = pos.get(n.id)!;
+      assert.ok(p.x >= 20 + n.r - 0.1 && p.x <= box.width - 20 - n.r + 0.1, `${n.id} x ${p.x}`);
+      assert.ok(p.y >= 20 + n.r - 0.1 && p.y <= box.height - 20 - n.r + 0.1, `${n.id} y ${p.y}`);
+    }
+  });
+
+  test('a heavier link pulls its ends closer, and nodes don’t overlap', () => {
+    const { nodes, links } = star();
+    const pos = shared.forceLayout(nodes, links, box);
+    const heavy = dist(pos.get('agent')!, pos.get('tool:0')!);
+    const light = Math.min(...[1, 2, 3, 4, 5, 6, 7].map((i) => dist(pos.get('agent')!, pos.get(`tool:${i}`)!)));
+    assert.ok(heavy < light, `heavy ${heavy.toFixed(1)} < lightest-but-one ${light.toFixed(1)}`);
+    for (let i = 0; i < nodes.length; i++)
+      for (let j = i + 1; j < nodes.length; j++) {
+        const d = dist(pos.get(nodes[i].id)!, pos.get(nodes[j].id)!);
+        assert.ok(d >= (nodes[i].r + nodes[j].r) * 0.8, `${nodes[i].id} and ${nodes[j].id} are ${d.toFixed(1)} apart`);
+      }
+  });
+
+  test('an update starts from the previous positions and moves nodes gently', () => {
+    const { nodes, links } = star();
+    const before = shared.forceLayout(nodes, links, box);
+    const more = { nodes: [...nodes, { id: 'tool:new', r: 6 }], links: [...links, { source: 'agent', target: 'tool:new', weight: 2 }] };
+    const after = shared.forceLayout(more.nodes, more.links, { ...box, previous: before });
+    const moved = nodes.map((n) => dist(before.get(n.id)!, after.get(n.id)!));
+    const mean = moved.reduce((a, b) => a + b, 0) / moved.length;
+    assert.ok(mean < 40, `known nodes moved ${mean.toFixed(1)}px on average`);
+    assert.ok(dist(after.get('tool:new')!, after.get('agent')!) < 250, 'the new node starts near its neighbor');
+  });
+
+  test('a pinned node stays where it was put', () => {
+    const { nodes, links } = star();
+    const pinned = nodes.map((n) => (n.id === 'you' ? { ...n, pin: { x: 50, y: 200 } } : n));
+    const pos = shared.forceLayout(pinned, links, box);
+    assert.deepStrictEqual({ ...pos.get('you') }, { x: 50, y: 200 });
+  });
+
+  test('drift is small, smooth, and the same for the same id', () => {
+    const a = shared.drift('agent', 1000, 3);
+    assert.deepStrictEqual({ ...a }, { ...shared.drift('agent', 1000, 3) });
+    assert.ok(Math.abs(a.dx) <= 3 && Math.abs(a.dy) <= 3);
+    const b = shared.drift('agent', 1016, 3);
+    assert.ok(Math.abs(a.dx - b.dx) < 0.1 && Math.abs(a.dy - b.dy) < 0.1, 'one frame later it has barely moved');
   });
 
   let failures = 0;
