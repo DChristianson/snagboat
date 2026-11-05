@@ -11,7 +11,7 @@
   window.snagboatViz.register({
     id: 'sunburst',
     title: 'Sunburst',
-    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy', 'actor'] },
+    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy', 'actor'], language: ['standard'] },
     mount(host, ctx) {
       const { svg, svgText, fmt, compact, clip, arcPath, sessionName, sessionClass, legendKey, vizPanel, interact } = ctx;
       let views = [];

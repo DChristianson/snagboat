@@ -11,7 +11,7 @@
   window.snagboatViz.register({
     id: 'cost-per-prompt',
     title: 'Cost per prompt',
-    tags: { category: ['quantitative', 'conversational'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+    tags: { category: ['quantitative', 'conversational'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, niceMax, clip, fit, short, showTip, hideTip } = ctx;
       let mode = 'agent'; // 'agent' | 'category'

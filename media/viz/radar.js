@@ -18,7 +18,7 @@
   window.snagboatViz.register({
     id: 'radar',
     title: 'Radar',
-    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'actor'], language: ['standard'] },
     mount(host, ctx) {
       const { svg, svgText, fmt, compact, sessionName, sessionClass, legendKey, vizPanel, interact } = ctx;
       let views = [];

@@ -15,7 +15,7 @@
   window.snagboatViz.register({
     id: 'parallel-coords',
     title: 'Parallel coordinates',
-    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'] },
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'], language: ['standard'] },
     mount(host, ctx) {
       const { svg, svgText, clip, niceMax, turnStats, sessionName, sessionClass, legendKey, vizPanel, interact } = ctx;
       let views = [];

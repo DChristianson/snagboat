@@ -17,7 +17,7 @@
   window.snagboatViz.register({
     id: 'gantt',
     title: 'Gantt and waterfall',
-    tags: { category: ['temporal'], purpose: ['informative'], level: ['session'], dimension: ['time', 'actor', 'hierarchy'] },
+    tags: { category: ['temporal'], purpose: ['informative'], level: ['session'], dimension: ['time', 'actor', 'hierarchy'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, clip, fit, ms, duration, showTip, hideTip } = ctx;
       let mode = 'gantt'; // 'gantt' | 'waterfall'

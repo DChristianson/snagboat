@@ -13,7 +13,7 @@
   window.snagboatViz.register({
     id: 'calendar-heatmap',
     title: 'Calendar heatmap',
-    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'] },
+    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'], language: ['standard'] },
     mount(host, ctx) {
       const { svg, svgText, el, fmt, compact, callTokens, heatScale, sessionName, legendKey, modeButtons, vizPanel, interact } = ctx;
       let measure = 'tokens';

@@ -22,7 +22,7 @@
   window.snagboatViz.register({
     id: 'event-graph',
     title: 'Event graph',
-    tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'] },
+    tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, clip, fit, short, formatTime, modelShort, ms, showTip, hideTip } = ctx;
       const legend = el('div', { class: 'legend small eg-legend' });

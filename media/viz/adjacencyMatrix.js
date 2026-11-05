@@ -12,7 +12,7 @@
   window.snagboatViz.register({
     id: 'adjacency-matrix',
     title: 'Adjacency matrix',
-    tags: { category: ['actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'] },
+    tags: { category: ['actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, svgText, fmt, compact, fit, modelShort, heatScale, legendKey, vizPanel, interact } = ctx;
       let views = [];

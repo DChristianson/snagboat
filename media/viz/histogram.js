@@ -9,7 +9,7 @@
   window.snagboatViz.register({
     id: 'histogram',
     title: 'Histogram',
-    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity'] },
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity'], language: ['standard'] },
     mount(host, ctx) {
       const { svg, svgText, fmt, niceMax, niceAxis, quantile, METRICS, metricValues, sessionName, sessionClass, legendKey, modeButtons, vizPanel, interact } = ctx;
       let metric = METRICS[0];

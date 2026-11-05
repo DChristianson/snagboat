@@ -181,7 +181,7 @@
   window.snagboatViz.register({
     id: 'prompt-terms',
     title: 'Prompt terms',
-    tags: { category: ['semantic'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['content'] },
+    tags: { category: ['semantic'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['content'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, fmt, clip, short, showTip, hideTip } = ctx;
       const chartHost = el('div');

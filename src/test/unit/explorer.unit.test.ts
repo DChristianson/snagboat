@@ -48,9 +48,14 @@ async function main() {
 
   test('the catalog conforms to the taxonomy', () => {
     assert.deepStrictEqual(validateCatalog(CATALOG, TAXONOMY), []);
-    assert.deepStrictEqual(Object.keys(TAXONOMY), ['category', 'purpose', 'level', 'dimension']);
+    assert.deepStrictEqual(Object.keys(TAXONOMY), ['category', 'purpose', 'level', 'dimension', 'language']);
     assert.deepStrictEqual(Object.keys(TAXONOMY.category.values), ['temporal', 'actor', 'conversational', 'dependency', 'quantitative', 'state', 'semantic']);
     assert.deepStrictEqual(CATALOG.map((v) => v.id), ['turn-tree', 'context-timeline', 'session-strips', 'cost-per-prompt', 'context-fill', 'sequence-diagram', 'event-graph', 'actor-graph', 'prompt-terms', 'gantt', 'treemap', 'heatmap', 'tool-ribbon', 'week-picture', 'histogram', 'box-violin', 'ridgeline', 'scatter', 'bubble', 'sunburst', 'calendar-heatmap', 'radar', 'parallel-coords', 'streamgraph', 'sankey', 'adjacency-matrix', 'swimlane']);
+  });
+
+  test('only views with a look of their own leave the standard design language', () => {
+    assert.deepStrictEqual(Object.keys(TAXONOMY.language.values), ['standard']);
+    for (const v of CATALOG) assert.deepStrictEqual(v.tags.language, ['standard'], v.id);
   });
 
   test('a broken catalog names each problem', () => {

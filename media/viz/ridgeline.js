@@ -10,7 +10,7 @@
   window.snagboatViz.register({
     id: 'ridgeline',
     title: 'Ridgeline',
-    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity'] },
+    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity'], language: ['standard'] },
     mount(host, ctx) {
       const { svg, svgText, fmt, fit, modelShort, niceAxis, quantile, density, METRICS, metricValues, sessionName, modeButtons, vizPanel, interact } = ctx;
       const metrics = METRICS.filter((m) => m.perCall);

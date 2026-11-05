@@ -27,7 +27,7 @@
   window.snagboatViz.register({
     id: 'sequence-diagram',
     title: 'Sequence diagram',
-    tags: { category: ['conversational', 'actor'], purpose: ['informative'], level: ['session'], dimension: ['communication', 'actor', 'time'] },
+    tags: { category: ['conversational', 'actor'], purpose: ['informative'], level: ['session'], dimension: ['communication', 'actor', 'time'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, clip, fit, formatTime, ms, modelShort, showTip, hideTip } = ctx;
       const legend = el('div', { class: 'legend small seq-legend' });

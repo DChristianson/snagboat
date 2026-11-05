@@ -20,7 +20,7 @@
   window.snagboatViz.register({
     id: 'tool-ribbon',
     title: 'Tool-call ribbon',
-    tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'] },
+    tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, fmt, clip, fit, ms, showTip, hideTip } = ctx;
       let view = null;

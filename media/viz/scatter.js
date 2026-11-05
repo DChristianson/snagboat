@@ -22,7 +22,7 @@
   window.snagboatViz.register({
     id: 'scatter',
     title: 'Scatter plot',
-    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'] },
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'], language: ['standard'] },
     mount(host, ctx) {
       const { svg, svgText, fmt, clip, compact, turnStats, secondsText, sessionName, sessionClass, legendKey, modeButtons, vizPanel, interact } = ctx;
       let yKey = 'tokens';
