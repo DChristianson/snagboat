@@ -273,5 +273,242 @@
     return t;
   }
 
-  window.snagboatShared = { el, svg, compact, fmt, niceMax, clip, formatTime, formatDay, tipFor, ms, short, duration, agentName, modelShort, fit, findNode, pathTo, callTokens, sessionName, secondsText, turnStats, METRICS, metricValues, quantile, density, niceAxis, heatScale, arcPath, modeButtons, vizPanel, interact, legendKey, sessionClass, svgText };
+  // ---------- replay ----------
+  // One clock for the views that play a session back (docs/design/visualization-explorer.md,
+  // "Shared replay"). It runs over session time: a view reads the clock's position and draws
+  // the events up to it, keeping no timers of its own.
+
+  /** Within one timestamp, the order a session's events are replayed in. */
+  const REPLAY_KIND_ORDER = { prompt: 0, compaction: 1, call: 2, tool: 3 };
+  /** Speeds offered, as multiples of the session's own clock. */
+  const REPLAY_SPEEDS = [1, 10, 60, 600];
+  const REPLAY_DEFAULT_SPEED = 60;
+  /** A quiet stretch longer than this, in seconds of playback, is skipped down to QUIET_LEAD. */
+  const QUIET_MAX = 1.5;
+  const QUIET_LEAD = 0.4;
+  /** A session whose last event is this recent can be live. */
+  const LIVE_WINDOW_MS = 10 * 60 * 1000;
+
+  /**
+   * Every prompt, model call, tool call, and compaction of these sessions as one list in
+   * timestamp order, with a fixed tie-break (kind, then session order, then position in the
+   * session), so a replay always runs the same way. Each entry:
+   * { t, kind, sessionId, turnId?, agentId?, item, index } where item is the view's own record.
+   */
+  function replayEvents(views) {
+    const out = [];
+    views.forEach((v, si) => {
+      const sessionId = v.summary.sessionId;
+      const add = (kind, list) =>
+        list.forEach((item, index) => {
+          const t = ms(item.ts);
+          if (Number.isFinite(t)) out.push({ t, kind, sessionId, turnId: item.turnId, agentId: item.agentId, item, index, si });
+        });
+      add('prompt', v.prompts || []);
+      add('compaction', v.compactions || []);
+      add('call', v.calls || []);
+      add('tool', v.tools || []);
+    });
+    out.sort((a, b) => a.t - b.t || REPLAY_KIND_ORDER[a.kind] - REPLAY_KIND_ORDER[b.kind] || a.si - b.si || a.index - b.index);
+    for (const e of out) delete e.si;
+    return out;
+  }
+
+  /** The number of events at or before time t (events sorted by t). */
+  function countUpTo(events, t) {
+    let lo = 0;
+    let hi = events.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (events[mid].t <= t) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  /**
+   * A replay clock. The caller gives it sessions and draws in onFrame(clock); the clock says
+   * where it is (time, shown) and whether it's live. It ticks only while playing and active,
+   * so a slide that isn't current costs nothing.
+   *
+   *   opts: { onFrame(clock), speed?, now?(), raf?(fn), caf?(id), reducedMotion?: boolean }
+   *   clock.setSessions(views)   new or updated sessions; at the end, an update keeps the clock there
+   *   clock.time, clock.start, clock.end, clock.events, clock.shown (events at or before time)
+   *   clock.playing, clock.speed, clock.mode() 'live' | 'replay'
+   *   clock.play(), pause(), toggle(), seek(t), seekShown(n), setSpeed(s), setActive(active), destroy()
+   *
+   * Live means at the end of a session that's still recent; scrubbing back leaves live until the
+   * clock returns to the end. With reduced motion, the clock opens at the end and never autoplays.
+   */
+  function createReplay(opts) {
+    const now = opts.now || (() => Date.now());
+    const raf = opts.raf || ((fn) => window.requestAnimationFrame(fn));
+    const caf = opts.caf || ((id) => window.cancelAnimationFrame(id));
+    const reduced = opts.reducedMotion !== undefined ? !!opts.reducedMotion : typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let frame = null;
+    let last = null; // the wall time of the last tick
+    let active = false;
+    let opened = false; // whether the clock has been placed for the first sessions
+    let autoplay = !reduced; // plays the first time it becomes active
+    const clock = {
+      events: [],
+      start: 0,
+      end: 0,
+      time: 0,
+      shown: 0,
+      playing: false,
+      speed: REPLAY_SPEEDS.includes(opts.speed) ? opts.speed : REPLAY_DEFAULT_SPEED,
+      reduced,
+      atEnd() {
+        return clock.shown >= clock.events.length && clock.time >= clock.end;
+      },
+      recent() {
+        return clock.events.length > 0 && now() - clock.end < LIVE_WINDOW_MS;
+      },
+      mode() {
+        return clock.atEnd() && clock.recent() ? 'live' : 'replay';
+      },
+      setSessions(views) {
+        const wasAtEnd = opened && clock.atEnd();
+        clock.events = replayEvents(views);
+        clock.start = clock.events.length ? clock.events[0].t : 0;
+        clock.end = clock.events.length ? clock.events[clock.events.length - 1].t : 0;
+        if (!opened) {
+          opened = true;
+          // A live session, or reduced motion, opens on what's there now.
+          if (reduced || clock.recent()) {
+            autoplay = false;
+            place(clock.end);
+          } else place(clock.start);
+        } else if (wasAtEnd) place(clock.end);
+        else place(Math.min(Math.max(clock.time, clock.start), clock.end));
+        render();
+      },
+      play() {
+        if (!clock.events.length) return;
+        if (clock.atEnd()) place(clock.start); // play from the top again
+        clock.playing = true;
+        autoplay = false;
+        schedule();
+        render();
+      },
+      pause() {
+        clock.playing = false;
+        autoplay = false;
+        unschedule();
+        render();
+      },
+      toggle() {
+        if (clock.playing) clock.pause();
+        else clock.play();
+      },
+      seek(t) {
+        autoplay = false;
+        place(Math.min(Math.max(t, clock.start), clock.end));
+        render();
+      },
+      /** Moves to just after the nth event (0 is before the first). */
+      seekShown(n) {
+        const i = Math.max(0, Math.min(clock.events.length, Math.round(n)));
+        clock.seek(i === 0 ? clock.start : clock.events[i - 1].t);
+        if (i === 0) clock.shown = 0;
+        render();
+      },
+      setSpeed(s) {
+        if (REPLAY_SPEEDS.includes(s)) clock.speed = s;
+        render();
+      },
+      setActive(on) {
+        active = !!on;
+        if (active && autoplay && clock.events.length) {
+          autoplay = false;
+          clock.playing = true;
+        }
+        if (active && clock.playing) schedule();
+        else unschedule();
+      },
+      destroy() {
+        unschedule();
+        clock.playing = false;
+      },
+    };
+    function place(t) {
+      clock.time = t;
+      clock.shown = countUpTo(clock.events, t);
+    }
+    function render() {
+      if (opts.onFrame) opts.onFrame(clock);
+    }
+    function schedule() {
+      if (frame !== null || !active || !clock.playing) return;
+      last = null;
+      frame = raf(tick);
+    }
+    function unschedule() {
+      if (frame !== null) caf(frame);
+      frame = null;
+      last = null;
+    }
+    function tick(wall) {
+      frame = null;
+      if (!clock.playing || !active) return;
+      const dt = last === null ? 0 : Math.min(250, Math.max(0, wall - last)); // a stalled tab doesn't jump ahead
+      last = wall;
+      let t = clock.time + dt * clock.speed;
+      // Skip a quiet stretch: the next event arrives QUIET_LEAD seconds of playback from now.
+      const next = clock.events[clock.shown];
+      if (next && (next.t - t) / clock.speed > QUIET_MAX * 1000) t = next.t - QUIET_LEAD * 1000 * clock.speed;
+      if (t >= clock.end) {
+        place(clock.end);
+        clock.playing = false;
+        render();
+        return;
+      }
+      place(t);
+      render();
+      frame = raf(tick);
+      last = wall;
+    }
+    return clock;
+  }
+
+  /**
+   * The replay control bar for a clock: play and pause, a scrubber over the events, the speed,
+   * and a badge naming what's on screen (LIVE, or REPLAY ×N), so replay is never taken for live.
+   * Call bar.sync() from the clock's onFrame.
+   */
+  function replayBar(clock, { label } = {}) {
+    const playBtn = el('button', { class: 'replay-play' });
+    playBtn.addEventListener('click', () => clock.toggle());
+    const scrub = el('input', { type: 'range', min: 0, max: 0, step: 1, value: 0, class: 'replay-scrub', 'aria-label': label ? `Replay position in ${label}` : 'Replay position' });
+    scrub.addEventListener('input', () => {
+      clock.pause();
+      clock.seekShown(Number(scrub.value));
+    });
+    const speed = el(
+      'select',
+      { class: 'replay-speed', 'aria-label': 'Replay speed' },
+      REPLAY_SPEEDS.map((s) => el('option', { value: s, text: `×${s}` }))
+    );
+    speed.addEventListener('change', () => clock.setSpeed(Number(speed.value)));
+    const badge = el('span', { class: 'replay-badge', role: 'status' });
+    const where = el('span', { class: 'replay-where small' });
+    const bar = el('div', { class: 'replay-bar', role: 'group', 'aria-label': 'Replay' }, [playBtn, scrub, speed, badge, where]);
+    function sync() {
+      const live = clock.mode() === 'live';
+      playBtn.textContent = clock.playing ? 'Pause' : clock.atEnd() ? 'Replay' : 'Play';
+      playBtn.disabled = clock.events.length === 0;
+      scrub.max = String(clock.events.length);
+      scrub.value = String(clock.shown);
+      scrub.setAttribute('aria-valuetext', `${clock.shown} of ${clock.events.length} events`);
+      speed.value = String(clock.speed);
+      badge.textContent = live ? 'LIVE' : `REPLAY ×${clock.speed}`;
+      badge.classList.toggle('live', live);
+      where.textContent = clock.events.length ? `${clock.shown}/${clock.events.length} · ${formatTime(clock.time)}${clock.playing ? ' · quiet gaps skipped' : ''}` : 'No events';
+    }
+    sync();
+    return { element: bar, sync };
+  }
+
+  window.snagboatShared = { el, svg, compact, fmt, niceMax, clip, formatTime, formatDay, tipFor, ms, short, duration, agentName, modelShort, fit, findNode, pathTo, callTokens, sessionName, secondsText, turnStats, METRICS, metricValues, quantile, density, niceAxis, heatScale, arcPath, modeButtons, vizPanel, interact, legendKey, sessionClass, svgText, REPLAY_SPEEDS, replayEvents, countUpTo, createReplay, replayBar };
 })();

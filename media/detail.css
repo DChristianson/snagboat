@@ -838,6 +838,13 @@ input[type="search"] { min-width: 220px; }
 @media (prefers-reduced-motion: reduce) {
   .strip { scroll-behavior: auto; }
 }
+/* The shared replay bar (shared.js replayBar). A hero view restyles it under its own scoped class. */
+.replay-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 6px; }
+.replay-bar .replay-scrub { flex: 1 1 160px; min-width: 120px; }
+.replay-bar .replay-play { min-width: 5.5em; }
+.replay-badge { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em; letter-spacing: 0.08em; padding: 1px 6px; border: 1px solid var(--rule); border-radius: 3px; }
+.replay-badge.live { color: var(--vscode-testing-iconPassed, #388a34); border-color: currentColor; }
+.replay-where { color: var(--ink-muted); }
 
 /* Suggestions */
 .suggestion .summary input.threshold { width: 7em; margin: 0 2px; }
