@@ -1,6 +1,6 @@
 # Design: visualization explorer
 
-Status: **accepted** (2026-11-03; decisions confirmed the same day). The visualization part of [phase 7](trusted-advisor.md#phases) of the advisor design, and the "visualizing sessions" half of the [prototype task](../roadmap.md#planned-tasks) in the roadmap. Steps 1–5 are built (2026-11-03); where the build differed from the text, the [implementation notes](#implementation-notes) at the end say how. Step 6 has built [every view this document names, and thirteen more](#built-so-far) from the proposal's tables; the rest of the proposal remains a catalog to draw from.
+Status: **accepted** (2026-11-03; decisions confirmed the same day). The visualization part of [phase 7](trusted-advisor.md#phases) of the advisor design, and the "visualizing sessions" half of the [prototype task](../roadmap.md#planned-tasks) in the roadmap. Steps 1–5 are built (2026-11-03); where the build differed from the text, the [implementation notes](#implementation-notes) at the end say how. Step 6 has built [every view this document names, and thirteen more](#built-so-far) from the proposal's tables; the rest of the proposal remains a catalog to draw from. Step 7, five [hero visualizations](#hero-visualizations) with their own design languages, is planned and not started.
 
 ## Summary
 
@@ -59,7 +59,7 @@ window.snagboatViz.register({
 
 ### Taxonomy
 
-Four facets. Values within a facet are not mutually exclusive: a visualizer gives one or more per facet, and every facet must be given, so filters never silently miss a visualizer.
+Four facets, with a fifth, [design language](#design-language-facet), planned in step 7. Values within a facet are not mutually exclusive: a visualizer gives one or more per facet, and every facet must be given, so filters never silently miss a visualizer.
 
 **Category**: the kind of question the visualization answers.
 
@@ -180,6 +180,7 @@ The parts that touch disk (`EventLog`, `ContextLimits`, `RuleStore`, the adapter
 5. **Docs — done.** A section in [usage.md](../usage.md), the detail webview paragraph in [architecture.md](../architecture.md), a link to the demo from the README, and the roadmap entry marked done; this document gains implementation notes where the build differed.
 
 6. **More visualizers, from the proposal.** After step 5, more views are added starting with the ones listed per category in the [visualization proposal](agent_conversation_visualization_design_proposal.docx) (see below). Each is its own change: a file under `media/viz/`, a catalog entry, and a note here. None is built before step 5.
+7. **Hero visualizations — planned.** First the [shared foundations](#shared-foundations), each its own change: the design language facet, shared replay, shared force layout, and better demo data. Then five views that each carry a design language, one per change, last in the carousel. See [Hero visualizations](#hero-visualizations).
 
 Steps 1 and 2 are one pull request (the tab is empty without the catalog); the rest follow as the views land.
 
@@ -247,6 +248,172 @@ The distribution and comparison views share helpers in `media/shared.js`, which 
 
 The rest of the proposal's tables stay a catalog to consider, none planned yet. Those left mostly need something `SessionView` doesn't have: the dependency views need links between events and what they produced, the state views need states someone has defined, and the semantic views need derived data. Three of its guidelines are already in this design and should hold for every view added: preserve event identity (the shared selection), separate observed from inferred (the turn tree's ≈ and hatching), and make expressive views lead to the underlying events rather than end in a picture. Its cross-cutting encodings (node size, edge thickness, typed edges, glow for an active agent) are the vocabulary for the graph views when they come. Semantic views depend on derived representations, embeddings or model labels, which Snagboat doesn't produce; they wait on the advisor, and on a decision about what derived data to keep. Prompt terms doesn't change that: it counts words in the page at draw time and keeps nothing, and it says it's word counts rather than a model's reading.
 
+## Hero visualizations
+
+Added 2026-11-04 from two sources, neither part of the proposal: the [concept pages](agent_visualization_concept_pages.pdf) (in `docs/design/`), one page per view with its purpose, visual model, encoding, interactions, and guardrails over a simple diagram; and a design canvas, which gives each concept a design language in a 1440×900 mockup, shown below. **Where they differ, the concept pages say what a view shows and the canvas says how it looks.** The differences are listed per view below.
+
+The views in step 6 answer a question in the page's shared look; a hero view also has a look of its own, chosen to suit its question, and is meant to be the view you show someone. They go last in the carousel.
+
+The tags below are approved, and go in the catalog when each view is built. "Hero" isn't itself a tag; what sets these views apart is the new [design language](#design-language-facet) facet.
+
+| Hero view | Question | language | category | purpose | level | dimension |
+| --- | --- | --- | --- | --- | --- | --- |
+| Living Network | What is happening across the system, and how is work moving? | `cinematic` | actor, temporal | expressive | session | actor, communication, time |
+| Factory Clock | When did activity happen, and how was it distributed? | `horology` | temporal | expressive, informative | session | time, actor, hierarchy |
+| Conversation Landscape | Who is communicating, and what are they communicating about? | `edgeless` | semantic, conversational, actor | expressive | session | content, actor, communication |
+| Session Fingerprint | What did a run look like, and how does it compare? | `risograph` | dependency, temporal | expressive, informative | session, project | time, hierarchy, dependency, quantity |
+| Terminal Board | What are the actors saying or doing right now? | `split-flap` | conversational, state | expressive | session | communication, actor, content |
+
+### Shared foundations
+
+Four things are built once, before the views that need them, plus defaults for the limits.
+
+#### Design language facet
+
+A fifth facet, `language`, says which design languages a visualizer supports, and the puck filters by it the way it filters by the other four: OR within the facet, AND across facets. It's a list, like every other facet, so a view can support several later; each supports one for now.
+
+| Value | Meaning | Visualizers |
+| --- | --- | --- |
+| `standard` | The page's shared look: theme variables, validated colors, both themes | The existing 27 |
+| `cinematic`, `horology`, `edgeless`, `risograph`, `split-flap` | One hero view's look, with its own ground and palette | One hero view each |
+
+- **Colors.** `standard` is the only value that follows the VS Code theme. Any other language draws its own ground and palette in either theme, keeps its colors in variables scoped to the view in `detail.css`, and still meets the contrast checks. This is the one exception to the [drawing rules](#the-visualizer-contract).
+- **Fonts.** System font stacks for now, chosen per language to come close to the typefaces named below (a serif for `horology`, a monospace for `split-flap`'s cells). Those names are the target for a later change, which would have to ship font files and add `font-src` to both CSPs. The mockups' look depends partly on them, so expect the first builds to look plainer than the images.
+- **The catalog.** Every facet must be given, so the facet lands with `standard` on all 27 existing entries, the taxonomy and unit test updated, before any hero view.
+
+#### Shared replay
+
+Four views need playback and Session Fingerprint needs the same handling of time, so replay is one helper in `media/shared.js`, reached through `ctx`, rather than one per view.
+
+- **The clock.** It merges a session's prompts, calls, tools, and compactions in timestamp order, with a fixed tie-break, so a replay always runs the same way. Views read the current position from it and keep no timers of their own.
+- **The controls.** One bar: play and pause, scrub, speed, and a badge naming what's on screen, `LIVE` or `REPLAY ×4`, so replay is never mistaken for live.
+- **Live.** When an update brings new events and the clock is at the end, it stays at the end. Scrubbing back leaves live until you return. The web demo is always replay.
+- **Stopping.** The contract gains an optional `setActive(active)` on instances, so the carousel can stop a slide when it isn't the current one, even though its neighbors stay mounted. With `prefers-reduced-motion`, a view opens on its final state and doesn't autoplay; scrubbing still works.
+
+Terminal Board's queue and minimum dwell sit on top of the clock, in the view.
+
+#### Shared force layout
+
+Living Network and Conversation Landscape both need a force layout and no view has one, since the actor graph uses fixed columns. It's a small hand-written helper in `media/shared.js`, with no dependencies.
+
+- **Stable.** Starting positions come from actor ids rather than randomness, so one session always gets the same picture. It settles before drawing, and an update starts from the current positions, so nodes move gently. Any ambient drift is decoration on top, and doesn't change the positions.
+- **Named.** The caller passes the weights (interaction counts, delegation), and the view says on screen which model is on.
+
+#### Demo data
+
+We'll gather better demo data as part of this step. The web demo's four example sessions were written for the first views, and these views need more to be judged fairly: several subagents working in parallel, failures followed by retries, several runs of comparable work for Session Fingerprint, and prompts and replies with enough text for Conversation Landscape and Terminal Board. Whether that means extending the generator or sanitizing captured sessions is decided when the work starts. Either way, no real prompt text goes in unreviewed.
+
+#### Default limits
+
+Each limit is a named constant at the top of the view's file, with a chosen default, tuned on the longest real session available and recorded in the view's note. They start from what's already drawn:
+
+| Limit | Starting default | From |
+| --- | --- | --- |
+| Subagent nodes, before folding into "+N" | 12 | The actor graph's `MAX_SUBAGENTS` |
+| Overprinted runs, with the rest in the library row | 3 | The Session Fingerprint mockup |
+| Board regions, with the rest folded | 12 | The Terminal Board mockup |
+| Words per actor | 5 | The Conversation Landscape mockup |
+| Tool rings, before an "other" ring | 2 | The Factory Clock mockup |
+| Live particles | Chosen when built | No precedent; depends on what real traffic costs to draw |
+
+#### Data these views wait for
+
+Step 7 adds no fields to `SessionView`. Features that need data Snagboat doesn't have wait for it, and aren't approximated beyond what's noted per view:
+
+| Waits for | What waits |
+| --- | --- |
+| [Phase 8](trusted-advisor.md#phases) labeling quiet gaps | True waiting versus working in Factory Clock and Session Fingerprint |
+| A parent for each subagent | Nested subagent clusters in Living Network |
+| Task identity and outcome for a session | Those two filters in Session Fingerprint |
+| Derived data, embeddings or model labels | Conversation Landscape's semantic mode, and Terminal Board's summaries |
+
+### Living Network
+
+A spatial map of agents, tools, and delegated work, lit only by the work moving through it.
+
+![Living Network mockup: a dark field with glowing nodes for a human, an orchestrator, agents, and tools, joined by curved links carrying particles](images/hero-living-network.png)
+
+- **Why this view:** to make the software factory feel alive, and to show which actors are active, how work is delegated, and where messages and results travel.
+- **Visual model:** agents, tools, and human participants occupy spatial nodes. Messages, delegations, and results travel between them as glowing particles or animated flows.
+- **Design language:** a deep, dark field with volumetric fog. Active nodes bloom and messages travel as comet-tailed particles. Letterbox framing, film grain, and a slow camera drift make it feel shot rather than plotted. Motion is the primary ink.
+- **Palette and type:** ground `#05070d`; human amber `#ffb347`, orchestrator cyan `#5ee7ff`, agents violet `#a68cff`, tools magenta `#ff5ec4`. Space Grotesk, with JetBrains Mono for labels.
+- **Encoding:** hue is actor type, pulse is recent activity, particle direction is sender to recipient, particle density is message volume or tokens.
+- **Interactions:** 2D or 3D camera, pause and scrub replay, isolate an actor's neighborhood, inspect a flow, filter by event type, expand subagent clusters.
+- **Guardrails:** a stable layout that adapts gently. Repeated traffic is aggregated and live particles are capped. Replay is letterboxed and badged with its speed, so it's never mistaken for live.
+- **What Snagboat has for it:** the actor graph's nodes and typed edges, and timestamps for replay. Delegation edges are inferred, as the actor graph already draws them. `SessionView` records no parent for a subagent, so every agent hangs off the main one until nesting has its data. Positions come from the [shared force layout](#shared-force-layout) and playback from the [shared replay](#shared-replay). A 3D camera has no precedent under the no-dependencies rule, so it comes after 2D, if at all.
+
+### Factory Clock
+
+A radial sweep of activity, with the human at the center and agents and tools toward the bezel.
+
+![Factory Clock mockup: an enamel dial with concentric rings of ink, cobalt, and gray arcs, some hatched, and an orange sweep hand](images/hero-factory-clock.png)
+
+- **Why this view:** to show when work happened, how long it lasted, and how activity was distributed across the agent hierarchy, including parallel work.
+- **Visual model:** angle is elapsed time, and one revolution is the selected time window. Concentric rings are actor depth: human interaction at the center, then the primary agent, subagents, and tools. A radial sweep advances through the event history.
+- **Design language:** an enamel dial with a hairline minute track, serif numerals, ink arcs, and one signal-orange sweep hand. You read it like a watch: angle is time, rings are depth, hatching is waiting.
+- **Palette and type:** dial `#fbf8f1` to `#efe8d8` on `#e9e2d2`; human and sweep hand orange `#e4572e`, primary agent ink `#1a1916`, subagents cobalt `#2f5bb7`, tools gray `#7a776c`. Instrument Serif, with IBM Plex Mono for labels.
+- **Encoding:** ring is actor depth, angle is time, arc length is duration, solid or hatched is executing or waiting, color is actor class, intensity is activity volume. The concept page has intensity and the mockup doesn't; it's kept, since event counts can drive it.
+- **Interactions:** set the window and playback speed, isolate a ring, inspect a segment, toggle duration, event count, or token overlays, compare sessions. The concept page compares in aligned layers and the mockup in stacked dials. Stacked dials are what the carousel already does for a `session`-level view, so they come first; layers would make this a `project` view too.
+- **Guardrails:** duration never stands in for compute, so waiting gets its own texture. Depth and time stay on separate axes, and rings aggregate as the actor count grows.
+- **What Snagboat has for it:** events have no durations, so as in the Gantt an arc is a span from first event to last. Waiting can't be told from working until [phase 8](trusted-advisor.md#phases) labels quiet gaps. Until then the hatching means "quiet gap", and the view's note says so, or the guardrail above doesn't hold. Tool rings are per tool name or category, with a cap and an "other" ring.
+
+### Conversation Landscape
+
+Not just that actors talked, but what they talked about: a field of topics, delegation, and response.
+
+![Conversation Landscape mockup: colored dots for each actor on white, surrounded by words in the same color at different sizes, with no lines between them](images/hero-conversation-landscape.png)
+
+- **Why this view:** to show what communication was about, not only that it happened.
+- **Visual model:** agents and tools are nodes in a force-directed graph, with short phrases or keyword clouds around the sending node. A recipient is drawn toward the node that delegated to it, and responses reinforce or reshape the relationship.
+- **Design language:** paper-white space. Each actor owns one saturated hue, and its words orbit it in that hue at weights set by importance. No edge is ever drawn. Relationships live only in proximity and color, so the eye reads topics before topology. The concept page's diagram does draw edges; leaving them out is the canvas's choice of look, and the force model underneath is the same.
+- **Palette and type:** ground `#fbfaf6`; `#f0563f`, `#7b4fe0`, `#2f7ff0`, `#12996a`, `#f2a900`, each with a darker shade for small text. Bricolage Grotesque.
+- **Encoding:** a dot is an actor, surrounding words are what it emitted, distance is interaction strength, weight and size are topic importance.
+- **Interactions:** select a word to surface its source messages, expand a cloud to read it in full, switch proximity mode (interaction, delegation, semantic), replay how the field formed, filter by actor or topic.
+- **Guardrails:** the force model is always named on screen. Distance means real interaction only in interaction mode, and semantic similarity lives in its own mode. Drift is damped, never jitter. Original messages are preserved and one click away.
+- **What Snagboat has for it:** prompt text and reply excerpts when text capture is on, and prompt terms' word counts as the measure of importance. Positions come from the [shared force layout](#shared-force-layout) and playback from the [shared replay](#shared-replay). Tools have no text, only names and statuses. Semantic mode needs the derived data [What comes next](#what-comes-next) says Snagboat doesn't keep, so it's left out at first, and the view says it's word counts, as prompt terms does. With text capture off there are no words, so the view shows the dots and says why.
+
+### Session Fingerprint
+
+A compressed turn graph that gives each run a recognizable signature, then lays runs on top of each other.
+
+![Session Fingerprint mockup: blue, pink, and yellow turn graphs overprinted along a time axis, with branches and loops, above a row of six small run signatures](images/hero-session-fingerprint.png)
+
+- **Why this view:** to compare runs and find differences in branching, retries, waiting, tool use, duration, and token spend.
+- **Visual model:** underneath is a turn and event graph. Nodes are messages, tool calls, delegations, results, and terminal events, and edges are execution relationships. Branches show parallel work, loops show retries, and gaps or spans show waiting.
+- **Design language:** each run is a spot-color pass (fluoro pink, blue, yellow) printed on uncoated stock. Where runs agree, the inks overprint into a third color; where they diverge, a single color stands alone. Halftone, grain, and slight misregistration make each run a physical layer you can lift off.
+- **Palette and type:** stock `#f3eee3`, text navy `#1d2c5e`; passes blue `#0078bf`, pink `#ff48b0`, yellow `#ffd400`. Archivo Narrow and Archivo, with Space Mono for labels.
+- **Encoding:** x is time, branches are delegated or parallel work, loops are retries, dotted spans are waiting, node area is tokens, shape is event type (square for start, diamond for end). The concept page uses color or shape for event type, and its diagram gives each run its own lane. The canvas spends color on the run and actually overprints, so event type falls to shape alone, and it needs more shapes than the mockup's two.
+- **Interactions:** overlay or lift a pass, absolute or start-aligned time, expand a branch, highlight shared paths, filter by model, task, tool, or outcome, open the full turn graph.
+- **Guardrails:** absolute time shows overlap and normalized time shows structure, so the view labels which is on. Repeated motifs collapse without hiding deviations. Every mark links back to its event, which here means the shared selection.
+- **What Snagboat has for it:** turns, subagent spans, tokens, and tool status. The event graph already builds this kind of graph, with observed, inferred, and retry edges, so this view starts from its logic. Retries aren't recorded, so a loop is inferred and drawn as inferred. Waiting has the same phase 8 limit as the clock. Sessions have no task identity or outcome, so those two filters wait, and sessions are only comparable if you pick comparable ones. The mockup overprints three runs and shows the rest in a small library row beneath, which fits the explorer's cap of eight.
+
+### Terminal Board
+
+A fixed board with one region per actor, refreshing as events arrive.
+
+![Terminal Board mockup: a dark split-flap board with twelve labeled regions of green, cream, and amber characters, each with an indicator lamp](images/hero-terminal-board.png)
+
+- **Why this view:** to put communication itself on display. As on an airport or railway board, each actor has a known place, and new information visibly replaces old.
+- **Visual model:** every agent and tool has a fixed rectangular region on a character grid. Words, phrases, status lines, and compact summaries from that actor appear only in its region, and the board's geometry never changes.
+- **Design language:** a machined station board with matte flaps split at the hinge, one fixed cell per character, printed region plates, and indicator lamps. Change only ever arrives as a flap falling, staggered left to right, never a fade. The concept page allows flipping, scrolling, or overwriting and describes a plain ASCII grid; the flap is the canvas's choice, and the concept's "switch themes" interaction would make it one theme of several.
+- **Palette and type:** ground `#1b1b1a` to `#121211`, flaps `#262624`; human green `#7be08f`, agents cream `#f2ead3`, tools amber `#ffb000`, active lamp `#56d07a`. JetBrains Mono for flaps, Barlow Condensed and Barlow for plates.
+- **Encoding:** a fixed region is an actor's identity, flap text is a message or status, ink color is actor class (green human, cream agent, amber tool), a lamp is active or waiting, a replacement animation is a new event. Optional indicators show queue, tokens, and health.
+- **Interactions:** arrange regions, choose raw fragments, keywords, or summaries, set refresh speed, pause and replay, open a region's history, themes.
+- **Guardrails:** simultaneous messages behave deterministically (the concept page allows queueing, prioritizing, or aggregating; the canvas picks queueing). Every line holds a minimum dwell. Cells are truly fixed-width. It's a compressed view, never the canonical transcript.
+- **What Snagboat has for it:** the extension pushes updates to loaded sessions, so a running session can drive the board live, and a finished one needs replay from its timestamps. A tool region can show a tool's name, category, and status only, because `SessionView` never carries targets or arguments. The mockup's file names, diff sizes, and test counts aren't available, and shouldn't be added for this. Agent regions show reply excerpts when text capture is on and model and tokens otherwise. Summaries need the advisor.
+
+### What applies to all five
+
+The mockups are specifications of the look and don't port directly. They're static images rendered from the canvas's artboards, so the motion they describe doesn't show, and Terminal Board shows its first frame. Their sample actors and numbers are illustrative, and their side panels are explanation: in the carousel, the puck and the slide header already carry the title, description, and tags, so the drawing gets the whole slide.
+
+- **Same contract.** Each is a file under `media/viz/`, a catalog entry, a script tag, and a note here, with ids `living-network`, `factory-clock`, `conversation-landscape`, `session-fingerprint`, and `terminal-board`. It draws real `SessionView` data, knows nothing about where it runs, and works at any slide size rather than a fixed 1440×900, down to the carousel's 320px height.
+- **Markup comes from `ctx`, styles from `detail.css`.** The webview's CSP has no `'unsafe-inline'` for styles and the page's has none either, so the mockups' `style` attributes and helmet stylesheets move into `detail.css`, under a class scoped to the view.
+- **Fonts can't load as drawn.** Both CSPs are `default-src 'none'` with no `font-src`, and the web demo promises no network requests, so the mockups' Google Fonts won't load. Hence [system stacks for now](#design-language-facet).
+- **Leading back to the events.** Every view takes part in the shared selection: clicking a mark selects its turn or session, as the proposal's guidelines require of expressive views.
+- **Performance.** Blurs, grain, and blend modes are costly over many marks. Traffic is aggregated and particles capped from the start, and each view is tried on the longest real session available, not only on the demo data.
+
+**Suggested order**, by how little each one waits on: Living Network (the actor graph's data is ready), Session Fingerprint, Conversation Landscape, Terminal Board, and Factory Clock last, since its main distinction is the one phase 8 provides.
+
 ## Decisions
 
 Confirmed in review on 2026-11-03.
@@ -264,6 +431,11 @@ Confirmed in review on 2026-11-03.
 | How sessions reach the explorer | A picker on the tab (every session, newest start first, checkboxes, Load; no day filter), up to 8 sessions, kept live like the open session |
 | Puck placement | Any corner, by drag or arrow keys; collapsible to a small circle; a rounded rectangle when expanded |
 | A web demo | Yes, on GitHub Pages: the same visualizer scripts, the session model bundled for the browser, synthetic sessions by default, your own daily files loaded in the browser and never sent anywhere (CSP `connect-src 'none'`) |
+| Hero visualizations | Planned as step 7 (2026-11-05), under the same contract, with the tags listed there; last in the carousel; no new `SessionView` fields, so features needing missing data wait |
+| Design languages | A fifth facet listing the languages a visualizer supports, filterable in the puck; `standard` follows the theme, the others carry their own ground and palette |
+| Hero view fonts | System font stacks for now, not font files |
+| Shared code for hero views | A shared replay and a shared force layout in `media/shared.js`, both built before the views |
+| Limits and demo data | Each limit gets a chosen default, as a named constant; better demo data is gathered as part of step 7 |
 
 ## Open questions
 
@@ -275,6 +447,7 @@ Confirmed in review on 2026-11-03.
 ## References
 
 - [Visualizing agent conversations and execution](agent_conversation_visualization_design_proposal.docx), the proposal whose categories and purposes are this taxonomy, and whose tables are the source of views for step 6.
+- [Hero visualization concept pages](agent_visualization_concept_pages.pdf), the source of the [hero visualizations](#hero-visualizations)' models, encodings, interactions, and guardrails.
 - [Conversation-aware view](conversation-view.md), whose two views are ported, and whose cost-per-prompt view is built here.
 - [Trusted advisor, phase 7](trusted-advisor.md#phases), which this is part of.
 - The charts' rules of form and color are the ones the existing charts follow (one axis, fixed categorical order, validated palettes, a legend for two or more series, a table or labels where contrast is low); `detail.css` records the validated colors.
