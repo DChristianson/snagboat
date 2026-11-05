@@ -1152,3 +1152,72 @@ input[type="search"] { min-width: 220px; }
 .hero-board .tb-history li:hover, .hero-board .tb-history li:focus { color: var(--tb-tool); outline: none; }
 .hero-board .tb-when { color: var(--tb-muted); margin-right: 8px; }
 .hero-board .tb-empty { color: var(--tb-muted); }
+
+/* Factory Clock, design language `horology`: an enamel dial, ink arcs, one signal-orange hand. */
+.hero-clock {
+  --fc-ground: #e9e2d2;
+  --fc-dial-in: #fbf8f1;
+  --fc-dial-out: #efe8d8;
+  --fc-ink: #1a1916;
+  --fc-muted: #5c594f; /* 6:1 on the dial */
+  --fc-orange: #e4572e;
+  --fc-cobalt: #2f5bb7;
+  --fc-gray: #7a776c;
+  background: var(--fc-ground);
+  color: var(--fc-ink);
+  border-radius: 4px;
+  padding: 10px 14px 12px;
+  font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+}
+.hero-clock .fc-head { display: flex; justify-content: space-between; border-bottom: 1px solid var(--fc-ink); padding-bottom: 4px; margin-bottom: 6px; }
+.hero-clock .fc-caps, .hero-clock .fc-key { font: 10px ui-monospace, "IBM Plex Mono", SFMono-Regular, Menlo, monospace; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fc-ink); }
+.hero-clock .fc-body { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.hero-clock .fc-side { display: flex; flex-direction: column; gap: 10px; min-width: 200px; flex: 1 1 200px; }
+.hero-clock .fc-legend { display: grid; grid-template-columns: 1fr; gap: 4px; }
+.hero-clock .fc-key { display: flex; align-items: center; gap: 8px; letter-spacing: 0.06em; text-transform: none; font-size: 11px; }
+.hero-clock .fc-swatch { width: 26px; height: 9px; display: inline-block; }
+.hero-clock .fc-k-human { background: var(--fc-orange); }
+.hero-clock .fc-k-primary { background: var(--fc-ink); }
+.hero-clock .fc-k-sub { background: var(--fc-cobalt); }
+.hero-clock .fc-k-tool { background: var(--fc-gray); }
+.hero-clock .fc-k-quiet { background: repeating-linear-gradient(130deg, var(--fc-ink) 0 1px, transparent 1px 4px); border: 1px solid var(--fc-ink); }
+.hero-clock .controls { margin: 0; flex-wrap: wrap; }
+.hero-clock .controls .muted { color: var(--fc-muted); font: 10px ui-monospace, "IBM Plex Mono", SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: 0.14em; width: 100%; }
+.hero-clock button, .hero-clock select { font: 11px ui-monospace, "IBM Plex Mono", SFMono-Regular, Menlo, monospace; color: var(--fc-ink); background: var(--fc-dial-in); border: 1px solid #c9c0ab; border-radius: 2px; padding: 2px 8px; }
+.hero-clock button[aria-pressed="true"] { border-color: var(--fc-ink); background: var(--fc-ink); color: var(--fc-dial-in); }
+.hero-clock button:hover { border-color: var(--fc-ink); }
+.hero-clock .replay-bar { margin: 8px 0 0; }
+.hero-clock .replay-scrub { accent-color: var(--fc-orange); }
+.hero-clock .replay-badge { color: var(--fc-orange); border-color: var(--fc-orange); }
+.hero-clock .replay-badge.live { color: var(--fc-ink); border-color: var(--fc-ink); }
+.hero-clock .replay-where { color: var(--fc-muted); font-family: ui-monospace, "IBM Plex Mono", SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.hero-clock .fc-svg { display: block; flex: 0 0 auto; }
+.hero-clock .fc-dial-in { stop-color: var(--fc-dial-in); }
+.hero-clock .fc-dial-out { stop-color: var(--fc-dial-out); }
+.hero-clock .fc-case { fill: none; stroke: var(--fc-ink); stroke-width: 1; }
+.hero-clock .fc-face { stroke: var(--fc-ink); stroke-width: 0.6; }
+.hero-clock .fc-guide { fill: none; stroke: rgba(26, 25, 22, 0.08); }
+.hero-clock .fc-tick { stroke: var(--fc-ink); stroke-width: 0.8; }
+.hero-clock .fc-tick-long { stroke-width: 2.2; }
+.hero-clock .fc-numeral { font-size: 17px; fill: var(--fc-ink); }
+.hero-clock .fc-user { fill: none; stroke: var(--fc-ink); stroke-width: 0.6; }
+.hero-clock .fc-pin { fill: var(--fc-orange); }
+.hero-clock .fc-label { font: 8px ui-monospace, "IBM Plex Mono", SFMono-Regular, Menlo, monospace; letter-spacing: 0.18em; fill: var(--fc-ink); }
+.hero-clock .fc-ring-label { cursor: pointer; }
+.hero-clock .fc-ring-label:hover, .hero-clock .fc-ring-label:focus, .hero-clock .fc-ring-label.on { fill: var(--fc-orange); outline: none; }
+.hero-clock .fc-human .fc-arc { fill: var(--fc-orange); }
+.hero-clock .fc-primary .fc-arc { fill: var(--fc-ink); }
+.hero-clock .fc-sub .fc-arc { fill: var(--fc-cobalt); }
+.hero-clock .fc-tool .fc-arc { fill: var(--fc-gray); }
+.hero-clock .fc-arc { cursor: pointer; }
+.hero-clock .fc-arc:hover, .hero-clock .fc-arc:focus { stroke: var(--fc-orange); stroke-width: 1.5; outline: none; }
+.hero-clock .fc-arc.fc-selected { stroke: var(--fc-orange); stroke-width: 2; }
+.hero-clock .fc-ring.fc-dim { opacity: 0.15; }
+.hero-clock .fc-quiet { stroke: none; cursor: pointer; }
+.hero-clock .fc-hatch-line { stroke: var(--fc-ink); stroke-width: 0.9; }
+.hero-clock .fc-wake { fill: var(--fc-orange); fill-opacity: 0.1; pointer-events: none; }
+.hero-clock .fc-hand { stroke: var(--fc-orange); stroke-width: 1.6; pointer-events: none; }
+.hero-clock .fc-hand-tip { fill: none; stroke: var(--fc-orange); stroke-width: 1.4; pointer-events: none; }
+.hero-clock .fc-playback { font-style: italic; font-size: 13px; fill: var(--fc-ink); }
+.hero-clock .fc-caption { font-size: 7px; }
+.hero-clock .fc-empty { color: var(--fc-muted); }
