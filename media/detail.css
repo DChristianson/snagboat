@@ -940,3 +940,65 @@ input[type="search"] { min-width: 220px; }
 .hero-living .ln-filter-message[aria-pressed="true"] { border-color: var(--ln-you); }
 .hero-living .ln-filter-delegation[aria-pressed="true"] { border-color: var(--ln-subagent); }
 .hero-living .ln-filter-tool[aria-pressed="true"] { border-color: var(--ln-tool); }
+
+/* Session Fingerprint, design language `risograph`: spot-color passes overprinted on uncoated stock. */
+.hero-riso {
+  --sf-stock: #f3eee3;
+  --sf-navy: #1d2c5e; /* 11:1 on the stock */
+  --sf-muted: #4f5877;
+  --sf-blue: #0078bf;
+  --sf-pink: #ff48b0;
+  --sf-yellow: #ffd400;
+  --sf-yellow-edge: #9a7e00; /* yellow alone is under 2:1 on the stock, so its lines get a darker edge */
+  background: var(--sf-stock);
+  color: var(--sf-navy);
+  border-radius: 4px;
+  padding: 10px 12px 12px;
+  font-family: "Archivo", "Archivo Narrow", "Helvetica Neue", Arial, system-ui, sans-serif;
+}
+.hero-riso .sf-mono { font: 10px ui-monospace, "Space Mono", SFMono-Regular, Menlo, monospace; letter-spacing: 0.12em; text-transform: uppercase; fill: var(--sf-navy); color: var(--sf-navy); }
+.hero-riso .sf-head { display: flex; justify-content: space-between; border-bottom: 1px solid var(--sf-navy); padding-bottom: 6px; margin-bottom: 8px; }
+.hero-riso .sf-controls .controls { margin: 0 0 6px; }
+.hero-riso .sf-controls .muted { color: var(--sf-muted); }
+.hero-riso button { font: 11px ui-monospace, "Space Mono", SFMono-Regular, Menlo, monospace; color: var(--sf-navy); background: transparent; border: 1px solid rgba(29, 44, 94, 0.35); border-radius: 2px; }
+.hero-riso button:hover { background: rgba(29, 44, 94, 0.07); }
+.hero-riso button[aria-pressed="true"] { border-color: var(--sf-navy); }
+.hero-riso button:focus-visible { outline: 2px solid var(--sf-navy); outline-offset: 1px; }
+.hero-riso .sf-legend { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.hero-riso .sf-key, .hero-riso .sf-key[aria-pressed] { display: inline-flex; align-items: center; gap: 6px; border-color: transparent; }
+.hero-riso .sf-key[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
+.hero-riso .sf-swatch { width: 18px; height: 8px; display: inline-block; }
+.hero-riso .sf-key-blue .sf-swatch { background: var(--sf-blue); }
+.hero-riso .sf-key-pink .sf-swatch { background: var(--sf-pink); }
+.hero-riso .sf-key-yellow .sf-swatch { background: var(--sf-yellow); box-shadow: inset 0 0 0 1px var(--sf-yellow-edge); }
+.hero-riso .sf-svg { display: block; }
+.hero-riso .sf-stock { fill: var(--sf-stock); }
+.hero-riso .sf-grain { opacity: 0.07; mix-blend-mode: multiply; pointer-events: none; }
+.hero-riso .sf-pass { mix-blend-mode: multiply; }
+.hero-riso .sf-pass.sf-lifted { display: none; }
+.hero-riso .sf-pass-blue { --ink: var(--sf-blue); --edge: var(--sf-blue); }
+.hero-riso .sf-pass-pink { --ink: var(--sf-pink); --edge: var(--sf-pink); }
+.hero-riso .sf-pass-yellow { --ink: var(--sf-yellow); --edge: var(--sf-yellow-edge); }
+.hero-riso .sf-pass-none { --ink: rgba(29, 44, 94, 0.55); --edge: rgba(29, 44, 94, 0.55); }
+.hero-riso .sf-ink-blue { fill: var(--sf-blue); }
+.hero-riso .sf-ink-pink { fill: var(--sf-pink); }
+.hero-riso .sf-ink-yellow { fill: var(--sf-yellow-edge); }
+.hero-riso .sf-trunk { stroke: var(--ink); stroke-width: 5; stroke-linecap: round; }
+.hero-riso .sf-pass-yellow .sf-trunk, .hero-riso .sf-pass-yellow .sf-branch { filter: drop-shadow(0 0 0.6px var(--sf-yellow-edge)); }
+.hero-riso .sf-quiet { stroke: var(--edge); stroke-width: 4; stroke-linecap: round; stroke-dasharray: 0.1 7; }
+.hero-riso .sf-branch { fill: none; stroke: var(--ink); stroke-width: 4; stroke-linecap: round; }
+.hero-riso .sf-thin { stroke-width: 2; }
+.hero-riso .sf-loop { fill: none; stroke: var(--ink); stroke-width: 3; stroke-dasharray: 5 3; cursor: pointer; }
+.hero-riso .sf-pass-yellow .sf-loop { stroke: var(--edge); }
+.hero-riso .sf-node { fill: var(--ink); stroke: var(--edge); stroke-width: 1; cursor: pointer; }
+.hero-riso .sf-node.sf-tone { stroke-width: 1.5; }
+.hero-riso .sf-node:hover, .hero-riso .sf-node:focus { stroke: var(--sf-navy); stroke-width: 2; outline: none; }
+.hero-riso .sf-ring { fill: none; stroke: var(--sf-navy); stroke-width: 2; }
+.hero-riso .sf-mark { fill: var(--ink); stroke: var(--edge); stroke-width: 1; }
+.hero-riso .sf-axis line { stroke: var(--sf-navy); stroke-width: 1; }
+.hero-riso .sf-library { margin-top: 10px; }
+.hero-riso .sf-lib-head { margin-bottom: 4px; }
+.hero-riso .sf-lib-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.hero-riso .sf-lib { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 4px 6px; border-color: transparent; }
+.hero-riso .sf-lib.on { border-color: var(--sf-navy); }
+.hero-riso .sf-lib-svg { display: block; }
