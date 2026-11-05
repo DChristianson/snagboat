@@ -12,32 +12,8 @@
   const MAX_EDGES = 60;
   const LABEL_CHARS = 24;
   const ITERATIONS = 240;
-  const STOPWORDS = new Set(
-    `about above across after again against all almost along already also although always among and another any anybody anyone anything anyway anywhere are around because been before behind being below between both but came can cannot could did does doing done down during each either else even ever every everyone everything few for from further had has have having hence her here hers him his how however into its itself just least less many may maybe might mine more most much must myself near neither never next nor not nothing now off often once one only onto other others otherwise our ours out over own per quite rather really same she should since some somebody someone something somewhere still such than that the their theirs them themselves then there therefore these they thing things this those though through thus too toward towards under until upon very via was were what whatever when where whether which while who whom whose why will with within without would yet you your yours yourself
-     please pls make makes making made want wants wanted need needs needed let lets get gets getting got use used uses using like just try trying tried sure okay yes yeah thanks thank help look looks looking see seems take give put keep way kind going know think http https www`
-      .split(/\s+/)
-  );
-
-  /** A prompt's distinct terms before plural folding: lowercase words of 3+ letters, identifier-like tokens kept whole. */
-  function tokenize(text) {
-    const out = new Set();
-    for (const raw of text.toLowerCase().replace(/’/g, "'").match(/[a-z0-9_]+(?:['.\-/][a-z0-9_]+)*/g) || []) {
-      const token = raw.replace(/'s$/, '');
-      if (token.includes("'")) continue; // contractions are stopwords in all but spelling
-      if ((token.match(/[a-z]/g) || []).length < 3) continue;
-      if (token.split(/[.\-/]/).every((part) => STOPWORDS.has(part))) continue;
-      out.add(token);
-    }
-    return out;
-  }
-
-  /** Folds a plain plural only when its singular also appears, so "tests" joins "test" and "status" stays. */
-  function singular(term, all) {
-    if (!/^[a-z]+$/.test(term) || term.length < 4) return term;
-    if (term.endsWith('ies') && all.has(`${term.slice(0, -3)}y`)) return `${term.slice(0, -3)}y`;
-    if (term.endsWith('s') && !term.endsWith('ss') && all.has(term.slice(0, -1))) return term.slice(0, -1);
-    return term;
-  }
+  // Words are counted the same way Conversation Landscape counts them (shared.js).
+  const { termsOf: tokenize, foldPlural: singular } = window.snagboatShared;
 
   /** The graph for these sessions: prompts with their terms, the top terms with counts, the strongest edges. */
   function analyze(views) {

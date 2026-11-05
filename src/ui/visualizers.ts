@@ -67,6 +67,7 @@ export const TAXONOMY = {
       standard: 'The page’s shared look: theme colors, in both themes',
       cinematic: 'A dark field lit by the work moving through it: glow, particles, letterbox (Living Network)',
       risograph: 'Spot-color passes overprinted on uncoated stock, grain and halftone (Session Fingerprint)',
+      edgeless: 'Paper-white space, one saturated hue per actor, words instead of lines (Conversation Landscape)',
     },
   },
 } satisfies Taxonomy;
@@ -261,6 +262,12 @@ export const CATALOG: VisualizerEntry[] = [
     title: 'Session Fingerprint',
     description: 'Each run as a signature of turns, subagent branches, retry loops, and quiet gaps, up to three overprinted as ink passes to compare, the rest in a library row.',
     tags: { category: ['dependency', 'temporal'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['time', 'hierarchy', 'dependency', 'quantity'], language: ['risograph'] },
+  },
+  {
+    id: 'conversation-landscape',
+    title: 'Conversation Landscape',
+    description: 'What each actor talked about: a dot per actor in its own hue, its most distinctive words around it, no lines; closeness is how much they interacted.',
+    tags: { category: ['semantic', 'conversational', 'actor'], purpose: ['expressive'], level: ['session'], dimension: ['content', 'actor', 'communication'], language: ['edgeless'] },
   },
 ];
 
