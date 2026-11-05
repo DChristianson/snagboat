@@ -182,7 +182,7 @@ The parts that touch disk (`EventLog`, `ContextLimits`, `RuleStore`, the adapter
 5. **Docs — done.** A section in [usage.md](../usage.md), the detail webview paragraph in [architecture.md](../architecture.md), a link to the demo from the README, and the roadmap entry marked done; this document gains implementation notes where the build differed.
 
 6. **More visualizers, from the proposal.** After step 5, more views are added starting with the ones listed per category in the [visualization proposal](agent_conversation_visualization_design_proposal.docx) (see below). Each is its own change: a file under `media/viz/`, a catalog entry, and a note here. None is built before step 5.
-7. **Hero visualizations — in progress.** First the [shared foundations](#shared-foundations), each its own change: the design language facet (done), shared replay (done), shared force layout (done), and demo traces. Then five views that each carry a design language, one per change, last in the carousel. See [Hero visualizations](#hero-visualizations).
+7. **Hero visualizations — in progress.** First the [shared foundations](#shared-foundations), each its own change: the design language facet (done), shared replay (done), shared force layout (done), and demo traces (the tool and the page are done; the traces wait for review). Then five views that each carry a design language, one per change, last in the carousel. See [Hero visualizations](#hero-visualizations).
 
 Steps 1 and 2 are one pull request (the tab is empty without the catalog); the rest follow as the views land.
 
@@ -308,6 +308,8 @@ Living Network and Conversation Landscape both need a force layout and no view h
 #### Demo data
 
 The web demo's four example sessions were written for the first views, and these views need more to be judged fairly: several subagents working in parallel, failures followed by retries, several runs of comparable work for Session Fingerprint, and prompts and replies with enough text for Conversation Landscape and Terminal Board. The demo will use a set of traces chosen for this rather than more generated sessions; which traces is still to come. No real prompt text goes in unreviewed.
+
+**As built.** The traces come from Snagboat's own event logs for two workspaces, this repository and another project of the owner's (chosen 2026-11-05). `npm run demo:traces -- --events <dir> … --session <id> …` (`src/scripts/demoTraces.ts`) keeps only the named sessions and only the fields the session views read: shell-command and file targets and the raw source reference (a path) are dropped, ids are renumbered, the home folder in text becomes `~`, and secrets are redacted again. Prompts, reply excerpts, and session names stay as written, so the tool also writes a review report listing every piece of text, with lines that hold an address, URL, path, long token-like string, or similar flagged first. It writes `web/demo/traces.js`, a script rather than a data file because the page's CSP forbids fetching; `scripts/webDemo.js` adds it to the page only when it exists. The page opens on the traces when it has them and offers the generated sessions beside them, which stay for the unit tests and for builds without traces. **The traces file is committed only after the owner has read the report.** The first set is six sessions: two with parallel subagents, three comparable milestone runs from the other project (one with a dozen failed tool calls, one with subagents), and one with long prompts.
 
 #### Default limits
 

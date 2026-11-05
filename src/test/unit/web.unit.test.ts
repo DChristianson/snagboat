@@ -4,6 +4,9 @@ import { EventSet } from '../../web/eventSet';
 import { isNormalizedEvent, parseJsonl } from '../../web/jsonl';
 import { buildMarks } from '../../web/marks';
 import { SYNTHETIC_DAY, syntheticEvents, syntheticSessionIds } from '../../web/synthetic';
+import { readDemoTraces } from '../../web/traces';
+import { buildTraceSet, flagText, reviewReport, scrubText, slimEvent, textLines, traceScript } from '../../scripts/demoTraces';
+import * as vm from 'vm';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 22, 10, min)).toISOString();
 let n = 0;
@@ -125,6 +128,78 @@ async function main() {
     assert.strictEqual(list.sessions.length, 1);
     assert.strictEqual(set.explorerState(['S1']).sessions[0].calls.length, 1);
     assert.deepStrictEqual(new EventSet([]).listAll(), { sessions: [], headlines: {} });
+  });
+
+  // The demo traces tool, over synthetic events only: real traces never go in unit tests.
+  test('a demo trace event keeps what the views read and drops targets and the raw reference', () => {
+    const source = e({ kind: 'tool_call', target: '/Users/someone/project/src/secret.ts', toolName: 'Read', toolCategory: 'file-read', turnId: 't1', raw: { adapter: 'claude-code', ref: '/Users/someone/.claude/projects/x.jsonl:12', event: { any: 1 } } });
+    const slim = slimEvent(source, 'S1-0', '/Users/someone');
+    assert.strictEqual(slim.target, undefined);
+    assert.deepStrictEqual(slim.raw, { adapter: 'demo', ref: 'trace' });
+    assert.strictEqual(slim.eventId, 'S1-0');
+    assert.strictEqual(slim.toolName, 'Read');
+    assert.strictEqual(slim.turnId, 't1');
+    assert.ok(!JSON.stringify(slim).includes('/Users/someone'));
+  });
+
+  test('demo trace text has the home folder replaced and secrets redacted again', () => {
+    assert.strictEqual(scrubText('see /Users/someone/project/README.md', '/Users/someone'), 'see ~/project/README.md');
+    assert.match(scrubText('key sk-ant-abcdefghijklmnopqrstuvwxyz', '/Users/someone'), /\[redacted Anthropic key\]/);
+    const slim = slimEvent(e({ kind: 'user_prompt', promptText: 'open /Users/someone/x' }), 'a', '/Users/someone');
+    assert.strictEqual(slim.promptText, 'open ~/x');
+  });
+
+  test('text worth a second look is flagged, and plain text is not', () => {
+    assert.deepStrictEqual(flagText('Add the replay clock to the explorer.'), []);
+    assert.ok(flagText('mail me at a.person@example.com').includes('email address'));
+    assert.ok(flagText('see https://example.com/x').includes('URL'));
+    assert.ok(flagText('it is in ~/notes/today.md').includes('absolute path'));
+    assert.ok(flagText('rotate the API key').includes('secret word'));
+    assert.ok(flagText('call 555-123-4567').includes('phone number'));
+  });
+
+  test('a trace set takes sessions by id prefix, in the order named, with ids renumbered', () => {
+    const all = syntheticEvents();
+    const [a, b] = syntheticSessionIds();
+    const set = buildTraceSet(all, [b.slice(0, 6), a], '/nowhere');
+    assert.deepStrictEqual(set.picked, [b, a]);
+    assert.strictEqual(set.events.length, all.filter((x) => x.sessionId === a || x.sessionId === b).length);
+    assert.strictEqual(new Set(set.events.map((x) => x.eventId)).size, set.events.length);
+    assert.throws(() => buildTraceSet(all, ['no-such-session'], '/nowhere'), /matches 0 sessions/);
+    assert.throws(() => buildTraceSet(all, [''], '/nowhere'), /matches \d+ sessions/);
+  });
+
+  test('the trace script loads in a page and reads back as the same set', () => {
+    const set = buildTraceSet(syntheticEvents(), syntheticSessionIds().slice(0, 2), '/nowhere');
+    const sandbox = { window: {} as Record<string, unknown> };
+    vm.runInNewContext(traceScript(set), sandbox);
+    const read = readDemoTraces(JSON.parse(JSON.stringify(sandbox.window.snagboatDemoTraces)));
+    assert.ok(read);
+    assert.deepStrictEqual(read.picked, set.picked);
+    assert.deepStrictEqual(read.events, set.events);
+    assert.strictEqual(new EventSet(read.events).index.list().length, 2);
+  });
+
+  test('broken or empty traces read as none, and unknown picks fall back to every session', () => {
+    assert.strictEqual(readDemoTraces(undefined), null);
+    assert.strictEqual(readDemoTraces({ events: [{ nope: 1 }] }), null);
+    const one = syntheticEvents().filter((x) => x.sessionId === syntheticSessionIds()[0]);
+    assert.deepStrictEqual(readDemoTraces({ picked: ['gone'], events: one })!.picked, [syntheticSessionIds()[0]]);
+  });
+
+  test('the review report lists every piece of text, flagged ones first', () => {
+    const events = [
+      e({ kind: 'session_name', sessionId: 'S1', sessionName: 'Demo session' }),
+      e({ kind: 'user_prompt', sessionId: 'S1', turnId: 't', promptText: 'write to me at x@example.com' }),
+      e({ kind: 'turn_stop', sessionId: 'S1', turnId: 't', textExcerpt: 'Done.' }),
+    ];
+    const set = buildTraceSet(events, ['S1'], '/nowhere');
+    const lines = textLines(set);
+    assert.strictEqual(lines.length, 3);
+    const md = reviewReport(set, lines);
+    assert.ok(md.indexOf('## Flagged') < md.indexOf('x@example.com'));
+    assert.match(md, /3 pieces of text, 1 flagged/);
+    assert.ok(md.includes('Done.'));
   });
 
   let failures = 0;

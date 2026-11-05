@@ -22,16 +22,17 @@
         <p><label>Load your own sessions: <input id="files" type="file" multiple accept=".jsonl,application/jsonl,application/x-ndjson,text/plain"></label> or drop the daily files Snagboat writes (<code>events/YYYY-MM-DD.jsonl</code>) here.</p>
         <p class="muted small">Files are read in this browser and nothing is sent anywhere: the page's security policy forbids network requests. In VS Code, <strong>Snagboat: Reveal Event Log Folder</strong> opens the folder the files are in.</p>
       </div>
-      <p class="data-row"><span id="data-note" class="muted small" aria-live="polite"></span><button id="examples" type="button" hidden>Use example sessions</button></p>
+      <p class="data-row"><span id="data-note" class="muted small" aria-live="polite"></span><button id="traces" type="button" hidden>Use example traces</button><button id="examples" type="button" hidden>Use generated sessions</button></p>
     </section>
   </header>
-  <p id="examples-note" class="examples-note small">Example sessions: four generated ones, shaped like real Claude Code and Copilot sessions but not recorded from anyone. Load your own files above to explore yours.</p>
+  <p id="examples-note" class="examples-note small"></p>
   <div id="explore-root"></div>
 </main>
 <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
 <script src="shared.js"></script>
 <!-- viz-scripts: scripts/webDemo.js writes a tag per file under media/viz/ here, the registry first -->
 <script src="explore.js"></script>
+<!-- demo-traces: scripts/webDemo.js writes a tag for demo-traces.js here when web/demo/traces.js exists -->
 <script src="snagboat-web.js"></script>
 </body>
 </html>
