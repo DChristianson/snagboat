@@ -13,7 +13,7 @@
   window.snagboatViz.register({
     id: 'context-fill',
     title: 'Context fill',
-    tags: { category: ['state', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'] },
+    tags: { category: ['state', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, niceMax, clip, short, formatTime, ms, modelShort, showTip, hideTip } = ctx;
       const chartHost = el('div');

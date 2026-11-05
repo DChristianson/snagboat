@@ -8,7 +8,7 @@
   window.snagboatViz.register({
     id: 'bubble',
     title: 'Bubble chart',
-    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'] },
+    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'], language: ['standard'] },
     mount(host, ctx) {
       const { svg, svgText, fmt, compact, fit, ms, niceAxis, secondsText, sessionName, legendKey, vizPanel, interact } = ctx;
       let views = [];

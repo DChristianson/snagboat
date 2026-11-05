@@ -62,7 +62,7 @@
   window.snagboatViz.register({
     id: 'treemap',
     title: 'Treemap',
-    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy'] },
+    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, clip, fit, short, showTip, hideTip } = ctx;
       let mode = 'turn'; // 'turn' | 'category'

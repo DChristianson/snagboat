@@ -15,7 +15,7 @@
   window.snagboatViz.register({
     id: 'swimlane',
     title: 'Swimlane',
-    tags: { category: ['conversational', 'actor'], purpose: ['informative', 'expressive'], level: ['session'], dimension: ['communication', 'actor'] },
+    tags: { category: ['conversational', 'actor'], purpose: ['informative', 'expressive'], level: ['session'], dimension: ['communication', 'actor'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, svgText, fmt, clip, fit, ms, legendKey, vizPanel, interact } = ctx;
       let view = null;

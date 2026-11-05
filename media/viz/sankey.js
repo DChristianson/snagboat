@@ -11,7 +11,7 @@
   window.snagboatViz.register({
     id: 'sankey',
     title: 'Sankey',
-    tags: { category: ['actor', 'quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+    tags: { category: ['actor', 'quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, svgText, fmt, compact, clip, fit, modelShort, callTokens, sessionName, sessionClass, legendKey, vizPanel, interact } = ctx;
       let views = [];

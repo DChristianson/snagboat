@@ -9,7 +9,7 @@
   window.snagboatViz.register({
     id: 'turn-tree',
     title: 'Turn tree',
-    tags: { category: ['quantitative', 'actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor', 'hierarchy'] },
+    tags: { category: ['quantitative', 'actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor', 'hierarchy'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, clip, fit, short, findNode, pathTo, showTip, hideTip } = ctx;
       let views = []; // the SessionViews last given, in order

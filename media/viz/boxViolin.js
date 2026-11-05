@@ -9,7 +9,7 @@
   window.snagboatViz.register({
     id: 'box-violin',
     title: 'Box and violin',
-    tags: { category: ['quantitative'], purpose: ['informative'], level: ['project'], dimension: ['quantity'] },
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['project'], dimension: ['quantity'], language: ['standard'] },
     mount(host, ctx) {
       const { svg, svgText, fmt, fit, niceAxis, quantile, density, METRICS, metricValues, sessionName, modeButtons, vizPanel, interact } = ctx;
       let metric = METRICS[3];

@@ -101,7 +101,7 @@ async function main() {
     const state = set.explorerState([short, long, 'nope', short]);
     assert.deepStrictEqual(state.sessions.map((v) => v.summary.sessionId), [short, long]);
     assert.deepStrictEqual(state.notLoaded, ['nope']);
-    assert.ok(state.catalog.length >= 2 && Object.keys(state.taxonomy).length === 4);
+    assert.ok(state.catalog.length >= 2 && Object.keys(state.taxonomy).length === 5);
     const view = state.sessions[1];
     assert.ok(view.findings.length >= 1, 'the long session trips a built-in heuristic on replay');
     assert.ok(view.findings.some((f) => f.heuristicId === 'tool-churn'), view.findings.map((f) => f.heuristicId).join());

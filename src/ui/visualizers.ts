@@ -16,9 +16,11 @@ export interface TaxonomyFacet {
 export type Taxonomy = Record<string, TaxonomyFacet>;
 
 /**
- * Four facets. Values within a facet are not mutually exclusive: a visualizer
+ * Five facets. Values within a facet are not mutually exclusive: a visualizer
  * gives one or more per facet, and every facet must be given, so filters never
- * silently miss a visualizer. `dimension` is the open-ended one.
+ * silently miss a visualizer. `dimension` is the open-ended one. `language`
+ * gains a value with each view that brings a look of its own, so the puck never
+ * offers a chip that matches nothing.
  */
 export const TAXONOMY = {
   category: {
@@ -59,6 +61,12 @@ export const TAXONOMY = {
       content: 'Content (what was said)',
     },
   },
+  language: {
+    label: 'Design language',
+    values: {
+      standard: 'The page’s shared look: theme colors, in both themes',
+    },
+  },
 } satisfies Taxonomy;
 
 export type Facet = keyof typeof TAXONOMY;
@@ -81,163 +89,163 @@ export const CATALOG: VisualizerEntry[] = [
     id: 'turn-tree',
     title: 'Turn tree',
     description: 'Where the tokens went: by session, then prompt, then agent, then tool category.',
-    tags: { category: ['quantitative', 'actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor', 'hierarchy'] },
+    tags: { category: ['quantitative', 'actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor', 'hierarchy'], language: ['standard'] },
   },
   {
     id: 'context-timeline',
     title: 'Context timeline',
     description: 'Context sent by each model call over clock time, with prompts, compactions, findings, and limits.',
-    tags: { category: ['temporal', 'quantitative', 'state'], purpose: ['informative'], level: ['session'], dimension: ['time', 'quantity'] },
+    tags: { category: ['temporal', 'quantitative', 'state'], purpose: ['informative'], level: ['session'], dimension: ['time', 'quantity'], language: ['standard'] },
   },
   {
     id: 'session-strips',
     title: 'Session strips',
     description: 'One row per session over clock time: turns as blocks, compactions as ticks, findings as badges. Idle gaps stay visible.',
-    tags: { category: ['temporal', 'state'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time'] },
+    tags: { category: ['temporal', 'state'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time'], language: ['standard'] },
   },
   {
     id: 'cost-per-prompt',
     title: 'Cost per prompt',
     description: 'One column per turn, tokens stacked by agent or by tool category, sessions side by side on one y axis.',
-    tags: { category: ['quantitative', 'conversational'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+    tags: { category: ['quantitative', 'conversational'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'], language: ['standard'] },
   },
   {
     id: 'context-fill',
     title: 'Context fill',
     description: 'Context size per call by call index, one line per session, so sessions line up by progress rather than clock.',
-    tags: { category: ['state', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'] },
+    tags: { category: ['state', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'], language: ['standard'] },
   },
   {
     id: 'sequence-diagram',
     title: 'Sequence diagram',
     description: 'Who sent what to whom, in order: you, the main agent, subagents, and tool categories as lifelines, read top to bottom.',
-    tags: { category: ['conversational', 'actor'], purpose: ['informative'], level: ['session'], dimension: ['communication', 'actor', 'time'] },
+    tags: { category: ['conversational', 'actor'], purpose: ['informative'], level: ['session'], dimension: ['communication', 'actor', 'time'], language: ['standard'] },
   },
   {
     id: 'event-graph',
     title: 'Event graph',
     description: 'What led to what: prompts, model calls, tool calls, subagents, and compactions as nodes, with inferred links drawn dashed.',
-    tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'] },
+    tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'], language: ['standard'] },
   },
   {
     id: 'actor-graph',
     title: 'Actor graph',
     description: 'Who worked with whom: you, agents, subagents, models, and tool categories, joined by typed edges sized by how often they interacted.',
-    tags: { category: ['actor'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'] },
+    tags: { category: ['actor'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'], language: ['standard'] },
   },
   {
     id: 'prompt-terms',
     title: 'Prompt terms',
     description: 'What your prompts were about: words you used, joined when they appear in the same prompt. Word counts, not a model’s reading.',
-    tags: { category: ['semantic'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['content'] },
+    tags: { category: ['semantic'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['content'], language: ['standard'] },
   },
   {
     id: 'gantt',
     title: 'Gantt and waterfall',
     description: 'Where the time went: rows for you, each agent, and each tool category over clock time, or one row per turn that opens into its own time axis.',
-    tags: { category: ['temporal'], purpose: ['informative'], level: ['session'], dimension: ['time', 'actor', 'hierarchy'] },
+    tags: { category: ['temporal'], purpose: ['informative'], level: ['session'], dimension: ['time', 'actor', 'hierarchy'], language: ['standard'] },
   },
   {
     id: 'treemap',
     title: 'Treemap',
     description: 'Tokens as area: by session, turn, and tool category, or by tool category across sessions.',
-    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy'] },
+    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy'], language: ['standard'] },
   },
   {
     id: 'heatmap',
     title: 'Heatmap',
     description: 'Patterns across sessions: tokens by session and hour, tool calls by session and category, or findings by heuristic and day.',
-    tags: { category: ['quantitative', 'temporal'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'] },
+    tags: { category: ['quantitative', 'temporal'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'], language: ['standard'] },
   },
   {
     id: 'tool-ribbon',
     title: 'Tool-call ribbon',
     description: 'Which tool category followed which within turns: sources on the left, what came next on the right, ribbons as wide as the step was common.',
-    tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'] },
+    tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'], language: ['standard'] },
   },
   {
     id: 'week-picture',
     title: 'Week in one picture',
     description: 'Seven days as rings around a 24-hour clock: tokens by hour as color, findings as dots, over the loaded sessions.',
-    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['project'], dimension: ['time', 'quantity'] },
+    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['project'], dimension: ['time', 'quantity'], language: ['standard'] },
   },
   {
     id: 'histogram',
     title: 'Histogram',
     description: 'How a measurement is spread: tokens per call, time between calls, or per-turn counts, stacked by session.',
-    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity'] },
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity'], language: ['standard'] },
   },
   {
     id: 'box-violin',
     title: 'Box and violin',
     description: 'How a measurement varies from session to session: density, quartiles, and outliers, one row each.',
-    tags: { category: ['quantitative'], purpose: ['informative'], level: ['project'], dimension: ['quantity'] },
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['project'], dimension: ['quantity'], language: ['standard'] },
   },
   {
     id: 'ridgeline',
     title: 'Ridgeline',
     description: 'The shape of a per-call measurement by session or by model, as overlapping density curves on one axis.',
-    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity'] },
+    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity'], language: ['standard'] },
   },
   {
     id: 'scatter',
     title: 'Scatter plot',
     description: 'Every turn as a point: how long it ran against its tokens, model calls, or tool calls, on log axes.',
-    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'] },
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'], language: ['standard'] },
   },
   {
     id: 'bubble',
     title: 'Bubble chart',
     description: 'Each session by span and tokens, with area for tool calls and color for its worst finding.',
-    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'] },
+    tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'], language: ['standard'] },
   },
   {
     id: 'sunburst',
     title: 'Sunburst',
     description: 'The turn tree as rings: sessions, prompts, agents, then tool categories, with angle for tokens.',
-    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy', 'actor'] },
+    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy', 'actor'], language: ['standard'] },
   },
   {
     id: 'calendar-heatmap',
     title: 'Calendar heatmap',
     description: 'The loaded sessions by day over weeks: tokens, model calls, or findings, a column per week.',
-    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'] },
+    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'], language: ['standard'] },
   },
   {
     id: 'radar',
     title: 'Radar',
     description: 'A profile of each session over seven measures, each axis scaled to the largest among those loaded.',
-    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+    tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'actor'], language: ['standard'] },
   },
   {
     id: 'parallel-coords',
     title: 'Parallel coordinates',
     description: 'Every turn as a line across six measures, each axis on its own scale, colored by session.',
-    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'] },
+    tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'], language: ['standard'] },
   },
   {
     id: 'streamgraph',
     title: 'Streamgraph',
     description: 'How a session’s activity changed over time: tokens by agent or model, or tool calls by category.',
-    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['session'], dimension: ['time', 'quantity', 'actor'] },
+    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['session'], dimension: ['time', 'quantity', 'actor'], language: ['standard'] },
   },
   {
     id: 'sankey',
     title: 'Sankey',
     description: 'Where tokens went: from sessions, through the main agent or subagents, to models.',
-    tags: { category: ['actor', 'quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'] },
+    tags: { category: ['actor', 'quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'], language: ['standard'] },
   },
   {
     id: 'adjacency-matrix',
     title: 'Adjacency matrix',
     description: 'Who acted on whom, as a grid: messages, delegation, model calls, and tool calls, by count.',
-    tags: { category: ['actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'] },
+    tags: { category: ['actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'], language: ['standard'] },
   },
   {
     id: 'swimlane',
     title: 'Swimlane',
     description: 'Who had the ball, in order: lanes for you, each agent, and tool calls, with hand-offs between them.',
-    tags: { category: ['conversational', 'actor'], purpose: ['informative', 'expressive'], level: ['session'], dimension: ['communication', 'actor'] },
+    tags: { category: ['conversational', 'actor'], purpose: ['informative', 'expressive'], level: ['session'], dimension: ['communication', 'actor'], language: ['standard'] },
   },
 ];
 

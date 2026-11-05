@@ -17,7 +17,7 @@
   window.snagboatViz.register({
     id: 'heatmap',
     title: 'Heatmap',
-    tags: { category: ['quantitative', 'temporal'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'] },
+    tags: { category: ['quantitative', 'temporal'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, clip, fit, ms, short, showTip, hideTip } = ctx;
       let mode = 'hours'; // 'hours' | 'tools' | 'findings'

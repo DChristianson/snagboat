@@ -10,7 +10,7 @@
   window.snagboatViz.register({
     id: 'session-strips',
     title: 'Session strips',
-    tags: { category: ['temporal', 'state'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time'] },
+    tags: { category: ['temporal', 'state'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, clip, fit, short, formatTime, ms, showTip, hideTip } = ctx;
       const chartHost = el('div');

@@ -19,7 +19,7 @@
   window.snagboatViz.register({
     id: 'week-picture',
     title: 'Week in one picture',
-    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['project'], dimension: ['time', 'quantity'] },
+    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['project'], dimension: ['time', 'quantity'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, clip, short, ms, showTip, hideTip } = ctx;
       let views = [];

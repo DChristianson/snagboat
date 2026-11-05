@@ -28,7 +28,7 @@
   window.snagboatViz.register({
     id: 'actor-graph',
     title: 'Actor graph',
-    tags: { category: ['actor'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'] },
+    tags: { category: ['actor'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, clip, fit, short, ms, agentName, modelShort, showTip, hideTip } = ctx;
       const chartHost = el('div');

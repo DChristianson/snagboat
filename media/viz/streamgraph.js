@@ -10,7 +10,7 @@
   window.snagboatViz.register({
     id: 'streamgraph',
     title: 'Streamgraph',
-    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['session'], dimension: ['time', 'quantity', 'actor'] },
+    tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['session'], dimension: ['time', 'quantity', 'actor'], language: ['standard'] },
     mount(host, ctx) {
       const { svg, svgText, el, compact, fmt, ms, modelShort, callTokens, secondsText, legendKey, modeButtons, vizPanel } = ctx;
       let mode = 'agent'; // 'agent' | 'model' | 'category'

@@ -13,7 +13,7 @@
   window.snagboatViz.register({
     id: 'context-timeline',
     title: 'Context timeline',
-    tags: { category: ['temporal', 'quantitative', 'state'], purpose: ['informative'], level: ['session'], dimension: ['time', 'quantity'] },
+    tags: { category: ['temporal', 'quantitative', 'state'], purpose: ['informative'], level: ['session'], dimension: ['time', 'quantity'], language: ['standard'] },
     mount(host, ctx) {
       const { el, svg, compact, fmt, clip, formatTime, ms, modelShort, showTip, hideTip } = ctx;
       const chartHost = el('div');
