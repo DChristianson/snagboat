@@ -1,6 +1,6 @@
 # Design: visualization explorer
 
-Status: **accepted** (2026-11-03; decisions confirmed the same day). The visualization part of [phase 7](trusted-advisor.md#phases) of the advisor design, and the "visualizing sessions" half of the [prototype task](../roadmap.md#planned-tasks) in the roadmap. Steps 1–5 are built (2026-11-03); where the build differed from the text, the [implementation notes](#implementation-notes) at the end say how. Step 6 has built [every view this document names, and thirteen more](#built-so-far) from the proposal's tables; the rest of the proposal remains a catalog to draw from. Step 7, five [hero visualizations](#hero-visualizations) with their own design languages, is planned and not started.
+Status: **accepted** (2026-11-03; decisions confirmed the same day). The visualization part of [phase 7](trusted-advisor.md#phases) of the advisor design, and the "visualizing sessions" half of the [prototype task](../roadmap.md#planned-tasks) in the roadmap. Steps 1–5 are built (2026-11-03); where the build differed from the text, the [implementation notes](#implementation-notes) at the end say how. Step 6 has built [every view this document names, and thirteen more](#built-so-far) from the proposal's tables; the rest of the proposal remains a catalog to draw from. Step 7, five [hero visualizations](#hero-visualizations) with their own design languages, has its design language facet in; the views aren't started.
 
 ## Summary
 
@@ -39,7 +39,7 @@ window.snagboatViz.register({
   id: 'turn-tree',
   title: 'Turn tree',
   description: 'Where the tokens went: by prompt, then agent, then tool category.',
-  tags: { category: ['quantitative', 'actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor', 'hierarchy'] },
+  tags: { category: ['quantitative', 'actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor', 'hierarchy'], language: ['standard'] },
   mount(host, ctx) {
     // Build the DOM once under host. ctx has the shared helpers (el, svg, compact, fmt, tooltip, ...),
     // and ctx.select(selection) to announce a selection.
@@ -59,7 +59,7 @@ window.snagboatViz.register({
 
 ### Taxonomy
 
-Four facets, with a fifth, [design language](#design-language-facet), planned in step 7. Values within a facet are not mutually exclusive: a visualizer gives one or more per facet, and every facet must be given, so filters never silently miss a visualizer.
+Five facets. Values within a facet are not mutually exclusive: a visualizer gives one or more per facet, and every facet must be given, so filters never silently miss a visualizer.
 
 **Category**: the kind of question the visualization answers.
 
@@ -92,6 +92,8 @@ Four facets, with a fifth, [design language](#design-language-facet), planned in
 **Dimension**: the dimensions the visualization highlights. Not a strict or scientific list; it changes as views are added, and that's the facet where new values are expected first.
 
 `time`, `actor` (human, agent, tool), `hierarchy`, `dependency`, `communication`, `quantity` (cost), `content` (what was said; added with prompt terms)
+
+**Design language**: the looks a visualization supports. Added for [step 7](#design-language-facet); every view so far is `standard`.
 
 The first visualizers, tagged:
 
@@ -180,7 +182,7 @@ The parts that touch disk (`EventLog`, `ContextLimits`, `RuleStore`, the adapter
 5. **Docs — done.** A section in [usage.md](../usage.md), the detail webview paragraph in [architecture.md](../architecture.md), a link to the demo from the README, and the roadmap entry marked done; this document gains implementation notes where the build differed.
 
 6. **More visualizers, from the proposal.** After step 5, more views are added starting with the ones listed per category in the [visualization proposal](agent_conversation_visualization_design_proposal.docx) (see below). Each is its own change: a file under `media/viz/`, a catalog entry, and a note here. None is built before step 5.
-7. **Hero visualizations — planned.** First the [shared foundations](#shared-foundations), each its own change: the design language facet, shared replay, shared force layout, and better demo data. Then five views that each carry a design language, one per change, last in the carousel. See [Hero visualizations](#hero-visualizations).
+7. **Hero visualizations — in progress.** First the [shared foundations](#shared-foundations), each its own change: the design language facet (done), shared replay, shared force layout, and demo traces. Then five views that each carry a design language, one per change, last in the carousel. See [Hero visualizations](#hero-visualizations).
 
 Steps 1 and 2 are one pull request (the tab is empty without the catalog); the rest follow as the views land.
 
@@ -275,11 +277,11 @@ A fifth facet, `language`, says which design languages a visualizer supports, an
 | Value | Meaning | Visualizers |
 | --- | --- | --- |
 | `standard` | The page's shared look: theme variables, validated colors, both themes | The existing 27 |
-| `cinematic`, `horology`, `edgeless`, `risograph`, `split-flap` | One hero view's look, with its own ground and palette | One hero view each |
+| `cinematic`, `horology`, `edgeless`, `risograph`, `split-flap` | One hero view's look, with its own ground and palette | One hero view each, added to the vocabulary with that view, so the puck never offers a chip that matches nothing |
 
 - **Colors.** `standard` is the only value that follows the VS Code theme. Any other language draws its own ground and palette in either theme, keeps its colors in variables scoped to the view in `detail.css`, and still meets the contrast checks. This is the one exception to the [drawing rules](#the-visualizer-contract).
 - **Fonts.** System font stacks for now, chosen per language to come close to the typefaces named below (a serif for `horology`, a monospace for `split-flap`'s cells). Those names are the target for a later change, which would have to ship font files and add `font-src` to both CSPs. The mockups' look depends partly on them, so expect the first builds to look plainer than the images.
-- **The catalog.** Every facet must be given, so the facet lands with `standard` on all 27 existing entries, the taxonomy and unit test updated, before any hero view.
+- **The catalog.** Every facet must be given, so the facet landed with `standard` on all 27 existing entries, the taxonomy and unit test updated, before any hero view.
 
 #### Shared replay
 
@@ -301,7 +303,7 @@ Living Network and Conversation Landscape both need a force layout and no view h
 
 #### Demo data
 
-We'll gather better demo data as part of this step. The web demo's four example sessions were written for the first views, and these views need more to be judged fairly: several subagents working in parallel, failures followed by retries, several runs of comparable work for Session Fingerprint, and prompts and replies with enough text for Conversation Landscape and Terminal Board. Whether that means extending the generator or sanitizing captured sessions is decided when the work starts. Either way, no real prompt text goes in unreviewed.
+The web demo's four example sessions were written for the first views, and these views need more to be judged fairly: several subagents working in parallel, failures followed by retries, several runs of comparable work for Session Fingerprint, and prompts and replies with enough text for Conversation Landscape and Terminal Board. The demo will use a set of traces chosen for this rather than more generated sessions; which traces is still to come. No real prompt text goes in unreviewed.
 
 #### Default limits
 
@@ -422,7 +424,7 @@ Confirmed in review on 2026-11-03.
 | --- | --- |
 | Where the explorer lives | A fourth tab, Explore (experimental), not inside the Sessions tab, so the Sessions tab keeps working while the explorer changes |
 | Where tags are declared | In a TypeScript catalog, validated in unit tests; renderers in plain JS match by id |
-| Facets | Four, values not mutually exclusive: category (the question answered), purpose (informative or expressive), level (session or project), dimension (what's highlighted; an open-ended list); every facet given by every visualizer (2026-11-03, replacing a first draft's subject, layout, time, scope, and grain) |
+| Facets | Values not mutually exclusive: category (the question answered), purpose (informative or expressive), level (session or project), dimension (what's highlighted; an open-ended list), and from 2026-11-05 design language (the looks it supports); every facet given by every visualizer (2026-11-03, replacing a first draft's subject, layout, time, scope, and grain) |
 | Filter logic | OR within a facet, AND across facets |
 | Porting the existing views | Moved into visualizer modules the Sessions tab also draws through, not copied |
 | Many sessions in the turn tree | A root node with one child per session |
@@ -435,7 +437,7 @@ Confirmed in review on 2026-11-03.
 | Design languages | A fifth facet listing the languages a visualizer supports, filterable in the puck; `standard` follows the theme, the others carry their own ground and palette |
 | Hero view fonts | System font stacks for now, not font files |
 | Shared code for hero views | A shared replay and a shared force layout in `media/shared.js`, both built before the views |
-| Limits and demo data | Each limit gets a chosen default, as a named constant; better demo data is gathered as part of step 7 |
+| Limits and demo data | Each limit gets a chosen default, as a named constant; the demo moves to a chosen set of traces as part of step 7 |
 
 ## Open questions
 
