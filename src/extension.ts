@@ -97,6 +97,11 @@ function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * What the integration suite reads. Returned from activate only in a test run:
+ * VS Code hands activate's result to any extension that asks for this one, and
+ * this reaches the event store, with its targets and captured text.
+ */
 export interface SnagboatTestApi {
   getAggregateSnapshot(): AggregateSnapshot;
   getTodaySnapshot(): AggregateSnapshot;
@@ -106,7 +111,7 @@ export interface SnagboatTestApi {
   getFindings(): Finding[];
 }
 
-export async function activate(context: vscode.ExtensionContext): Promise<SnagboatTestApi> {
+export async function activate(context: vscode.ExtensionContext): Promise<SnagboatTestApi | undefined> {
   const storageUri = context.storageUri ?? context.globalStorageUri;
   await vscode.workspace.fs.createDirectory(storageUri);
   const storageDir = storageUri.fsPath;
@@ -912,6 +917,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     })
   );
 
+  if (context.extensionMode !== vscode.ExtensionMode.Test) return undefined;
   return {
     getAggregateSnapshot: () => aggregate.snapshot(),
     getTodaySnapshot: () => todayAggregate.snapshot(),
