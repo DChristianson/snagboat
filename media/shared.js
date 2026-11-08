@@ -511,5 +511,158 @@
     return { element: bar, sync };
   }
 
-  window.snagboatShared = { el, svg, compact, fmt, niceMax, clip, formatTime, formatDay, tipFor, ms, short, duration, agentName, modelShort, fit, findNode, pathTo, callTokens, sessionName, secondsText, turnStats, METRICS, metricValues, quantile, density, niceAxis, heatScale, arcPath, modeButtons, vizPanel, interact, legendKey, sessionClass, svgText, REPLAY_SPEEDS, replayEvents, countUpTo, createReplay, replayBar };
+  // ---------- force layout ----------
+  // A small force layout for the hero views that need one (docs/design/visualization-explorer.md,
+  // "Shared force layout"). No dependencies and no randomness: a node starts where a hash of its
+  // id puts it, so one session always gets the same picture; the layout settles before drawing,
+  // and an update starts from the positions it had, so nodes move gently.
+
+  /** A 32-bit FNV-1a hash of a string. */
+  function hashId(id) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < id.length; i++) {
+      h ^= id.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+  }
+
+  /**
+   * Positions for nodes joined by weighted links, inside a width × height box.
+   *
+   *   nodes:  [{ id, r?, pin?: { x, y } }]   r is the node's radius (collision); a pinned node doesn't move
+   *   links:  [{ source, target, weight }]  weight > 0; heavier links pull their ends closer
+   *   opts:   { width, height, previous?: Map(id -> { x, y }), iterations?, padding?, spacing?, gravity? }
+   *   returns Map(id -> { x, y })
+   *
+   * The caller decides what the weights mean (interaction counts, delegation, …) and says so on
+   * screen. With previous positions, known nodes start there and new ones start beside a
+   * neighbor that has a position, and the layout runs a third as long, so an update nudges
+   * rather than reshuffles.
+   */
+  function forceLayout(nodes, links, opts) {
+    const width = Math.max(1, opts.width);
+    const height = Math.max(1, opts.height);
+    const pad = opts.padding !== undefined ? opts.padding : 24;
+    const prev = opts.previous || null;
+    const spacing = opts.spacing || Math.sqrt((width * height) / Math.max(1, nodes.length)) * 0.6;
+    const gravity = opts.gravity !== undefined ? opts.gravity : 0.02;
+    const warm = !!prev && nodes.some((n) => prev.has(n.id));
+    const iterations = opts.iterations || (warm ? 100 : 300);
+    const cx = width / 2;
+    const cy = height / 2;
+    const index = new Map();
+    const pts = nodes.map((n, i) => {
+      index.set(n.id, i);
+      return { id: n.id, r: n.r || 6, pin: n.pin || null, x: 0, y: 0, vx: 0, vy: 0, placed: false };
+    });
+    const ls = links
+      .filter((l) => index.has(l.source) && index.has(l.target) && l.source !== l.target && l.weight > 0)
+      .map((l) => ({ a: index.get(l.source), b: index.get(l.target), w: l.weight }));
+    const maxW = ls.reduce((m, l) => Math.max(m, l.w), 0) || 1;
+    const clampX = (p, x) => Math.min(width - pad - p.r, Math.max(pad + p.r, x));
+    const clampY = (p, y) => Math.min(height - pad - p.r, Math.max(pad + p.r, y));
+
+    // Starting positions: pinned, then previous, then beside a placed neighbor, then by hash.
+    for (const p of pts) {
+      if (p.pin) Object.assign(p, { x: p.pin.x, y: p.pin.y, placed: true });
+      else if (prev && prev.has(p.id)) Object.assign(p, { x: prev.get(p.id).x, y: prev.get(p.id).y, placed: true });
+    }
+    const seeded = (p, ox, oy, radius) => {
+      const h = hashId(p.id);
+      const angle = ((h & 0xffff) / 0x10000) * 2 * Math.PI;
+      const dist = radius * (0.35 + 0.65 * ((h >>> 16) / 0x10000));
+      p.x = ox + Math.cos(angle) * dist;
+      p.y = oy + Math.sin(angle) * dist;
+      p.placed = true;
+    };
+    for (const p of pts) {
+      if (p.placed) continue;
+      const i = index.get(p.id);
+      const nb = ls.find((l) => (l.a === i && pts[l.b].placed) || (l.b === i && pts[l.a].placed));
+      if (warm && nb) {
+        const other = pts[nb.a === i ? nb.b : nb.a];
+        seeded(p, other.x, other.y, spacing * 0.5);
+      } else seeded(p, cx, cy, Math.min(width, height) * 0.4);
+    }
+
+    // Settle: repulsion between every pair, springs on links, a pull to the center, collisions.
+    for (let step = 0; step < iterations; step++) {
+      const alpha = (warm ? 0.3 : 1) * (1 - step / iterations);
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        for (let j = i + 1; j < pts.length; j++) {
+          const q = pts[j];
+          let dx = q.x - p.x;
+          let dy = q.y - p.y;
+          let d2 = dx * dx + dy * dy;
+          if (d2 < 0.01) {
+            // Coincident: separate along a direction from the ids, not at random.
+            const a = ((hashId(p.id + '|' + q.id) & 0xffff) / 0x10000) * 2 * Math.PI;
+            dx = Math.cos(a) * 0.1;
+            dy = Math.sin(a) * 0.1;
+            d2 = 0.01;
+          }
+          const d = Math.sqrt(d2);
+          const push = ((spacing * spacing) / d) * 0.05 * alpha;
+          const minD = p.r + q.r + 4;
+          const overlap = d < minD ? (minD - d) * 0.5 : 0;
+          const fx = (dx / d) * (push + overlap);
+          const fy = (dy / d) * (push + overlap);
+          p.vx -= fx;
+          p.vy -= fy;
+          q.vx += fx;
+          q.vy += fy;
+        }
+      }
+      for (const l of ls) {
+        const p = pts[l.a];
+        const q = pts[l.b];
+        const dx = q.x - p.x;
+        const dy = q.y - p.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 0.1;
+        const rest = spacing * (1.1 - 0.6 * (l.w / maxW)) + p.r + q.r;
+        const k = (0.05 + 0.15 * (l.w / maxW)) * alpha;
+        const f = (d - rest) * k;
+        p.vx += (dx / d) * f;
+        p.vy += (dy / d) * f;
+        q.vx -= (dx / d) * f;
+        q.vy -= (dy / d) * f;
+      }
+      for (const p of pts) {
+        if (p.pin) {
+          p.vx = p.vy = 0;
+          continue;
+        }
+        p.vx += (cx - p.x) * gravity * alpha;
+        p.vy += (cy - p.y) * gravity * alpha;
+        const speed = Math.hypot(p.vx, p.vy);
+        const cap = spacing * 0.5;
+        if (speed > cap) {
+          p.vx *= cap / speed;
+          p.vy *= cap / speed;
+        }
+        p.x = clampX(p, p.x + p.vx);
+        p.y = clampY(p, p.y + p.vy);
+        p.vx *= 0.6;
+        p.vy *= 0.6;
+      }
+    }
+    const out = new Map();
+    for (const p of pts) out.set(p.id, { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 });
+    return out;
+  }
+
+  /**
+   * Ambient drift for decoration: a small offset that changes smoothly with time t (ms), the
+   * same for the same id every time. It moves what's drawn, never the layout's positions.
+   */
+  function drift(id, t, amplitude) {
+    const h = hashId(id);
+    const px = 7000 + (h & 0xfff);
+    const py = 9000 + ((h >>> 12) & 0xfff);
+    return { dx: Math.sin((2 * Math.PI * t) / px + (h & 7)) * amplitude, dy: Math.cos((2 * Math.PI * t) / py + ((h >>> 3) & 7)) * amplitude };
+  }
+
+  window.snagboatShared = { el, svg, compact, fmt, niceMax, clip, formatTime, formatDay, tipFor, ms, short, duration, agentName, modelShort, fit, findNode, pathTo, callTokens, sessionName, secondsText, turnStats, METRICS, metricValues, quantile, density, niceAxis, heatScale, arcPath, modeButtons, vizPanel, interact, legendKey, sessionClass, svgText, REPLAY_SPEEDS, replayEvents, countUpTo, createReplay, replayBar, hashId, forceLayout, drift };
 })();
