@@ -55,6 +55,7 @@
       let reading = null; // { kind: 'word' | 'actor', id, term? } listed under the field
       const clock = ctx.createReplay({ onFrame: () => paintFrame() });
       const bar = ctx.replayBar(clock, { label: 'the Conversation Landscape' });
+      const fit = ctx.fitter(host); // the drawing fills the slide's height
 
       const modeBar = modeButtons('Proximity', MODES, mode, (m) => {
         if (m === 'semantic') return; // disabled below; never chosen
@@ -206,7 +207,7 @@
           return;
         }
         const width = Math.max(320, host.clientWidth || 800);
-        const height = Math.round(Math.min(620, Math.max(360, width * 0.56)));
+        const height = fit.height(Math.round(Math.min(620, Math.max(360, width * 0.56))), 320);
         const weights = model.links.map((l) => ({ source: l.a, target: l.b, weight: mode === 'interaction' ? Math.sqrt(l.count) : l.type === 'tool' ? 0.3 : l.type === 'delegation' ? 4 : 3 }));
         positions[mode] = forceLayout(
           model.actors.map((a) => ({ id: a.id, r: CLOUD, pin: a.id === 'you' ? { x: Math.max(CLOUD, width * 0.14), y: height * 0.35 } : undefined })),
@@ -287,6 +288,7 @@
         ]
           .filter(Boolean)
           .join(' ');
+        fit.settle(height, draw);
       }
 
       /** Each frame: dots appear when an actor first acts; words fade in and grow as they're used. */

@@ -55,6 +55,7 @@
       let shownWindow = null; // the window index drawn, for fixed windows
       const clock = ctx.createReplay({ onFrame: () => paint() });
       const bar = ctx.replayBar(clock, { label: 'the Factory Clock' });
+      const fit = ctx.fitter(host); // the dial fills the slide's height
       const windowButtons = modeButtons('Window', WINDOWS, windowMode, (m) => {
         windowMode = m;
         shownWindow = null;
@@ -196,7 +197,7 @@
           return;
         }
         const width = Math.max(320, host.clientWidth || 800);
-        const size = Math.min(width - 24, 620);
+        const size = Math.min(width - 24, fit.height(620, 300));
         const R = size / 2 - 34; // the bezel's inner edge, numerals outside it
         const cx = size / 2;
         const cy = size / 2;
@@ -326,6 +327,7 @@
         ]
           .filter(Boolean)
           .join(' ');
+        fit.settle(size, draw);
       }
 
       function key(cls, text) {

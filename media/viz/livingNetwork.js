@@ -61,6 +61,7 @@
       const shown = { message: true, delegation: true, tool: true }; // particle types on
       const clock = ctx.createReplay({ onFrame: () => paintFrame() });
       const bar = ctx.replayBar(clock, { label: 'the Living Network' });
+      const fit = ctx.fitter(host); // the drawing fills the slide's height
 
       function update(sessions, sel) {
         const key = sessions.map((v) => v.summary.sessionId).join('\n');
@@ -258,7 +259,7 @@
           return;
         }
         const width = Math.max(320, host.clientWidth || 800);
-        const height = Math.round(Math.min(620, Math.max(320, width * 0.5)));
+        const height = fit.height(Math.round(Math.min(620, Math.max(320, width * 0.5))), 300);
         const fieldH = height - HEAD - FOOT;
         const nodes = [...graph.nodes.values()];
         const edges = [...graph.edges.values()];
@@ -406,6 +407,7 @@
           subs ? 'Delegation is inferred from the events each subagent made, and no parent is recorded, so every subagent hangs off the main agent.' : 'No subagents in this session.',
           'Click an actor to isolate its neighborhood and select the first turn it worked in; click it again to let go.',
         ].join(' ');
+        fit.settle(height, draw);
       }
 
       /** The actors that stand out: an isolated actor and its neighbors, or the actors in the selected turn; null means all. */

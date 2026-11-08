@@ -18,8 +18,13 @@
 // ctx: no VS Code.
 (function () {
   const MAX_REGIONS = 12; // the actor regions and the three panels together
-  const ROWS = 3; // lines per region
-  const CELL_W = 17; // px per cell, the gap included
+  const MIN_ROWS = 3; // lines per region; a taller slide gives each region more, up to MAX_ROWS
+  const MAX_ROWS = 8;
+  const CELL_H = 22; // px per cell; cells shrink toward CELL_H_MIN only when three lines don't fit the slide
+  const CELL_H_MIN = 15;
+  const PLATE_H = 26; // a region's plate and the space under it
+  const ROW_GAP = 3;
+  const GRID_GAP = 16;
   const MIN_DWELL_MS = 1200; // wall time a line holds before the next replaces it
   const ACTIVE_MS = 60 * 1000; // session time an actor stays lit after acting
   const STAGGER_MS = 22; // between one cell's flap and the next
@@ -39,6 +44,8 @@
       const frame = el('div', { class: 'hero-board' });
       const note = el('p', { class: 'muted small' });
       host.replaceChildren(frame, note);
+      const fit = ctx.fitter(host); // the board fills the slide's height
+      let rowCap = MAX_ROWS; // lowered when a draw's estimate overflowed
       let views = [];
       let viewKey = '';
       let selection = null;
@@ -150,25 +157,39 @@
         const width = Math.max(320, host.clientWidth || 800) - 28;
         const cols = width >= 1000 ? 4 : width >= 720 ? 3 : width >= 460 ? 2 : 1;
         const regionW = Math.floor((width - (cols - 1) * 18) / cols);
-        const cells = Math.max(8, Math.floor(regionW / CELL_W));
         const defs = [...model.actors.map((r) => ({ ...r })), { id: 'queue', kind: 'panel', plate: 'Event queue' }, { id: 'tokens', kind: 'panel', plate: 'Tokens / running' }, { id: 'status', kind: 'panel', plate: 'Session status' }];
+        // The board fills the slide's height: a taller slide gives each region more lines, and only a slide too
+        // short for three lines shrinks the cells. Cells keep a readable size, so a line holds as many characters as before.
+        const regionRows = Math.ceil(defs.length / cols);
+        const gridH = fit.height(null, 0);
+        const perRegion = gridH === null ? null : (gridH - (regionRows - 1) * GRID_GAP) / regionRows - PLATE_H; // px for a region's lines
+        let rows = MIN_ROWS;
+        let cellH = CELL_H;
+        if (perRegion !== null) {
+          rows = Math.max(MIN_ROWS, Math.min(MAX_ROWS, Math.floor(perRegion / (CELL_H + ROW_GAP)), rowCap));
+          cellH = Math.round(Math.max(CELL_H_MIN, Math.min(CELL_H, perRegion / rows - ROW_GAP)));
+        }
+        const cellW = Math.round(cellH * 0.68);
+        frame.style.setProperty('--tb-cell-h', `${cellH}px`);
+        frame.style.setProperty('--tb-cell-w', `${cellW}px`);
+        const cells = Math.max(8, Math.floor(regionW / (cellW + 2)));
         const grid = el('div', { class: 'tb-grid' });
         grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
         const regions = defs.map((def) => {
           const lamp = el('span', { class: 'tb-lamp', role: 'img', 'aria-label': 'idle' });
-          const rows = [];
+          const rowEls = [];
           const cellEls = [];
-          for (let r = 0; r < ROWS; r++) {
+          for (let r = 0; r < rows; r++) {
             const row = el('div', { class: 'tb-row' });
             for (let c = 0; c < cells; c++) {
               const cell = el('span', { class: 'tb-cell' }, [el('span', { class: 'tb-ch', text: ' ' })]);
               row.append(cell);
               cellEls.push(cell);
             }
-            rows.push(row);
+            rowEls.push(row);
           }
           const plate = el('div', { class: 'tb-plate' }, [el('span', { text: def.plate }), lamp]);
-          const lines = el('div', { class: 'tb-lines', 'aria-live': 'off' }, rows);
+          const lines = el('div', { class: 'tb-lines', 'aria-live': 'off' }, rowEls);
           const box = el('section', { class: `tb-region tb-${def.kind}`, tabindex: def.lines ? 0 : undefined, role: def.lines ? 'button' : undefined, 'aria-label': `${def.plate}${def.lines ? ': open its history' : ''}` }, [plate, lines]);
           if (def.lines) {
             const open = () => {
@@ -192,7 +213,7 @@
         ]);
         const history = el('div', { class: 'tb-history', 'aria-live': 'polite' });
         frame.replaceChildren(head, grid, el('div', { class: 'tb-foot' }, [bar.element, modes]), history);
-        board = { regions, cells, history };
+        board = { regions, cells, rows, history };
         paint();
         renderHistory();
         note.textContent = [
@@ -201,9 +222,16 @@
           `While playing, each line holds at least ${MIN_DWELL_MS / 1000}s; newer lines queue and only the newest is shown, the rest counted in the event queue.`,
           'A compressed view, never the transcript: click a region for its last lines, and a line to select its turn.',
         ].join(' ');
+        // The estimate above can be off by a plate's height: if the board still overflows, take a line off each region.
+        if (gridH !== null && grid.offsetHeight > gridH + 2 && rows > MIN_ROWS && rowCap > rows - 1) {
+          rowCap = rows - 1;
+          draw();
+          return;
+        }
+        fit.settle(grid.offsetHeight, draw);
       }
 
-      /** Text into ROWS rows of the board's width, by words, in capitals. */
+      /** Text into the board's rows, at its width, by words, in capitals. */
       function layoutLines(text) {
         const width = board.cells;
         const words = text.replace(/\s+/g, ' ').trim().toUpperCase().split(' ');
@@ -221,9 +249,10 @@
           else if (cur.length + 1 + w.length <= width) rows[rows.length - 1] = `${cur} ${w}`;
           else rows.push(w);
         }
-        const out = rows.filter((r, i) => r || i === 0).slice(0, ROWS);
-        if (rows.filter(Boolean).length > ROWS) out[ROWS - 1] = `${out[ROWS - 1].slice(0, width - 3)}...`;
-        while (out.length < ROWS) out.push('');
+        const n = board.rows;
+        const out = rows.filter((r, i) => r || i === 0).slice(0, n);
+        if (rows.filter(Boolean).length > n) out[n - 1] = `${out[n - 1].slice(0, width - 3)}...`;
+        while (out.length < n) out.push('');
         return out;
       }
 
@@ -301,7 +330,9 @@
       /** Replaces a region's cells with new lines; each changed cell falls as a flap, left to right. */
       function flip(r, want, now) {
         const animate = clock.playing && !clock.reduced;
-        const chars = want.lines.flatMap((line) => line.padEnd(board.cells, ' ').slice(0, board.cells).split(''));
+        const lines = [...want.lines];
+        while (lines.length < board.rows) lines.push('');
+        const chars = lines.slice(0, board.rows).flatMap((line) => line.padEnd(board.cells, ' ').slice(0, board.cells).split(''));
         let order = 0;
         chars.forEach((ch, i) => {
           const cell = r.cellEls[i];
@@ -354,7 +385,10 @@
 
       return {
         update,
-        resize: draw,
+        resize() {
+          rowCap = MAX_ROWS;
+          draw();
+        },
         setActive: (on) => clock.setActive(on),
         destroy() {
           clock.destroy();
