@@ -27,7 +27,10 @@ interface Clock {
   pause(): void;
   seek(t: number): void;
   seekShown(n: number): void;
-  setSpeed(s: number): void;
+  setting: string;
+  loop: boolean;
+  setSpeed(s: number | string): void;
+  setLoop(on: boolean): void;
   setActive(on: boolean): void;
   destroy(): void;
 }
@@ -36,6 +39,10 @@ interface Shared {
   countUpTo(events: Clock['events'], t: number): number;
   createReplay(opts: Record<string, unknown>): Clock;
   REPLAY_SPEEDS: number[];
+  REPLAY_CHOICES: Array<[string, string]>;
+  getReplayPrefs(): { speed: string; loop: boolean };
+  setReplayPrefs(p: { speed?: string | number; loop?: boolean }): void;
+  onReplayPrefs(cb: (p: { speed: string; loop: boolean }) => void): () => void;
   forceLayout(nodes: Array<{ id: string; r?: number; pin?: Pt }>, links: Array<{ source: string; target: string; weight: number }>, opts: Record<string, unknown>): Map<string, Pt>;
   drift(id: string, t: number, amplitude: number): { dx: number; dy: number };
 }
@@ -150,7 +157,7 @@ async function main() {
     while (f.pending && guard++ < 100000) {
       f.run(16);
       const moved = clock.time - prev;
-      if (!clock.atEnd()) assert.strictEqual(moved, 16 * clock.speed, 'every frame moves the same amount of session time');
+      if (!clock.atEnd()) assert.ok(Math.abs(moved - 16 * clock.speed) < 1e-6 * clock.speed, 'every frame moves the same amount of session time');
       prev = clock.time;
     }
     assert.ok(clock.atEnd());
@@ -217,13 +224,70 @@ async function main() {
     assert.strictEqual(clock.shown, 5);
   });
 
-  test('speed is one of the offered speeds', () => {
-    const clock = shared.createReplay({ raf: frames().raf, caf: () => undefined, now: longAfter, reducedMotion: true });
-    clock.setSpeed(10);
-    assert.strictEqual(clock.speed, 10);
-    clock.setSpeed(7);
-    assert.strictEqual(clock.speed, 10);
+  test('speed is one of the offered settings, shared by every clock on the page', () => {
+    shared.setReplayPrefs({ speed: 'fit:30', loop: false });
+    const a = shared.createReplay({ raf: frames().raf, caf: () => undefined, now: longAfter, reducedMotion: true });
+    const b = shared.createReplay({ raf: frames().raf, caf: () => undefined, now: longAfter, reducedMotion: true });
+    a.setSessions(one);
+    b.setSessions(one);
+    a.setSpeed(10);
+    assert.strictEqual(a.speed, 10);
+    assert.strictEqual(b.speed, 10, 'one clock’s change applies to the others');
+    a.setSpeed(7);
+    assert.strictEqual(a.speed, 10, 'a speed not on the menu is ignored');
     assert.deepStrictEqual([...shared.REPLAY_SPEEDS], [1, 10, 60, 600]);
+    assert.deepStrictEqual([...shared.REPLAY_CHOICES.map((c) => c[0])], ['fit:60', 'fit:30', 'fit:10', '1', '10', '60', '600']);
+    let heard = null as null | { speed: string; loop: boolean };
+    const stop = shared.onReplayPrefs((p) => (heard = p));
+    a.setLoop(true);
+    assert.deepStrictEqual({ ...heard }, { speed: '10', loop: true });
+    stop();
+    a.destroy();
+    b.destroy();
+    shared.setReplayPrefs({ speed: 'fit:30', loop: false });
+  });
+
+  test('a fit speed plays the whole span in that many seconds, at a steady pace, however long it is', () => {
+    shared.setReplayPrefs({ speed: 'fit:10', loop: false });
+    const f = frames();
+    const clock = shared.createReplay({ raf: f.raf, caf: f.caf, now: longAfter, reducedMotion: false });
+    clock.setSessions(views); // every example session: a longer span than one
+    assert.strictEqual(clock.setting, 'fit:10');
+    assert.ok(Math.abs(clock.speed - (clock.end - clock.start) / 10000) < 1e-9);
+    clock.setActive(true);
+    let n = 0;
+    while (f.pending && n++ < 100000) f.run(16);
+    assert.ok(clock.atEnd());
+    assert.ok(Math.abs(n - 10000 / 16) <= 3, `played in ${n} frames, about ${Math.round(10000 / 16)} expected`);
+    // A week of events at the same setting still takes ten seconds: the speed scales with the span.
+    const week = { ...one[0], calls: [...one[0].calls, { ...one[0].calls[0], ts: new Date(Date.parse(one[0].calls[0].ts) + 7 * 86400000).toISOString() }] } as SessionView;
+    clock.setSessions([week]);
+    assert.ok(clock.speed > 60000, `a week at fit:10 runs at ×${Math.round(clock.speed)}`);
+    clock.destroy();
+    shared.setReplayPrefs({ speed: 'fit:30' });
+  });
+
+  test('with loop on, playback starts over at the end instead of stopping', () => {
+    shared.setReplayPrefs({ speed: 'fit:10', loop: true });
+    const f = frames();
+    const clock = shared.createReplay({ raf: f.raf, caf: f.caf, now: longAfter, reducedMotion: false });
+    clock.setSessions(one);
+    clock.setActive(true);
+    let wrapped = false;
+    let prev = clock.time;
+    for (let i = 0; i < 2000 && f.pending; i++) {
+      f.run(16);
+      if (clock.time < prev) wrapped = true;
+      prev = clock.time;
+    }
+    assert.ok(wrapped, 'went back to the start');
+    assert.strictEqual(clock.playing, true, 'and kept playing');
+    clock.setLoop(false);
+    let guard = 0;
+    while (f.pending && guard++ < 5000) f.run(16);
+    assert.ok(clock.atEnd() && !clock.playing, 'with loop off it stops at the end');
+    clock.destroy();
+    shared.setReplayPrefs({ speed: 'fit:30', loop: false });
   });
 
   // A star of an agent with tools and subagents, as Living Network will give it.

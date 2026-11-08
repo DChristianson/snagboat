@@ -370,7 +370,7 @@
         scene.tip.setAttribute('cy', hy.toFixed(1));
         const trail = Math.min(a, 0.45);
         scene.wake.setAttribute('d', trail > 0.01 ? ctx.arcPath(cx, cy, 0, R - 2, a - trail, a) : '');
-        scene.playback.textContent = clock.playing ? `playback ×${clock.speed}` : '';
+        scene.playback.textContent = clock.playing ? `playback ×${ctx.speedText(clock.speed)}` : '';
         for (const x of scene.arcs) {
           const from = x.a.from;
           const to = Math.min(x.a.to, at);
