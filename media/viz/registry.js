@@ -9,11 +9,14 @@
 //   window.snagboatViz.ids()   -> registered ids, in registration order
 //
 // mount(host, ctx) builds its DOM once under host and returns
-//   { update(sessions, selection, options), resize(), destroy() }
+//   { update(sessions, selection, options), resize(), destroy(), setActive?(active) }
 //   sessions:  SessionView[] (what buildSessionView produces), never empty from the explorer
 //   selection: { sessionId?, turnId?, range?: [fromMs, toMs], focusId? } or null; a visualizer
 //              ignores the fields it doesn't use, and may add focusId (the tree does)
 //   options:   what the host passes: { expanded } from the Sessions tab, nothing from the explorer
+//   setActive: optional; the carousel calls it with true for the current slide and false for its
+//              mounted neighbors and while the tab is hidden, so a view that animates (through
+//              ctx.createReplay) runs only when it can be seen
 //   ctx:       the helpers from shared.js plus tooltip (the element), showTip(evt, rows) and
 //              hideTip() over it, and select(selection) to announce a selection
 (function () {

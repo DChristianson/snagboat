@@ -182,7 +182,7 @@ The parts that touch disk (`EventLog`, `ContextLimits`, `RuleStore`, the adapter
 5. **Docs — done.** A section in [usage.md](../usage.md), the detail webview paragraph in [architecture.md](../architecture.md), a link to the demo from the README, and the roadmap entry marked done; this document gains implementation notes where the build differed.
 
 6. **More visualizers, from the proposal.** After step 5, more views are added starting with the ones listed per category in the [visualization proposal](agent_conversation_visualization_design_proposal.docx) (see below). Each is its own change: a file under `media/viz/`, a catalog entry, and a note here. None is built before step 5.
-7. **Hero visualizations — in progress.** First the [shared foundations](#shared-foundations), each its own change: the design language facet (done), shared replay, shared force layout, and demo traces. Then five views that each carry a design language, one per change, last in the carousel. See [Hero visualizations](#hero-visualizations).
+7. **Hero visualizations — in progress.** First the [shared foundations](#shared-foundations), each its own change: the design language facet (done), shared replay (done), shared force layout, and demo traces. Then five views that each carry a design language, one per change, last in the carousel. See [Hero visualizations](#hero-visualizations).
 
 Steps 1 and 2 are one pull request (the tab is empty without the catalog); the rest follow as the views land.
 
@@ -293,6 +293,8 @@ Four views need playback and Session Fingerprint needs the same handling of time
 - **Stopping.** The contract gains an optional `setActive(active)` on instances, so the carousel can stop a slide when it isn't the current one, even though its neighbors stay mounted. With `prefers-reduced-motion`, a view opens on its final state and doesn't autoplay; scrubbing still works.
 
 Terminal Board's queue and minimum dwell sit on top of the clock, in the view.
+
+**As built.** `ctx.createReplay({ onFrame })` returns the clock and `ctx.replayBar(clock)` its bar; `ctx.replayEvents(sessions)` is the merged list on its own. Within one timestamp the order is prompt, compaction, model call, tool call, then session order and position in the session. Speeds are ×1, ×10, ×60 (the default), and ×600 of session time, and a quiet stretch longer than 1.5 seconds of playback is cut to 0.4 seconds, which the bar says while playing; without that, a session with a lunch break in it plays mostly nothing. A finished session opens at its start and plays the first time its slide is current; a live one (last event under ten minutes old) opens at its end. The carousel calls `setActive(false)` on the current slide's neighbors and on every slide while the Explore tab is hidden (`snagboatExplore.hidden()`, called by the detail view's tab switch). The clock is tested in Node (`heroShared.unit.test.ts`) over the synthetic sessions.
 
 #### Shared force layout
 
