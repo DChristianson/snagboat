@@ -1002,3 +1002,78 @@ input[type="search"] { min-width: 220px; }
 .hero-riso .sf-lib { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 4px 6px; border-color: transparent; }
 .hero-riso .sf-lib.on { border-color: var(--sf-navy); }
 .hero-riso .sf-lib-svg { display: block; }
+
+/* Conversation Landscape, design language `edgeless`: paper-white space, a hue per actor, no lines. */
+.hero-edgeless {
+  --ce-paper: #fbfaf6;
+  --ce-ink: #24211c;
+  --ce-muted: #5f5a50; /* 6.5:1 on the paper */
+  --ce-red: #f0563f;
+  --ce-red-ink: #b8321e;
+  --ce-purple: #7b4fe0;
+  --ce-purple-ink: #5a33bd;
+  --ce-blue: #2f7ff0;
+  --ce-blue-ink: #1d5fc2;
+  --ce-green: #12996a;
+  --ce-green-ink: #0b7450;
+  --ce-amber: #f2a900;
+  --ce-amber-ink: #8a5f00;
+  background: var(--ce-paper);
+  color: var(--ce-ink);
+  border-radius: 4px;
+  padding: 10px 12px 12px;
+  font-family: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.hero-edgeless .ce-head { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.hero-edgeless .ce-caps { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ce-muted); font-weight: 600; }
+.hero-edgeless .ce-svg { display: block; }
+.hero-edgeless .ce-ground { fill: var(--ce-paper); }
+.hero-edgeless .ce-actor { transition: opacity 0.3s; }
+.hero-edgeless .ce-actor.ce-unborn { opacity: 0; }
+.hero-edgeless .ce-actor.ce-faded { opacity: 0.3; }
+.hero-edgeless .ce-halo { fill-opacity: 0.12; }
+.hero-edgeless .ce-hit { fill: transparent; cursor: pointer; }
+.hero-edgeless .ce-hit:focus { outline: none; stroke: var(--ce-ink); stroke-width: 1; stroke-dasharray: 2 3; }
+.hero-edgeless .ce-name { font-size: 9px; font-weight: 700; letter-spacing: 0.16em; }
+.hero-edgeless .ce-word { font-weight: 800; letter-spacing: -0.01em; cursor: pointer; transition: opacity 0.4s, font-size 0.4s; }
+.hero-edgeless .ce-word.ce-small { font-weight: 600; }
+.hero-edgeless .ce-word:hover, .hero-edgeless .ce-word:focus, .hero-edgeless .ce-word.ce-reading { text-decoration: underline; outline: none; }
+.hero-edgeless .ce-word.ce-in-turn { text-decoration: underline; text-decoration-style: dotted; }
+.hero-edgeless .ce-red .ce-dot, .hero-edgeless .ce-red .ce-halo { fill: var(--ce-red); }
+.hero-edgeless .ce-purple .ce-dot, .hero-edgeless .ce-purple .ce-halo { fill: var(--ce-purple); }
+.hero-edgeless .ce-blue .ce-dot, .hero-edgeless .ce-blue .ce-halo { fill: var(--ce-blue); }
+.hero-edgeless .ce-green .ce-dot, .hero-edgeless .ce-green .ce-halo { fill: var(--ce-green); }
+.hero-edgeless .ce-amber .ce-dot, .hero-edgeless .ce-amber .ce-halo { fill: var(--ce-amber); }
+/* Big words wear the saturated hue; small words and names take the darker shade, for contrast. */
+.hero-edgeless .ce-red .ce-word { fill: var(--ce-red); }
+.hero-edgeless .ce-purple .ce-word { fill: var(--ce-purple); }
+.hero-edgeless .ce-blue .ce-word { fill: var(--ce-blue); }
+.hero-edgeless .ce-green .ce-word { fill: var(--ce-green); }
+.hero-edgeless .ce-amber .ce-word { fill: var(--ce-amber-ink); }
+.hero-edgeless .ce-red .ce-small, .hero-edgeless .ce-red .ce-name, .hero-edgeless .ce-red-ink { fill: var(--ce-red-ink); color: var(--ce-red-ink); }
+.hero-edgeless .ce-purple .ce-small, .hero-edgeless .ce-purple .ce-name, .hero-edgeless .ce-purple-ink { fill: var(--ce-purple-ink); color: var(--ce-purple-ink); }
+.hero-edgeless .ce-blue .ce-small, .hero-edgeless .ce-blue .ce-name, .hero-edgeless .ce-blue-ink { fill: var(--ce-blue-ink); color: var(--ce-blue-ink); }
+.hero-edgeless .ce-green .ce-small, .hero-edgeless .ce-green .ce-name, .hero-edgeless .ce-green-ink { fill: var(--ce-green-ink); color: var(--ce-green-ink); }
+.hero-edgeless .ce-amber .ce-small, .hero-edgeless .ce-amber .ce-name, .hero-edgeless .ce-amber-ink { fill: var(--ce-amber-ink); color: var(--ce-amber-ink); }
+.hero-edgeless .ce-failure { fill: var(--ce-red-ink) !important; }
+.hero-edgeless .ce-foot { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
+.hero-edgeless .ce-foot .controls { margin: 0; }
+.hero-edgeless .ce-foot .muted { color: var(--ce-muted); text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; }
+.hero-edgeless .replay-bar { flex: 1 1 320px; margin: 0; }
+.hero-edgeless button, .hero-edgeless select { color: var(--ce-ink); background: transparent; border: 1px solid #d8d3c8; border-radius: 999px; padding: 3px 12px; font: 600 12px "Bricolage Grotesque", system-ui, sans-serif; }
+.hero-edgeless button[aria-pressed="true"] { background: var(--ce-ink); color: var(--ce-paper); border-color: var(--ce-ink); }
+.hero-edgeless button:disabled { color: #9a9488; border-style: dashed; }
+.hero-edgeless button:hover:not(:disabled) { border-color: var(--ce-ink); }
+.hero-edgeless .replay-badge { border: none; color: var(--ce-muted); }
+.hero-edgeless .replay-badge.live { color: var(--ce-green-ink); }
+.hero-edgeless .replay-where { color: var(--ce-muted); }
+.hero-edgeless .replay-scrub { accent-color: var(--ce-purple); }
+.hero-edgeless .ce-reader:empty { display: none; }
+.hero-edgeless .ce-reader { margin-top: 8px; border-top: 1px solid #e3ded3; padding-top: 6px; max-height: 260px; overflow: auto; }
+.hero-edgeless .ce-reader-head { display: flex; justify-content: space-between; align-items: center; }
+.hero-edgeless .ce-messages { margin: 4px 0 0; padding-left: 18px; }
+.hero-edgeless .ce-messages li { margin: 4px 0; cursor: pointer; }
+.hero-edgeless .ce-messages li:hover .ce-text, .hero-edgeless .ce-messages li:focus .ce-text { text-decoration: underline; }
+.hero-edgeless .ce-when { display: block; font-size: 10px; color: var(--ce-muted); letter-spacing: 0.06em; }
+.hero-edgeless .ce-text { white-space: pre-wrap; font-size: 12px; }
+.hero-edgeless .ce-empty { color: var(--ce-muted); }
