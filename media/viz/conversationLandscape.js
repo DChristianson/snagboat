@@ -24,6 +24,8 @@
   const MIN_FONT = 11;
   const MAX_FONT = 30;
   const MAX_TOOL_FONT = 19;
+  const DECAY_MS = 2500; // playback time an actor's activity takes to fade to a third
+  const FADE_FLOOR = 0.3; // how far an idle actor and its words fade
   const HUES = ['red', 'purple', 'blue', 'green', 'amber'];
   const MODES = [
     ['interaction', 'Interaction'],
@@ -53,6 +55,7 @@
       let reading = null; // { kind: 'word' | 'actor', id, term? } listed under the field
       const clock = ctx.createReplay({ onFrame: () => paintFrame() });
       const bar = ctx.replayBar(clock, { label: 'the Conversation Landscape' });
+      const fit = ctx.fitter(host); // the drawing fills the slide's height
 
       const modeBar = modeButtons('Proximity', MODES, mode, (m) => {
         if (m === 'semantic') return; // disabled below; never chosen
@@ -83,7 +86,7 @@
         const actor = (id, kind, label, hue) => {
           let a = actors.get(id);
           if (!a) {
-            a = { id, kind, label, hue, messages: [], tools: new Map(), failed: 0, first: Infinity, texted: 0 };
+            a = { id, kind, label, hue, messages: [], tools: new Map(), failed: 0, first: Infinity, texted: 0, acts: [] };
             actors.set(id, a);
           }
           return a;
@@ -115,6 +118,7 @@
 
         for (const p of v.prompts) {
           you.first = Math.min(you.first, ms(p.ts));
+          you.acts.push({ t: ms(p.ts) });
           main.first = Math.min(main.first, ms(p.ts));
           link('you', 'agent', 'message');
           if (p.text) you.messages.push({ t: ms(p.ts), turnId: p.turnId, text: p.text, label: `P${p.index}` });
@@ -123,6 +127,7 @@
         for (const c of v.calls) {
           const a = actorFor(c.agentId);
           a.first = Math.min(a.first, ms(c.ts));
+          a.acts.push({ t: ms(c.ts) });
           if (c.agentId && !delegated.has(`${c.agentId}|${c.turnId}`)) {
             delegated.add(`${c.agentId}|${c.turnId}`);
             link('agent', a.id, 'delegation');
@@ -133,6 +138,7 @@
           const caller = actorFor(t.agentId);
           const tool = toolActor(t.category);
           tool.first = Math.min(tool.first, ms(t.ts));
+          tool.acts.push({ t: ms(t.ts) });
           link(caller.id, tool.id, 'tool');
           const name = t.name || t.category;
           const entry = tool.tools.get(name) || tool.tools.set(name, { name, times: [], fails: [] }).get(name);
@@ -186,8 +192,9 @@
             .slice(0, MAX_WORDS);
           a.texted = a.messages.length;
         }
+        for (const a of actors.values()) a.acts.sort((x, y) => x.t - y.t);
         const list = [...actors.values()].filter((a) => Number.isFinite(a.first));
-        return { actors: list, byId: new Map(list.map((a) => [a.id, a])), links: [...links.values()], anyText: texted.length > 0 };
+        return { actors: list, byId: new Map(list.map((a) => [a.id, a])), links: [...links.values()], anyText: texted.length > 0, maxActs: Math.max(1, ...list.map((a) => a.acts.length)) };
       }
 
       // ---------- drawing ----------
@@ -200,7 +207,7 @@
           return;
         }
         const width = Math.max(320, host.clientWidth || 800);
-        const height = Math.round(Math.min(620, Math.max(360, width * 0.56)));
+        const height = fit.height(Math.round(Math.min(620, Math.max(360, width * 0.56))), 320);
         const weights = model.links.map((l) => ({ source: l.a, target: l.b, weight: mode === 'interaction' ? Math.sqrt(l.count) : l.type === 'tool' ? 0.3 : l.type === 'delegation' ? 4 : 3 }));
         positions[mode] = forceLayout(
           model.actors.map((a) => ({ id: a.id, r: CLOUD, pin: a.id === 'you' ? { x: Math.max(CLOUD, width * 0.14), y: height * 0.35 } : undefined })),
@@ -281,6 +288,7 @@
         ]
           .filter(Boolean)
           .join(' ');
+        fit.settle(height, draw);
       }
 
       /** Each frame: dots appear when an actor first acts; words fade in and grow as they're used. */
@@ -290,10 +298,29 @@
         const t = clock.time;
         const sel = selection && selection.turnId && (!selection.sessionId || selection.sessionId === view.summary.sessionId) ? selection.turnId : null;
         const focus = reading ? reading.id : null;
+        // Once a replay has finished (or with reduced motion) the picture rests: everything at full strength, dots sized by calls.
+        const resting = !clock.playing && clock.atEnd();
+        const tau = DECAY_MS * clock.speed;
         for (const [id, part] of scene.dotParts) {
-          const on = part.a.first <= t;
+          const a = part.a;
+          const on = a.first <= t;
           part.g.classList.toggle('ce-unborn', !on);
           part.g.classList.toggle('ce-faded', !!focus && focus !== id);
+          // Activity: each act adds a pulse that decays; a dot swells with it and shrinks back, its words fade with it.
+          const n = countUpTo(a.acts, t);
+          let activity = 0;
+          for (let i = n - 1; i >= 0 && n - i <= 200; i--) {
+            const age = t - a.acts[i].t;
+            if (age > tau * 5) break;
+            activity += Math.exp(-age / tau);
+          }
+          const strength = resting ? 1 : Math.min(1, activity);
+          const base = 4 + 5 * Math.sqrt(n / model.maxActs); // grows with the calls made so far
+          const pulse = resting ? 0 : 7 * Math.min(1, activity / 3);
+          const r = base + pulse;
+          part.dot.setAttribute('r', r.toFixed(1));
+          part.halo.setAttribute('r', (r * 2 + 4 * strength).toFixed(1));
+          part.g.setAttribute('opacity', (FADE_FLOOR + (1 - FADE_FLOOR) * strength).toFixed(2));
         }
         for (const wp of scene.wordParts) {
           const n = countUpTo(wp.w.times, t);

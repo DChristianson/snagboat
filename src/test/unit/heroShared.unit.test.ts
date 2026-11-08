@@ -134,7 +134,26 @@ async function main() {
     assert.strictEqual(clock.shown, clock.events.length);
     assert.ok(drawn > 2);
     // Quiet gaps are skipped: no event waits more than QUIET_MAX (1.5s) of playback, about 90 frames.
-    assert.ok(guard <= clock.events.length * 90, `played in ${guard} frames for ${clock.events.length} events`);
+    // A steady pace: the whole session at the clock's speed, 16ms of wall time a frame.
+    const expected = (clock.end - clock.start) / clock.speed / 16;
+    assert.ok(Math.abs(guard - expected) <= 3, `played in ${guard} frames, expected about ${Math.round(expected)}`);
+  });
+
+  test('time moves at a steady pace through busy and quiet stretches alike', () => {
+    const f = frames();
+    const clock = shared.createReplay({ raf: f.raf, caf: f.caf, now: longAfter, reducedMotion: false });
+    clock.setSessions(one);
+    clock.setActive(true);
+    f.run(16); // the first frame only starts the clock
+    let prev = clock.time;
+    let guard = 0;
+    while (f.pending && guard++ < 100000) {
+      f.run(16);
+      const moved = clock.time - prev;
+      if (!clock.atEnd()) assert.strictEqual(moved, 16 * clock.speed, 'every frame moves the same amount of session time');
+      prev = clock.time;
+    }
+    assert.ok(clock.atEnd());
   });
 
   test('an inactive slide does not tick, and picks up where it was', () => {

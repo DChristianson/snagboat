@@ -273,6 +273,56 @@
     return t;
   }
 
+  // ---------- fitting a slide ----------
+  /**
+   * The height a visualizer mounted at host can use without its slide scrolling: what's left of the
+   * carousel's slide below the host's top (for a stacked session, one slide's height less its
+   * heading). null outside the carousel (the Sessions tab), where a view keeps its own height.
+   */
+  const FIT_SLACK = 14; // the note's bottom margin, which a host's scrollHeight doesn't count
+  function fitHeight(host) {
+    const slideHost = host && host.closest && host.closest('.slide-host');
+    if (!slideHost || !slideHost.clientHeight) return null;
+    const stacked = host.closest('.stacked');
+    if (stacked) {
+      const head = stacked.querySelector('.stack-head');
+      return Math.max(0, slideHost.clientHeight - (head ? head.offsetHeight + 8 : 0) - FIT_SLACK);
+    }
+    const top = host.getBoundingClientRect().top - slideHost.getBoundingClientRect().top + slideHost.scrollTop;
+    return Math.max(0, slideHost.clientHeight - top - FIT_SLACK);
+  }
+
+  /**
+   * Sizes a view's drawing so the whole view (its controls, legend, and note too) fits the slide.
+   *   const fit = fitter(host);
+   *   in draw():  const h = fit.height(fallback, min);  ...draw at h...;  fit.settle(h, draw);
+   * height() is the slide's room less what surrounded the drawing last time (the fallback outside
+   * the carousel); settle() measures that surround and draws once more if it changed.
+   */
+  function fitter(host) {
+    let chrome = null;
+    let refitting = false;
+    return {
+      height(fallback, min) {
+        const avail = fitHeight(host);
+        if (avail === null) return fallback;
+        return Math.max(min, Math.round(avail - (chrome === null ? 0 : chrome)));
+      },
+      settle(drawn, redraw) {
+        if (refitting || fitHeight(host) === null) return;
+        const around = host.scrollHeight - drawn;
+        if (chrome !== null && Math.abs(around - chrome) <= 2) return;
+        chrome = around;
+        refitting = true;
+        try {
+          redraw();
+        } finally {
+          refitting = false;
+        }
+      },
+    };
+  }
+
   // ---------- words ----------
   // How the views that read text (Prompt terms, Conversation Landscape) count words: no model,
   // no embeddings, nothing kept.
@@ -314,9 +364,6 @@
   /** Speeds offered, as multiples of the session's own clock. */
   const REPLAY_SPEEDS = [1, 10, 60, 600];
   const REPLAY_DEFAULT_SPEED = 60;
-  /** A quiet stretch longer than this, in seconds of playback, is skipped down to QUIET_LEAD. */
-  const QUIET_MAX = 1.5;
-  const QUIET_LEAD = 0.4;
   /** A session whose last event is this recent can be live. */
   const LIVE_WINDOW_MS = 10 * 60 * 1000;
 
@@ -485,10 +532,7 @@
       if (!clock.playing || !active) return;
       const dt = last === null ? 0 : Math.min(250, Math.max(0, wall - last)); // a stalled tab doesn't jump ahead
       last = wall;
-      let t = clock.time + dt * clock.speed;
-      // Skip a quiet stretch: the next event arrives QUIET_LEAD seconds of playback from now.
-      const next = clock.events[clock.shown];
-      if (next && (next.t - t) / clock.speed > QUIET_MAX * 1000) t = next.t - QUIET_LEAD * 1000 * clock.speed;
+      const t = clock.time + dt * clock.speed; // a steady pace: quiet stretches play at the same speed as busy ones
       if (t >= clock.end) {
         place(clock.end);
         clock.playing = false;
@@ -536,7 +580,7 @@
       speed.value = String(clock.speed);
       badge.textContent = live ? 'LIVE' : `REPLAY ×${clock.speed}`;
       badge.classList.toggle('live', live);
-      where.textContent = clock.events.length ? `${clock.shown}/${clock.events.length} · ${formatTime(clock.time)}${clock.playing ? ' · quiet gaps skipped' : ''}` : 'No events';
+      where.textContent = clock.events.length ? `${clock.shown}/${clock.events.length} · ${formatTime(clock.time)}` : 'No events';
     }
     sync();
     return { element: bar, sync };
@@ -695,5 +739,5 @@
     return { dx: Math.sin((2 * Math.PI * t) / px + (h & 7)) * amplitude, dy: Math.cos((2 * Math.PI * t) / py + ((h >>> 3) & 7)) * amplitude };
   }
 
-  window.snagboatShared = { el, svg, compact, fmt, niceMax, clip, formatTime, formatDay, tipFor, ms, short, duration, agentName, modelShort, fit, findNode, pathTo, callTokens, sessionName, secondsText, turnStats, METRICS, metricValues, quantile, density, niceAxis, heatScale, arcPath, modeButtons, vizPanel, interact, legendKey, sessionClass, svgText, REPLAY_SPEEDS, replayEvents, countUpTo, createReplay, replayBar, hashId, forceLayout, drift, termsOf, foldPlural };
+  window.snagboatShared = { el, svg, compact, fmt, niceMax, clip, formatTime, formatDay, tipFor, ms, short, duration, agentName, modelShort, fit, findNode, pathTo, callTokens, sessionName, secondsText, turnStats, METRICS, metricValues, quantile, density, niceAxis, heatScale, arcPath, modeButtons, vizPanel, interact, legendKey, sessionClass, svgText, REPLAY_SPEEDS, replayEvents, countUpTo, createReplay, replayBar, hashId, forceLayout, drift, termsOf, foldPlural, fitHeight, fitter };
 })();

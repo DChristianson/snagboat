@@ -59,6 +59,7 @@
       });
       const note = el('p', { class: 'muted small' });
       host.replaceChildren(frame, note);
+      const fit = ctx.fitter(host); // the plate fills the slide's height
 
       function update(sessions, sel) {
         views = sessions;
@@ -185,7 +186,9 @@
         const plate = onPlate.map((id) => runs.find((r) => r.sessionId === id)).filter(Boolean);
         const width = Math.max(320, host.clientWidth || 800);
         const lanesUsed = Math.max(1, ...plate.map((r) => Math.max(0, ...r.branches.map((b) => b.lane + 1))));
-        const half = Math.max(70, Math.ceil(lanesUsed / 2) * LANE + 36);
+        const needHalf = Math.max(70, Math.ceil(lanesUsed / 2) * LANE + 36);
+        // The plate takes the slide's room, never less than its branches need.
+        const half = Math.max(needHalf, Math.floor((fit.height(needHalf * 2 + 78, 0) - 78) / 2));
         const plateH = half * 2 + 40;
         const axisY = plateH + 4;
         const height = axisY + 34;
@@ -270,6 +273,7 @@
           'Where passes agree the inks overprint. Sessions carry no task or outcome, so compare runs you know are comparable.',
           'Click a turn to select it; click a run in the library to put it on the plate or take it off.',
         ].join(' ');
+        fit.settle(height, draw);
       }
 
       function drawRun(g, r, pass, { xOf, trunkY, nodeR }) {
