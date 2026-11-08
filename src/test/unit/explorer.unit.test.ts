@@ -50,11 +50,11 @@ async function main() {
     assert.deepStrictEqual(validateCatalog(CATALOG, TAXONOMY), []);
     assert.deepStrictEqual(Object.keys(TAXONOMY), ['category', 'purpose', 'level', 'dimension', 'language']);
     assert.deepStrictEqual(Object.keys(TAXONOMY.category.values), ['temporal', 'actor', 'conversational', 'dependency', 'quantitative', 'state', 'semantic']);
-    assert.deepStrictEqual(CATALOG.map((v) => v.id), ['turn-tree', 'context-timeline', 'session-strips', 'cost-per-prompt', 'context-fill', 'sequence-diagram', 'event-graph', 'actor-graph', 'prompt-terms', 'gantt', 'treemap', 'heatmap', 'tool-ribbon', 'week-picture', 'histogram', 'box-violin', 'ridgeline', 'scatter', 'bubble', 'sunburst', 'calendar-heatmap', 'radar', 'parallel-coords', 'streamgraph', 'sankey', 'adjacency-matrix', 'swimlane', 'living-network', 'session-fingerprint', 'conversation-landscape', 'terminal-board']);
+    assert.deepStrictEqual(CATALOG.map((v) => v.id), ['turn-tree', 'context-timeline', 'session-strips', 'cost-per-prompt', 'context-fill', 'sequence-diagram', 'event-graph', 'actor-graph', 'prompt-terms', 'gantt', 'treemap', 'heatmap', 'tool-ribbon', 'week-picture', 'histogram', 'box-violin', 'ridgeline', 'scatter', 'bubble', 'sunburst', 'calendar-heatmap', 'radar', 'parallel-coords', 'streamgraph', 'sankey', 'adjacency-matrix', 'swimlane', 'living-network', 'session-fingerprint', 'conversation-landscape', 'terminal-board', 'factory-clock']);
   });
 
   test('only hero views leave the standard design language, each with a language of its own, and they come last', () => {
-    const heroes: Record<string, string> = { 'living-network': 'cinematic', 'session-fingerprint': 'risograph', 'conversation-landscape': 'edgeless', 'terminal-board': 'split-flap' };
+    const heroes: Record<string, string> = { 'living-network': 'cinematic', 'session-fingerprint': 'risograph', 'conversation-landscape': 'edgeless', 'terminal-board': 'split-flap', 'factory-clock': 'horology' };
     assert.deepStrictEqual(Object.keys(TAXONOMY.language.values), ['standard', ...Object.values(heroes)]);
     for (const v of CATALOG) assert.deepStrictEqual(v.tags.language, [heroes[v.id] ?? 'standard'], v.id);
     const firstHero = CATALOG.findIndex((v) => v.id in heroes);

@@ -69,6 +69,7 @@ export const TAXONOMY = {
       risograph: 'Spot-color passes overprinted on uncoated stock, grain and halftone (Session Fingerprint)',
       edgeless: 'Paper-white space, one saturated hue per actor, words instead of lines (Conversation Landscape)',
       'split-flap': 'A station board of fixed character cells; change arrives as falling flaps (Terminal Board)',
+      horology: 'An enamel dial read like a watch: serif numerals, ink arcs, one orange sweep hand (Factory Clock)',
     },
   },
 } satisfies Taxonomy;
@@ -275,6 +276,12 @@ export const CATALOG: VisualizerEntry[] = [
     title: 'Terminal Board',
     description: 'A split-flap board with a fixed region per actor, showing what each last said or did as the session replays, plus the queue, tokens, and status.',
     tags: { category: ['conversational', 'state'], purpose: ['expressive'], level: ['session'], dimension: ['communication', 'actor', 'content'], language: ['split-flap'] },
+  },
+  {
+    id: 'factory-clock',
+    title: 'Factory Clock',
+    description: 'A dial read like a watch: angle is time, rings are depth from you to the tools, arcs are stretches of activity, hatching is a quiet gap, and the hand sweeps through the session.',
+    tags: { category: ['temporal'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['time', 'actor', 'hierarchy'], language: ['horology'] },
   },
 ];
 
