@@ -363,7 +363,37 @@
   const REPLAY_KIND_ORDER = { prompt: 0, compaction: 1, call: 2, tool: 3 };
   /** Speeds offered, as multiples of the session's own clock. */
   const REPLAY_SPEEDS = [1, 10, 60, 600];
-  const REPLAY_DEFAULT_SPEED = 60;
+  /** Speeds that fit what's loaded into a length of playback: the whole span in this many seconds, at a steady pace. */
+  const REPLAY_FITS = [60, 30, 10];
+  /** The speed menu: fits first, then multiples of the session's own clock. */
+  const REPLAY_CHOICES = [...REPLAY_FITS.map((s) => [`fit:${s}`, `Whole in ${s}s`]), ...REPLAY_SPEEDS.map((s) => [String(s), `×${s}`])];
+  const isReplaySetting = (v) => REPLAY_CHOICES.some(([k]) => k === String(v));
+
+  // Playback settings shared by every replay on the page, so the hero views move together; the Explore tab
+  // remembers them (explore.js saves them with its state). speed is a menu key ('fit:30' or '60'); loop restarts at the end.
+  const replayPrefs = { speed: 'fit:30', loop: false };
+  const prefListeners = new Set();
+  function getReplayPrefs() {
+    return { ...replayPrefs };
+  }
+  function setReplayPrefs(partial) {
+    if (!partial || typeof partial !== 'object') return;
+    let changed = false;
+    if (partial.speed !== undefined && isReplaySetting(partial.speed) && String(partial.speed) !== replayPrefs.speed) {
+      replayPrefs.speed = String(partial.speed);
+      changed = true;
+    }
+    if (partial.loop !== undefined && !!partial.loop !== replayPrefs.loop) {
+      replayPrefs.loop = !!partial.loop;
+      changed = true;
+    }
+    if (changed) for (const cb of [...prefListeners]) cb(getReplayPrefs());
+  }
+  /** Calls cb with the settings whenever they change; returns the unsubscribe. */
+  function onReplayPrefs(cb) {
+    prefListeners.add(cb);
+    return () => prefListeners.delete(cb);
+  }
   /** A session whose last event is this recent can be live. */
   const LIVE_WINDOW_MS = 10 * 60 * 1000;
 
@@ -409,11 +439,14 @@
    * where it is (time, shown) and whether it's live. It ticks only while playing and active,
    * so a slide that isn't current costs nothing.
    *
-   *   opts: { onFrame(clock), speed?, now?(), raf?(fn), caf?(id), reducedMotion?: boolean }
+   *   opts: { onFrame(clock), now?(), raf?(fn), caf?(id), reducedMotion?: boolean }
    *   clock.setSessions(views)   new or updated sessions; at the end, an update keeps the clock there
    *   clock.time, clock.start, clock.end, clock.events, clock.shown (events at or before time)
-   *   clock.playing, clock.speed, clock.mode() 'live' | 'replay'
-   *   clock.play(), pause(), toggle(), seek(t), seekShown(n), setSpeed(s), setActive(active), destroy()
+   *   clock.playing, clock.speed (session ms per ms), clock.setting ('fit:30', '60'), clock.loop, clock.mode() 'live' | 'replay'
+   *   clock.play(), pause(), toggle(), seek(t), seekShown(n), setSpeed(setting), setLoop(on), setActive(active), destroy()
+   *
+   * The speed and loop come from the page's shared playback settings (setSpeed and setLoop change them for
+   * every clock). A fit setting turns into the multiple that plays the whole span in that many seconds.
    *
    * Live means at the end of a session that's still recent; scrubbing back leaves live until the
    * clock returns to the end. With reduced motion, the clock opens at the end and never autoplays.
@@ -435,7 +468,9 @@
       time: 0,
       shown: 0,
       playing: false,
-      speed: REPLAY_SPEEDS.includes(opts.speed) ? opts.speed : REPLAY_DEFAULT_SPEED,
+      speed: 60,
+      setting: replayPrefs.speed,
+      loop: replayPrefs.loop,
       reduced,
       atEnd() {
         return clock.shown >= clock.events.length && clock.time >= clock.end;
@@ -451,6 +486,7 @@
         clock.events = replayEvents(views);
         clock.start = clock.events.length ? clock.events[0].t : 0;
         clock.end = clock.events.length ? clock.events[clock.events.length - 1].t : 0;
+        applySpeed();
         if (!opened) {
           opened = true;
           // A live session, or reduced motion, opens on what's there now.
@@ -492,9 +528,11 @@
         if (i === 0) clock.shown = 0;
         render();
       },
-      setSpeed(s) {
-        if (REPLAY_SPEEDS.includes(s)) clock.speed = s;
-        render();
+      setSpeed(setting) {
+        setReplayPrefs({ speed: setting });
+      },
+      setLoop(on) {
+        setReplayPrefs({ loop: on });
       },
       setActive(on) {
         active = !!on;
@@ -507,9 +545,22 @@
       },
       destroy() {
         unschedule();
+        unsubscribe();
         clock.playing = false;
       },
     };
+    /** The multiple for the current setting: a number as given, a fit as the span over its seconds (at least ×1). */
+    function applySpeed() {
+      const fit = /^fit:(\d+)$/.exec(clock.setting);
+      clock.speed = fit ? Math.max(1, (clock.end - clock.start) / (Number(fit[1]) * 1000)) : Number(clock.setting);
+    }
+    applySpeed();
+    const unsubscribe = onReplayPrefs((prefs) => {
+      clock.setting = prefs.speed;
+      clock.loop = prefs.loop;
+      applySpeed();
+      render();
+    });
     function place(t) {
       clock.time = t;
       clock.shown = countUpTo(clock.events, t);
@@ -534,6 +585,15 @@
       last = wall;
       const t = clock.time + dt * clock.speed; // a steady pace: quiet stretches play at the same speed as busy ones
       if (t >= clock.end) {
+        if (clock.loop && clock.end > clock.start && !clock.recent()) {
+          // Loop: back to the start and keep playing (a live session stays at its end instead).
+          place(clock.start);
+          clock.shown = 0;
+          render();
+          frame = raf(tick);
+          last = wall;
+          return;
+        }
         place(clock.end);
         clock.playing = false;
         render();
@@ -545,6 +605,11 @@
       last = wall;
     }
     return clock;
+  }
+
+  /** A speed multiple for a badge: whole numbers, compact past ten thousand. */
+  function speedText(x) {
+    return x >= 10000 ? compact(Math.round(x)) : fmt(Math.round(x));
   }
 
   /**
@@ -563,13 +628,15 @@
     });
     const speed = el(
       'select',
-      { class: 'replay-speed', 'aria-label': 'Replay speed' },
-      REPLAY_SPEEDS.map((s) => el('option', { value: s, text: `×${s}` }))
+      { class: 'replay-speed', 'aria-label': 'Replay speed', title: 'Whole in N seconds plays everything loaded in that time, at a steady pace; ×N is that many times the sessions’ own clock' },
+      REPLAY_CHOICES.map(([value, text]) => el('option', { value, text }))
     );
-    speed.addEventListener('change', () => clock.setSpeed(Number(speed.value)));
+    speed.addEventListener('change', () => clock.setSpeed(speed.value));
+    const loop = el('button', { class: 'replay-loop', text: 'Loop', 'aria-pressed': String(clock.loop), title: 'Start again from the beginning at the end' });
+    loop.addEventListener('click', () => clock.setLoop(!clock.loop));
     const badge = el('span', { class: 'replay-badge', role: 'status' });
     const where = el('span', { class: 'replay-where small' });
-    const bar = el('div', { class: 'replay-bar', role: 'group', 'aria-label': 'Replay' }, [playBtn, scrub, speed, badge, where]);
+    const bar = el('div', { class: 'replay-bar', role: 'group', 'aria-label': 'Replay' }, [playBtn, scrub, speed, loop, badge, where]);
     function sync() {
       const live = clock.mode() === 'live';
       playBtn.textContent = clock.playing ? 'Pause' : clock.atEnd() ? 'Replay' : 'Play';
@@ -577,8 +644,9 @@
       scrub.max = String(clock.events.length);
       scrub.value = String(clock.shown);
       scrub.setAttribute('aria-valuetext', `${clock.shown} of ${clock.events.length} events`);
-      speed.value = String(clock.speed);
-      badge.textContent = live ? 'LIVE' : `REPLAY ×${clock.speed}`;
+      speed.value = clock.setting;
+      loop.setAttribute('aria-pressed', String(clock.loop));
+      badge.textContent = live ? 'LIVE' : `REPLAY ×${speedText(clock.speed)}${clock.loop ? ' ⟲' : ''}`;
       badge.classList.toggle('live', live);
       where.textContent = clock.events.length ? `${clock.shown}/${clock.events.length} · ${formatTime(clock.time)}` : 'No events';
     }
@@ -739,5 +807,5 @@
     return { dx: Math.sin((2 * Math.PI * t) / px + (h & 7)) * amplitude, dy: Math.cos((2 * Math.PI * t) / py + ((h >>> 3) & 7)) * amplitude };
   }
 
-  window.snagboatShared = { el, svg, compact, fmt, niceMax, clip, formatTime, formatDay, tipFor, ms, short, duration, agentName, modelShort, fit, findNode, pathTo, callTokens, sessionName, secondsText, turnStats, METRICS, metricValues, quantile, density, niceAxis, heatScale, arcPath, modeButtons, vizPanel, interact, legendKey, sessionClass, svgText, REPLAY_SPEEDS, replayEvents, countUpTo, createReplay, replayBar, hashId, forceLayout, drift, termsOf, foldPlural, fitHeight, fitter };
+  window.snagboatShared = { el, svg, compact, fmt, niceMax, clip, formatTime, formatDay, tipFor, ms, short, duration, agentName, modelShort, fit, findNode, pathTo, callTokens, sessionName, secondsText, turnStats, METRICS, metricValues, quantile, density, niceAxis, heatScale, arcPath, modeButtons, vizPanel, interact, legendKey, sessionClass, svgText, REPLAY_SPEEDS, REPLAY_CHOICES, getReplayPrefs, setReplayPrefs, onReplayPrefs, speedText, replayEvents, countUpTo, createReplay, replayBar, hashId, forceLayout, drift, termsOf, foldPlural, fitHeight, fitter };
 })();

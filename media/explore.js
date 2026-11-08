@@ -23,7 +23,7 @@
 // ctx: the helpers from shared.js plus tooltip, showTip(evt, rows), hideTip(). The tab adds
 // select(selection) for each visualizer it mounts (see media/viz/registry.js).
 //
-// Saved state: { picked: string[], current: visualizer id, filters: { facet: [values] },
+// Saved state: { picked: string[], current: visualizer id, filters: { facet: [values] }, replay: { speed, loop },
 // collapsed: boolean, corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
 // selection: { sessionId?, turnId?, range?, focusId? } | null }.
 (function () {
@@ -56,6 +56,9 @@
       requested: false, // whether this page already asked for the picked sessions
     };
     const save = (partial) => source.setState(partial);
+    // The hero views' playback settings (speed, loop) are shared by every replay and remembered with the tab.
+    if (saved.replay && typeof ctx.setReplayPrefs === 'function') ctx.setReplayPrefs(saved.replay);
+    const stopReplayPrefs = typeof ctx.onReplayPrefs === 'function' ? ctx.onReplayPrefs((prefs) => save({ replay: prefs })) : () => {};
     const isLive = (s) => Date.now() - ms(s.lastTs) < 10 * 60 * 1000;
     const sessionLabel = (s) => (s.name ? clip(s.name, 48) : short(s.sessionId));
 
@@ -601,6 +604,7 @@
         activate();
       },
       destroy() {
+        stopReplayPrefs();
         window.removeEventListener('resize', onResize);
         if (pageObserver) pageObserver.disconnect();
         if (drag) stopDragging();
