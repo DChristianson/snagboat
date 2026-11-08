@@ -66,6 +66,7 @@ export const TAXONOMY = {
     values: {
       standard: 'The page’s shared look: theme colors, in both themes',
       cinematic: 'A dark field lit by the work moving through it: glow, particles, letterbox (Living Network)',
+      risograph: 'Spot-color passes overprinted on uncoated stock, grain and halftone (Session Fingerprint)',
     },
   },
 } satisfies Taxonomy;
@@ -254,6 +255,12 @@ export const CATALOG: VisualizerEntry[] = [
     title: 'Living Network',
     description: 'You, the agent, subagents, and tool categories on a dark field, lit by the work moving between them as the session replays.',
     tags: { category: ['actor', 'temporal'], purpose: ['expressive'], level: ['session'], dimension: ['actor', 'communication', 'time'], language: ['cinematic'] },
+  },
+  {
+    id: 'session-fingerprint',
+    title: 'Session Fingerprint',
+    description: 'Each run as a signature of turns, subagent branches, retry loops, and quiet gaps, up to three overprinted as ink passes to compare, the rest in a library row.',
+    tags: { category: ['dependency', 'temporal'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['time', 'hierarchy', 'dependency', 'quantity'], language: ['risograph'] },
   },
 ];
 
