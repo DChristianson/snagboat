@@ -68,6 +68,7 @@ export const TAXONOMY = {
       cinematic: 'A dark field lit by the work moving through it: glow, particles, letterbox (Living Network)',
       risograph: 'Spot-color passes overprinted on uncoated stock, grain and halftone (Session Fingerprint)',
       edgeless: 'Paper-white space, one saturated hue per actor, words instead of lines (Conversation Landscape)',
+      'split-flap': 'A station board of fixed character cells; change arrives as falling flaps (Terminal Board)',
     },
   },
 } satisfies Taxonomy;
@@ -268,6 +269,12 @@ export const CATALOG: VisualizerEntry[] = [
     title: 'Conversation Landscape',
     description: 'What each actor talked about: a dot per actor in its own hue, its most distinctive words around it, no lines; closeness is how much they interacted.',
     tags: { category: ['semantic', 'conversational', 'actor'], purpose: ['expressive'], level: ['session'], dimension: ['content', 'actor', 'communication'], language: ['edgeless'] },
+  },
+  {
+    id: 'terminal-board',
+    title: 'Terminal Board',
+    description: 'A split-flap board with a fixed region per actor, showing what each last said or did as the session replays, plus the queue, tokens, and status.',
+    tags: { category: ['conversational', 'state'], purpose: ['expressive'], level: ['session'], dimension: ['communication', 'actor', 'content'], language: ['split-flap'] },
   },
 ];
 
