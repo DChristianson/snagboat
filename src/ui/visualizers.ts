@@ -256,8 +256,8 @@ export const CATALOG: VisualizerEntry[] = [
   {
     id: 'living-network',
     title: 'Living Network',
-    description: 'You, the agent, subagents, and tool categories on a dark field, lit by the work moving between them as the session replays.',
-    tags: { category: ['actor', 'temporal'], purpose: ['expressive'], level: ['session'], dimension: ['actor', 'communication', 'time'], language: ['cinematic'] },
+    description: 'You, the agents, subagents, and tool categories of every loaded session on one dark field, lit by the work moving between them as the sessions replay.',
+    tags: { category: ['actor', 'temporal'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['actor', 'communication', 'time'], language: ['cinematic'] },
   },
   {
     id: 'session-fingerprint',
@@ -274,14 +274,14 @@ export const CATALOG: VisualizerEntry[] = [
   {
     id: 'terminal-board',
     title: 'Terminal Board',
-    description: 'A split-flap board with a fixed region per actor, showing what each last said or did as the session replays, plus the queue, tokens, and status.',
-    tags: { category: ['conversational', 'state'], purpose: ['expressive'], level: ['session'], dimension: ['communication', 'actor', 'content'], language: ['split-flap'] },
+    description: 'A split-flap board with a fixed region per actor across every loaded session, showing what each last said or did as they replay, plus the queue, tokens, and status.',
+    tags: { category: ['conversational', 'state'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['communication', 'actor', 'content'], language: ['split-flap'] },
   },
   {
     id: 'factory-clock',
     title: 'Factory Clock',
-    description: 'A dial read like a watch: angle is time, rings are depth from you to the tools, arcs are stretches of activity, hatching is a quiet gap, and the hand sweeps through the session.',
-    tags: { category: ['temporal'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['time', 'actor', 'hierarchy'], language: ['horology'] },
+    description: 'A dial read like a watch for every loaded session: angle is time, rings are depth from you to the tools, arcs are stretches of activity, hatching is a quiet gap, and the hand sweeps through.',
+    tags: { category: ['temporal'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['time', 'actor', 'hierarchy'], language: ['horology'] },
   },
 ];
 

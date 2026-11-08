@@ -13,8 +13,9 @@
 // every region shows its latest at once. A tool region knows only a tool's
 // name, category, and status: SessionView carries no arguments, and they
 // shouldn't be added for this. It's a compressed view, never the transcript;
-// a region's history is one click away. A session-level visualizer: draws the
-// first session it's given. Sees only its host and ctx: no VS Code.
+// a region's history is one click away. Session and project level: every loaded session shares one board, a
+// region per kind of agent, subagents per session. Sees only its host and
+// ctx: no VS Code.
 (function () {
   const MAX_REGIONS = 12; // the actor regions and the three panels together
   const ROWS = 3; // lines per region
@@ -32,13 +33,14 @@
   window.snagboatViz.register({
     id: 'terminal-board',
     title: 'Terminal Board',
-    tags: { category: ['conversational', 'state'], purpose: ['expressive'], level: ['session'], dimension: ['communication', 'actor', 'content'], language: ['split-flap'] },
+    tags: { category: ['conversational', 'state'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['communication', 'actor', 'content'], language: ['split-flap'] },
     mount(host, ctx) {
       const { el, fmt, compact, clip, short, modelShort, formatTime, countUpTo, termsOf, modeButtons, callTokens, showTip, hideTip } = ctx;
       const frame = el('div', { class: 'hero-board' });
       const note = el('p', { class: 'muted small' });
       host.replaceChildren(frame, note);
-      let view = null;
+      let views = [];
+      let viewKey = '';
       let selection = null;
       let model = null;
       let board = null; // { regions: [{ def, cells, lamp, shown: { key, lines, at }, skipped }] }
@@ -59,27 +61,36 @@
       summariesBtn.title = 'Summaries need the advisor; not built';
 
       function update(sessions, sel) {
-        const next = sessions[0] || null;
-        if (!view || !next || view.summary.sessionId !== next.summary.sessionId) {
+        const key = sessions.map((v) => v.summary.sessionId).join('\n');
+        if (key !== viewKey) {
           opened = null;
           skippedTotal = 0;
         }
-        view = next;
+        viewKey = key;
+        views = sessions;
         selection = sel || null;
-        model = view ? analyze(view) : null;
-        clock.setSessions(view ? [view] : []);
+        model = views.length ? analyze(views) : null;
+        clock.setSessions(views);
         draw();
       }
 
       // ---------- what each region says, over time ----------
-      function analyze(v) {
+      /** Every session given on one board: one region for you, one per kind of agent, subagents per session, tools shared. */
+      function analyze(vs) {
         const ms = (ts) => Date.parse(ts);
-        const subs = [...new Set([...v.calls, ...v.tools].map((x) => x.agentId).filter(Boolean))];
-        const subWork = new Map(subs.map((id) => [id, v.calls.filter((c) => c.agentId === id).length]));
+        const byTime = (a, b) => ms(a.ts) - ms(b.ts);
+        const tag = (v, x) => ({ ...x, sessionId: v.summary.sessionId, agent: v.summary.agent });
+        const prompts = vs.flatMap((v) => v.prompts.map((x) => tag(v, x))).sort(byTime);
+        const calls = vs.flatMap((v) => v.calls.map((x) => tag(v, x))).sort(byTime);
+        const tools = vs.flatMap((v) => v.tools.map((x) => tag(v, x))).sort(byTime);
+        const subOf = (x) => `${x.sessionId}/${x.agentId}`;
+        const subs = [...new Set([...calls, ...tools].filter((x) => x.agentId).map(subOf))];
+        const subWork = new Map(subs.map((id) => [id, calls.filter((c) => c.agentId && subOf(c) === id).length]));
         const cats = new Map();
-        for (const t of v.tools) cats.set(t.category, (cats.get(t.category) || 0) + 1);
-        // Room for the actors: three panels, you, the agent; subagents and tools share the rest, tools first.
-        const room = MAX_REGIONS - 5;
+        for (const t of tools) cats.set(t.category, (cats.get(t.category) || 0) + 1);
+        const agentKinds = [...new Set(vs.map((v) => v.summary.agent))];
+        // Room for the actors: three panels, you, the agents; subagents and tools share the rest, tools first.
+        const room = MAX_REGIONS - 4 - agentKinds.length;
         const toolRoom = Math.min(cats.size, Math.max(2, room - Math.min(subs.length, Math.floor(room / 2))));
         const subRoom = Math.min(subs.length, room - toolRoom);
         const subKeep = new Set([...subs].sort((a, b) => subWork.get(b) - subWork.get(a) || a.localeCompare(b)).slice(0, subs.length > subRoom ? subRoom - 1 : subRoom));
@@ -88,48 +99,49 @@
         const regions = new Map();
         const region = (id, kind, plate) => regions.get(id) || regions.set(id, { id, kind, plate, lines: [] }).get(id);
         const you = region('you', 'human', 'Human / you');
-        const agent = region('agent', 'agent', `Agent / ${v.summary.agent === 'copilot' ? 'Copilot' : 'main'}`);
-        const subRegion = (agentId) => (subKeep.has(agentId) ? region(`sub:${agentId}`, 'agent', `Agent / sub ${agentId.replace(/^agent-/, '').slice(0, 6)}`) : region('sub:+', 'agent', `Agent / +${subs.length - subKeep.size} subs`));
+        const agentRegion = (kind) => region(`agent:${kind}`, 'agent', `Agent / ${kind === 'copilot' ? 'Copilot' : agentKinds.length > 1 ? 'Claude Code' : 'main'}`);
+        for (const kind of agentKinds) agentRegion(kind);
+        const subRegion = (x) => (subKeep.has(subOf(x)) ? region(`sub:${subOf(x)}`, 'agent', `Agent / sub ${x.agentId.replace(/^agent-/, '').slice(0, 6)}`) : region('sub:+', 'agent', `Agent / +${subs.length - subKeep.size} subs`));
         const toolRegion = (cat) => (catKeep.has(cat) ? region(`tool:${cat}`, 'tool', `Tool / ${cat}`) : region('tool:+', 'tool', 'Tool / other'));
-        // Every message, in replay order: { t, turnId, text, raw } per region.
-        for (const p of v.prompts) you.lines.push({ t: ms(p.ts), turnId: p.turnId, text: p.text ? `> ${p.text}` : `> PROMPT ${p.index}`, raw: !!p.text });
+        // Every message, in time order: { t, sessionId, turnId, text, raw } per region.
+        for (const p of prompts) you.lines.push({ t: ms(p.ts), sessionId: p.sessionId, turnId: p.turnId, text: p.text ? `> ${p.text}` : `> PROMPT ${p.index}`, raw: !!p.text });
         let callNo = 0;
-        for (const c of v.calls) {
+        for (const c of calls) {
           callNo += 1;
-          const r = c.agentId ? subRegion(c.agentId) : agent;
+          const r = c.agentId ? subRegion(c) : agentRegion(c.agent);
           const tokens = callTokens(c);
-          r.lines.push({ t: ms(c.ts), turnId: c.turnId, text: c.reply || `${c.model ? modelShort(c.model) : 'model'} call ${callNo} ${compact(tokens)} tok`, raw: !!c.reply });
+          r.lines.push({ t: ms(c.ts), sessionId: c.sessionId, turnId: c.turnId, text: c.reply || `${c.model ? modelShort(c.model) : 'model'} call ${callNo} ${compact(tokens)} tok`, raw: !!c.reply });
         }
         const toolCounts = new Map();
-        for (const t of v.tools) {
+        for (const t of tools) {
           const r = toolRegion(t.category);
           const n = (toolCounts.get(r.id) || 0) + 1;
           toolCounts.set(r.id, n);
           const status = t.status === 'failure' ? 'FAILED' : t.status === 'success' ? 'OK' : '';
           const failedSoFar = (toolCounts.get(`${r.id}:failed`) || 0) + (t.status === 'failure' ? 1 : 0);
           toolCounts.set(`${r.id}:failed`, failedSoFar);
-          r.lines.push({ t: ms(t.ts), turnId: t.turnId, text: `${t.name || t.category} ${status}`.trim(), n, failedSoFar, failed: t.status === 'failure' });
+          r.lines.push({ t: ms(t.ts), sessionId: t.sessionId, turnId: t.turnId, text: `${t.name || t.category} ${status}`.trim(), n, failedSoFar, failed: t.status === 'failure' });
         }
         for (const r of regions.values()) r.lines.sort((a, b) => a.t - b.t);
         const actors = [...regions.values()].filter((r) => r.lines.length);
         // Running totals for the panels, by call.
-        const calls = [...v.calls].map((c) => ({ t: ms(c.ts), input: c.input + c.cacheRead + c.cacheCreation, output: c.output })).sort((a, b) => a.t - b.t);
+        const totals = calls.map((c) => ({ t: ms(c.ts), input: c.input + c.cacheRead + c.cacheCreation, output: c.output }));
         let inSum = 0;
         let outSum = 0;
-        for (const c of calls) {
+        for (const c of totals) {
           inSum += c.input;
           outSum += c.output;
           c.inSum = inSum;
           c.outSum = outSum;
         }
-        const failures = v.tools.filter((t) => t.status === 'failure').map((t) => ({ t: ms(t.ts) })).sort((a, b) => a.t - b.t);
-        return { actors, calls, failures, events: ctx.replayEvents([v]), start: ms(v.summary.firstTs) };
+        const failures = tools.filter((t) => t.status === 'failure').map((t) => ({ t: ms(t.ts) }));
+        return { actors, calls: totals, failures, events: ctx.replayEvents(vs) };
       }
 
       // ---------- the board ----------
       function draw() {
         hideTip();
-        if (!view || !model) {
+        if (!views.length || !model) {
           frame.replaceChildren(el('p', { class: 'tb-empty', text: 'No session.' }));
           note.textContent = '';
           board = null;
@@ -175,7 +187,7 @@
           return { def, cellEls, lamp, box, shown: null, pending: null };
         });
         const head = el('div', { class: 'tb-head' }, [
-          el('div', { class: 'tb-title' }, [el('span', { class: 'tb-num', text: '05' }), el('div', {}, [el('strong', { text: 'Terminal Board' }), el('span', { class: 'tb-subtitle', text: `Live content & status · session ${short(view.summary.sessionId)}` })])]),
+          el('div', { class: 'tb-title' }, [el('span', { class: 'tb-num', text: '05' }), el('div', {}, [el('strong', { text: 'Terminal Board' }), el('span', { class: 'tb-subtitle', text: `Live content & status · ${views.length === 1 ? `session ${short(views[0].summary.sessionId)}` : `${views.length} sessions`}` })])]),
           el('div', { class: 'tb-local' }, [el('span', { class: 'tb-subtitle', text: 'Board time' }), clockFace]),
         ]);
         const history = el('div', { class: 'tb-history', 'aria-live': 'polite' });
@@ -228,7 +240,7 @@
           const line = d.lines[n - 1];
           const body = textMode === 'keywords' && line.raw ? (line.text.startsWith('> ') ? `> ${keywords(line.text)}` : keywords(line.text)) : line.text;
           const lines = d.kind === 'tool' ? [body, `call ${fmt(line.n)} of ${fmt(d.lines.length)}`, line.failedSoFar ? `failed ${fmt(line.failedSoFar)}` : ''].map((s) => s.toUpperCase().slice(0, board.cells)) : layoutLines(body);
-          return { key: `${d.id}:${n}:${textMode}`, lines, n, t: line.t, turnId: line.turnId, full: line.text, failed: line.failed };
+          return { key: `${d.id}:${n}:${textMode}`, lines, n, t: line.t, sessionId: line.sessionId, turnId: line.turnId, full: line.text, failed: line.failed };
         }
         const shown = countUpTo(model.events, t);
         if (d.id === 'queue') return { key: `q:${shown}:${skippedTotal}`, lines: [`EVENT ${String(shown).padStart(4, '0')}`, `OF ${model.events.length}`, `QUEUED PAST ${skippedTotal}`].map((s) => s.slice(0, board.cells)) };
@@ -259,7 +271,7 @@
         const t = clock.time;
         clockFace.textContent = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
         const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        const sel = selection && selection.turnId && (!selection.sessionId || selection.sessionId === view.summary.sessionId) ? selection.turnId : null;
+        const sel = selection && selection.turnId ? selection : null;
         // Panels after actors: the status panel reads the actors' lines.
         for (const r of board.regions) {
           const want = wanted(r, t);
@@ -281,7 +293,7 @@
             const state = !n ? 'idle' : t - r.def.lines[n - 1].t <= ACTIVE_MS ? 'active' : 'quiet';
             r.lamp.className = `tb-lamp tb-lamp-${state}`;
             r.lamp.setAttribute('aria-label', state);
-            r.box.classList.toggle('tb-in-turn', !!sel && !!r.shown && r.shown.turnId === sel);
+            r.box.classList.toggle('tb-in-turn', !!sel && !!r.shown && r.shown.turnId === sel.turnId && (!sel.sessionId || sel.sessionId === r.shown.sessionId));
           } else r.lamp.className = 'tb-lamp tb-lamp-active';
         }
       }
@@ -330,7 +342,7 @@
             lines.map((line) => {
               const li = el('li', { tabindex: line.turnId ? 0 : undefined }, [el('span', { class: 'tb-when', text: formatTime(line.t) }), el('span', { text: clip(line.text, 400) })]);
               if (line.turnId) {
-                const pick = () => ctx.select({ sessionId: view.summary.sessionId, turnId: line.turnId });
+                const pick = () => ctx.select({ sessionId: line.sessionId, turnId: line.turnId });
                 li.addEventListener('click', pick);
                 li.addEventListener('keydown', (e) => e.key === 'Enter' && pick());
               }

@@ -11,9 +11,9 @@
 // event of a stretch to its last. Waiting can't be told from working until
 // phase 8 labels quiet gaps, so the hatching means "quiet gap", and the note
 // says so. Playback comes from the shared replay clock: the hand is the
-// clock's position and the arcs fill in behind it. A session-level
-// visualizer: draws the first session it's given; several sessions stack as
-// dials. Clicking an arc selects its turn; clicking a ring's label isolates
+// clock's position and the arcs fill in behind it. Session and project
+// level: every loaded session goes onto one dial, its rings shared and its
+// turns kept per session. Clicking an arc selects its turn; clicking a ring's label isolates
 // the ring. Sees only its host and ctx: no VS Code.
 (function () {
   const MAX_SUB_RINGS = 4; // subagent rings, the "+N" ring included
@@ -21,7 +21,7 @@
   const JOIN = 0.02; // events closer than this share of the window join one arc
   const QUIET_MIN_MS = 3 * 60 * 1000; // a quiet stretch inside an open turn is hatched past this
   const WINDOWS = [
-    ['session', 'Whole session'],
+    ['session', 'Whole span'],
     ['15m', '15 min'],
     ['1h', '1 hour'],
     ['4h', '4 hours'],
@@ -37,14 +37,15 @@
   window.snagboatViz.register({
     id: 'factory-clock',
     title: 'Factory Clock',
-    tags: { category: ['temporal'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['time', 'actor', 'hierarchy'], language: ['horology'] },
+    tags: { category: ['temporal'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['time', 'actor', 'hierarchy'], language: ['horology'] },
     mount(host, ctx) {
       const { el, svg, svgText, fmt, compact, short, secondsText, formatTime, arcPath, callTokens, modeButtons, showTip, hideTip } = ctx;
       const prefix = `fc${++charts}`;
       const frame = el('div', { class: 'hero-clock' });
       const note = el('p', { class: 'muted small' });
       host.replaceChildren(frame, note);
-      let view = null;
+      let views = [];
+      let viewKey = '';
       let selection = null;
       let model = null;
       let windowMode = 'session';
@@ -65,20 +66,28 @@
       });
 
       function update(sessions, sel) {
-        const next = sessions[0] || null;
-        if (!view || !next || view.summary.sessionId !== next.summary.sessionId) {
+        const key = sessions.map((v) => v.summary.sessionId).join('\n');
+        if (key !== viewKey) {
           isolated = null;
           shownWindow = null;
         }
-        view = next;
+        viewKey = key;
+        views = sessions;
         selection = sel || null;
-        model = view ? analyze(view) : null;
-        clock.setSessions(view ? [view] : []);
+        model = views.length ? analyze(views) : null;
+        clock.setSessions(views);
         draw();
       }
 
-      /** Rings, inside out, each with its events: { t, turnId, tokens }. */
-      function analyze(v) {
+      // Turns are keyed by session as well as id, so arcs and quiet gaps from several sessions stay apart.
+      const turnKey = (sessionId, turnId) => (turnId ? `${sessionId}\n${turnId}` : undefined);
+      const pickKey = (k) => {
+        const [sessionId, turnId] = k.split('\n');
+        ctx.select({ sessionId, turnId });
+      };
+
+      /** Rings, inside out, each with its events: { t, turnId (a turn key), tokens }, over every session given. */
+      function analyze(vs) {
         const ms = (ts) => Date.parse(ts);
         const rings = [];
         const ring = (id, kind, label) => {
@@ -86,34 +95,51 @@
           rings.push(r);
           return r;
         };
+        const each = (pick) => vs.flatMap((v) => pick(v).map((x) => ({ ...x, sessionId: v.summary.sessionId })));
+        const prompts = each((v) => v.prompts);
+        const calls = each((v) => v.calls);
+        const tools = each((v) => v.tools);
+        const subOf = (x) => `${x.sessionId}/${x.agentId}`;
         const human = ring('human', 'human', 'Human');
-        for (const p of v.prompts) human.events.push({ t: ms(p.ts), turnId: p.turnId, tokens: 0, prompt: p });
+        for (const p of prompts) human.events.push({ t: ms(p.ts), turnId: turnKey(p.sessionId, p.turnId), tokens: 0 });
         const primary = ring('primary', 'primary', 'Primary');
-        const subIds = [...new Set(v.calls.concat(v.tools).map((x) => x.agentId).filter(Boolean))];
-        const subWork = new Map(subIds.map((id) => [id, v.calls.filter((c) => c.agentId === id).length]));
+        const subIds = [...new Set(calls.concat(tools).filter((x) => x.agentId).map(subOf))];
+        const subWork = new Map(subIds.map((id) => [id, calls.filter((c) => c.agentId && subOf(c) === id).length]));
         const subKeep = [...subIds].sort((a, b) => subWork.get(b) - subWork.get(a) || a.localeCompare(b)).slice(0, subIds.length > MAX_SUB_RINGS ? MAX_SUB_RINGS - 1 : MAX_SUB_RINGS);
-        const subRings = new Map(subKeep.map((id) => [id, ring(`sub:${id}`, 'sub', `Sub ${id.replace(/^agent-/, '').slice(0, 5)}`)]));
+        const subRings = new Map(subKeep.map((id) => [id, ring(`sub:${id}`, 'sub', `Sub ${id.split('/')[1].replace(/^agent-/, '').slice(0, 5)}`)]));
         const subOther = subIds.length > subKeep.length ? ring('sub:+', 'sub', `+${subIds.length - subKeep.length} subs`) : null;
-        const actorRing = (agentId) => (!agentId ? primary : subRings.get(agentId) || subOther);
-        for (const c of v.calls) actorRing(c.agentId).events.push({ t: ms(c.ts), turnId: c.turnId, tokens: callTokens(c) });
+        const actorRing = (x) => (!x.agentId ? primary : subRings.get(subOf(x)) || subOther);
+        for (const c of calls) actorRing(c).events.push({ t: ms(c.ts), turnId: turnKey(c.sessionId, c.turnId), tokens: callTokens(c), sessionId: c.sessionId });
         const cats = new Map();
-        for (const t of v.tools) cats.set(t.category, (cats.get(t.category) || 0) + 1);
+        for (const t of tools) cats.set(t.category, (cats.get(t.category) || 0) + 1);
         const catKeep = [...cats.keys()].sort((a, b) => cats.get(b) - cats.get(a) || a.localeCompare(b)).slice(0, MAX_TOOL_RINGS);
         const toolRings = new Map(catKeep.map((c) => [c, ring(`tool:${c}`, 'tool', c)]));
         const toolOther = cats.size > catKeep.length ? ring('tool:+', 'tool', 'Other tools') : null;
-        for (const t of v.tools) {
+        for (const t of tools) {
           const r = toolRings.get(t.category) || toolOther;
-          r.events.push({ t: ms(t.ts), turnId: t.turnId, tokens: 0, failed: t.status === 'failure', name: t.name });
+          r.events.push({ t: ms(t.ts), turnId: turnKey(t.sessionId, t.turnId), tokens: 0, failed: t.status === 'failure', name: t.name, sessionId: t.sessionId });
           // A tool call is the calling agent's activity too.
-          actorRing(t.agentId).events.push({ t: ms(t.ts), turnId: t.turnId, tokens: 0 });
+          actorRing(t).events.push({ t: ms(t.ts), turnId: turnKey(t.sessionId, t.turnId), tokens: 0, sessionId: t.sessionId });
         }
         for (const r of rings) r.events.sort((a, b) => a.t - b.t);
-        // Turn spans, for the quiet gaps inside them.
+        // Turn spans, for the quiet gaps inside them; each session's events, for gaps within that session only.
         const turnEnd = new Map();
         for (const r of rings) for (const e of r.events) if (e.turnId) turnEnd.set(e.turnId, Math.max(turnEnd.get(e.turnId) || 0, e.t));
-        const turns = v.prompts.map((p) => ({ turnId: p.turnId, index: p.index, from: ms(p.ts), to: turnEnd.get(p.turnId) || ms(p.ts) }));
-        const events = ctx.replayEvents([v]);
-        return { rings: rings.filter((r) => r.events.length || r.kind === 'human' || r.kind === 'primary'), turns, start: events.length ? events[0].t : ms(v.summary.firstTs), end: events.length ? events[events.length - 1].t : ms(v.summary.lastTs) };
+        const turns = prompts.map((p) => {
+          const key = turnKey(p.sessionId, p.turnId);
+          return { key, sessionId: p.sessionId, from: ms(p.ts), to: turnEnd.get(key) || ms(p.ts) };
+        });
+        const sessionTimes = new Map();
+        for (const e of [...calls, ...tools, ...prompts]) (sessionTimes.get(e.sessionId) || sessionTimes.set(e.sessionId, []).get(e.sessionId)).push(ms(e.ts));
+        for (const list of sessionTimes.values()) list.sort((a, b) => a - b);
+        const events = ctx.replayEvents(vs);
+        return {
+          rings: rings.filter((r) => r.events.length || r.kind === 'human' || r.kind === 'primary'),
+          turns,
+          sessionTimes,
+          start: events.length ? events[0].t : Math.min(...vs.map((v) => ms(v.summary.firstTs))),
+          end: events.length ? events[events.length - 1].t : Math.max(...vs.map((v) => ms(v.summary.lastTs))),
+        };
       }
 
       /** The window shown at time t: [from, to). */
@@ -148,13 +174,12 @@
 
       /** Quiet stretches inside open turns on the primary ring: no event from anyone for QUIET_MIN_MS. */
       function quietGaps(win) {
-        const all = model.rings.flatMap((r) => r.events.map((e) => e.t)).sort((a, b) => a - b);
         const out = [];
         for (const turn of model.turns) {
           let last = turn.from;
-          for (const t of all) {
+          for (const t of model.sessionTimes.get(turn.sessionId) || []) {
             if (t <= turn.from || t > turn.to) continue;
-            if (t - last >= QUIET_MIN_MS) out.push({ from: last, to: t, turnId: turn.turnId });
+            if (t - last >= QUIET_MIN_MS) out.push({ from: last, to: t, key: turn.key });
             last = t;
           }
         }
@@ -164,7 +189,7 @@
       // ---------- drawing ----------
       function draw() {
         hideTip();
-        if (!view || !model) {
+        if (!views.length || !model) {
           frame.replaceChildren(el('p', { class: 'fc-empty', text: 'No session.' }));
           note.textContent = '';
           scene = null;
@@ -184,7 +209,7 @@
         shownWindow = win.index;
         const angle = (t) => ((t - win.from) / (win.to - win.from)) * 2 * Math.PI;
 
-        const root = svg('svg', { class: 'fc-svg', width: size, height: size, viewBox: `0 0 ${size} ${size}`, role: 'img', 'aria-label': `Factory Clock of ${view.summary.name || short(view.summary.sessionId)}: ${n} rings over ${windowLabel(win)}` });
+        const root = svg('svg', { class: 'fc-svg', width: size, height: size, viewBox: `0 0 ${size} ${size}`, role: 'img', 'aria-label': `Factory Clock of ${title()}: ${n} rings over ${windowLabel(win)}` });
         const defs = svg('defs');
         const face = svg('radialGradient', { id: `${prefix}-dial` });
         face.append(svg('stop', { offset: '0%', class: 'fc-dial-in' }), svg('stop', { offset: '100%', class: 'fc-dial-out' }));
@@ -220,7 +245,7 @@
           const a1 = Math.max(a0 + 0.004, angle(g.to));
           const p = svg('path', { class: 'fc-quiet', d: arcPath(cx, cy, qp.r0, qp.r1, a0, a1), fill: `url(#${prefix}-hatch)` });
           p.dataset.from = g.from;
-          ctx.interact(ctx, p, { tip: () => ['Quiet gap inside a turn: nothing recorded', 'Waiting on you or working can’t be told apart yet', ['From', formatTime(g.from)], ['For', secondsText((g.to - g.from) / 1000)]], pick: () => ctx.select({ sessionId: view.summary.sessionId, turnId: g.turnId }) });
+          ctx.interact(ctx, p, { tip: () => ['Quiet gap inside a turn: nothing recorded', 'Waiting on you or working can’t be told apart yet', ['From', formatTime(g.from)], ['For', secondsText((g.to - g.from) / 1000)]], pick: () => pickKey(g.key) });
           quietLayer.append(p);
         }
         root.append(quietLayer);
@@ -250,7 +275,7 @@
             ctx.interact(ctx, p, {
               label: `${r.label} from ${formatTime(a.from)}`,
               tip: () => [r.label, ['From', formatTime(a.from)], ['Span', secondsText(Math.max(1, (a.to - a.from) / 1000))], ['Events', fmt(a.n)], ...(a.tokens ? [['Tokens', compact(a.tokens)]] : []), ...(a.failed ? [['Failed', fmt(a.failed)]] : []), ...(turnId ? ['Click to select its turn'] : [])],
-              pick: turnId ? () => ctx.select({ sessionId: view.summary.sessionId, turnId }) : null,
+              pick: turnId ? () => pickKey(turnId) : null,
             });
             g.append(p);
             arcs.push({ a, p, r0: rr0, r1: rr1, turnIds: a.turns });
@@ -279,7 +304,7 @@
         const tip = svg('circle', { class: 'fc-hand-tip', r: 4 });
         const playback = svgText({ class: 'fc-playback', x: cx, y: cy + inner + 14, 'text-anchor': 'middle' }, '');
         root.append(hand, tip, playback);
-        root.append(svgText({ class: 'fc-label fc-caption', x: cx, y: cy + R * 0.97 - 22, 'text-anchor': 'middle' }, `Window · ${windowLabel(win)} · session ${short(view.summary.sessionId)}`));
+        root.append(svgText({ class: 'fc-label fc-caption', x: cx, y: cy + R * 0.97 - 22, 'text-anchor': 'middle' }, `Window · ${windowLabel(win)} · ${views.length === 1 ? `session ${short(views[0].summary.sessionId)}` : `${views.length} sessions`}`));
 
         const legend = el('div', { class: 'fc-legend' }, [
           key('fc-k-human', 'Human input'),
@@ -306,8 +331,11 @@
       function key(cls, text) {
         return el('span', { class: 'fc-key' }, [el('span', { class: `fc-swatch ${cls}` }), text]);
       }
+      function title() {
+        return views.length === 1 ? views[0].summary.name || short(views[0].summary.sessionId) : `${views.length} sessions`;
+      }
       function windowLabel(win) {
-        return windowMode === 'session' ? `the whole session, ${secondsText((win.to - win.from) / 1000)}` : `${WINDOWS.find((w) => w[0] === windowMode)[1]} from ${formatTime(win.from)}`;
+        return windowMode === 'session' ? `${views.length === 1 ? 'the whole session' : 'all sessions'}, ${secondsText((win.to - win.from) / 1000)}` : `${WINDOWS.find((w) => w[0] === windowMode)[1]} from ${formatTime(win.from)}`;
       }
       function numeral(fraction, win) {
         if (fraction === 0) return '0';
@@ -315,7 +343,9 @@
         return secondsText(((win.to - win.from) * fraction) / 1000);
       }
       function selectedTurn() {
-        return selection && selection.turnId && (!selection.sessionId || selection.sessionId === view.summary.sessionId) ? selection.turnId : null;
+        if (!selection || !selection.turnId) return null;
+        const v = views.find((x) => !selection.sessionId || x.summary.sessionId === selection.sessionId);
+        return v ? turnKey(v.summary.sessionId, selection.turnId) : null;
       }
 
       /** Each frame: the hand at the clock's time, arcs revealed up to it. A fixed window follows the hand. */
