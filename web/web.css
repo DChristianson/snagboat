@@ -80,11 +80,14 @@
   }
 }
 
-/* The header and loader, page-only parts above the explorer. */
+/* The page-only parts: a one-line header above the explorer, so the carousel gets the window, and the
+   description, data notes, and loader below it. */
 .web-head .title-row { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
 .web-head .repo { color: var(--vscode-textLink-foreground); text-decoration: none; font-size: 0.9em; }
 .web-head .repo:hover { text-decoration: underline; }
-.web-head > p { margin: 4px 0 0; }
+.web-head h1 { font-size: 1.1em; }
+.below-explorer { margin-top: 28px; border-top: 1px solid var(--rule); padding-top: 4px; }
+.below-explorer > p { margin: 10px 0 0; }
 .loader { margin-top: 14px; }
 .drop {
   border: 1px dashed var(--rule);

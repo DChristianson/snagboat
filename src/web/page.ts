@@ -43,8 +43,8 @@ interface PageGlobals {
   snagboatDemoTraces?: { picked?: unknown; events?: unknown };
 }
 
-const TRACES_NOTE = 'Example traces: real sessions from building Snagboat and another project, with paths and command lines removed; the prompts and replies are as they were written. Load your own files above to explore yours.';
-const GENERATED_NOTE = 'Generated sessions: four made-up ones, shaped like real Claude Code and Copilot sessions but not recorded from anyone. Load your own files above to explore yours.';
+const TRACES_NOTE = 'Example traces: real sessions from building Snagboat and another project, with paths and command lines removed; the prompts and replies are as they were written. Load your own files below to explore yours.';
+const GENERATED_NOTE = 'Generated sessions: four made-up ones, shaped like real Claude Code and Copilot sessions but not recorded from anyone. Load your own files below to explore yours.';
 
 
 function readState(): Record<string, unknown> {

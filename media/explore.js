@@ -33,7 +33,7 @@
   // The strip never gets shorter than this; in a window too short for it, the page scrolls and the nav sticks to the window's bottom.
   const MIN_STRIP_HEIGHT = 320;
   // Below the nav: the body's bottom padding, and a little air.
-  const BELOW_NAV = 40;
+  const BELOW_NAV = 16;
   const DRAG_THRESHOLD = 4; // px of movement before a press on the puck's head counts as a drag
   let mounted = null;
 
@@ -85,7 +85,9 @@
     const nextBtn = el('button', { text: 'Next ›', 'aria-label': 'Next visualizer' });
     const dots = el('div', { class: 'dots', role: 'group', 'aria-label': 'Go to a visualizer' });
     const navNote = el('span', { class: 'muted small', 'aria-live': 'polite' });
-    const nav = el('div', { class: 'nav' }, [prevBtn, dots, nextBtn, navNote]);
+    const toPicker = el('button', { class: 'link to-picker', text: 'Sessions ↓', title: 'Pick and load sessions, below the carousel' });
+    toPicker.addEventListener('click', () => picker.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    const nav = el('div', { class: 'nav' }, [prevBtn, dots, nextBtn, navNote, toPicker]);
     const carousel = el('section', { class: 'carousel', 'aria-label': 'Visualizers' }, [strip, nav]);
     prevBtn.addEventListener('click', () => step(-1));
     nextBtn.addEventListener('click', () => step(1));
@@ -201,10 +203,10 @@
       movePuck(to);
     });
 
+    // The carousel takes the window; picking and loading sessions sit below it, a scroll (or the nav's button) away.
     root.append(
-      el('p', { class: 'muted small', text: 'Experimental: every visualizer draws the same loaded sessions its own way. The puck names the one in view and filters by its tags.' }),
-      picker,
       carousel,
+      el('div', { class: 'below-carousel' }, [el('p', { class: 'muted small', text: 'Experimental: every visualizer draws the same loaded sessions its own way. The puck names the one in view and filters by its tags.' }), picker]),
       puck
     );
 
@@ -281,7 +283,7 @@
     function renderLoaded() {
       unloadBtn.hidden = st.sessions.length === 0;
       if (!st.sessions.length && !st.notLoaded.length) {
-        loadedNote.textContent = st.picked && st.picked.length ? 'Nothing loaded yet: press Load to draw the picked sessions.' : 'Nothing loaded: pick sessions above and press Load.';
+        loadedNote.textContent = st.picked && st.picked.length ? 'Nothing loaded yet: press Load to draw the picked sessions.' : 'Nothing loaded: pick sessions here and press Load.';
         return;
       }
       const names = st.sessions.map((v) => sessionLabel(v.summary)).join(', ');
@@ -449,7 +451,7 @@
       const sessions = st.sessions;
       if (!sessions.length) {
         destroyParts(s);
-        s.host.replaceChildren(el('p', { class: 'muted', text: 'No sessions loaded. Pick sessions above and press Load.' }));
+        s.host.replaceChildren(el('p', { class: 'muted', text: 'No sessions loaded. Pick sessions below (Sessions ↓) and press Load.' }));
         return;
       }
       const def = viz.get(s.entry.id);
