@@ -35,6 +35,9 @@ if (viz[0] !== 'registry.js') {
   process.exit(1);
 }
 for (const f of viz) copies.push([`media/viz/${f}`, `viz/${f}`]);
+// The example traces (npm run demo:traces), when they've been made and reviewed; without them the page shows only generated sessions.
+const traces = fs.existsSync(path.join(root, 'web', 'demo', 'traces.js'));
+if (traces) copies.push(['web/demo/traces.js', 'demo-traces.js']);
 for (const [from, to] of copies) fs.copyFileSync(path.join(root, from), path.join(out, to));
 
 const marker = /^[ \t]*<!-- viz-scripts:.*-->[ \t]*$/m;
@@ -43,7 +46,15 @@ if (!marker.test(html)) {
   console.error('webDemo: web/index.html has no <!-- viz-scripts --> marker');
   process.exit(1);
 }
-fs.writeFileSync(path.join(out, 'index.html'), html.replace(marker, viz.map((f) => `<script src="viz/${f}"></script>`).join('\n')));
+const tracesMarker = /^[ \t]*<!-- demo-traces:.*-->[ \t]*$/m;
+if (!tracesMarker.test(html)) {
+  console.error('webDemo: web/index.html has no <!-- demo-traces --> marker');
+  process.exit(1);
+}
+fs.writeFileSync(
+  path.join(out, 'index.html'),
+  html.replace(marker, viz.map((f) => `<script src="viz/${f}"></script>`).join('\n')).replace(tracesMarker, traces ? '<script src="demo-traces.js"></script>' : '')
+);
 
 // The folder is exactly the demo: compile-tests also emits src/web's modules
 // under out/web, and nothing but these files should be deployed.
@@ -60,4 +71,4 @@ const prune = (dir) => {
 };
 prune(out);
 
-console.log(`webDemo: wrote ${copies.length + 1} files and the bundle to ${path.relative(root, out)} (visualizers: ${viz.filter((f) => f !== 'registry.js').map((f) => f.replace(/\.js$/, '')).join(', ')})`);
+console.log(`webDemo: ${traces ? 'with' : 'without'} example traces; wrote ${copies.length + 1} files and the bundle to ${path.relative(root, out)} (visualizers: ${viz.filter((f) => f !== 'registry.js').map((f) => f.replace(/\.js$/, '')).join(', ')})`);

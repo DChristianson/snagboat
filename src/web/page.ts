@@ -1,12 +1,14 @@
 import { ExploreSessionList, ExplorerState } from '../ui/explorerModel';
 import { EventSet } from './eventSet';
 import { parseJsonl } from './jsonl';
+import { readDemoTraces } from './traces';
 import { syntheticEvents, syntheticSessionIds } from './synthetic';
 
 /**
  * The web demo's page (docs/design/visualization-explorer.md, "A web demo on
  * GitHub Pages"): mounts media/explore.js over a source backed by an EventSet
- * in memory, the example sessions until files are loaded, and keeps the tab's
+ * in memory, the example traces (or the generated sessions, when the page was
+ * built without traces) until files are loaded, and keeps the tab's
  * small state in localStorage. This is the only DOM-touching file under
  * src/web; tsconfig.web.json checks it. Nothing here fetches, posts, or
  * stores anything but that state: the page's CSP forbids network requests,
@@ -37,7 +39,13 @@ interface ExploreTab {
 interface PageGlobals {
   snagboatShared: Record<string, unknown> & { tipFor(tooltip: HTMLElement): { showTip: (evt: MouseEvent, rows: unknown[]) => void; hideTip: () => void } };
   snagboatExplore: { mount(root: HTMLElement, source: ExploreSource, ctx: Record<string, unknown>): ExploreTab };
+  /** Set by demo-traces.js (web/demo/traces.js, from npm run demo:traces) when the page was built with it. */
+  snagboatDemoTraces?: { picked?: unknown; events?: unknown };
 }
+
+const TRACES_NOTE = 'Example traces: real sessions from building Snagboat and another project, with paths and command lines removed; the prompts and replies are as they were written. Load your own files above to explore yours.';
+const GENERATED_NOTE = 'Generated sessions: four made-up ones, shaped like real Claude Code and Copilot sessions but not recorded from anyone. Load your own files above to explore yours.';
+
 
 function readState(): Record<string, unknown> {
   try {
@@ -98,6 +106,8 @@ export function startPage(): void {
   const drop = byId('drop');
   const dataNote = byId('data-note');
   const examplesBtn = byId<HTMLButtonElement>('examples');
+  const tracesBtn = byId<HTMLButtonElement>('traces');
+  const traces = readDemoTraces(globals.snagboatDemoTraces);
   const examplesNote = byId('examples-note');
 
   // detail.css switches its dark colors on body.vscode-dark, as the webview does; follow the browser's scheme.
@@ -124,11 +134,16 @@ export function startPage(): void {
     tab.shown();
   }
 
-  function useExamples(): void {
+  /** Shows one of the built-in sets; the other's button stays offered. */
+  function useBuiltIn(which: 'traces' | 'generated'): void {
     dataNote.textContent = '';
-    examplesBtn.hidden = true;
+    const useTraces = which === 'traces' && !!traces;
+    tracesBtn.hidden = !traces || useTraces;
+    examplesBtn.hidden = !useTraces;
     examplesNote.hidden = false;
-    mountExplorer(new EventSet(syntheticEvents()), syntheticSessionIds().slice(0, 2));
+    examplesNote.textContent = useTraces ? TRACES_NOTE : GENERATED_NOTE;
+    if (useTraces && traces) mountExplorer(new EventSet(traces.events), traces.picked.slice(0, 2));
+    else mountExplorer(new EventSet(syntheticEvents()), syntheticSessionIds().slice(0, 2));
   }
 
   async function loadFiles(files: ArrayLike<File>): Promise<void> {
@@ -154,6 +169,7 @@ export function startPage(): void {
     if (!sessions.length) notes.push('No agent sessions in these files; is this Snagboat’s events folder?');
     dataNote.textContent = notes.join(' ');
     examplesBtn.hidden = false;
+    tracesBtn.hidden = !traces;
     examplesNote.hidden = true;
     mountExplorer(data, data.listAll().sessions.slice(0, 2).map((s) => s.sessionId));
   }
@@ -163,7 +179,8 @@ export function startPage(): void {
       filesInput.value = ''; // so picking the same files again reloads them
     });
   });
-  examplesBtn.addEventListener('click', useExamples);
+  examplesBtn.addEventListener('click', () => useBuiltIn('generated'));
+  tracesBtn.addEventListener('click', () => useBuiltIn('traces'));
 
   // The drop zone; a drop anywhere else must not make the browser open the file.
   for (const type of ['dragover', 'drop']) document.addEventListener(type, (e) => e.preventDefault());
@@ -174,5 +191,5 @@ export function startPage(): void {
     void loadFiles(e.dataTransfer?.files ?? []);
   });
 
-  useExamples();
+  useBuiltIn('traces');
 }
