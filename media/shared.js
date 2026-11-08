@@ -314,9 +314,6 @@
   /** Speeds offered, as multiples of the session's own clock. */
   const REPLAY_SPEEDS = [1, 10, 60, 600];
   const REPLAY_DEFAULT_SPEED = 60;
-  /** A quiet stretch longer than this, in seconds of playback, is skipped down to QUIET_LEAD. */
-  const QUIET_MAX = 1.5;
-  const QUIET_LEAD = 0.4;
   /** A session whose last event is this recent can be live. */
   const LIVE_WINDOW_MS = 10 * 60 * 1000;
 
@@ -485,10 +482,7 @@
       if (!clock.playing || !active) return;
       const dt = last === null ? 0 : Math.min(250, Math.max(0, wall - last)); // a stalled tab doesn't jump ahead
       last = wall;
-      let t = clock.time + dt * clock.speed;
-      // Skip a quiet stretch: the next event arrives QUIET_LEAD seconds of playback from now.
-      const next = clock.events[clock.shown];
-      if (next && (next.t - t) / clock.speed > QUIET_MAX * 1000) t = next.t - QUIET_LEAD * 1000 * clock.speed;
+      const t = clock.time + dt * clock.speed; // a steady pace: quiet stretches play at the same speed as busy ones
       if (t >= clock.end) {
         place(clock.end);
         clock.playing = false;
@@ -536,7 +530,7 @@
       speed.value = String(clock.speed);
       badge.textContent = live ? 'LIVE' : `REPLAY ×${clock.speed}`;
       badge.classList.toggle('live', live);
-      where.textContent = clock.events.length ? `${clock.shown}/${clock.events.length} · ${formatTime(clock.time)}${clock.playing ? ' · quiet gaps skipped' : ''}` : 'No events';
+      where.textContent = clock.events.length ? `${clock.shown}/${clock.events.length} · ${formatTime(clock.time)}` : 'No events';
     }
     sync();
     return { element: bar, sync };
