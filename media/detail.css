@@ -919,6 +919,11 @@ input[type="search"] { min-width: 220px; }
 .hero-living .ln-p-tool { fill: var(--ln-tool); }
 .hero-living .ln-head.ln-p-failure { fill: var(--ln-failure); }
 .hero-living .ln-head { fill-opacity: 1; }
+.hero-living .ln-head.ln-return { fill-opacity: 0.15; stroke-width: 1.6; }
+.hero-living .ln-head.ln-return.ln-p-message { stroke: var(--ln-agent); fill: var(--ln-agent); }
+.hero-living .ln-head.ln-return.ln-p-delegation { stroke: var(--ln-subagent); }
+.hero-living .ln-head.ln-return.ln-p-tool { stroke: var(--ln-tool); }
+.hero-living .ln-head.ln-return.ln-p-failure { stroke: var(--ln-failure); fill: var(--ln-failure); }
 .hero-living .ln-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 12px 8px; background: var(--ln-bar); border-top: 1px solid #151a26; }
 .hero-living .replay-bar { flex: 1 1 360px; margin: 0; }
 .hero-living .replay-bar button, .hero-living .replay-bar select, .hero-living .ln-filter {
