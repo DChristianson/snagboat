@@ -1,5 +1,5 @@
 import { EventStore } from '../core/eventStore';
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '../schema/types';
 import { HeuristicsEngine } from './engine';
 import { Finding, Heuristic } from './types';
 

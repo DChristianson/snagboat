@@ -1,8 +1,8 @@
 import { buildDigest, DigestPolicy, DigestTurn } from '../advisor/digest';
 import { Probe } from '../discovery/probes';
 import { categoryDoc, EffectivenessInput, MAX_EXAMPLES_PER_CANDIDATE, MAX_FAMILIES, MAX_PROPOSE_CANDIDATES, MAX_TOOL_NAMES, parseProposals, ProposeInput } from '../advisor/proposeHeuristics';
-import { parseShellSubCategory, ShellSubCategory } from '../core/toolCategory';
-import { NormalizedEvent } from '../core/types';
+import { parseShellSubCategory, ShellSubCategory } from '../schema/toolCategory';
+import { NormalizedEvent } from '../schema/types';
 import { Baseline, Candidate, DiscoveryOptions, DiscoveryRun, runDiscovery, Score, ThresholdSuggestion } from '../discovery/discover';
 import { shellCategoryReach } from '../discovery/shellCategories';
 import { parseRule, RuleSource, TARGET_MEASURES } from '../heuristics/rule';

@@ -1,6 +1,6 @@
-import { isConversationEvent } from '../core/sessions';
-import { EventToolCategory } from '../core/toolCategory';
-import { NormalizedEvent } from '../core/types';
+import { isConversationEvent } from '../schema/sessions';
+import { EventToolCategory } from '../schema/toolCategory';
+import { NormalizedEvent } from '../schema/types';
 import { FindingReplay, ReplayEpisode } from '../heuristics/replay';
 import { parseRule, Rule } from '../heuristics/rule';
 import { measure, ruleHeuristic } from '../heuristics/ruleHeuristic';

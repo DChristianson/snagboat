@@ -6,7 +6,7 @@ import { Aggregate } from '../../core/aggregate';
 import { DailyHistory } from '../../core/dailyHistory';
 import { EventLog } from '../../core/eventLog';
 import { AggregateStore, summarizeDay } from '../../core/retention';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '../../schema/types';
 import { FindingsRegistry } from '../../heuristics/findingsRegistry';
 import { Finding } from '../../heuristics/types';
 import { buildDetailState, isDetailMessage, resolveTargetFile, TIMELINE_LIMIT } from '../../ui/detailModel';

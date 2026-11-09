@@ -1,5 +1,5 @@
-import { isShellSubCategoryId, isToolCategory, parseShellSubCategory, ShellSubCategory } from '../core/toolCategory';
-import { NormalizedEvent } from '../core/types';
+import { isShellSubCategoryId, isToolCategory, parseShellSubCategory, ShellSubCategory } from '../schema/toolCategory';
+import { NormalizedEvent } from '../schema/types';
 
 /**
  * Declarative heuristics: which events count, what to measure over them, and

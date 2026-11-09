@@ -7,7 +7,7 @@ import { proposeHeuristicsMessages } from '../../advisor/proposeHeuristics';
 import { nudgeLineMessages, proposeNudgesMessages } from '../../advisor/proposeNudges';
 import { summarizeSessionMessages } from '../../advisor/summarizeSession';
 import { summarizeWeekMessages } from '../../advisor/summarizeWeek';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '../../schema/types';
 import { parseJsonc } from '../../scripts/advisorSettings';
 import { buildReview } from '../../review/review';
 import { builtInHeuristics } from '../../heuristics/builtIns';

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
-import { AgentAdapter, AdapterContext } from '../../core/types';
+import { AgentAdapter, AdapterContext } from '../../schema/types';
 
 export class EditTrackerAdapter implements AgentAdapter {
   readonly agentId = 'generic-fs' as const;

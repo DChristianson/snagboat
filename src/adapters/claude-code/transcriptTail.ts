@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { AdapterContext } from '../../core/types';
+import { AdapterContext } from '../../schema/types';
 import { LineTailer } from '../../core/lineTailer';
 import { normalizeTranscriptChunk, SeenMessages, TurnTracker } from './normalize';
 

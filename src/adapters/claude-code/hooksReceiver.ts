@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 import * as http from 'http';
 import * as path from 'path';
-import { AdapterContext } from '../../core/types';
+import { AdapterContext } from '../../schema/types';
 import { normalizeHookPayload } from './normalize';
 import { isWithinFolders } from '../../core/paths';
 

@@ -1,4 +1,4 @@
-import { NormalizedEventKind } from '../core/types';
+import { NormalizedEventKind } from '../schema/types';
 import { ReadonlyEventStore } from '../core/eventStore';
 import { Heuristic, Finding, Progress } from './types';
 

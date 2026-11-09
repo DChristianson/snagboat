@@ -1,6 +1,6 @@
 import { EventLogReader } from '../core/eventLog';
-import { SessionSummary } from '../core/sessions';
-import { NormalizedEvent } from '../core/types';
+import { SessionSummary } from '../schema/sessions';
+import { NormalizedEvent } from '../schema/types';
 import { FindingReplay } from '../heuristics/replay';
 import { DigestFinding, DigestInput } from './digest';
 

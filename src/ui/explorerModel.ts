@@ -1,5 +1,5 @@
-import { SessionSummary } from '../core/sessions';
-import { SessionView } from './sessionModel';
+import { SessionSummary } from '../schema/sessions';
+import { SessionView } from '../schema/sessionModel';
 import { CATALOG, TAXONOMY, Taxonomy, VisualizerEntry } from './visualizers';
 
 /** The day's session list the Sessions tab draws (the `sessions` message). */

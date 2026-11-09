@@ -1,10 +1,10 @@
-import { ModelContextMarks } from '../core/contextMarks';
-import { SessionIndex } from '../core/sessions';
-import { NormalizedEvent } from '../core/types';
+import { ModelContextMarks } from '../schema/contextMarks';
+import { SessionIndex } from '../schema/sessions';
+import { NormalizedEvent } from '../schema/types';
 import { builtInHeuristics } from '../heuristics/builtIns';
 import { FindingReplay } from '../heuristics/replay';
 import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState } from '../ui/explorerModel';
-import { buildSessionView, FindingInput, SessionView } from '../ui/sessionModel';
+import { buildSessionView, FindingInput, SessionView } from '../schema/sessionModel';
 import { EXPLORE_SESSION_CAP } from '../ui/visualizers';
 import { buildMarks } from './marks';
 

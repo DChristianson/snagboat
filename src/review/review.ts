@@ -1,6 +1,6 @@
-import { isConversationEvent } from '../core/sessions';
-import { baseCategory, categoryLabel } from '../core/toolCategory';
-import { NormalizedEvent } from '../core/types';
+import { isConversationEvent } from '../schema/sessions';
+import { baseCategory, categoryLabel } from '../schema/toolCategory';
+import { NormalizedEvent } from '../schema/types';
 import { DiscoveryResult } from '../discovery/discover';
 import { compactTokens } from '../heuristics/settings';
 import { Provenance } from '../heuristics/ruleStore';

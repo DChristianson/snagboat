@@ -1,5 +1,5 @@
-import { marksFromEvent, mergeMarks, ModelContextMarks } from '../core/contextMarks';
-import { NormalizedEvent } from '../core/types';
+import { marksFromEvent, mergeMarks, ModelContextMarks } from '../schema/contextMarks';
+import { NormalizedEvent } from '../schema/types';
 
 /**
  * Context marks built in memory from loaded events, by the rules ContextLimits

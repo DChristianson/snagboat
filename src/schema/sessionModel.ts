@@ -1,7 +1,7 @@
-import { contextSize, ModelContextMarks } from '../core/contextMarks';
-import { eventTokens, isConversationEvent, SessionSummary } from '../core/sessions';
-import { NormalizedEvent } from '../core/types';
-import { EventToolCategory, ToolCategory, baseCategory, categoryLabel } from '../core/toolCategory';
+import { contextSize, ModelContextMarks } from './contextMarks';
+import { eventTokens, isConversationEvent, SessionSummary } from './sessions';
+import { NormalizedEvent } from './types';
+import { EventToolCategory, ToolCategory, baseCategory, categoryLabel } from './toolCategory';
 
 /**
  * Everything the session view (turn tree above a context timeline; see

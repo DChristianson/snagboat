@@ -3,12 +3,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { EventLog } from '../../core/eventLog';
-import { SessionIndex } from '../../core/sessions';
-import { NormalizedEvent } from '../../core/types';
+import { SessionIndex } from '../../schema/sessions';
+import { NormalizedEvent } from '../../schema/types';
 import { isDetailMessage } from '../../ui/detailModel';
 import { buildExplorerState } from '../../ui/explorerModel';
 import { SessionController } from '../../ui/sessionController';
-import { SessionView } from '../../ui/sessionModel';
+import { SessionView } from '../../schema/sessionModel';
 import { CATALOG, EXPLORE_SESSION_CAP, TAXONOMY, validateCatalog, VisualizerEntry } from '../../ui/visualizers';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 22, 10, min)).toISOString();

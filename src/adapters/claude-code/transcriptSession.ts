@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { classifyTool } from '../../core/toolCategory';
-import { NormalizedEvent } from '../../core/types';
+import { classifyTool } from '../../schema/toolCategory';
+import { NormalizedEvent } from '../../schema/types';
 import { normalizeTranscriptChunk, SeenMessages, TurnTracker } from './normalize';
 
 /**

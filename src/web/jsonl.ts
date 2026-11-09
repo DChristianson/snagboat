@@ -1,4 +1,4 @@
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '../schema/types';
 
 /**
  * Reads the daily files Snagboat writes (events/YYYY-MM-DD.jsonl) from text,

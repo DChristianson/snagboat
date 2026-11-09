@@ -1,4 +1,4 @@
-import { AgentId, NormalizedEvent, NormalizedEventKind } from './types';
+import { AgentId, NormalizedEvent, NormalizedEventKind } from '../schema/types';
 import type { EventLogReader } from './eventLog';
 import type { AggregateStore, DailyAggregate } from './retention';
 

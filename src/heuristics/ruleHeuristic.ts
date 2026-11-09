@@ -1,8 +1,8 @@
-import { contextSize } from '../core/contextMarks';
-import { isConversationEvent } from '../core/sessions';
-import { categoryMatches } from '../core/toolCategory';
+import { contextSize } from '../schema/contextMarks';
+import { isConversationEvent } from '../schema/sessions';
+import { categoryMatches } from '../schema/toolCategory';
 import { currentTurnsIn } from '../core/turns';
-import { NormalizedEvent, NormalizedEventKind } from '../core/types';
+import { NormalizedEvent, NormalizedEventKind } from '../schema/types';
 import { compactTokens } from './settings';
 import { Rule, RuleCondition, RuleFilter, RuleMeasure, TARGET_MEASURES, MeasureType } from './rule';
 import { Finding, Heuristic, HeuristicContext, Progress } from './types';

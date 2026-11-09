@@ -8,7 +8,7 @@ import { Aggregate, TodayAggregate, localDayKey } from '../../core/aggregate';
 import { CheckpointStore } from '../../core/checkpointStore';
 import { makeAdapterContext } from '../../core/adapterContext';
 import { HealthRegistry } from '../../core/health';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '../../schema/types';
 
 function makeEvent(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
   return {

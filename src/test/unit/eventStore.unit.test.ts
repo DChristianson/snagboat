@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { EventStore } from '../../core/eventStore';
 import { EventLog } from '../../core/eventLog';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '../../schema/types';
 
 function makeEvent(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
   return {

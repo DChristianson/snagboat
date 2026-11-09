@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { EventLog } from '../core/eventLog';
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '../schema/types';
 import { dayStats, DayStats, isRetiredCopilotMetric, sourceFileOf } from './merge';
 import { planBackfill } from './rebuild';
 

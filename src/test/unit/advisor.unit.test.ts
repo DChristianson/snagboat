@@ -8,7 +8,7 @@ import { AuditLog } from '../../advisor/audit';
 import { buildDigest, HOSTED_POLICY, LOCAL_POLICY } from '../../advisor/digest';
 import { summarizeSessionMessages } from '../../advisor/summarizeSession';
 import { complete, completionBody, FetchLike, isLocalUrl, listModels, parseProviders, promptWasCut } from '../../advisor/providers';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '../../schema/types';
 
 interface Sent {
   url: string;

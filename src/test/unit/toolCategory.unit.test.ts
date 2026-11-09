@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { classifyCommand, classifyTool, toolCategoryLabel } from '../../core/toolCategory';
+import { classifyCommand, classifyTool, toolCategoryLabel } from '../../schema/toolCategory';
 import { normalizeHookPayload } from '../../adapters/claude-code/normalize';
 import { normalizeOtlpTraces } from '../../adapters/copilot/normalize';
 

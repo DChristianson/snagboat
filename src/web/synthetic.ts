@@ -1,5 +1,5 @@
-import { EventToolCategory } from '../core/toolCategory';
-import { AgentId, NormalizedEvent } from '../core/types';
+import { EventToolCategory } from '../schema/toolCategory';
+import { AgentId, NormalizedEvent } from '../schema/types';
 
 /**
  * The web demo's example sessions (docs/design/visualization-explorer.md,

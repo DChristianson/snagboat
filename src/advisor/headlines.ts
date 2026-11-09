@@ -1,4 +1,4 @@
-import { SessionSummary } from '../core/sessions';
+import { SessionSummary } from '../schema/sessions';
 
 /**
  * Session headlines: one line per ended session from the summarize-session

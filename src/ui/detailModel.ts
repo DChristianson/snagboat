@@ -2,10 +2,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AggregateSnapshot } from '../core/aggregate';
 import { DailyTokens } from '../core/dailyHistory';
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '../schema/types';
 import { FindingView } from '../heuristics/findingsRegistry';
 import { agentEventTotal } from './format';
-import { toolCategoryLabel } from '../core/toolCategory';
+import { toolCategoryLabel } from '../schema/toolCategory';
 import { EXPLORE_SESSION_CAP } from './visualizers';
 
 /** Newest events sent to the timeline; the store's own window caps it further (24h). */

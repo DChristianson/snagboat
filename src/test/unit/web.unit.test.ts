@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '../../schema/types';
 import { EventSet } from '../../web/eventSet';
 import { isNormalizedEvent, parseJsonl } from '../../web/jsonl';
 import { buildMarks } from '../../web/marks';

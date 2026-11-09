@@ -12,7 +12,7 @@ import * as path from 'path';
 import { discover } from '../discovery/discover';
 import { formatDiscovery } from '../discovery/report';
 import { builtInHeuristics } from '../heuristics/builtIns';
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '../schema/types';
 import { defaultSessions, sessionEvents } from './replayHeuristics';
 
 function main(): number {

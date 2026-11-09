@@ -1,4 +1,4 @@
-import { NormalizedEvent, NormalizedEventKind, AgentId, EventTokens } from './types';
+import { NormalizedEvent, NormalizedEventKind, AgentId, EventTokens } from '../schema/types';
 import type { EventLogReader } from './eventLog';
 
 export interface EventQuery {

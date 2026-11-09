@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { AgentAdapter, AdapterContext } from '../../core/types';
+import { AgentAdapter, AdapterContext } from '../../schema/types';
 import { keepCheckpointEntry, withRealPaths } from '../../core/paths';
 import { resolveWorkspaceFolders } from '../claude-code/workspace';
 import { CopilotCliTailer, readCliCheckpoint } from './cliTailer';

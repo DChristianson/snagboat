@@ -1,8 +1,8 @@
 import * as crypto from 'crypto';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '../../schema/types';
 import { makeExcerpt, makePromptText, redactSecrets } from '../../core/excerpt';
 import { sessionNameId } from '../../core/sessionNames';
-import { classifyTool } from '../../core/toolCategory';
+import { classifyTool } from '../../schema/toolCategory';
 
 interface ClaudeTranscriptLine {
   type?: string;

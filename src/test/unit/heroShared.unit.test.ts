@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vm from 'vm';
-import { SessionView } from '../../ui/sessionModel';
+import { SessionView } from '../../schema/sessionModel';
 import { EventSet } from '../../web/eventSet';
 import { syntheticEvents, syntheticSessionIds } from '../../web/synthetic';
 

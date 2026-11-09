@@ -1,10 +1,10 @@
 import { ModelContextMarks } from '../core/contextLimits';
 import { EventLog } from '../core/eventLog';
-import { SessionIndex } from '../core/sessions';
-import { NormalizedEvent } from '../core/types';
+import { SessionIndex } from '../schema/sessions';
+import { NormalizedEvent } from '../schema/types';
 import { FindingReplay } from '../heuristics/replay';
 import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState, SessionListPayload } from './explorerModel';
-import { buildSessionView, FindingInput, SessionView } from './sessionModel';
+import { buildSessionView, FindingInput, SessionView } from '../schema/sessionModel';
 import { EXPLORE_SESSION_CAP } from './visualizers';
 
 // The list's shape lives in explorerModel.ts (vscode- and fs-free, so the web demo shares it).

@@ -1,4 +1,4 @@
-import { AgentAdapter, AdapterContext } from '../../core/types';
+import { AgentAdapter, AdapterContext } from '../../schema/types';
 import { TranscriptTailer } from './transcriptTail';
 import { HooksReceiver } from './hooksReceiver';
 import { buildHookCommand, ensureHooksConfigured } from './hooksConfig';

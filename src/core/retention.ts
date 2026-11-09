@@ -3,7 +3,7 @@ import * as path from 'path';
 import { AgentAggregate, Aggregate } from './aggregate';
 import { EventLog, eventDay } from './eventLog';
 import { hasCapturedText, withoutCapturedText } from './excerpt';
-import { NormalizedEvent } from './types';
+import { NormalizedEvent } from '../schema/types';
 
 const AGGREGATE_FILE_PATTERN = /^(\d{4}-\d{2}-\d{2})\.json$/;
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -1,4 +1,4 @@
-import { contextSize } from '../core/contextMarks';
+import { contextSize } from '../schema/contextMarks';
 import { currentTurnsIn, modelCalls } from '../core/turns';
 import { Heuristic, Finding, HeuristicContext, Progress } from './types';
 import { earlyWarningOr } from './runawayTurn';

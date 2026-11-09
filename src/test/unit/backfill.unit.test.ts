@@ -5,10 +5,10 @@ import * as path from 'path';
 import { mainTranscriptOf, normalizeTranscriptSession } from '../../adapters/claude-code/transcriptSession';
 import { normalizeHookPayload } from '../../adapters/claude-code/normalize';
 import { dayStats, isRetiredCopilotMetric, mergeDay, relabelShellCalls, sourceFileOf } from '../../backfill/merge';
-import { setShellSubCategories } from '../../core/toolCategory';
+import { setShellSubCategories } from '../../schema/toolCategory';
 import { planBackfill, rebuildDays } from '../../backfill/rebuild';
 import { EventLog } from '../../core/eventLog';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '../../schema/types';
 
 const S = 'sess-1';
 const at = (min: number) => new Date(Date.UTC(2026, 9, 20, 12, 0) + min * 60_000).toISOString();

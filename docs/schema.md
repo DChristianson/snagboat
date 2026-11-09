@@ -1,5 +1,7 @@
 # Common schema and transformation matrix
 
+The types below live in [src/schema/types.ts](../src/schema/types.ts). `src/schema` imports nothing outside itself and no Node builtins, so it can become the shared schema package that Snagboat and Factory Clock both use ([design/architecture-rfc.md](design/architecture-rfc.md)); `schemaBoundary.unit.test.ts` enforces that.
+
 ## `NormalizedEvent`
 
 ```ts
@@ -102,4 +104,4 @@ Examples include `transcripts/session.jsonl#L128`, `file:///.../copilot.log#offs
 
 ## Tool categories
 
-`toolCategory` is a high-level label for what a tool call ran, computed in the adapter by `src/core/toolCategory.ts` from the tool's name and, for shell tools, the command line: interpreter runs (a script file, or inline code such as `python3 - <<EOF`) are `script`; test runners, build tools, and package-manager `test`/`build`/`lint` scripts are `tests-builds`; `git`/`gh` are `version-control`; other commands are `shell`. Chains are classified by their first meaningful segment (`cd src && npm test` is `tests-builds`). It's pattern matching and will mislabel some calls; see [design/conversation-view.md](design/conversation-view.md#tool-classification). Copilot doesn't export tool arguments, so its terminal tool is always `shell`.
+`toolCategory` is a high-level label for what a tool call ran, computed in the adapter by `src/schema/toolCategory.ts` from the tool's name and, for shell tools, the command line: interpreter runs (a script file, or inline code such as `python3 - <<EOF`) are `script`; test runners, build tools, and package-manager `test`/`build`/`lint` scripts are `tests-builds`; `git`/`gh` are `version-control`; other commands are `shell`. Chains are classified by their first meaningful segment (`cd src && npm test` is `tests-builds`). It's pattern matching and will mislabel some calls; see [design/conversation-view.md](design/conversation-view.md#tool-classification). Copilot doesn't export tool arguments, so its terminal tool is always `shell`.

@@ -47,7 +47,7 @@ import { SessionFocus, summarizeSessionMessages } from '../advisor/summarizeSess
 import { builtInHeuristics } from '../heuristics/builtIns';
 import { FindingReplay } from '../heuristics/replay';
 import { RuleStore } from '../heuristics/ruleStore';
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '../schema/types';
 import { SuggestionsController } from '../ui/suggestionsController';
 import { advisorsFromSettings } from './advisorSettings';
 import { defaultSessions, sessionEvents } from './replayHeuristics';

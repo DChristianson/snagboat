@@ -1,4 +1,4 @@
-import { categoryLabel, EventToolCategory } from '../core/toolCategory';
+import { categoryLabel, EventToolCategory } from '../schema/toolCategory';
 
 /**
  * A feature discovery measures on every past turn, written as a turn-scoped

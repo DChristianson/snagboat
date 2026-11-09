@@ -1,6 +1,6 @@
 import * as http from 'http';
 import * as zlib from 'zlib';
-import { AdapterContext } from '../../core/types';
+import { AdapterContext } from '../../schema/types';
 import { normalizeOtlpTraces } from './normalize';
 
 export class OtelReceiver {

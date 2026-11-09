@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { ContextLimits, contextSize } from '../../core/contextLimits';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '../../schema/types';
 
 function call(model: string, context: number, ts = '2026-10-20T12:00:00.000Z'): NormalizedEvent {
   return { eventId: `e-${Math.random()}`, sessionId: 's', agent: 'claude-code', ts, kind: 'turn_stop', status: 'unknown', model, tokens: { input: 10, cacheRead: context - 110, cacheCreation: 100, output: 999 }, raw: { adapter: 't', ref: 'n/a' } };

@@ -1,4 +1,4 @@
-import { NormalizedEvent } from './types';
+import { NormalizedEvent } from '../schema/types';
 
 type Listener = (event: NormalizedEvent) => void;
 

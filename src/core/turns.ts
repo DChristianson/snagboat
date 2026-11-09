@@ -1,6 +1,6 @@
 import { ReadonlyEventStore } from './eventStore';
-import { isConversationEvent } from './sessions';
-import { AgentId, NormalizedEvent } from './types';
+import { isConversationEvent } from '../schema/sessions';
+import { AgentId, NormalizedEvent } from '../schema/types';
 
 /** A session's latest turn: everything from its prompt up to now, or to the next prompt. */
 export interface CurrentTurn {

@@ -8,8 +8,8 @@ import { Aggregate } from '../../core/aggregate';
 import { EventLog } from '../../core/eventLog';
 import { makeExcerpt, makePromptText, PROMPT_MAX_CHARS, redactSecrets, withoutCapturedText } from '../../core/excerpt';
 import { AggregateStore, applyRetention, EventSink, RetentionPolicy } from '../../core/retention';
-import { SessionIndex } from '../../core/sessions';
-import { NormalizedEvent } from '../../core/types';
+import { SessionIndex } from '../../schema/sessions';
+import { NormalizedEvent } from '../../schema/types';
 import { buildDetailState } from '../../ui/detailModel';
 
 const S = 'sess-1';

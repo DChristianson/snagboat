@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { TranscriptTailer } from '../../adapters/claude-code/transcriptTail';
 import { SeenMessages } from '../../adapters/claude-code/normalize';
-import { AdapterContext, NormalizedEvent } from '../../core/types';
+import { AdapterContext, NormalizedEvent } from '../../schema/types';
 import { LineTailer } from '../../core/lineTailer';
 
 // These run the real watcher (Node's fs.watch plus a backup rescan), so they

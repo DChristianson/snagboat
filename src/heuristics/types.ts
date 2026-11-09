@@ -1,4 +1,4 @@
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '../schema/types';
 import { ReadonlyEventStore } from '../core/eventStore';
 
 export interface HeuristicContext {

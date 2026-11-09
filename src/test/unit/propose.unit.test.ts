@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { DigestPolicy, HOSTED_POLICY, LOCAL_POLICY } from '../../advisor/digest';
 import { categoryDoc, parseProposals, proposeHeuristicsMessages, ProposeInput } from '../../advisor/proposeHeuristics';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '../../schema/types';
 import { builtInHeuristics } from '../../heuristics/builtIns';
 import { RuleStore } from '../../heuristics/ruleStore';
 import { AdvisorAnswer, SuggestionsController } from '../../ui/suggestionsController';

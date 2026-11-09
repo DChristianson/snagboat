@@ -1,9 +1,9 @@
 import * as crypto from 'crypto';
 import * as path from 'path';
 import { contextSize } from '../core/contextLimits';
-import { isConversationEvent } from '../core/sessions';
-import { commandPrefix, isShellTool } from '../core/toolCategory';
-import { NormalizedEvent } from '../core/types';
+import { isConversationEvent } from '../schema/sessions';
+import { commandPrefix, isShellTool } from '../schema/toolCategory';
+import { NormalizedEvent } from '../schema/types';
 
 /**
  * The session digest: the only thing the advisor ever sees. A compact,

@@ -5,7 +5,7 @@ import * as path from 'path';
 import { EventLog } from '../../core/eventLog';
 import { Aggregate } from '../../core/aggregate';
 import { AggregateStore, EventSink, RetentionPolicy, applyRetention, oldestKeptDay, summarizeDay } from '../../core/retention';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '../../schema/types';
 
 function makeEvent(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
   return {

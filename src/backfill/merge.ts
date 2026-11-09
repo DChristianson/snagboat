@@ -1,6 +1,6 @@
-import { eventTokens } from '../core/sessions';
-import { baseCategory, classifyCommand, classifyTool, isShellTool } from '../core/toolCategory';
-import { NormalizedEvent } from '../core/types';
+import { eventTokens } from '../schema/sessions';
+import { baseCategory, classifyCommand, classifyTool, isShellTool } from '../schema/toolCategory';
+import { NormalizedEvent } from '../schema/types';
 
 /**
  * The pure half of the backfill command: which source file an event came

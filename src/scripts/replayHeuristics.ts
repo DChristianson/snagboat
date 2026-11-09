@@ -25,7 +25,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { normalizeTranscriptSession, sessionFiles } from '../adapters/claude-code/transcriptSession';
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '../schema/types';
 import { FindingReplay } from '../heuristics/replay';
 import { builtInHeuristics } from '../heuristics/builtIns';
 import { buildRuleSet } from '../heuristics/rule';

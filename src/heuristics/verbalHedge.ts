@@ -1,5 +1,5 @@
 import { Heuristic, Finding, HeuristicContext } from './types';
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '../schema/types';
 
 const DEFAULT_WINDOW_MINUTES = 10;
 const DEFAULT_MIN_TURNS = 2;
