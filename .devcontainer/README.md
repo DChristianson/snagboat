@@ -1,4 +1,4 @@
-# davebot0 dev container
+# snagboat dev container
 
 ## What a `.devcontainer` folder is
 
@@ -11,7 +11,7 @@ container, that your editor runs your project *inside*. When VS Code (with the
    project needs.
 2. **Starts a container** from that image with the options in
    `devcontainer.json`, and **mounts your project folder into it** at
-   `/workspaces/davebot0`. It's the same files, not a copy: edits on either
+   `/workspaces/snagboat`. It's the same files, not a copy: edits on either
    side show up on the other.
 3. **Runs setup hooks** (`postCreateCommand` once, `postStartCommand` on every
    start).
@@ -34,8 +34,8 @@ JetBrains and the `devcontainer` CLI read it too.
 
 | File | Job |
 |---|---|
-| `Dockerfile` | Debian + git, curl, jq, ripgrep; **bd** pinned to a verified release; **Claude Code**; removes `sudo` |
-| `devcontainer.json` | Security options, Claude login volume, env vars, setup hooks, VS Code extension |
+| `Dockerfile` | Debian + git, curl, jq, ripgrep; the libraries and virtual display (`xvfb`) VS Code needs for `npm test`; **bd** pinned to a verified release; **Claude Code**; removes `sudo` |
+| `devcontainer.json` | Node 24 (as a feature), security options, Claude login volume, env vars, setup hooks, VS Code extension |
 | `post-create.sh` | Runs once at creation: prints tool versions, turns bd metrics off |
 | `init-project.sh` | Run once by hand: `git init` + `bd init --skip-hooks` |
 | `check-host-safety.sh` | Runs on every start: warns if git hooks have been configured (see below) |
@@ -44,19 +44,42 @@ JetBrains and the `devcontainer` CLI read it too.
 
 1. Install Docker Desktop (already done) and the VS Code extension
    **Dev Containers** (`ms-vscode-remote.remote-containers`).
-2. Open `~/dev/davebot0` in VS Code, then **Reopen in Container**. The first
-   build takes a few minutes.
+2. Open your snagboat checkout in VS Code, then **Reopen in Container**. The
+   first build takes a few minutes.
 3. In the container's terminal:
    ```bash
-   bash .devcontainer/init-project.sh   # once: creates git repo + beads DB, makes an initial commit
-   claude                               # log in once; the login is kept in a Docker volume
+   claude        # log in once; the login is kept in a Docker volume
+   npm install
    ```
-4. Use it: `bd create "Build X" -p 1`, `bd ready`, and have Claude work
-   through the queue.
 
-`bd init` adds agent instruction files to the project (`AGENTS.md`,
-`CLAUDE.md`, `.claude/settings.json`, `.codex/`, `.cursor/`, `.agents/`) and
-commits them. Delete any you don't want.
+## Building and testing snagboat
+
+```bash
+npm run test:unit
+npm run build
+xvfb-run -a npm test     # integration tests: launches VS Code on a virtual display
+```
+
+Plain `npm test` fails here with "Missing X server or $DISPLAY": the
+container has no screen, so run it under `xvfb-run`, as CI does. A
+`Failed to connect to the bus` line in the output is harmless.
+
+**Your real Snagboat data isn't in here.** The extension's stores live in
+VS Code's storage on your Mac (`~/Library/Application Support/<app>/User/`)
+and `~/.snagboat/`, which the container can't see: `snagboat stores` finds
+nothing in it. Back up stores, take baselines, and run the extension (F5)
+against real data on your Mac.
+
+## Beads
+
+snagboat is already a git repo, so `init-project.sh`'s `git init` does
+nothing; it then runs `bd init --skip-hooks`. `bd init` adds agent
+instruction files to the project (`AGENTS.md`, `CLAUDE.md`,
+`.claude/settings.json`, `.codex/`, `.cursor/`, `.agents/`) and commits them.
+Before running it, decide whether `.beads/` is committed, ignored or kept
+outside the repo (see `docs/design/handoff-3c.md`), and run it on a branch,
+not `refactor`. Then: `bd create "Build X" -p 1`, `bd ready`, and have Claude
+work through the queue.
 
 ## Safety model
 
