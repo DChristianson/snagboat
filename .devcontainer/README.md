@@ -35,7 +35,7 @@ JetBrains and the `devcontainer` CLI read it too.
 | File | Job |
 |---|---|
 | `Dockerfile` | Debian + git, curl, jq, ripgrep; the libraries and virtual display (`xvfb`) VS Code needs for `npm test`; **bd** pinned to a verified release; **Claude Code**; removes `sudo` |
-| `devcontainer.json` | Node 24 (as a feature), security options, Claude login volume, env vars, setup hooks, VS Code extension |
+| `devcontainer.json` | Node 24 and the GitHub CLI (as features), security options, Claude login volume, env vars, setup hooks, VS Code extension |
 | `post-create.sh` | Runs once at creation: prints tool versions, turns bd metrics off |
 | `init-project.sh` | Run once by hand: `git init` + `bd init --skip-hooks` |
 | `check-host-safety.sh` | Runs on every start: warns if git hooks have been configured (see below) |
@@ -123,6 +123,19 @@ would let anything in it push to **every** repo you can access. Choose one:
   forwarding in your VS Code *user* settings
   (`"dev.containers.gitCredentialHelperConfigLocation": "none"`), then use a
   GitHub fine-grained token limited to this one repo.
+
+**`gh` (GitHub CLI)** is installed by a feature in `devcontainer.json`, for
+opening PRs. It doesn't use the forwarded git credentials; give it the same
+narrow token: a fine-grained token for this repo only, with **Contents** and
+**Pull requests** set to read and write. Then:
+
+```bash
+gh auth login --with-token   # paste the token, then Ctrl-D
+gh auth setup-git            # optional: git push uses the same token
+```
+
+The login is kept in `~/.config/gh`, which is not in a volume: after a
+rebuild, log in again.
 
 ## Changing things
 

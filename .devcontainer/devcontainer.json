@@ -54,5 +54,7 @@
   //Add language toolchains here, for example:
   "features": {
     "ghcr.io/devcontainers/features/node:1": { "version": "24" },
+    // GitHub CLI, for PRs. Needs its own login: see README "Pushing to GitHub".
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   }
 }
