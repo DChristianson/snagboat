@@ -2,7 +2,7 @@
 // file under media/viz/ registers one visualizer by the id of its entry in the
 // catalog (src/ui/visualizers.ts); the title and tags given here are a
 // convenience for reading the file, the catalog wins. Loaded before the
-// visualizers, after shared.js. No VS Code here.
+// visualizers, after vizkit.js. No VS Code here.
 //
 //   window.snagboatViz.register({ id, title, tags, mount(host, ctx) })
 //   window.snagboatViz.get(id) -> the definition, or undefined
@@ -17,7 +17,7 @@
 //   setActive: optional; the carousel calls it with true for the current slide and false for its
 //              mounted neighbors and while the tab is hidden, so a view that animates (through
 //              ctx.createReplay) runs only when it can be seen
-//   ctx:       the helpers from shared.js plus tooltip (the element), showTip(evt, rows) and
+//   ctx:       the helpers from vizkit.js plus tooltip (the element), showTip(evt, rows) and
 //              hideTip() over it, and select(selection) to announce a selection
 (function () {
   const defs = new Map();

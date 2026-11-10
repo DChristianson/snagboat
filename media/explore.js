@@ -2,7 +2,7 @@
 // slide per visualizer in the catalog, and a puck that names the current
 // visualizer and filters the carousel by its tags. See
 // docs/design/visualization-explorer.md. Nothing here knows about VS Code:
-// the tab sees only ctx (the shared helpers and the tooltip) and a source
+// the tab sees only ctx (the visualization kit and the tooltip) and a source
 // object, so the web demo mounts the same file over a source of its own.
 // Plain DOM; all data is written with textContent, never innerHTML.
 //
@@ -20,7 +20,7 @@
 //   onExplorer(cb)       cb(ExplorerState | null) on each explorer push (src/ui/explorerModel.ts)
 //   openSessionId()      the session open in the Sessions tab, or null (pre-checked the first time)
 //
-// ctx: the helpers from shared.js plus tooltip, showTip(evt, rows), hideTip(). The tab adds
+// ctx: the helpers from vizkit.js plus tooltip, showTip(evt, rows), hideTip(). The tab adds
 // select(selection) for each visualizer it mounts (see media/viz/registry.js).
 //
 // Saved state: { picked: string[], current: visualizer id, filters: { facet: [values] }, replay: { speed, loop },

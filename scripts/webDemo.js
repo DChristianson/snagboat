@@ -21,7 +21,7 @@ if (!fs.existsSync(bundle)) {
 fs.mkdirSync(path.join(out, 'viz'), { recursive: true });
 
 const copies = [
-  ['media/shared.js', 'shared.js'],
+  ['media/vizkit.js', 'vizkit.js'],
   ['media/explore.js', 'explore.js'],
   ['media/detail.css', 'detail.css'],
   ['web/web.css', 'web.css'],

@@ -35,9 +35,9 @@ interface ExploreTab {
   destroy(): void;
 }
 
-/** What the page's plain scripts (media/shared.js, media/explore.js) put on window. */
+/** What the page's plain scripts (media/vizkit.js, media/explore.js) put on window. */
 interface PageGlobals {
-  snagboatShared: Record<string, unknown> & { tipFor(tooltip: HTMLElement): { showTip: (evt: MouseEvent, rows: unknown[]) => void; hideTip: () => void } };
+  snagboatVizKit: Record<string, unknown> & { tipFor(tooltip: HTMLElement): { showTip: (evt: MouseEvent, rows: unknown[]) => void; hideTip: () => void } };
   snagboatExplore: { mount(root: HTMLElement, source: ExploreSource, ctx: Record<string, unknown>): ExploreTab };
   /** Set by demo-traces.js (web/demo/traces.js, from npm run demo:traces) when the page was built with it. */
   snagboatDemoTraces?: { picked?: unknown; events?: unknown };
@@ -116,8 +116,8 @@ export function startPage(): void {
   applyTheme();
   dark.addEventListener('change', applyTheme);
 
-  const shared = globals.snagboatShared;
-  const ctx = { ...shared, tooltip, ...shared.tipFor(tooltip) };
+  const kit = globals.snagboatVizKit;
+  const ctx = { ...kit, tooltip, ...kit.tipFor(tooltip) };
   let tab: ExploreTab | null = null;
 
   /**
