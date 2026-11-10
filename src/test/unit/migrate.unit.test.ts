@@ -114,20 +114,22 @@ async function main() {
     assert.strictEqual(workspaceKey(WORKSPACE_NO_FOLDER), 'no-folder');
   });
 
-  test("workspace.json names a folder, a .code-workspace file, or a remote URI; a drive letter is lower-cased", () => {
+  test("workspace.json names a folder, a .code-workspace file, or a remote URI; the identity lower-cases a drive letter", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-wsjson-'));
     const file = path.join(dir, 'workspace.json');
     fs.writeFileSync(file, JSON.stringify({ folder: pathToFileURL(dir).href }));
     assert.strictEqual(readWorkspaceJson(file).folder?.toLowerCase(), dir.toLowerCase());
     fs.writeFileSync(file, JSON.stringify({ folder: 'vscode-remote://dev-container+abc/workspaces/x' }));
     assert.deepStrictEqual(readWorkspaceJson(file), { folder: undefined, workspaceFile: undefined, uri: 'vscode-remote://dev-container+abc/workspaces/x' });
-    if (process.platform === 'win32') {
-      fs.writeFileSync(file, JSON.stringify({ folder: 'file:///C:/Users/u/alpha' }));
-      assert.strictEqual(readWorkspaceJson(file).folder, 'c:\\Users\\u\\alpha');
-    }
     const store = path.join(dir, EXTENSION_ID);
     assert.strictEqual(workspaceOfVsCodeStore(store, false)?.workspace, 'vscode-remote://dev-container+abc/workspaces/x');
     assert.deepStrictEqual(workspaceOfVsCodeStore(store, true), { workspace: WORKSPACE_NO_FOLDER });
+    if (process.platform === 'win32') {
+      // Node spells the drive C:, VS Code c:; the identity follows VS Code, the CLI's listing follows Node.
+      fs.writeFileSync(file, JSON.stringify({ folder: 'file:///C:/Users/u/alpha' }));
+      assert.strictEqual(readWorkspaceJson(file).folder, 'C:\\Users\\u\\alpha');
+      assert.strictEqual(workspaceOfVsCodeStore(store, false)?.workspace, 'c:\\Users\\u\\alpha');
+    }
     fs.rmSync(file);
     assert.strictEqual(workspaceOfVsCodeStore(store, false), undefined);
   });
@@ -167,12 +169,12 @@ async function main() {
       assert.deepStrictEqual(snapshot(m.betaStore), before.beta);
       assert.deepStrictEqual(snapshot(m.globalStore), before.global);
 
-      const alphaKey = readWorkspaceJson(path.join(path.dirname(m.alphaStore), 'workspace.json')).folder!;
+      const alphaKey = workspaceOfVsCodeStore(m.alphaStore, false)!.workspace;
       const alpha = await readAll(workspaceStoreDir(m.snagboatHome!, alphaKey));
       assert.deepStrictEqual(alpha.map((e) => e.eventId).sort(), m.events.slice(0, 80).map((e) => e.eventId).sort(), 'Code and Cursor copies merged, overlap once');
       assert.ok(alpha.every((e) => e.workspace === alphaKey));
       assert.strictEqual(alpha.length, new Set(alpha.map((e) => e.eventId)).size, 'no duplicates on disk');
-      const beta = await readAll(workspaceStoreDir(m.snagboatHome!, readWorkspaceJson(path.join(path.dirname(m.betaStore), 'workspace.json')).folder!));
+      const beta = await readAll(workspaceStoreDir(m.snagboatHome!, workspaceOfVsCodeStore(m.betaStore, false)!.workspace));
       assert.strictEqual(beta.length, m.events.length - 80);
 
       const alphaDir = workspaceStoreDir(m.snagboatHome!, alphaKey);
@@ -207,7 +209,7 @@ async function main() {
       assert.strictEqual(beta.status, 'copied');
       assert.strictEqual(beta.newEvents, 1);
       assert.ok(grown.stores.filter((s: { source: string }) => s.source !== m.betaStore).every((s: { status: string }) => s.status === 'up-to-date'));
-      const betaEvents = await readAll(workspaceStoreDir(m.snagboatHome!, readWorkspaceJson(path.join(path.dirname(m.betaStore), 'workspace.json')).folder!));
+      const betaEvents = await readAll(workspaceStoreDir(m.snagboatHome!, workspaceOfVsCodeStore(m.betaStore, false)!.workspace));
       assert.strictEqual(betaEvents.filter((e) => e.eventId === 'brand-new-event').length, 1);
     } finally {
       restoreEnv();
@@ -260,7 +262,7 @@ async function main() {
       assert.deepStrictEqual([...new Set(user.map((s) => s.sessionId))].sort(), [...new Set(base.map((s) => s.sessionId))].sort());
 
       // Lose a day from the per-user store: verify fails and names what's missing.
-      const betaDir = workspaceStoreDir(m.snagboatHome!, readWorkspaceJson(path.join(path.dirname(m.betaStore), 'workspace.json')).folder!);
+      const betaDir = workspaceStoreDir(m.snagboatHome!, workspaceOfVsCodeStore(m.betaStore, false)!.workspace);
       for (const f of fs.readdirSync(path.join(betaDir, 'events'))) fs.rmSync(path.join(betaDir, 'events', f));
       const bad = await cli(['migrate', '--verify', baselineFile, '--json']);
       assert.strictEqual(bad.code, 1);

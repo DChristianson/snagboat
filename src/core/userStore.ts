@@ -48,7 +48,8 @@ function normalize(p: string): string {
 }
 
 /**
- * What a VS Code workspaceStorage/<hash>/workspace.json names: a folder, a
+ * What a VS Code workspaceStorage/<hash>/workspace.json names, as paths the way
+ * Node spells them (see workspaceOfVsCodeStore for the identity): a folder, a
  * .code-workspace file, or (for a remote window) a URI that isn't a local path.
  */
 export function readWorkspaceJson(file: string): { folder?: string; workspaceFile?: string; uri?: string } {
@@ -57,7 +58,7 @@ export function readWorkspaceJson(file: string): { folder?: string; workspaceFil
     const toPath = (uri?: string) => {
       if (!uri || !uri.startsWith('file:')) return undefined;
       try {
-        return normalize(fileURLToPath(uri));
+        return fileURLToPath(uri);
       } catch {
         return undefined;
       }
@@ -75,11 +76,15 @@ export function readWorkspaceJson(file: string): { folder?: string; workspaceFil
  * The workspace a VS Code storage folder belongs to: its .code-workspace file,
  * else its folder, else its non-local URI; a window with no folder (global
  * storage) is WORKSPACE_NO_FOLDER. undefined when workspace.json can't be read.
+ * Paths are spelled as VS Code spells them (a lower-case drive letter), so the
+ * extension and the CLI name a workspace the same way.
  */
 export function workspaceOfVsCodeStore(storeDir: string, global: boolean): WorkspaceInfo | undefined {
   if (global) return { workspace: WORKSPACE_NO_FOLDER };
-  const { folder, workspaceFile, uri } = readWorkspaceJson(path.join(path.dirname(storeDir), 'workspace.json'));
-  const workspace = workspaceFile ?? folder ?? uri;
+  const json = readWorkspaceJson(path.join(path.dirname(storeDir), 'workspace.json'));
+  const folder = json.folder && normalize(json.folder);
+  const workspaceFile = json.workspaceFile && normalize(json.workspaceFile);
+  const workspace = workspaceFile ?? folder ?? json.uri;
   return workspace ? { workspace, folder, workspaceFile } : undefined;
 }
 
