@@ -57,8 +57,8 @@ function run(cmd: string, args: string[], opts: { input?: string; env?: NodeJS.P
 }
 
 /** Runs the hook script as Claude Code would: payload on stdin, CLAUDE_PROJECT_DIR set. */
-function runHook(home: string, script: string, projectDir: string, body: unknown) {
-  return run('sh', [script], { input: JSON.stringify(body), env: { ...process.env, SNAGBOAT_HOME: home, CLAUDE_PROJECT_DIR: projectDir } });
+function runHook(home: string, script: string, projectDir: string, body: unknown, extraEnv: NodeJS.ProcessEnv = {}) {
+  return run('sh', [script], { input: JSON.stringify(body), env: { ...process.env, SNAGBOAT_HOME: home, CLAUDE_PROJECT_DIR: projectDir, ...extraEnv } });
 }
 
 function settle(ms = 150): Promise<void> {
@@ -253,6 +253,20 @@ async function main() {
     removeRoutes(home, [projectA, projectB], process.pid);
     assert.ok(!fs.existsSync(path.join(home, 'routes', routeKey(projectA))));
     assert.ok(fs.existsSync(path.join(home, 'routes', routeKey(projectB))));
+  });
+
+  test('under Git Bash (MSYSTEM set) the project dir travels hex-encoded and still matches', async () => {
+    const { home, script, projectA } = await setup();
+    const unicode = path.join(projectA, 'naïve-日本');
+    fs.mkdirSync(unicode);
+    const w = await startWindow(home, [unicode]);
+    try {
+      await runHook(home, script, unicode, payload(unicode), { MSYSTEM: 'MINGW64' });
+      await settle();
+      assert.strictEqual(w.published.length, 1);
+    } finally {
+      w.receiver.stop();
+    }
   });
 
   test('a colon in the project path routes the same way the route file is named', async () => {

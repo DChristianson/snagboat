@@ -14,9 +14,14 @@ function tokensMatch(header: string | undefined, token: string): boolean {
 
 /**
  * The project dir the routing script routed on. Header values arrive as raw
- * bytes read as latin1, so re-decode them as UTF-8 for non-ASCII paths.
+ * bytes read as latin1, so re-decode them as UTF-8 for non-ASCII paths. On
+ * Windows the script sends it hex-encoded instead (X-Snagboat-Project-Dir-Hex):
+ * curl there takes its arguments in the ANSI code page, which mangles
+ * non-ASCII characters, while hex digits survive any encoding.
  */
-function projectDirHeader(value: string | string[] | undefined): string | undefined {
+function projectDirHeader(value: string | string[] | undefined, hex: string | string[] | undefined): string | undefined {
+  const hexRaw = Array.isArray(hex) ? hex[0] : hex;
+  if (hexRaw !== undefined && /^([0-9a-f]{2})+$/i.test(hexRaw)) return Buffer.from(hexRaw, 'hex').toString('utf8');
   const raw = Array.isArray(value) ? value[0] : value;
   return raw === undefined ? undefined : Buffer.from(raw, 'latin1').toString('utf8');
 }
@@ -65,7 +70,7 @@ export class HooksReceiver {
         req.resume();
         return;
       }
-      const projectDir = projectDirHeader(req.headers['x-snagboat-project-dir']);
+      const projectDir = projectDirHeader(req.headers['x-snagboat-project-dir'], req.headers['x-snagboat-project-dir-hex']);
       if (!projectDir || !isWithinFolders(projectDir, this.workspaceFolders)) {
         res.writeHead(421).end(); // Misdirected Request: not this window's project
         req.resume();

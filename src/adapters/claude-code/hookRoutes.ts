@@ -142,6 +142,10 @@ if [ -n "$MSYSTEM" ]; then
   # Git Bash started by Claude Code may have no locale; file names and the header need UTF-8.
   export LC_ALL=C.UTF-8
   command -v cygpath >/dev/null 2>&1 && dir=$(cygpath -m "$project")
+  # curl.exe reads its arguments in the ANSI code page, so send the dir as hex.
+  header="X-Snagboat-Project-Dir-Hex: $(printf '%s' "$project" | od -An -tx1 | tr -d ' \\n')"
+else
+  header="X-Snagboat-Project-Dir: $project"
 fi
 while [ -n "$dir" ]; do
   route="$routes/$(printf '%s' "$dir" | tr '/\\\\:' '---')"
@@ -150,7 +154,7 @@ while [ -n "$dir" ]; do
     if [ -n "$pid" ] && { [ -n "$MSYSTEM" ] || kill -0 "$pid" 2>/dev/null; }; then
       curl -s -m 2 -X POST "http://127.0.0.1:$port/hook" \\
         -H "Content-Type: application/json" -H "Authorization: Bearer $token" \\
-        -H "X-Snagboat-Project-Dir: $project" \\
+        -H "$header" \\
         --data-binary @- >/dev/null 2>&1
     fi
     exit 0
