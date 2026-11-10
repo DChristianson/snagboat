@@ -28,10 +28,12 @@ const HOOK_EVENT_NAMES = ['PostToolUse', 'Stop'] as const;
  * from ever blocking Claude Code) if the script is gone, e.g. Snagboat was
  * uninstalled.
  */
-export function buildHookCommand(scriptPath: string): string {
+export function buildHookCommand(scriptPath: string, platform: NodeJS.Platform = process.platform): string {
   const home = os.homedir();
   const shown = scriptPath.startsWith(home + path.sep) ? `$HOME${scriptPath.slice(home.length)}` : scriptPath;
-  return `"${shown}" 2>/dev/null || true # ${HOOK_COMMAND_MARKER}`;
+  if (platform !== 'win32') return `"${shown}" 2>/dev/null || true # ${HOOK_COMMAND_MARKER}`;
+  // Windows: Claude Code runs this in Git Bash, where backslashes aren't separators and there's no exec bit to rely on.
+  return `sh "${shown.replace(/\\/g, '/')}" 2>/dev/null || true # ${HOOK_COMMAND_MARKER}`;
 }
 
 /**

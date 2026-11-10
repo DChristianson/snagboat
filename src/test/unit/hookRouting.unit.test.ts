@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { HooksReceiver } from '../../adapters/claude-code/hooksReceiver';
+import { buildHookCommand } from '../../adapters/claude-code/hooksConfig';
+import { sanitizeCwd } from '../../adapters/claude-code/workspace';
 import { isWithinFolders, withRealPaths } from '../../core/paths';
 import {
   installHookScript,
@@ -55,8 +57,8 @@ function run(cmd: string, args: string[], opts: { input?: string; env?: NodeJS.P
 }
 
 /** Runs the hook script as Claude Code would: payload on stdin, CLAUDE_PROJECT_DIR set. */
-function runHook(home: string, script: string, projectDir: string, body: unknown) {
-  return run('sh', [script], { input: JSON.stringify(body), env: { ...process.env, SNAGBOAT_HOME: home, CLAUDE_PROJECT_DIR: projectDir } });
+function runHook(home: string, script: string, projectDir: string, body: unknown, extraEnv: NodeJS.ProcessEnv = {}) {
+  return run('sh', [script], { input: JSON.stringify(body), env: { ...process.env, SNAGBOAT_HOME: home, CLAUDE_PROJECT_DIR: projectDir, ...extraEnv } });
 }
 
 function settle(ms = 150): Promise<void> {
@@ -253,9 +255,54 @@ async function main() {
     assert.ok(fs.existsSync(path.join(home, 'routes', routeKey(projectB))));
   });
 
+  test('under Git Bash (MSYSTEM set) the project dir travels hex-encoded and still matches', async () => {
+    const { home, script, projectA } = await setup();
+    const unicode = path.join(projectA, 'naïve-日本');
+    fs.mkdirSync(unicode);
+    const w = await startWindow(home, [unicode]);
+    try {
+      await runHook(home, script, unicode, payload(unicode), { MSYSTEM: 'MINGW64' });
+      await settle();
+      assert.strictEqual(w.published.length, 1);
+    } finally {
+      w.receiver.stop();
+    }
+  });
+
+  test('a colon in the project path routes the same way the route file is named', async () => {
+    // Windows drive letters put a colon in every path; the script and routeKey must agree on it.
+    // Windows itself can't make a folder named x:y; there every other test here already routes through C:.
+    if (process.platform === 'win32') return;
+    const { home, script, projectA } = await setup();
+    const colon = path.join(projectA, 'x:y');
+    fs.mkdirSync(colon);
+    const w = await startWindow(home, [colon]);
+    try {
+      await runHook(home, script, colon, payload(colon));
+      await settle();
+      assert.strictEqual(w.published.length, 1);
+    } finally {
+      w.receiver.stop();
+    }
+  });
+
+  test('Windows paths: route names, transcript folder names and the hook command', () => {
+    assert.strictEqual(routeKey('C:\\Users\\dc\\proj'), 'C--Users-dc-proj');
+    assert.strictEqual(routeKey('C:/Users/dc/proj'), 'C--Users-dc-proj', 'cygpath -m spelling maps to the same name');
+    assert.strictEqual(sanitizeCwd('C:\\Users\\dc\\proj'), 'C--Users-dc-proj');
+    const home = os.homedir();
+    const scriptPath = path.join(home, '.snagboat', 'bin', 'snagboat-hook');
+    const win = buildHookCommand(scriptPath, 'win32');
+    assert.ok(win.startsWith('sh "$HOME/'), win);
+    assert.ok(!win.includes('\\'), 'no backslashes for Git Bash');
+    assert.ok(buildHookCommand(scriptPath, 'linux').startsWith('"$HOME'), 'POSIX command is unchanged');
+  });
+
   test('route and script files are private to the user', async () => {
     const { home, script, projectA } = await setup();
     writeRoutes(home, [projectA], { port: 1000, token: 't', pid: process.pid });
+    // Windows has no POSIX modes; there the files are private by living in the user's profile.
+    if (process.platform === 'win32') return;
     assert.strictEqual(fs.statSync(path.join(home, 'routes', routeKey(projectA))).mode & 0o777, 0o600);
     assert.strictEqual(fs.statSync(path.join(home, 'routes')).mode & 0o777, 0o700);
     assert.strictEqual(fs.statSync(script).mode & 0o777, 0o755);

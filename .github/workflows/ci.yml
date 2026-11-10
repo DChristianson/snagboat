@@ -16,9 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Both: the hook routing and transcript tailing tests use real file
-        # watching, sh, and curl, whose behavior differs by platform.
-        os: [ubuntu-latest, macos-latest]
+        # All three: the hook routing and transcript tailing tests use real
+        # file watching, sh, and curl, whose behavior differs by platform. On
+        # Windows, sh and curl are Git Bash's, as when Claude Code runs a hook.
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7

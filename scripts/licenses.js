@@ -94,7 +94,8 @@ async function main() {
 
   const output = render(packages);
   if (process.argv.includes('--check')) {
-    const current = fs.existsSync(OUTPUT) ? fs.readFileSync(OUTPUT, 'utf8') : '';
+    // Line endings ignored: a Windows checkout may have converted the file to CRLF.
+    const current = fs.existsSync(OUTPUT) ? fs.readFileSync(OUTPUT, 'utf8').replace(/\r\n/g, '\n') : '';
     if (current !== output) {
       console.error('THIRD_PARTY_LICENSES.md is out of date with the bundled dependencies. Run `npm run licenses` and commit the result.');
       process.exit(1);

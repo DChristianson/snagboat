@@ -121,7 +121,8 @@ export function promptDir(homeDir: string, advisorId: string): string {
 }
 
 export function expandHome(p: string, homeDir: string): string {
-  return p.replace(/^~(?=$|[\\/])/, homeDir);
+  // path.join rather than plain substitution, so ~/x on Windows becomes C:\\Users\\me\\x, not a mix of separators.
+  return /^~(?=$|[\\/])/.test(p) ? path.join(homeDir, p.slice(1)) : p;
 }
 
 /** A prompt file's text as sent: HTML comments (the notes the written defaults carry) are dropped. */

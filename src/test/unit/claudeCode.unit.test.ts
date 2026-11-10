@@ -214,9 +214,11 @@ async function main() {
   });
 
   test('buildHookCommand writes the default location with a literal $HOME and never fails', () => {
+    // On Windows the command runs the script through Git Bash's sh (see hooksConfig.ts).
+    const sh = process.platform === 'win32' ? 'sh ' : '';
     const cmd = buildHookCommand(path.join(os.homedir(), '.snagboat', 'bin', 'snagboat-hook'));
-    assert.strictEqual(cmd, '"$HOME/.snagboat/bin/snagboat-hook" 2>/dev/null || true # snagboat-hook-receiver');
-    assert.ok(buildHookCommand('/opt/x/snagboat-hook').startsWith('"/opt/x/snagboat-hook"'));
+    assert.strictEqual(cmd, `${sh}"$HOME/.snagboat/bin/snagboat-hook" 2>/dev/null || true # snagboat-hook-receiver`);
+    assert.ok(buildHookCommand('/opt/x/snagboat-hook').startsWith(`${sh}"/opt/x/snagboat-hook"`));
   });
 
   test('ensureHooksConfigured creates .claude/settings.json from scratch when absent', async () => {

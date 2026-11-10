@@ -36,7 +36,8 @@ export function hooksEnabledFor(folder: string): boolean {
 }
 
 export function sanitizeCwd(cwd: string): string {
-  return cwd.replace(/[\\/]/g, '-');
+  // Claude Code names a project's transcript folder after its path, separators (and a Windows drive's colon) as dashes.
+  return cwd.replace(/[\\/:]/g, '-');
 }
 
 /** Test/CI seam: override where transcripts are read from instead of the real ~/.claude. */

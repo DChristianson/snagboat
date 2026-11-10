@@ -20,9 +20,12 @@ export function snagboatHome(): string {
   return process.env.SNAGBOAT_HOME ?? path.join(os.homedir(), '.snagboat');
 }
 
-/** Route file name for a folder. Must match the script's `tr '/' '-'`. */
+/**
+ * Route file name for a folder. Must match the script's `tr '/\\:' '---'`:
+ * separators and a Windows drive's colon (not allowed in file names) become dashes.
+ */
 export function routeKey(folder: string): string {
-  return folder.replace(/\//g, '-');
+  return folder.replace(/[\\/:]/g, '-');
 }
 
 export function newToken(): string {
@@ -113,7 +116,12 @@ export function pruneStaleRoutes(home: string): void {
 /**
  * POSIX sh + curl rather than node: it runs before Claude Code continues after
  * every tool call, sh+curl starts in ~12ms versus ~60ms for node, and node
- * isn't reliably on PATH where hooks run. Routes on CLAUDE_PROJECT_DIR, which
+ * isn't reliably on PATH where hooks run. The same script serves Windows:
+ * Claude Code runs hook commands through Git Bash there (it needs Git Bash to
+ * start), which has sh, curl and cygpath. Under Git Bash (MSYSTEM set) the
+ * project dir is converted to C:/x/y form for the walk, and the pid check is
+ * skipped because kill there doesn't know Windows process ids; a dead
+ * window's port just refuses the connection. Routes on CLAUDE_PROJECT_DIR, which
  * Claude Code sets for hooks to the project root where the session started
  * (unlike the payload's cwd, which follows Claude into other directories and
  * worktrees), walking up to the nearest route so a session started in a
@@ -130,20 +138,31 @@ export const HOOK_SCRIPT = `#!/bin/sh
 routes="\${SNAGBOAT_HOME:-$HOME/.snagboat}/routes"
 project="\${CLAUDE_PROJECT_DIR:-$PWD}"
 dir="$project"
+if [ -n "$MSYSTEM" ]; then
+  # Git Bash started by Claude Code may have no locale; file names and the header need UTF-8.
+  export LC_ALL=C.UTF-8
+  command -v cygpath >/dev/null 2>&1 && dir=$(cygpath -m "$project")
+  # curl.exe reads its arguments in the ANSI code page, so send the dir as hex.
+  header="X-Snagboat-Project-Dir-Hex: $(printf '%s' "$project" | od -An -tx1 | tr -d ' \\n')"
+else
+  header="X-Snagboat-Project-Dir: $project"
+fi
 while [ -n "$dir" ]; do
-  route="$routes/$(printf '%s' "$dir" | tr '/' '-')"
+  route="$routes/$(printf '%s' "$dir" | tr '/\\\\:' '---')"
   if [ -f "$route" ]; then
     read -r port token pid < "$route"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    if [ -n "$pid" ] && { [ -n "$MSYSTEM" ] || kill -0 "$pid" 2>/dev/null; }; then
       curl -s -m 2 -X POST "http://127.0.0.1:$port/hook" \\
         -H "Content-Type: application/json" -H "Authorization: Bearer $token" \\
-        -H "X-Snagboat-Project-Dir: $project" \\
+        -H "$header" \\
         --data-binary @- >/dev/null 2>&1
     fi
     exit 0
   fi
   [ "$dir" = "/" ] && break
-  dir=$(dirname "$dir")
+  parent=$(dirname "$dir")
+  [ "$parent" = "$dir" ] && break
+  dir="$parent"
 done
 exit 0
 `;
