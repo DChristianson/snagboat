@@ -1,0 +1,306 @@
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as http from 'http';
+import * as path from 'path';
+import { NormalizedEvent, SessionSummary } from '@snagboat/schema';
+import { storeSessions } from '../sessionSummaries';
+import { listUserStores } from '../userStore';
+import { liveCore, readCoreFile, removeCoreFile, writeCoreFile } from './coreFile';
+import { isProcessAlive } from '../processes';
+import { StoreWriter } from './storeWriter';
+
+/**
+ * The core service (docs/design/architecture-rfc.md, step 3; handoff 3c-2):
+ * one process per user that reads and writes the per-user store
+ * (~/.snagboat/data) for every front door. Listens on 127.0.0.1 only and
+ * publishes its port and admin token in ~/.snagboat/core.json.
+ *
+ * Tokens: the admin token in core.json reads every workspace (the explicit
+ * cross-workspace scope, like the CLI's --all) and mints workspace tokens with
+ * POST /tokens. A workspace token sees and writes only its workspaces: a VS
+ * Code window gets one for its workspace and never sees another's data.
+ * Tokens other than the admin token live only as long as the process.
+ *
+ * Endpoints:
+ *   GET  /health               version, pid, start time
+ *   POST /tokens               admin: { workspaces: [...] } -> { token }
+ *   POST /events               one event or an array; workspace set from the token if missing
+ *   GET  /sessions[?days=n]    sessions of the token's workspaces, newest first
+ *   GET  /sessions/:id         one session, by id or unique id prefix
+ *   POST /shutdown             admin: stop the core
+ *
+ * It exits after idleMs with no requests (0: never). It doesn't run retention:
+ * that stays with whoever owns a workspace's folder (claims.ts).
+ */
+
+export class CoreRunningError extends Error {
+  constructor(readonly port: number, readonly pid: number) {
+    super(`a Snagboat core is already running (pid ${pid}, port ${port})`);
+  }
+}
+
+export interface CoreOptions {
+  home: string;
+  version: string;
+  /** 0 or absent: a free port. */
+  port?: number;
+  /** Exit after this long with no requests; 0 never. Default 30 minutes. */
+  idleMs?: number;
+  /** How often to move spooled events of workspaces no longer claimed; default 30 seconds. */
+  ingestEveryMs?: number;
+  log?: (line: string) => void;
+}
+
+type Scope = { admin: true } | { admin: false; workspaces: string[] };
+
+const MAX_BODY = 16 * 1024 * 1024;
+const DEFAULT_IDLE_MS = 30 * 60_000;
+
+class HttpError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
+
+function isEvent(e: unknown): e is NormalizedEvent {
+  if (!e || typeof e !== 'object') return false;
+  const o = e as Record<string, unknown>;
+  const raw = o.raw as Record<string, unknown> | undefined;
+  return (
+    ['eventId', 'sessionId', 'agent', 'ts', 'kind', 'status'].every((k) => typeof o[k] === 'string') &&
+    !!raw &&
+    typeof raw === 'object' &&
+    typeof raw.adapter === 'string' &&
+    typeof raw.ref === 'string' &&
+    (o.workspace === undefined || typeof o.workspace === 'string')
+  );
+}
+
+function lockFile(home: string): string {
+  return path.join(home, 'core.lock');
+}
+
+function takeLock(home: string): void {
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = fs.openSync(lockFile(home), 'wx', 0o600);
+      fs.writeSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      return;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      const pid = Number(fs.readFileSync(lockFile(home), 'utf8').trim());
+      if (Number.isInteger(pid) && pid !== process.pid && isProcessAlive(pid)) throw new CoreRunningError(readCoreFile(home)?.port ?? 0, pid);
+      fs.rmSync(lockFile(home), { force: true }); // left by a core that exited without stopping
+    }
+  }
+  throw new Error(`couldn't take ${lockFile(home)}`);
+}
+
+function releaseLock(home: string): void {
+  try {
+    if (Number(fs.readFileSync(lockFile(home), 'utf8').trim()) === process.pid) fs.rmSync(lockFile(home), { force: true });
+  } catch {
+    // already gone
+  }
+}
+
+function tokenEquals(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+export class CoreService {
+  readonly token = crypto.randomBytes(32).toString('hex');
+  readonly stopped: Promise<void>;
+  private readonly server: http.Server;
+  private readonly writer: StoreWriter;
+  private readonly workspaceTokens = new Map<string, string[]>();
+  private readonly startedAt = new Date().toISOString();
+  private lastActivity = Date.now();
+  private timers: NodeJS.Timeout[] = [];
+  private resolveStopped!: () => void;
+  private stopping = false;
+  private boundPort = 0;
+
+  private constructor(private readonly opts: CoreOptions) {
+    this.writer = new StoreWriter(opts.home);
+    this.stopped = new Promise((resolve) => (this.resolveStopped = resolve));
+    this.server = http.createServer((req, res) => void this.handle(req, res));
+  }
+
+  get port(): number {
+    return this.boundPort;
+  }
+
+  /** Starts a core, unless one is already running for this home (CoreRunningError). A stale core.json is replaced. */
+  static async start(opts: CoreOptions): Promise<CoreService> {
+    const running = liveCore(opts.home);
+    if (running && running.pid !== process.pid) throw new CoreRunningError(running.port, running.pid);
+    // One core per home, even when two front doors start one at the same moment: the lock is created exclusively.
+    takeLock(opts.home);
+    const core = new CoreService(opts);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        core.server.once('error', reject);
+        core.server.listen(opts.port ?? 0, '127.0.0.1', () => resolve());
+      });
+    } catch (err) {
+      releaseLock(opts.home);
+      throw err;
+    }
+    core.boundPort = (core.server.address() as { port: number }).port;
+    writeCoreFile(opts.home, { port: core.boundPort, token: core.token, pid: process.pid, version: opts.version, startedAt: core.startedAt });
+    core.log(`snagboat core ${opts.version} listening on 127.0.0.1:${core.boundPort} (pid ${process.pid})`);
+
+    const ingest = () =>
+      core.writer
+        .ingestSpool()
+        .then((n) => n > 0 && core.log(`ingested ${n} spooled event(s)`))
+        .catch((err) => core.log(`spool ingest failed: ${err instanceof Error ? err.message : String(err)}`));
+    void ingest();
+    core.timers.push(setInterval(ingest, opts.ingestEveryMs ?? 30_000));
+    const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
+    if (idleMs > 0) {
+      core.timers.push(
+        setInterval(() => {
+          if (Date.now() - core.lastActivity >= idleMs) {
+            core.log(`idle for ${Math.round(idleMs / 1000)}s; stopping`);
+            void core.stop();
+          }
+        }, Math.min(idleMs, 60_000))
+      );
+    }
+    for (const t of core.timers) t.unref();
+    return core;
+  }
+
+  async stop(): Promise<void> {
+    if (this.stopping) return this.stopped;
+    this.stopping = true;
+    for (const t of this.timers) clearInterval(t);
+    removeCoreFile(this.opts.home, process.pid);
+    const closed = new Promise<void>((resolve) => this.server.close(() => resolve()));
+    this.server.closeAllConnections();
+    await closed;
+    releaseLock(this.opts.home);
+    this.resolveStopped();
+  }
+
+  private log(line: string): void {
+    this.opts.log?.(line);
+  }
+
+  private scopeOf(req: http.IncomingMessage): Scope | undefined {
+    const given = req.headers.authorization?.replace(/^Bearer\s+/i, '') ?? '';
+    if (tokenEquals(given, this.token)) return { admin: true };
+    for (const [token, workspaces] of this.workspaceTokens) if (tokenEquals(given, token)) return { admin: false, workspaces };
+    return undefined;
+  }
+
+  private async readBody(req: http.IncomingMessage): Promise<unknown> {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += (chunk as Buffer).length;
+      if (size > MAX_BODY) throw new HttpError(413, 'request body too large');
+      chunks.push(chunk as Buffer);
+    }
+    try {
+      return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      throw new HttpError(400, 'body is not JSON');
+    }
+  }
+
+  private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    this.lastActivity = Date.now();
+    const send = (status: number, body: unknown) => {
+      res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
+    };
+    try {
+      const scope = this.scopeOf(req);
+      if (!scope) {
+        req.resume();
+        return send(401, { error: 'missing or unknown token' });
+      }
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      const route = `${req.method} ${url.pathname}`;
+      if (route === 'GET /health') return send(200, { ok: true, version: this.opts.version, pid: process.pid, startedAt: this.startedAt });
+      if (route === 'POST /tokens') return send(200, this.mintToken(scope, await this.readBody(req)));
+      if (route === 'POST /events') return send(200, await this.postEvents(scope, await this.readBody(req)));
+      if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days')));
+      if (req.method === 'GET' && url.pathname.startsWith('/sessions/')) return send(200, await this.session(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length))));
+      if (route === 'POST /shutdown') {
+        if (!scope.admin) throw new HttpError(403, 'only the admin token can stop the core');
+        send(200, { stopping: true });
+        setImmediate(() => void this.stop());
+        return;
+      }
+      req.resume();
+      send(404, { error: `no such endpoint: ${route}` });
+    } catch (err) {
+      req.resume();
+      if (err instanceof HttpError) return send(err.status, { error: err.message });
+      this.log(`request failed: ${err instanceof Error ? err.message : String(err)}`);
+      send(500, { error: 'internal error' });
+    }
+  }
+
+  private mintToken(scope: Scope, body: unknown): { token: string; workspaces: string[] } {
+    if (!scope.admin) throw new HttpError(403, 'only the admin token can mint tokens');
+    const workspaces = (body as { workspaces?: unknown })?.workspaces;
+    if (!Array.isArray(workspaces) || workspaces.length === 0 || !workspaces.every((w) => typeof w === 'string' && w.length > 0)) {
+      throw new HttpError(400, 'body must be { "workspaces": ["<workspace>", ...] }');
+    }
+    const token = crypto.randomBytes(32).toString('hex');
+    this.workspaceTokens.set(token, [...new Set(workspaces as string[])]);
+    return { token, workspaces: this.workspaceTokens.get(token)! };
+  }
+
+  private async postEvents(scope: Scope, body: unknown) {
+    const list = Array.isArray(body) ? body : [body];
+    const events: NormalizedEvent[] = [];
+    for (const [i, e] of list.entries()) {
+      if (!isEvent(e)) throw new HttpError(400, `event ${i} is not a NormalizedEvent`);
+      let workspace = e.workspace;
+      if (workspace === undefined) {
+        if (scope.admin || scope.workspaces.length !== 1) throw new HttpError(400, `event ${i} needs a workspace`);
+        workspace = scope.workspaces[0];
+      } else if (!scope.admin && !scope.workspaces.includes(workspace)) {
+        throw new HttpError(403, `event ${i} is for a workspace this token can't write`);
+      }
+      events.push({ ...e, workspace });
+    }
+    return this.writer.write(events);
+  }
+
+  private visibleStores(scope: Scope) {
+    const stores = listUserStores(this.opts.home);
+    return scope.admin ? stores : stores.filter((s) => scope.workspaces.includes(s.workspace));
+  }
+
+  private async sessions(scope: Scope, daysParam: string | null): Promise<Array<SessionSummary & { workspace: string }>> {
+    let days: number | undefined;
+    if (daysParam !== null) {
+      days = Number(daysParam);
+      if (!Number.isFinite(days) || days <= 0) throw new HttpError(400, 'days must be a positive number');
+    }
+    const all: Array<SessionSummary & { workspace: string }> = [];
+    for (const store of this.visibleStores(scope)) for (const s of await storeSessions(store.dir)) all.push({ ...s, workspace: store.workspace });
+    const since = days === undefined ? '' : new Date(Date.now() - days * 86_400_000).toISOString();
+    return all.filter((s) => s.lastTs >= since).sort((a, b) => b.lastTs.localeCompare(a.lastTs));
+  }
+
+  private async session(scope: Scope, id: string): Promise<SessionSummary & { workspace: string }> {
+    if (!id) throw new HttpError(404, 'session id missing');
+    const found = (await this.sessions(scope, null)).filter((s) => s.sessionId === id || s.sessionId.startsWith(id));
+    if (found.length === 0) throw new HttpError(404, `no session ${id}`);
+    const exact = found.filter((s) => s.sessionId === id);
+    if (exact.length === 1) return exact[0];
+    if (found.length > 1) throw new HttpError(409, `${id} matches ${found.length} sessions; give more of the id`);
+    return found[0];
+  }
+}

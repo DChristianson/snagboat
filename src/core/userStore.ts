@@ -88,6 +88,12 @@ export function workspaceOfVsCodeStore(storeDir: string, global: boolean): Works
   return workspace ? { workspace, folder, workspaceFile } : undefined;
 }
 
+/** WorkspaceInfo for an identity alone (no workspace.json to read): a .code-workspace file, a folder, or neither. */
+export function workspaceInfoOf(workspace: string): WorkspaceInfo {
+  if (workspace === WORKSPACE_NO_FOLDER || /^[a-z][a-z0-9+.-]*:\/\//i.test(workspace)) return { workspace };
+  return workspace.endsWith('.code-workspace') ? { workspace, workspaceFile: workspace } : { workspace, folder: workspace };
+}
+
 /** A workspace's folder name under data/workspaces: readable, and unique by a hash of the identity. */
 export function workspaceKey(workspace: string): string {
   if (workspace === WORKSPACE_NO_FOLDER) return 'no-folder';

@@ -186,6 +186,8 @@ node dist/snagboat.js migrate             # copy every store into the per-user s
 node dist/snagboat.js sessions --all --store user   # read the per-user store
 ```
 
+`snagboat serve` runs the **core service** (preview): one local process per user that reads and writes the per-user store for other tools, on `127.0.0.1` only, found through `~/.snagboat/core.json`. `snagboat core start` starts it in the background, `core status` and `core stop` find it, and it stops by itself after 30 idle minutes (`--idle-minutes`). Nothing uses it yet; the extension becomes a client of it in a later step ([handoff](docs/design/handoff-3c.md)).
+
 `migrate` is for the per-user store preview (`snagboat.storage.perUserStore`). It copies, never moves or deletes; running it again copies only what's new. To check a migration, save `sessions --all --json` to a file before migrating, then run `migrate --verify <file>`: every session in it must be in the per-user store with the same prompt, tool-call and token counts.
 
 By default a command reads only the store of the workspace that contains the current folder; `--all` is the explicit way to read across workspaces. It finds stores written by VS Code and its forks (Insiders, VSCodium, Cursor, Windsurf), or one store named by `SNAGBOAT_STORE`. It's built by `npm run build`; publishing it as an npm package comes later ([architecture RFC](docs/design/architecture-rfc.md)).
