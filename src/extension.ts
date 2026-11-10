@@ -45,6 +45,7 @@ import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
 import { DetailPanel } from './ui/detailPanel';
 import { EditTrackerAdapter } from './vscode/editTracker';
 import { vscodeHost } from './vscode/host';
+import { resolveStorage, watchPerUserStoreSetting } from './vscode/storage';
 import { ClaudeCodeAdapter } from './adapters/claude-code';
 import { removeHooksConfigured } from './adapters/claude-code/hooksConfig';
 import { CopilotAdapter } from './adapters/copilot';
@@ -116,11 +117,12 @@ export interface SnagboatTestApi {
 export async function activate(context: vscode.ExtensionContext): Promise<SnagboatTestApi | undefined> {
   // The engine reads settings and workspace folders through the host (docs/design/architecture-rfc.md, step 2).
   setHost(vscodeHost);
-  const storageUri = context.storageUri ?? context.globalStorageUri;
-  await vscode.workspace.fs.createDirectory(storageUri);
-  const storageDir = storageUri.fsPath;
+  // VS Code's per-window storage, or the per-user store (snagboat.storage.perUserStore).
+  const storage = await resolveStorage(context);
+  const storageDir = storage.storageDir;
+  context.subscriptions.push(watchPerUserStoreSetting());
 
-  const eventLog = new EventLog(storageDir);
+  const eventLog = new EventLog(storageDir, { workspace: storage.workspace });
   await eventLog.init();
   const checkpoints = new CheckpointStore(storageDir);
   await checkpoints.init();
@@ -157,7 +159,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   await eventStore.rehydrateFrom(logged);
 
   // Shared by every workspace, so it lives in global storage, not this workspace's.
-  const contextLimits = new ContextLimits(context.globalStorageUri.fsPath);
+  const contextLimits = new ContextLimits(storage.sharedDir);
   await contextLimits.load();
   // Seed from recent history already in memory (new events update it as they arrive).
   for (const event of eventStore.query()) contextLimits.observe(event);
@@ -169,7 +171,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   context.subscriptions.push(outputChannel);
 
   // Saved rules and shell sub-categories, shared by every workspace, plus any written in settings.
-  const ruleStore = new RuleStore(context.globalStorageUri.fsPath);
+  const ruleStore = new RuleStore(storage.rulesDir);
   let ruleStoreError: string | undefined;
   try {
     await ruleStore.load();
@@ -313,7 +315,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     await eventLog.flush();
     return sessionDigestInput(summary, eventLog, new FindingReplay(heuristics, heuristicSettings, contextLimitFor), { roots: roots(), contextLimit: contextLimitFor, sessionName: summary.name, ...(turnId ? { turnId } : {}) });
   };
-  const audit = new AuditLog(context.globalStorageUri.fsPath);
+  const audit = new AuditLog(storage.sharedDir);
   void audit.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
   const advisor = new Advisor({ secrets: context.secrets, globalState: context.globalState, audit, output: outputChannel, digestInput });
 
@@ -887,7 +889,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       .then((choice) => choice === 'Relabel' && vscode.commands.executeCommand('snagboat.relabelShellCalls'));
   };
 
-  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter(path.join(context.globalStorageUri.fsPath, 'copilot-structure'))];
+  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter(path.join(storage.sharedDir, 'copilot-structure'))];
   for (const adapter of adapters) {
     const adapterCtx = makeAdapterContext(adapter.agentId, bus, checkpoints, health, captureContentEnabled);
     await adapter.init(adapterCtx);

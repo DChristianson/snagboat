@@ -1,10 +1,10 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { NormalizedEvent, NormalizedEventKind, normalizedEventSchema, TOOL_CATEGORY_LABELS } from '@snagboat/schema';
+import { NormalizedEvent, NormalizedEventKind, normalizedEventSchema, normalizedEventSchemaV1, TOOL_CATEGORY_LABELS } from '@snagboat/schema';
 import { sessionEvents } from '../../scripts/replayHeuristics';
 import { syntheticEvents } from '../../web/synthetic';
 
-// The JSON Schema in @snagboat/schema (normalizedEvent.v1.schema.json) must describe the
+// The JSON Schema in @snagboat/schema (normalizedEvent.v2.schema.json) must describe the
 // events Snagboat actually writes. A compile-time check in jsonSchema.ts keeps its field
 // list equal to NormalizedEvent's; this test checks the values: enums against the
 // TypeScript unions, and real events (the Claude Code fixture, the web demo's
@@ -72,6 +72,21 @@ async function main() {
     const events = sessionEvents(fixture);
     assert.ok(events.length > 0);
     for (const e of events) assert.deepStrictEqual(validate(schema, JSON.parse(JSON.stringify(e))), [], e.eventId);
+  });
+
+  test('version 2 adds workspace; every version 1 event is a valid version 2 event', () => {
+    const v1 = normalizedEventSchemaV1 as Schema;
+    const ok = { eventId: 'e', sessionId: 's', agent: 'claude-code', ts: '2026-11-09T00:00:00Z', kind: 'edit', status: 'success', raw: { adapter: 'a', ref: 'r' } };
+    const tagged = { ...ok, workspace: '/w/project' };
+    assert.deepStrictEqual(validate(schema, tagged), []);
+    assert.ok(validate(v1, tagged).length > 0, 'version 1 has no workspace');
+    assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in v1.properties)), ['workspace']);
+    assert.deepStrictEqual(Object.keys(v1.properties).filter((k) => !(k in props)), []);
+    for (const e of syntheticEvents()) {
+      const event = JSON.parse(JSON.stringify(e));
+      assert.deepStrictEqual(validate(v1, event), [], e.eventId);
+      assert.deepStrictEqual(validate(schema, event), [], e.eventId);
+    }
   });
 
   test("every event in the web demo's synthetic sessions is valid", () => {

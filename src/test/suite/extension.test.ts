@@ -97,6 +97,32 @@ suite('Snagboat core plumbing', () => {
     assert.ok(!api.getFindings().some((f) => f.heuristicId === 'stalled'), 'stalled should not fire right after recent activity');
   });
 
+  test('events are written to the store the storage setting picks', async () => {
+    const home = process.env.SNAGBOAT_HOME;
+    assert.ok(home, 'SNAGBOAT_HOME must be set by runTest.ts');
+    const workspacesDir = path.join(home!, 'data', 'workspaces');
+    await vscode.commands.executeCommand('snagboat._emitTestEvent');
+    if (!process.env.SNAGBOAT_TEST_PER_USER_STORE) {
+      // Off (the default): nothing is written to the per-user store.
+      assert.ok(!fs.existsSync(path.join(home!, 'data')), 'the per-user store is untouched with the setting off');
+      return;
+    }
+    const folder = vscode.workspace.workspaceFolders![0].uri.fsPath;
+    const tagged = () => {
+      if (!fs.existsSync(workspacesDir)) return false;
+      for (const key of fs.readdirSync(workspacesDir)) {
+        const eventsDir = path.join(workspacesDir, key, 'events');
+        if (!fs.existsSync(eventsDir)) continue;
+        for (const day of fs.readdirSync(eventsDir)) {
+          const lines = fs.readFileSync(path.join(eventsDir, day), 'utf8').split('\n').filter(Boolean);
+          if (lines.some((l) => JSON.parse(l).sessionId === 'dev-test-session' && JSON.parse(l).workspace === folder)) return true;
+        }
+      }
+      return false;
+    };
+    await waitFor(tagged);
+  });
+
   test('saving a real file triggers the edit-tracker adapter', async () => {
     const before = api.getAggregateSnapshot().localEditCount;
 

@@ -68,12 +68,22 @@ export interface NormalizedEvent {
     /** Context size afterwards. */
     postTokens?: number;
   };
+  /**
+   * The workspace the event was recorded in (schema v2): its folder path, its
+   * .code-workspace file path, or WORKSPACE_NO_FOLDER. Set on events in the
+   * per-user store (~/.snagboat/data), which holds every workspace's events;
+   * absent in a VS Code window's own storage, which holds only that window's.
+   */
+  workspace?: string;
   raw: {
     adapter: string;
     ref: string;
     event?: unknown;
   };
 }
+
+/** NormalizedEvent.workspace for a window with no folder open. */
+export const WORKSPACE_NO_FOLDER = '(no folder)';
 
 export interface AdapterCheckpoint {
   updatedAt: string;

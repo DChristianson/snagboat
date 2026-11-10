@@ -74,7 +74,7 @@ The request carries a fixed instruction and the data, and offers the model no to
 
 ## Where data is stored
 
-All under the extension's per-workspace storage folder unless noted:
+All under the extension's per-workspace storage folder unless noted. With `snagboat.storage.perUserStore` on (a preview, off by default), the same files live in one per-user store instead: a workspace's `events/`, `aggregates/`, `checkpoints/` and `finding-responses.jsonl` in `~/.snagboat/data/workspaces/<workspace>/` (with a `workspace.json` naming the folder), `rules.json` in `~/.snagboat/`, and `context-limits.json`, `advisor-audit.jsonl` and `copilot-structure/` in `~/.snagboat/data/`. Each event there also records its workspace's folder path. Turning the setting on, or running `snagboat migrate`, **copies** the existing data there and leaves the original where it was; `~/.snagboat/data/migrated/` records what was copied. Each copy is subject to the same retention, applied by the window using it. To remove the per-user store, turn the setting off and delete `~/.snagboat/data` (and `~/.snagboat/rules.json`).
 
 | Store | Contents | Retention |
 | --- | --- | --- |
