@@ -1,5 +1,5 @@
-import { NormalizedEvent } from '../schema/types';
-import { isConversationEvent } from '../schema/sessions';
+import { NormalizedEvent } from '@snagboat/schema';
+import { isConversationEvent } from '@snagboat/schema';
 import { Heuristic, Finding, HeuristicContext } from './types';
 import { positiveNumberOr } from './settings';
 

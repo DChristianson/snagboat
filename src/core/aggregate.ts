@@ -1,4 +1,4 @@
-import { AgentId, NormalizedEvent, NormalizedEventKind } from '../schema/types';
+import { AgentId, NormalizedEvent, NormalizedEventKind } from '@snagboat/schema';
 import type { EventLogReader } from './eventLog';
 import type { AggregateStore, DailyAggregate } from './retention';
 

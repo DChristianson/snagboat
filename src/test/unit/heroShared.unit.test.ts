@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vm from 'vm';
-import { SessionView } from '../../schema/sessionModel';
+import { SessionView } from '@snagboat/schema';
 import { EventSet } from '../../web/eventSet';
 import { syntheticEvents, syntheticSessionIds } from '../../web/synthetic';
 

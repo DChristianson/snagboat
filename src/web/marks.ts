@@ -1,5 +1,5 @@
-import { marksFromEvent, mergeMarks, ModelContextMarks } from '../schema/contextMarks';
-import { NormalizedEvent } from '../schema/types';
+import { marksFromEvent, mergeMarks, ModelContextMarks } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 
 /**
  * Context marks built in memory from loaded events, by the rules ContextLimits

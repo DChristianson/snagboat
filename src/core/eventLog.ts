@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { eventDay } from '../schema/eventDay';
-import { NormalizedEvent } from '../schema/types';
+import { eventDay } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 
 // eventDay lives in its own fs-free module (the session index and the web
 // demo use it); it's still available from here.

@@ -18,7 +18,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { redactSecrets } from '../core/excerpt';
-import { NormalizedEvent } from '../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 
 /** The fields of an event the demo keeps; everything else (target, raw, channel extras) is dropped. */
 const KEPT: Array<keyof NormalizedEvent> = ['sessionId', 'agent', 'ts', 'kind', 'status', 'model', 'tokens', 'textExcerpt', 'promptText', 'sessionName', 'turnId', 'agentId', 'toolName', 'toolCategory', 'channel', 'endsTurn', 'contextLimit', 'compaction'];

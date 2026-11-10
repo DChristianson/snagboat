@@ -1,6 +1,6 @@
-import { isConversationEvent } from '../schema/sessions';
-import { baseCategory, categoryLabel } from '../schema/toolCategory';
-import { NormalizedEvent } from '../schema/types';
+import { isConversationEvent } from '@snagboat/schema';
+import { baseCategory, categoryLabel } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 import { DiscoveryResult } from '../discovery/discover';
 import { compactTokens } from '../heuristics/settings';
 import { Provenance } from '../heuristics/ruleStore';

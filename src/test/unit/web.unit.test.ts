@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { NormalizedEvent } from '../../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { EventSet } from '../../web/eventSet';
 import { isNormalizedEvent, parseJsonl } from '../../web/jsonl';
 import { buildMarks } from '../../web/marks';

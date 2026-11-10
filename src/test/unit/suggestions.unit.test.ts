@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { NormalizedEvent } from '../../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { builtInHeuristics } from '../../heuristics/builtIns';
 import { RuleStore } from '../../heuristics/ruleStore';
 import { isDetailMessage } from '../../ui/detailModel';

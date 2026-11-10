@@ -1483,14 +1483,17 @@
       }
     }
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "node esbuild.js",
-    "build:web": "tsc -p tsconfig.web.json && node esbuild.js --web && node scripts/webDemo.js",
-    "watch": "node esbuild.js --watch",
+    "build": "npm run build:schema && node esbuild.js",
+    "build:web": "npm run build:schema && tsc -p tsconfig.web.json && node esbuild.js --web && node scripts/webDemo.js",
+    "watch": "npm run build:schema && node esbuild.js --watch",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package",
+    "package": "vsce package --no-dependencies",
     "licenses": "node scripts/licenses.js",
-    "compile-tests": "tsc -p . --outDir out",
+    "compile-tests": "npm run build:schema && tsc -p . --outDir out",
     "verify:transcripts": "npm run compile-tests && node ./out/scripts/transcripts.js verify",
     "replay:heuristics": "npm run compile-tests && node ./out/scripts/replayHeuristics.js",
     "demo:traces": "npm run compile-tests && node ./out/scripts/demoTraces.js",
@@ -1500,7 +1503,8 @@
     "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/explorer.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js && node ./out/test/unit/digest.unit.test.js && node ./out/test/unit/advisor.unit.test.js && node ./out/test/unit/prompts.unit.test.js && node ./out/test/unit/headlines.unit.test.js && node ./out/test/unit/propose.unit.test.js && node ./out/test/unit/review.unit.test.js && node ./out/test/unit/nudges.unit.test.js && node ./out/test/unit/web.unit.test.js && node ./out/test/unit/heroShared.unit.test.js && node ./out/test/unit/schemaBoundary.unit.test.js && node ./out/test/unit/engineBoundary.unit.test.js && node ./out/test/unit/host.unit.test.js"
+    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/explorer.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js && node ./out/test/unit/digest.unit.test.js && node ./out/test/unit/advisor.unit.test.js && node ./out/test/unit/prompts.unit.test.js && node ./out/test/unit/headlines.unit.test.js && node ./out/test/unit/propose.unit.test.js && node ./out/test/unit/review.unit.test.js && node ./out/test/unit/nudges.unit.test.js && node ./out/test/unit/web.unit.test.js && node ./out/test/unit/heroShared.unit.test.js && node ./out/test/unit/schemaBoundary.unit.test.js && node ./out/test/unit/engineBoundary.unit.test.js && node ./out/test/unit/host.unit.test.js && node ./out/test/unit/normalizedEventSchema.unit.test.js",
+    "build:schema": "npm run build -w @snagboat/schema"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",

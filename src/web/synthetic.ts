@@ -1,5 +1,5 @@
-import { EventToolCategory } from '../schema/toolCategory';
-import { AgentId, NormalizedEvent } from '../schema/types';
+import { EventToolCategory } from '@snagboat/schema';
+import { AgentId, NormalizedEvent } from '@snagboat/schema';
 
 /**
  * The web demo's example sessions (docs/design/visualization-explorer.md,

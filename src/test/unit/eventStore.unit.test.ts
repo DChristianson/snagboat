@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { EventStore } from '../../core/eventStore';
 import { EventLog } from '../../core/eventLog';
-import { NormalizedEvent } from '../../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 
 function makeEvent(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
   return {

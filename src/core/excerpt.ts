@@ -1,4 +1,4 @@
-import { NormalizedEvent } from '../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 
 /** Upper bound on a captured textExcerpt (agent reply), in UTF-16 code units. */
 export const EXCERPT_MAX_CHARS = 500;

@@ -1,12 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { marksFromEvent, mergeMarks, ModelContextMarks } from '../schema/contextMarks';
-import { NormalizedEvent } from '../schema/types';
+import { marksFromEvent, mergeMarks, ModelContextMarks } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 
 // The marks and their rules live in contextMarks.ts (no fs, so the web demo
 // bundles them); they're still available from here.
-export { contextSize } from '../schema/contextMarks';
-export type { ModelContextMarks } from '../schema/contextMarks';
+export { contextSize } from '@snagboat/schema';
+export type { ModelContextMarks } from '@snagboat/schema';
 
 interface StoredLimits {
   version: 1;

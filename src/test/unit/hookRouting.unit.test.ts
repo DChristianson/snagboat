@@ -14,7 +14,7 @@ import {
   updateRoutes,
   writeRoutes,
 } from '../../adapters/claude-code/hookRoutes';
-import { AdapterContext, NormalizedEvent } from '../../schema/types';
+import { AdapterContext, NormalizedEvent } from '@snagboat/schema';
 
 // End to end: the real generated sh script, run the way Claude Code runs a
 // hook command, delivering to a real HooksReceiver.

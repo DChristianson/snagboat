@@ -6,7 +6,7 @@ import * as path from 'path';
 // step 2). It must not import vscode or the VS Code front door (src/vscode, src/ui,
 // src/extension.ts); it reads settings and workspace folders through core/host instead.
 
-const ENGINE_DIRS = ['schema', 'core', 'adapters', 'heuristics', 'discovery', 'review', 'nudges', 'advisor', 'backfill'];
+const ENGINE_DIRS = ['core', 'adapters', 'heuristics', 'discovery', 'review', 'nudges', 'advisor', 'backfill'];
 const FRONT_DOOR = ['vscode', 'ui', 'extension'];
 // Known crossings, each with the step that removes it.
 const ALLOWED: Record<string, string> = {

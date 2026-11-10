@@ -1,10 +1,10 @@
 import { ModelContextMarks } from '../core/contextLimits';
 import { EventLog } from '../core/eventLog';
-import { SessionIndex } from '../schema/sessions';
-import { NormalizedEvent } from '../schema/types';
+import { SessionIndex } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 import { FindingReplay } from '../heuristics/replay';
 import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState, SessionListPayload } from './explorerModel';
-import { buildSessionView, FindingInput, SessionView } from '../schema/sessionModel';
+import { buildSessionView, FindingInput, SessionView } from '@snagboat/schema';
 import { EXPLORE_SESSION_CAP } from './visualizers';
 
 // The list's shape lives in explorerModel.ts (vscode- and fs-free, so the web demo shares it).

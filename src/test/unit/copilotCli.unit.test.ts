@@ -5,7 +5,7 @@ import * as path from 'path';
 import { CopilotCliState, isCopilotSession, normalizeCopilotCliChunk, readSessionCwd } from '../../adapters/copilot/cliSessions';
 import { CopilotCliTailer, readCliCheckpoint } from '../../adapters/copilot/cliTailer';
 import { contextSize } from '../../core/contextLimits';
-import { AdapterContext, NormalizedEvent } from '../../schema/types';
+import { AdapterContext, NormalizedEvent } from '@snagboat/schema';
 
 // Event shapes follow real Copilot CLI session logs (~/.copilot/session-state/<id>/events.jsonl),
 // checked structure-only; values here are synthetic.

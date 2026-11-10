@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 import * as http from 'http';
 import * as path from 'path';
-import { AdapterContext } from '../../schema/types';
+import { AdapterContext } from '@snagboat/schema';
 import { normalizeHookPayload } from './normalize';
 import { isWithinFolders } from '../../core/paths';
 

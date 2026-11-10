@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import { formatCount, agentEventTotal, buildStatusBarText, buildBreakdownLines } from '../../ui/format';
 import { Aggregate } from '../../core/aggregate';
-import { NormalizedEvent } from '../../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { Finding } from '../../heuristics/types';
 
 function makeFinding(overrides: Partial<Finding> = {}): Finding {

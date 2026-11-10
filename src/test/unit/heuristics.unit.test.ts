@@ -10,7 +10,7 @@ import { contextPressureHeuristic } from '../../heuristics/contextPressure';
 import { cacheThrashHeuristic } from '../../heuristics/cacheThrash';
 import { Heuristic, Finding, HeuristicContext } from '../../heuristics/types';
 import { ReadonlyEventStore, TokenTotals } from '../../core/eventStore';
-import { NormalizedEvent } from '../../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 
 const fakeStore: ReadonlyEventStore = {
   query: () => [],

@@ -1,8 +1,8 @@
 import * as crypto from 'crypto';
-import { NormalizedEvent } from '../../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { makeExcerpt, makePromptText, redactSecrets } from '../../core/excerpt';
 import { sessionNameId } from '../../core/sessionNames';
-import { classifyTool } from '../../schema/toolCategory';
+import { classifyTool } from '@snagboat/schema';
 
 interface ClaudeTranscriptLine {
   type?: string;

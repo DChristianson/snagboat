@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { AdapterCheckpoint } from '../schema/types';
+import { AdapterCheckpoint } from '@snagboat/schema';
 
 function sanitize(id: string): string {
   return id.replace(/[^a-zA-Z0-9_-]/g, '_');

@@ -1,6 +1,6 @@
-import { isConversationEvent } from '../schema/sessions';
-import { EventToolCategory } from '../schema/toolCategory';
-import { NormalizedEvent } from '../schema/types';
+import { isConversationEvent } from '@snagboat/schema';
+import { EventToolCategory } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 import { FindingReplay, ReplayEpisode } from '../heuristics/replay';
 import { parseRule, Rule } from '../heuristics/rule';
 import { measure, ruleHeuristic } from '../heuristics/ruleHeuristic';

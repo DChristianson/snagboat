@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { NormalizedEvent } from '../../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { discover, MIN_TURNS, pastTurns } from '../../discovery/discover';
 import { formatDiscovery } from '../../discovery/report';
 import { discoverShellCategories } from '../../discovery/shellCategories';

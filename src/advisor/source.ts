@@ -1,6 +1,6 @@
 import { EventLogReader } from '../core/eventLog';
-import { SessionSummary } from '../schema/sessions';
-import { NormalizedEvent } from '../schema/types';
+import { SessionSummary } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 import { FindingReplay } from '../heuristics/replay';
 import { DigestFinding, DigestInput } from './digest';
 
