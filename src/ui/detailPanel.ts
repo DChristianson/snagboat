@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { DetailState, DetailTab, isDetailMessage, resolveTargetFile } from './detailModel';
 import { SessionController } from './sessionController';
 import { SuggestionsController } from './suggestionsController';
-import { Capability, ExplainRequest } from '../advisor/advisor';
+import { Capability, ExplainRequest } from '../vscode/advisor';
 
 const UPDATE_DEBOUNCE_MS = 500;
 

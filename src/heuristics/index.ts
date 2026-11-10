@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import { host } from '../core/host';
 import { RuleSource } from './rule';
 export { builtInHeuristics } from './builtIns';
 
@@ -21,7 +21,7 @@ const SETTINGS_SECTION: Record<string, string> = {
 /**
  * Snapshot of a single heuristic's own settings section as a plain object, so
  * HeuristicContext.settings stays a simple bag rather than exposing the
- * vscode WorkspaceConfiguration API to (deliberately vscode-free) heuristics.
+ * host's settings API to (deliberately vscode-free) heuristics.
  */
 /** The settings section a built-in's settings live under. */
 export function heuristicSettingsSection(id: string): string {
@@ -32,15 +32,13 @@ export function heuristicSettings(id: string): Record<string, unknown> {
   // Rules carry their own thresholds.
   if (id.includes(':')) return {};
   const section = heuristicSettingsSection(id);
-  const config = vscode.workspace.getConfiguration(section);
-  return { ...config };
+  return host().section(section);
 }
 
 /** Rules and shell sub-categories written by hand in settings, for trying the rule format out. */
 export function settingsRuleSource(): RuleSource {
-  const config = vscode.workspace.getConfiguration('snagboat');
   const list = (key: string): unknown[] => {
-    const value = config.get<unknown>(key, []);
+    const value = host().get<unknown>('snagboat', key, []);
     return Array.isArray(value) ? value : [];
   };
   return { origin: 'settings', rules: list('rules'), categories: list('toolCategories') };
