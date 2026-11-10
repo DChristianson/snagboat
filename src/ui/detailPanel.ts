@@ -256,9 +256,10 @@ export class DetailPanel implements vscode.Disposable {
 
   private html(webview: vscode.Webview, mediaRoot: vscode.Uri): string {
     const nonce = crypto.randomBytes(16).toString('base64');
-    // In load order: the shared helpers, the page, the visualizer registry and
-    // the visualizers, then the tabs that draw through them.
-    const scripts = ['shared.js', 'detail.js', 'viz/registry.js', 'viz/turnTree.js', 'viz/contextTimeline.js', 'viz/sessionStrips.js', 'viz/costPerPrompt.js', 'viz/contextFill.js', 'viz/sequenceDiagram.js', 'viz/eventGraph.js', 'viz/actorGraph.js', 'viz/promptTerms.js', 'viz/gantt.js', 'viz/treemap.js', 'viz/heatmap.js', 'viz/toolRibbon.js', 'viz/weekPicture.js', 'viz/histogram.js', 'viz/boxViolin.js', 'viz/ridgeline.js', 'viz/scatter.js', 'viz/bubble.js', 'viz/sunburst.js', 'viz/calendarHeatmap.js', 'viz/radar.js', 'viz/parallelCoords.js', 'viz/streamgraph.js', 'viz/sankey.js', 'viz/adjacencyMatrix.js', 'viz/swimlane.js', 'viz/livingNetwork.js', 'viz/sessionFingerprint.js', 'viz/conversationLandscape.js', 'viz/terminalBoard.js', 'viz/factoryClock.js', 'sessions.js', 'explore.js', 'exploreSource.js', 'suggestions.js']
+    // In load order: the visualization kit, the detail view's own helpers, the
+    // page, the visualizer registry and the visualizers, then the tabs that
+    // draw through them.
+    const scripts = ['vizkit.js', 'shared.js', 'detail.js', 'viz/registry.js', 'viz/turnTree.js', 'viz/contextTimeline.js', 'viz/sessionStrips.js', 'viz/costPerPrompt.js', 'viz/contextFill.js', 'viz/sequenceDiagram.js', 'viz/eventGraph.js', 'viz/actorGraph.js', 'viz/promptTerms.js', 'viz/gantt.js', 'viz/treemap.js', 'viz/heatmap.js', 'viz/toolRibbon.js', 'viz/weekPicture.js', 'viz/histogram.js', 'viz/boxViolin.js', 'viz/ridgeline.js', 'viz/scatter.js', 'viz/bubble.js', 'viz/sunburst.js', 'viz/calendarHeatmap.js', 'viz/radar.js', 'viz/parallelCoords.js', 'viz/streamgraph.js', 'viz/sankey.js', 'viz/adjacencyMatrix.js', 'viz/swimlane.js', 'viz/livingNetwork.js', 'viz/sessionFingerprint.js', 'viz/conversationLandscape.js', 'viz/terminalBoard.js', 'viz/factoryClock.js', 'sessions.js', 'explore.js', 'exploreSource.js', 'suggestions.js']
       .map((file) => webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, ...file.split('/'))))
       .map((uri) => `<script nonce="${nonce}" src="${uri}"></script>`)
       .join('\n');

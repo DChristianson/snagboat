@@ -75,7 +75,7 @@
     if (sel.focusId) timeline.zoomTo(null);
     render();
   }
-  const ctx = { ...window.snagboatShared, tooltip, showTip, hideTip, select: onSelect };
+  const ctx = { ...window.snagboatVizKit, tooltip, showTip, hideTip, select: onSelect };
   const tree = viz.get('turn-tree').mount(treeHost, ctx);
   const timeline = viz.get('context-timeline').mount(timelineHost, ctx);
 

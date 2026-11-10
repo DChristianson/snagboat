@@ -12,8 +12,8 @@
   const MAX_EDGES = 60;
   const LABEL_CHARS = 24;
   const ITERATIONS = 240;
-  // Words are counted the same way Conversation Landscape counts them (shared.js).
-  const { termsOf: tokenize, foldPlural: singular } = window.snagboatShared;
+  // Words are counted the same way Conversation Landscape counts them (vizkit.js).
+  const { termsOf: tokenize, foldPlural: singular } = window.snagboatVizKit;
 
   /** The graph for these sessions: prompts with their terms, the top terms with counts, the strongest edges. */
   function analyze(views) {

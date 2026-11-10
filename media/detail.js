@@ -29,7 +29,8 @@
     vscode.setState({ ...(vscode.getState() || {}), range: ui.range, agent: ui.agent, kind: ui.kind, status: ui.status, search: ui.search, ...(extra || {}) });
   }
 
-  // DOM, SVG, and formatting helpers come from shared.js (loaded first).
+  // DOM, SVG, and formatting helpers come from shared.js, the visualization
+  // kit (vizkit.js) plus the detail view's own; both are loaded first.
   const shared = window.snagboatShared;
   const { el, svg, compact, fmt, niceMax, clip, formatTime, formatDay } = shared;
 

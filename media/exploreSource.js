@@ -48,7 +48,7 @@
     },
   };
 
-  const ctx = { ...window.snagboatShared, tooltip, showTip, hideTip };
+  const ctx = { ...window.snagboatVizKit, tooltip, showTip, hideTip };
   const tab = explore.mount(exploreRoot, source, ctx);
   // detail.js restored the tab before this script ran; give the tab its first show now.
   if ((vscode.getState() || {}).tab === 'explore') tab.shown();
