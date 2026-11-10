@@ -1,0 +1,58 @@
+// Dev container for agentic development with beads (bd), git and Claude Code.
+// See README.md in this folder for what this file does and the safety model.
+{
+  "name": "snagboat-dev",
+
+  "build": { "dockerfile": "Dockerfile" },
+
+  // Everything runs as this non-root user, which has no sudo.
+  "remoteUser": "vscode",
+  "containerUser": "vscode",
+
+  // Extra hardening passed to `docker run`:
+  //  - drop all Linux capabilities and block privilege escalation
+  //  - send bd's usage-metrics hostname nowhere (belt and braces with the env vars below)
+  "runArgs": [
+    "--cap-drop=ALL",
+    "--security-opt=no-new-privileges",
+    "--add-host=gastownhall-eventsapi.com=127.0.0.1",
+    "--add-host=gastownhall-eventsapi.com=::1"
+  ],
+
+  // Claude Code's login and settings live in a Docker volume, NOT your Mac's
+  // ~/.claude. It survives container rebuilds; each project gets its own.
+  "mounts": [
+    "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume"
+  ],
+
+  "containerEnv": {
+    "BD_DISABLE_METRICS": "1",
+    "DO_NOT_TRACK": "1",
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+  },
+
+  "remoteEnv": {
+    // Don't hand your Mac's SSH keys (via the forwarded ssh-agent) to code in
+    // the container. See README "Pushing to GitHub".
+    "SSH_AUTH_SOCK": ""
+  },
+
+  // Runs once when the container is created.
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  // Runs every time the container starts: checks that nothing has set up git
+  // hooks that would run on your Mac.
+  "postStartCommand": "bash .devcontainer/check-host-safety.sh",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code"
+      ]
+    }
+  },
+
+  //Add language toolchains here, for example:
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "24" },
+  }
+}
