@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "snagboat",
+  "project_id": "885e1dc0-c8d4-4a7a-af85-a240feec3f0d"
+}
