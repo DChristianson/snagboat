@@ -35,7 +35,26 @@ const web = {
   minify: false,
 };
 
-const builds = webOnly ? [web] : [extension, web];
+/**
+ * The snagboat CLI (src/cli): reads the extension's event stores from a
+ * terminal or an agent. Node only, no vscode; run as `node dist/snagboat.js`
+ * or through package.json's bin.
+ */
+/** @type {import('esbuild').BuildOptions} */
+const cli = {
+  entryPoints: ['src/cli/main.ts'],
+  bundle: true,
+  outfile: 'dist/snagboat.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+  minify: false,
+  banner: { js: '#!/usr/bin/env node' },
+  define: { SNAGBOAT_VERSION: JSON.stringify(require('./package.json').version) },
+};
+
+const builds = webOnly ? [web] : [extension, web, cli];
 
 async function run() {
   if (watch) {

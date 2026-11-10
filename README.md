@@ -172,6 +172,19 @@ With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself s
 - **Small local models** may cut a whole session's digest to fit their context window; Explain warns when that happens. For Ollama, a larger window (`OLLAMA_CONTEXT_LENGTH=16384 ollama serve`) fixes it, and explaining one turn or finding sends far less.
 - **You see it first.** Before a provider's first request, and again whenever its address or sending rules change, Snagboat opens the exact payload and asks. **Snagboat: Preview Advisor Digest...** shows a session's digest as any provider would get it.
 
+## Command line (early)
+
+`snagboat` reads the same event logs from a terminal or an agent, without VS Code running. It's read-only, and every command prints JSON with `--json`.
+
+```sh
+node dist/snagboat.js sessions            # sessions in the workspace containing this folder
+node dist/snagboat.js session <id> --json # one session's summary
+node dist/snagboat.js sessions --all      # every workspace's sessions
+node dist/snagboat.js stores              # where the logs are
+```
+
+By default a command reads only the store of the workspace that contains the current folder; `--all` is the explicit way to read across workspaces. It finds stores written by VS Code and its forks (Insiders, VSCodium, Cursor, Windsurf), or one store named by `SNAGBOAT_STORE`. It's built by `npm run build`; publishing it as an npm package comes later ([architecture RFC](docs/design/architecture-rfc.md)).
+
 ## Privacy
 
 Nothing leaves your machine unless you set up a hosted advisor provider and approve what it receives (see [Advisor](#advisor-optional)), and there is no telemetry on the extension's UI. Events are stored as daily JSONL files in VS Code's per-workspace storage, readable with `jq`, DuckDB, or a notebook. Two things worth knowing. **Snagboat stores your prompts' text** by default, along with agent reply excerpts and session names: common secret formats are redacted first, prompts and replies are kept for 30 days (`snagboat.retention.textDays`), and **Snagboat: Remove Captured Text** deletes them on demand; turn `snagboat.captureContent` off to store no text at all. And for Claude Code's Bash tool, an event's target is the **full shell command**, which can contain secrets. [PRIVACY.md](PRIVACY.md) lists exactly what each source records and every place Snagboat stores anything.
