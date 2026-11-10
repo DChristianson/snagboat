@@ -94,9 +94,11 @@ export function findStores(opts: { platform?: NodeJS.Platform; env?: NodeJS.Proc
 
 /** Whether dir is folder or inside it (case-insensitive on Windows and macOS's default file system). */
 export function isInside(dir: string, folder: string, platform: NodeJS.Platform = process.platform): boolean {
-  const norm = (p: string) => (platform === 'win32' || platform === 'darwin' ? path.resolve(p).toLowerCase() : path.resolve(p));
-  const rel = path.relative(norm(folder), norm(dir));
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  // The platform's own path rules, not the host's: win32's are case-insensitive by themselves.
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const norm = (x: string) => (platform === 'darwin' ? p.resolve(x).toLowerCase() : p.resolve(x));
+  const rel = p.relative(norm(folder), norm(dir));
+  return rel === '' || (!rel.startsWith('..') && !p.isAbsolute(rel));
 }
 
 /**
