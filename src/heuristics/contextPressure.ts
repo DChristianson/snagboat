@@ -1,4 +1,4 @@
-import { contextSize } from '../schema/contextMarks';
+import { contextSize } from '@snagboat/schema';
 import { currentTurnsIn, modelCalls } from '../core/turns';
 import { Heuristic, Finding, HeuristicContext, Progress } from './types';
 import { earlyWarningOr } from './runawayTurn';

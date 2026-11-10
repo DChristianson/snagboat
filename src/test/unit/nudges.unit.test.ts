@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import { nudgeLine } from '../../advisor/proposeNudges';
 import { EventStore } from '../../core/eventStore';
-import { NormalizedEvent } from '../../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { contextPressureHeuristic } from '../../heuristics/contextPressure';
 import { parseRule } from '../../heuristics/rule';
 import { ruleHeuristic } from '../../heuristics/ruleHeuristic';

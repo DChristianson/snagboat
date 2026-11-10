@@ -2,38 +2,38 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// src/schema is the future schema package (docs/design/architecture-rfc.md, step 1):
+// packages/schema is @snagboat/schema (docs/design/architecture-rfc.md, step 1):
 // the event types and the session-view builder that Snagboat and Factory Clock share.
-// It must stay self-contained and browser-safe, so it can move into packages/schema
-// and be bundled for the web page without pulling in the rest of Snagboat.
+// It must stay self-contained and browser-safe, so it can be bundled for the web page
+// without pulling in the rest of Snagboat. (Its tsconfig also has no Node types.)
 
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
   const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
 
-  // Compiled to out/test/unit; the sources sit at src/schema from the repo root.
-  const schemaDir = path.resolve(__dirname, '..', '..', '..', 'src', 'schema');
+  // Compiled to out/test/unit; the package's sources sit at packages/schema/src from the repo root.
+  const schemaDir = path.resolve(__dirname, '..', '..', '..', 'packages', 'schema', 'src');
   const files = fs.readdirSync(schemaDir).filter((f) => f.endsWith('.ts'));
   const importsOf = (file: string): string[] => {
     const text = fs.readFileSync(path.join(schemaDir, file), 'utf8');
-    return [...text.matchAll(/(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
+    return [...text.matchAll(/(?:from|import|require)\s*\(?\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
   };
 
-  test('src/schema has the moved modules', () => {
-    for (const f of ['types.ts', 'toolCategory.ts', 'eventDay.ts', 'sessions.ts', 'contextMarks.ts', 'sessionModel.ts']) {
-      assert.ok(files.includes(f), `missing src/schema/${f}`);
+  test('packages/schema has the moved modules', () => {
+    for (const f of ['index.ts', 'types.ts', 'toolCategory.ts', 'eventDay.ts', 'sessions.ts', 'contextMarks.ts', 'sessionModel.ts', 'jsonSchema.ts']) {
+      assert.ok(files.includes(f), `missing packages/schema/src/${f}`);
     }
   });
 
-  test('src/schema imports only from itself', () => {
+  test('the package imports only from itself', () => {
     for (const file of files) {
       for (const spec of importsOf(file)) {
-        assert.ok(spec.startsWith('./') && !spec.slice(2).includes('/'), `${file} imports ${spec}, outside src/schema`);
+        assert.ok(spec.startsWith('./') && !spec.slice(2).includes('/'), `${file} imports ${spec}, outside the package`);
       }
     }
   });
 
-  test('src/schema uses no Node builtins or vscode', () => {
+  test('the package uses no Node builtins or vscode', () => {
     for (const file of files) {
       for (const spec of importsOf(file)) {
         assert.ok(!spec.startsWith('node:') && spec !== 'vscode', `${file} imports ${spec}`);

@@ -1,10 +1,10 @@
-import { ModelContextMarks } from '../schema/contextMarks';
-import { SessionIndex } from '../schema/sessions';
-import { NormalizedEvent } from '../schema/types';
+import { ModelContextMarks } from '@snagboat/schema';
+import { SessionIndex } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 import { builtInHeuristics } from '../heuristics/builtIns';
 import { FindingReplay } from '../heuristics/replay';
 import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState } from '../ui/explorerModel';
-import { buildSessionView, FindingInput, SessionView } from '../schema/sessionModel';
+import { buildSessionView, FindingInput, SessionView } from '@snagboat/schema';
 import { EXPLORE_SESSION_CAP } from '../ui/visualizers';
 import { buildMarks } from './marks';
 

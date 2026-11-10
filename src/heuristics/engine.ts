@@ -1,4 +1,4 @@
-import { NormalizedEventKind } from '../schema/types';
+import { NormalizedEventKind } from '@snagboat/schema';
 import { ReadonlyEventStore } from '../core/eventStore';
 import { Heuristic, Finding, Progress } from './types';
 

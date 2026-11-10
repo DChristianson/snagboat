@@ -3,8 +3,8 @@ import { Headliner, HeadlineEntry } from '../../advisor/headlines';
 import { buildDigest, LOCAL_POLICY } from '../../advisor/digest';
 import { headlineLine, headlineMessages } from '../../advisor/summarizeSession';
 import { proposeTacticsMessages } from '../../advisor/proposeTactics';
-import { SessionSummary } from '../../schema/sessions';
-import { NormalizedEvent } from '../../schema/types';
+import { SessionSummary } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 
 const at = (min: number) => new Date(Date.UTC(2026, 0, 1, 12, 0) + min * 60_000).toISOString();
 const summary = (sessionId: string, lastMin: number, prompts = 2): SessionSummary => ({ sessionId, agent: 'claude-code', firstTs: at(lastMin - 30), lastTs: at(lastMin), models: ['m'], prompts, modelCalls: 3, toolCalls: 4, tokens: 100, subagents: 0, days: ['2026-01-01'] });

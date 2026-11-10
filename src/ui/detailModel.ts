@@ -2,10 +2,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AggregateSnapshot } from '../core/aggregate';
 import { DailyTokens } from '../core/dailyHistory';
-import { NormalizedEvent } from '../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { FindingView } from '../heuristics/findingsRegistry';
 import { agentEventTotal } from './format';
-import { toolCategoryLabel } from '../schema/toolCategory';
+import { toolCategoryLabel } from '@snagboat/schema';
 import { EXPLORE_SESSION_CAP } from './visualizers';
 
 /** Newest events sent to the timeline; the store's own window caps it further (24h). */

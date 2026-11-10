@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { classifyTool } from '../../schema/toolCategory';
-import { NormalizedEvent } from '../../schema/types';
+import { classifyTool } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 import { normalizeTranscriptChunk, SeenMessages, TurnTracker } from './normalize';
 
 /**

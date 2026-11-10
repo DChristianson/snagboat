@@ -1,4 +1,4 @@
-import { AgentAdapter, AdapterContext } from '../../schema/types';
+import { AgentAdapter, AdapterContext } from '@snagboat/schema';
 import { TranscriptTailer } from './transcriptTail';
 import { HooksReceiver } from './hooksReceiver';
 import { buildHookCommand, ensureHooksConfigured } from './hooksConfig';

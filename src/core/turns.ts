@@ -1,6 +1,6 @@
 import { ReadonlyEventStore } from './eventStore';
-import { isConversationEvent } from '../schema/sessions';
-import { AgentId, NormalizedEvent } from '../schema/types';
+import { isConversationEvent } from '@snagboat/schema';
+import { AgentId, NormalizedEvent } from '@snagboat/schema';
 
 /** A session's latest turn: everything from its prompt up to now, or to the next prompt. */
 export interface CurrentTurn {

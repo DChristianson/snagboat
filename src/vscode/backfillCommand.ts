@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { EventLog } from '../core/eventLog';
-import { NormalizedEvent } from '../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { dayStats, DayStats, isRetiredCopilotMetric, sourceFileOf } from '../backfill/merge';
 import { planBackfill } from '../backfill/rebuild';
 

@@ -1,4 +1,4 @@
-import { NormalizedEvent } from '../schema/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { isNormalizedEvent } from './jsonl';
 
 /**

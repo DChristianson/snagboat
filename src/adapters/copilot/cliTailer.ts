@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { AdapterContext } from '../../schema/types';
+import { AdapterContext } from '@snagboat/schema';
 import { LineTailer } from '../../core/lineTailer';
 import { isWithinFolders } from '../../core/paths';
 import { CopilotCliState, copilotSessionNameEvent, normalizeCopilotCliChunk, readSessionCwd, readSessionName } from './cliSessions';

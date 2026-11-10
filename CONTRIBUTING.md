@@ -27,11 +27,11 @@ Press F5 in VS Code to launch an Extension Development Host. The **Run Extension
 | Path | What's there |
 | --- | --- |
 | `src/extension.ts` | Activation: wires adapters, storage, heuristics, and UI together |
-| `src/schema/` | `NormalizedEvent` and the session-view builder; imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`) |
+| `packages/schema/` | `@snagboat/schema`, an npm workspace: `NormalizedEvent`, its JSON Schema, and the session-view builder. Imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`); built with `npm run build:schema`, which `build`, `build:web` and `compile-tests` run first |
 | `src/core/` | Event bus, daily event log, retention and rollups, `EventStore`, aggregates, health, file tailing, and `host.ts`, the engine's view of settings and workspace folders |
 | `src/adapters/<agent>/` | One folder per source (`claude-code`, `copilot`). Parsing lives in `normalize.ts`, free of the `vscode` module so it can be unit tested |
 | `src/heuristics/` | The engine, the findings registry (acknowledge/mute), and one file per heuristic |
-| `src/vscode/` | VS Code-only glue moved out of the engine: the `Host` implementation, the edit tracker, the advisor's pickers and key storage, and the backfill and relabel commands. Engine folders (`schema`, `core`, `adapters`, `heuristics`, `discovery`, `review`, `nudges`, `advisor`, `backfill`) may not import `vscode`, `src/vscode` or `src/ui` (`engineBoundary.unit.test.ts`) |
+| `src/vscode/` | VS Code-only glue moved out of the engine: the `Host` implementation, the edit tracker, the advisor's pickers and key storage, and the backfill and relabel commands. Engine folders (`core`, `adapters`, `heuristics`, `discovery`, `review`, `nudges`, `advisor`, `backfill`) may not import `vscode`, `src/vscode` or `src/ui` (`engineBoundary.unit.test.ts`) |
 | `src/ui/` | Status bar text, the detail view's panel and model, the session views, and the visualizer catalog (`visualizers.ts`); the page itself is under `media/` (`detail.js`, `sessions.js`, `suggestions.js`, `explore.js`, the shared helpers in `shared.js`, `detail.css`), with one file per visualizer under `media/viz/` |
 | `src/web/`, `web/` | The web demo: the page's code, example sessions, and in-memory session source, bundled for the browser; `web/index.html` and its stylesheet |
 | `src/scripts/transcripts.ts` | Dev tooling for Claude Code transcripts (`verify:transcripts`, fixture redaction) |

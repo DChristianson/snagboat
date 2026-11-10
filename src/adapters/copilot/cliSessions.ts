@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { NormalizedEvent } from '../../schema/types';
-import { classifyTool } from '../../schema/toolCategory';
+import { NormalizedEvent } from '@snagboat/schema';
+import { classifyTool } from '@snagboat/schema';
 import { makeExcerpt, makePromptText, redactSecrets } from '../../core/excerpt';
 import { sessionNameId } from '../../core/sessionNames';
 

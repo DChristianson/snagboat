@@ -1,5 +1,5 @@
 import { host } from '../../core/host';
-import { AgentAdapter, AdapterContext } from '../../schema/types';
+import { AgentAdapter, AdapterContext } from '@snagboat/schema';
 import { keepCheckpointEntry, withRealPaths } from '../../core/paths';
 import { resolveWorkspaceFolders } from '../claude-code/workspace';
 import { CopilotCliTailer, readCliCheckpoint } from './cliTailer';

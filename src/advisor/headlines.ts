@@ -1,4 +1,4 @@
-import { SessionSummary } from '../schema/sessions';
+import { SessionSummary } from '@snagboat/schema';
 
 /**
  * Session headlines: one line per ended session from the summarize-session
