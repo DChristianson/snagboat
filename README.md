@@ -67,7 +67,7 @@ I built it for myself. I spend long stretches in agent sessions and wanted to se
 
 ## Status
 
-Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md)). Install it from a [GitHub release](https://github.com/DChristianson/snagboat/releases); it's not yet on the Marketplace or Open VSX. macOS and Linux only: Claude Code hooks go through a POSIX shell script. See [what's not built yet](#not-built-yet).
+Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md)). Install it from a [GitHub release](https://github.com/DChristianson/snagboat/releases); it's not yet on the Marketplace or Open VSX. macOS and Linux; Windows is new and less tried (Claude Code hooks run through Git Bash there, as Claude Code itself requires). See [what's not built yet](#not-built-yet).
 
 ## What it watches
 
@@ -197,7 +197,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 
 - **Copilot editor telemetry is collected by one window.** Copilot in every window exports to the same port, so the first window to claim it records all inline-suggestion usage and the others show a "failed to listen on port" health warning. Copilot agent sessions and Claude Code don't have this problem.
 - **The Copilot receiver doesn't authenticate requests**, so another local process could submit fake Copilot events. Claude Code hooks are token-protected. See [SECURITY.md](SECURITY.md).
-- **Windows is unsupported**: the hook script needs a POSIX shell.
+- **Windows is new**: hook routing passes the unit tests on Windows in CI, through Git Bash's `sh` and `curl` as Claude Code runs it, but hasn't been tried with Claude Code on a real Windows machine, and the VS Code integration tests don't run on Windows yet.
 
 ## Not built yet
 
