@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { HooksReceiver } from '../../adapters/claude-code/hooksReceiver';
+import { buildHookCommand } from '../../adapters/claude-code/hooksConfig';
+import { sanitizeCwd } from '../../adapters/claude-code/workspace';
 import { isWithinFolders, withRealPaths } from '../../core/paths';
 import {
   installHookScript,
@@ -251,6 +253,33 @@ async function main() {
     removeRoutes(home, [projectA, projectB], process.pid);
     assert.ok(!fs.existsSync(path.join(home, 'routes', routeKey(projectA))));
     assert.ok(fs.existsSync(path.join(home, 'routes', routeKey(projectB))));
+  });
+
+  test('a colon in the project path routes the same way the route file is named', async () => {
+    // Windows drive letters put a colon in every path; the script and routeKey must agree on it.
+    const { home, script, projectA } = await setup();
+    const colon = path.join(projectA, 'x:y');
+    fs.mkdirSync(colon);
+    const w = await startWindow(home, [colon]);
+    try {
+      await runHook(home, script, colon, payload(colon));
+      await settle();
+      assert.strictEqual(w.published.length, 1);
+    } finally {
+      w.receiver.stop();
+    }
+  });
+
+  test('Windows paths: route names, transcript folder names and the hook command', () => {
+    assert.strictEqual(routeKey('C:\\Users\\dc\\proj'), 'C--Users-dc-proj');
+    assert.strictEqual(routeKey('C:/Users/dc/proj'), 'C--Users-dc-proj', 'cygpath -m spelling maps to the same name');
+    assert.strictEqual(sanitizeCwd('C:\\Users\\dc\\proj'), 'C--Users-dc-proj');
+    const home = os.homedir();
+    const scriptPath = path.join(home, '.snagboat', 'bin', 'snagboat-hook');
+    const win = buildHookCommand(scriptPath, 'win32');
+    assert.ok(win.startsWith('sh "$HOME/'), win);
+    assert.ok(!win.includes('\\'), 'no backslashes for Git Bash');
+    assert.ok(buildHookCommand(scriptPath, 'linux').startsWith('"$HOME'), 'POSIX command is unchanged');
   });
 
   test('route and script files are private to the user', async () => {
