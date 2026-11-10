@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { EventLog } from '../core/eventLog';
-import { relabelShellCalls } from './merge';
+import { relabelShellCalls } from '../backfill/merge';
 
 export interface RelabelDeps {
   eventLog: EventLog;

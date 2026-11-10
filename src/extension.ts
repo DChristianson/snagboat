@@ -10,13 +10,14 @@ import { DailyHistory } from './core/dailyHistory';
 import { SessionIndex } from './schema/sessions';
 import { SessionController } from './ui/sessionController';
 import { FindingReplay } from './heuristics/replay';
-import { runBackfill } from './backfill/command';
-import { runRelabel } from './backfill/relabel';
+import { setHost } from './core/host';
+import { runBackfill } from './vscode/backfillCommand';
+import { runRelabel } from './vscode/relabelCommand';
 import { buildDigest, digestForReading, DigestPolicy } from './advisor/digest';
 import { PromptLayers } from './advisor/prompts';
 import { ChatMessage } from './advisor/providers';
 import { sessionDigestInput } from './advisor/source';
-import { Advisor, Capability } from './advisor/advisor';
+import { Advisor, Capability } from './vscode/advisor';
 import { CAPABILITY_LABELS } from './advisor/advisors';
 import { AuditLog } from './advisor/audit';
 import { EffectivenessInput, proposeHeuristicsMessages } from './advisor/proposeHeuristics';
@@ -42,7 +43,8 @@ import { renderStatusBar } from './ui/statusBar';
 import { buildBreakdownLines, formatCount } from './ui/format';
 import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
 import { DetailPanel } from './ui/detailPanel';
-import { EditTrackerAdapter } from './adapters/edit-tracker';
+import { EditTrackerAdapter } from './vscode/editTracker';
+import { vscodeHost } from './vscode/host';
 import { ClaudeCodeAdapter } from './adapters/claude-code';
 import { removeHooksConfigured } from './adapters/claude-code/hooksConfig';
 import { CopilotAdapter } from './adapters/copilot';
@@ -112,6 +114,8 @@ export interface SnagboatTestApi {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<SnagboatTestApi | undefined> {
+  // The engine reads settings and workspace folders through the host (docs/design/architecture-rfc.md, step 2).
+  setHost(vscodeHost);
   const storageUri = context.storageUri ?? context.globalStorageUri;
   await vscode.workspace.fs.createDirectory(storageUri);
   const storageDir = storageUri.fsPath;

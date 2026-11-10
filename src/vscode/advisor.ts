@@ -2,13 +2,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { AdvisorConfig, approvalKey, Capability, CAPABILITY_LABELS, describeAdvisor, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from './advisors';
-import { AuditLog } from './audit';
-import { buildDigest, DigestInput, DigestPolicy } from './digest';
-import { defaultPromptFiles, promptDir, PromptLayers, resolvePrompts } from './prompts';
-import { ModelTiers, proposeTacticsMessages } from './proposeTactics';
-import { SessionFocus, summarizeSessionMessages } from './summarizeSession';
-import { ChatMessage, complete, completionBody, Completion, FetchLike, listModels, promptWasCut } from './providers';
+import { AdvisorConfig, approvalKey, Capability, CAPABILITY_LABELS, describeAdvisor, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from '../advisor/advisors';
+import { AuditLog } from '../advisor/audit';
+import { buildDigest, DigestInput, DigestPolicy } from '../advisor/digest';
+import { defaultPromptFiles, promptDir, PromptLayers, resolvePrompts } from '../advisor/prompts';
+import { ModelTiers, proposeTacticsMessages } from '../advisor/proposeTactics';
+import { SessionFocus, summarizeSessionMessages } from '../advisor/summarizeSession';
+import { ChatMessage, complete, completionBody, Completion, FetchLike, listModels, promptWasCut } from '../advisor/providers';
 
 const APPROVED_KEY = 'snagboat.advisor.approved';
 const secretKey = (id: string) => `snagboat.advisor.key.${id}`;
@@ -22,7 +22,7 @@ export interface AdvisorDeps {
   digestInput(sessionId: string, turnId?: string): Promise<DigestInput | undefined>;
 }
 
-export type { Capability } from './advisors';
+export type { Capability } from '../advisor/advisors';
 
 /** What a request is built for: the advisor asked, the ability, what it may receive for it, and its prompt layers. */
 export interface AskContext {

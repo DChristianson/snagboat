@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import { host } from '../../core/host';
 import { AgentAdapter, AdapterContext } from '../../schema/types';
 import { keepCheckpointEntry, withRealPaths } from '../../core/paths';
 import { resolveWorkspaceFolders } from '../claude-code/workspace';
@@ -29,10 +29,10 @@ export class CopilotAdapter implements AgentAdapter {
     // Test/CI seam: override the port instead of relying on the vscode setting.
     const port = process.env.SNAGBOAT_COPILOT_OTLP_PORT
       ? Number(process.env.SNAGBOAT_COPILOT_OTLP_PORT)
-      : vscode.workspace.getConfiguration('snagboat').get<number>('copilot.otlpPort', DEFAULT_OTLP_PORT);
+      : host().get<number>('snagboat', 'copilot.otlpPort', DEFAULT_OTLP_PORT);
     const capture = this.captureDir ? new StructureCapture(this.captureDir) : undefined;
     this.otelReceiver = new OtelReceiver(this.ctx, port, () =>
-      capture && vscode.workspace.getConfiguration('snagboat').get<boolean>('copilot.captureStructure', false)
+      capture && host().get<boolean>('snagboat', 'copilot.captureStructure', false)
         ? (url, payload) => capture.record(url, payload)
         : undefined
     );
