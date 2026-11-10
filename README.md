@@ -174,14 +174,19 @@ With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself s
 
 ## Command line (early)
 
-`snagboat` reads the same event logs from a terminal or an agent, without VS Code running. It's read-only, and every command prints JSON with `--json`.
+`snagboat` reads the same event logs from a terminal or an agent, without VS Code running. Every command prints JSON with `--json`, and only `migrate` writes anything.
 
 ```sh
 node dist/snagboat.js sessions            # sessions in the workspace containing this folder
 node dist/snagboat.js session <id> --json # one session's summary
 node dist/snagboat.js sessions --all      # every workspace's sessions
 node dist/snagboat.js stores              # where the logs are
+node dist/snagboat.js migrate --dry-run   # what migrate would copy into ~/.snagboat/data
+node dist/snagboat.js migrate             # copy every store into the per-user store
+node dist/snagboat.js sessions --all --store user   # read the per-user store
 ```
+
+`migrate` is for the per-user store preview (`snagboat.storage.perUserStore`). It copies, never moves or deletes; running it again copies only what's new. To check a migration, save `sessions --all --json` to a file before migrating, then run `migrate --verify <file>`: every session in it must be in the per-user store with the same prompt, tool-call and token counts.
 
 By default a command reads only the store of the workspace that contains the current folder; `--all` is the explicit way to read across workspaces. It finds stores written by VS Code and its forks (Insiders, VSCodium, Cursor, Windsurf), or one store named by `SNAGBOAT_STORE`. It's built by `npm run build`; publishing it as an npm package comes later ([architecture RFC](docs/design/architecture-rfc.md)).
 

@@ -1,11 +1,16 @@
 import { SessionIndex, SessionSummary } from '@snagboat/schema';
 import { EventLog } from '../core/eventLog';
-import { findStores, selectStores, Store } from './stores';
+import { findGlobalDirs, findStores, findUserStores, selectStores, Store, userHome } from './stores';
+import { migrate, MigrationReport, MigrationSource } from '../core/migrate';
+import { workspaceOfVsCodeStore } from '../core/userStore';
+import { compareToBaseline, parseBaseline, SessionCounts, verifyText } from './verify';
+import * as fs from 'fs';
 
 /**
  * The snagboat CLI (docs/design/architecture-rfc.md, step 3): read the event
  * logs the VS Code extension writes, from a terminal or an agent, without VS
- * Code running. Read-only. Every command prints JSON with --json.
+ * Code running. Every command prints JSON with --json. Only `migrate` writes,
+ * and only to the per-user store: it copies, never moves or deletes.
  */
 
 const USAGE = `usage: snagboat <command> [options]
@@ -14,6 +19,9 @@ commands:
   stores              list the event stores on this machine
   sessions            list sessions in the current workspace's store
   session <id>        one session's summary
+  migrate             copy every VS Code store into the per-user store (~/.snagboat/data);
+                      copies only, leaving the VS Code stores as they are, and a rerun copies
+                      only what's new
   version             print the version
 
 options:
@@ -21,6 +29,10 @@ options:
   --all               read every workspace's store, not just the one containing the current folder
   --days <n>          only sessions active in the last n days (sessions)
   --cwd <dir>         treat dir as the current folder
+  --store <kind>      vscode (VS Code's storage, the default) or user (the per-user store)
+  --dry-run           migrate: count what would be copied, and write nothing
+  --verify <file>     migrate: don't copy; check the per-user store against a baseline saved
+                      with \`snagboat sessions --all --json\` before migrating
 `;
 
 export interface CliIo {
@@ -35,6 +47,9 @@ interface Options {
   all: boolean;
   days?: number;
   cwd?: string;
+  store?: 'vscode' | 'user';
+  dryRun?: boolean;
+  verify?: string;
   args: string[];
 }
 
@@ -44,14 +59,19 @@ export function parseArgs(argv: string[]): Options | string {
     const a = argv[i];
     if (a === '--json') opts.json = true;
     else if (a === '--all') opts.all = true;
-    else if (a === '--days' || a === '--cwd') {
+    else if (a === '--dry-run') opts.dryRun = true;
+    else if (a === '--days' || a === '--cwd' || a === '--store' || a === '--verify') {
       const value = argv[++i];
       if (value === undefined) return `${a} needs a value`;
       if (a === '--days') {
         const n = Number(value);
         if (!Number.isFinite(n) || n <= 0) return `--days takes a positive number, not ${value}`;
         opts.days = n;
-      } else opts.cwd = value;
+      } else if (a === '--store') {
+        if (value !== 'vscode' && value !== 'user') return `--store takes vscode or user, not ${value}`;
+        opts.store = value;
+      } else if (a === '--verify') opts.verify = value;
+      else opts.cwd = value;
     } else if (a.startsWith('--')) return `unknown option ${a}`;
     else opts.args.push(a);
   }
@@ -67,6 +87,34 @@ async function summaries(stores: Store[]): Promise<Array<SessionSummary & { stor
     for (const s of index.list()) all.push({ ...s, store: store.dir, folder: store.folder });
   }
   return all.sort((a, b) => b.lastTs.localeCompare(a.lastTs));
+}
+
+/** The stores --store picks: VS Code's (the default) or the per-user store's. SNAGBOAT_STORE overrides both. */
+function storesOf(kind: Options['store']): Store[] {
+  return kind === 'user' && !process.env.SNAGBOAT_STORE ? findUserStores() : findStores();
+}
+
+function storeLabel(s: Store): string {
+  return `${s.app}  ${s.folder ?? s.workspaceFile ?? s.uri ?? (s.global ? '(no folder)' : '?')}`;
+}
+
+function migrationText(home: string, dryRun: boolean, report: MigrationReport, skipped: Store[]): string {
+  const lines = [dryRun ? `Dry run: nothing written. Would copy into ${home}:` : `Copied into ${home} (the VS Code stores are unchanged):`];
+  if (report.stores.length === 0) lines.push('  no VS Code stores found');
+  for (const r of report.stores) {
+    const what =
+      r.status === 'up-to-date'
+        ? 'up to date: unchanged since it was last copied'
+        : `${r.events} events in ${r.days} days, ${r.newEvents} ${dryRun ? 'to copy' : 'copied'}; ${r.aggregates} daily aggregates, ${r.checkpoints} checkpoints, ${r.responses} finding responses`;
+    lines.push(`  ${r.label}`, `      ${what}`, `      -> ${r.dest}`);
+  }
+  for (const s of skipped) lines.push(`  ${storeLabel(s)}`, `      skipped: its workspace.json doesn't say which workspace it belongs to`, `      (${s.dir})`);
+  if (report.globals.length > 0) lines.push('Shared files:');
+  for (const g of report.globals) {
+    const what = g.status === 'exists' ? 'kept the one already there' : dryRun ? 'would copy' : 'copied';
+    lines.push(`  ${g.name}  ${what}  (from ${g.from})`);
+  }
+  return lines.join('\n') + '\n';
 }
 
 function noStoreMessage(cwd: string, all: boolean): string {
@@ -95,12 +143,38 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       print({ version }, () => `snagboat ${version}\n`);
       return 0;
     case 'stores': {
-      const stores = findStores();
-      print(stores, () => (stores.length ? stores.map((s) => `${s.app}  ${s.folder ?? s.workspaceFile ?? (s.global ? '(no folder)' : '?')}  ${s.dir}`).join('\n') + '\n' : 'no Snagboat event stores found\n'));
+      const stores = process.env.SNAGBOAT_STORE ? findStores() : [...findStores(), ...findUserStores()];
+      print(stores, () => (stores.length ? stores.map((s) => `${storeLabel(s)}  ${s.dir}`).join('\n') + '\n' : 'no Snagboat event stores found\n'));
+      return 0;
+    }
+    case 'migrate': {
+      if (parsed.verify !== undefined) {
+        let baseline: SessionCounts[];
+        try {
+          baseline = parseBaseline(fs.readFileSync(parsed.verify, 'utf8'));
+        } catch (err) {
+          io.err(`can't read the baseline ${parsed.verify}: ${err instanceof Error ? err.message : String(err)}\n`);
+          return 2;
+        }
+        const result = compareToBaseline(baseline, await summaries(findUserStores()));
+        print(result, () => verifyText(result));
+        return result.ok ? 0 : 1;
+      }
+      const home = userHome();
+      const sources: MigrationSource[] = [];
+      const skipped: Store[] = [];
+      for (const s of findStores()) {
+        const info = workspaceOfVsCodeStore(s.dir, s.global);
+        if (info) sources.push({ dir: s.dir, label: storeLabel(s), info });
+        else skipped.push(s);
+      }
+      const dryRun = parsed.dryRun ?? false;
+      const report = await migrate(sources, findGlobalDirs(), home, { dryRun });
+      print({ home, dryRun, ...report, skipped: skipped.map((s) => s.dir) }, () => migrationText(home, dryRun, report, skipped));
       return 0;
     }
     case 'sessions': {
-      const stores = selectStores(findStores(), cwd, parsed.all);
+      const stores = selectStores(storesOf(parsed.store), cwd, parsed.all);
       if (stores.length === 0) {
         io.err(noStoreMessage(cwd, parsed.all) + '\n');
         return 1;
@@ -119,7 +193,7 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
         io.err(`session needs an id\n\n${USAGE}`);
         return 2;
       }
-      const stores = selectStores(findStores(), cwd, parsed.all);
+      const stores = selectStores(storesOf(parsed.store), cwd, parsed.all);
       if (stores.length === 0) {
         io.err(noStoreMessage(cwd, parsed.all) + '\n');
         return 1;

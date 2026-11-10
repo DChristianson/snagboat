@@ -1,6 +1,5 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 /**
@@ -16,9 +15,8 @@ import * as path from 'path';
  *   routes/<folder key>        "<port> <token> <pid>\n" for one workspace folder
  */
 
-export function snagboatHome(): string {
-  return process.env.SNAGBOAT_HOME ?? path.join(os.homedir(), '.snagboat');
-}
+// Shared with the per-user store; re-exported for the adapter's callers.
+export { snagboatHome } from '../../core/userStore';
 
 /**
  * Route file name for a folder. Must match the script's `tr '/\\:' '---'`:

@@ -1,6 +1,8 @@
 # Common schema and transformation matrix
 
-The types below live in [packages/schema/src/types.ts](../packages/schema/src/types.ts), in the `@snagboat/schema` workspace package that Snagboat and Factory Clock share ([design/architecture-rfc.md](design/architecture-rfc.md)). The same shape is published as JSON Schema in [normalizedEvent.v1.schema.json](../packages/schema/src/normalizedEvent.v1.schema.json); a compile-time check keeps its field list equal to the type's, and `normalizedEventSchema.unit.test.ts` validates real events against it. The package imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`).
+The types below live in [packages/schema/src/types.ts](../packages/schema/src/types.ts), in the `@snagboat/schema` workspace package that Snagboat and Factory Clock share ([design/architecture-rfc.md](design/architecture-rfc.md)). The same shape is published as JSON Schema in [normalizedEvent.v2.schema.json](../packages/schema/src/normalizedEvent.v2.schema.json); a compile-time check keeps its field list equal to the type's, and `normalizedEventSchema.unit.test.ts` validates real events against it.
+
+**Versions.** Version 2 adds `workspace`; nothing else changed. Every version 1 event is a valid version 2 event, so a reader takes both, and logs written before version 2 need no conversion. Version 1 stays published as [normalizedEvent.v1.schema.json](../packages/schema/src/normalizedEvent.v1.schema.json) (`normalizedEventSchemaV1`). The package imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`).
 
 ## `NormalizedEvent`
 
@@ -36,6 +38,7 @@ interface NormalizedEvent {
   channel?: 'inline';    // model calls from editor features, not agent turns
   contextLimit?: number; // the model's prompt budget for this call, when reported
   endsTurn?: true;       // this event ends its turn (see below)
+  workspace?: string;    // v2: the workspace it was recorded in (see below)
   confidence?: number;
   raw: {
     adapter: string;
@@ -46,6 +49,8 @@ interface NormalizedEvent {
 ```
 
 `confidence` is intentionally optional. Current Claude Code and Copilot integrations do not expose a trustworthy probability signal, but reserving the field now avoids a future schema migration. Built-in agent IDs stay explicit while third-party adapters should use a namespaced `custom:*` identifier. `raw.event` is optional and exists only for inspection or debugging when keeping part of the source payload is worth the extra storage.
+
+`workspace` (version 2) names the workspace an event was recorded in: its folder path, its `.code-workspace` file path, or `(no folder)` for a window with no folder open (a remote window's is its URI, such as `vscode-remote://…`). It's set on every event in the per-user store (`~/.snagboat/data`, `snagboat.storage.perUserStore`), which holds every workspace's events, and absent in a VS Code window's own storage, which holds only that window's. `snagboat migrate` sets it on the events it copies there.
 
 `model` is optional and populated per event where the source reliably reports it, since coverage varies by adapter: the Claude Code transcript carries `message.model` directly alongside `message.usage` on every assistant turn, so the `claude-code` adapter should populate it whenever it emits token-bearing `turn_stop` events. Copilot OTel spans/metrics are expected to carry the model via the OpenTelemetry GenAI semantic conventions (`gen_ai.request.model` / `gen_ai.response.model`), so the `copilot` adapter's OTel path should populate it once that is verified against a live capture. Copilot's log-scrape path should leave `model` unset rather than guessing: its local session log's model field is consistently empty regardless of which model actually served the request. Per-event `model` is intended to support future per-model cost-weighting in longer-horizon rollups, distinct from the flat token totals used today.
 

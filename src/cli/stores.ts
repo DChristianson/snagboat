@@ -1,18 +1,19 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
+import { WORKSPACE_NO_FOLDER } from '@snagboat/schema';
+import { listUserStores, readWorkspaceJson } from '../core/userStore';
 
 /**
  * Finds the event stores the VS Code extension writes, so the CLI can read
  * them without VS Code running (docs/design/architecture-rfc.md, step 3).
  *
- * Until storage moves to ~/.snagboat/data, each VS Code window keeps its log in
- * its workspace storage: <user dir>/workspaceStorage/<hash>/dchristianson.snagboat/events/,
+ * Each VS Code window keeps its log in its workspace storage, unless
+ * snagboat.storage.perUserStore is on (then see findUserStores): <user dir>/workspaceStorage/<hash>/dchristianson.snagboat/events/,
  * with <hash>/workspace.json naming the folder or .code-workspace file. A window
  * with no folder open uses globalStorage/dchristianson.snagboat instead.
  *
- * Read-only: nothing here writes to a store.
+ * Read-only: nothing here writes to a store (core/migrate.ts copies them).
  */
 
 export const EXTENSION_ID = 'dchristianson.snagboat';
@@ -21,14 +22,20 @@ export const EXTENSION_ID = 'dchristianson.snagboat';
 const APPS = ['Code', 'Code - Insiders', 'VSCodium', 'Cursor', 'Windsurf'];
 
 export interface Store {
-  /** The folder holding events/ (the extension's storage folder). */
+  /** vscode: a VS Code window's storage; user: a workspace's folder in the per-user store (~/.snagboat/data). */
+  kind: 'vscode' | 'user';
+  /** The folder holding events/. */
   dir: string;
-  /** Which app wrote it, e.g. Code. */
+  /** Which app wrote it, e.g. Code; snagboat for the per-user store. */
   app: string;
   /** The workspace folder, when the store belongs to one. */
   folder?: string;
   /** The .code-workspace file, for a multi-root window. */
   workspaceFile?: string;
+  /** A remote window's workspace, which isn't a local path. */
+  uri?: string;
+  /** Per-user stores: the workspace their events are tagged with. */
+  workspace?: string;
   /** True for the global store a window with no folder uses. */
   global: boolean;
 }
@@ -44,23 +51,6 @@ export function userDirs(platform: NodeJS.Platform = process.platform, env: Node
   return APPS.map((app) => ({ app, dir: path.join(base, app, 'User') }));
 }
 
-function readWorkspaceJson(file: string): { folder?: string; workspaceFile?: string } {
-  try {
-    const json = JSON.parse(fs.readFileSync(file, 'utf8')) as { folder?: string; workspace?: string };
-    const toPath = (uri?: string) => {
-      if (!uri || !uri.startsWith('file:')) return undefined;
-      try {
-        return fileURLToPath(uri);
-      } catch {
-        return undefined;
-      }
-    };
-    return { folder: toPath(json.folder), workspaceFile: toPath(json.workspace) };
-  } catch {
-    return {};
-  }
-}
-
 const hasEvents = (dir: string) => fs.existsSync(path.join(dir, 'events'));
 
 /**
@@ -70,7 +60,7 @@ const hasEvents = (dir: string) => fs.existsSync(path.join(dir, 'events'));
 export function findStores(opts: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; home?: string } = {}): Store[] {
   const env = opts.env ?? process.env;
   if (env.SNAGBOAT_STORE) {
-    return hasEvents(env.SNAGBOAT_STORE) ? [{ dir: env.SNAGBOAT_STORE, app: 'SNAGBOAT_STORE', global: false }] : [];
+    return hasEvents(env.SNAGBOAT_STORE) ? [{ kind: 'vscode', dir: env.SNAGBOAT_STORE, app: 'SNAGBOAT_STORE', global: false }] : [];
   }
   const stores: Store[] = [];
   for (const { app, dir } of userDirs(opts.platform, env, opts.home)) {
@@ -84,12 +74,31 @@ export function findStores(opts: { platform?: NodeJS.Platform; env?: NodeJS.Proc
     for (const hash of hashes) {
       const storeDir = path.join(workspaces, hash, EXTENSION_ID);
       if (!hasEvents(storeDir)) continue;
-      stores.push({ dir: storeDir, app, global: false, ...readWorkspaceJson(path.join(workspaces, hash, 'workspace.json')) });
+      stores.push({ kind: 'vscode', dir: storeDir, app, global: false, ...readWorkspaceJson(path.join(workspaces, hash, 'workspace.json')) });
     }
     const globalDir = path.join(dir, 'globalStorage', EXTENSION_ID);
-    if (hasEvents(globalDir)) stores.push({ dir: globalDir, app, global: true });
+    if (hasEvents(globalDir)) stores.push({ kind: 'vscode', dir: globalDir, app, global: true });
   }
   return stores;
+}
+
+/** Each app's global storage folder for Snagboat that exists, VS Code first: where rules.json and the other shared files are. */
+export function findGlobalDirs(opts: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; home?: string } = {}): string[] {
+  return userDirs(opts.platform, opts.env ?? process.env, opts.home)
+    .map(({ dir }) => path.join(dir, 'globalStorage', EXTENSION_ID))
+    .filter((dir) => fs.existsSync(dir));
+}
+
+/** The per-user store's home: SNAGBOAT_HOME, else ~/.snagboat. */
+export function userHome(opts: { env?: NodeJS.ProcessEnv; home?: string } = {}): string {
+  return (opts.env ?? process.env).SNAGBOAT_HOME ?? path.join(opts.home ?? os.homedir(), '.snagboat');
+}
+
+/** Every workspace's store in the per-user store (~/.snagboat/data/workspaces). */
+export function findUserStores(opts: { env?: NodeJS.ProcessEnv; home?: string } = {}): Store[] {
+  return listUserStores(userHome(opts))
+    .filter((s) => hasEvents(s.dir))
+    .map((s) => ({ kind: 'user', dir: s.dir, app: 'snagboat', folder: s.folder, workspaceFile: s.workspaceFile, workspace: s.workspace, global: s.workspace === WORKSPACE_NO_FOLDER }));
 }
 
 /** Whether dir is folder or inside it (case-insensitive on Windows and macOS's default file system). */
