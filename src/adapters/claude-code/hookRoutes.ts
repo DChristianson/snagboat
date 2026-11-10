@@ -138,8 +138,10 @@ export const HOOK_SCRIPT = `#!/bin/sh
 routes="\${SNAGBOAT_HOME:-$HOME/.snagboat}/routes"
 project="\${CLAUDE_PROJECT_DIR:-$PWD}"
 dir="$project"
-if [ -n "$MSYSTEM" ] && command -v cygpath >/dev/null 2>&1; then
-  dir=$(cygpath -m "$project")
+if [ -n "$MSYSTEM" ]; then
+  # Git Bash started by Claude Code may have no locale; file names and the header need UTF-8.
+  export LC_ALL=C.UTF-8
+  command -v cygpath >/dev/null 2>&1 && dir=$(cygpath -m "$project")
 fi
 while [ -n "$dir" ]; do
   route="$routes/$(printf '%s' "$dir" | tr '/\\\\:' '---')"

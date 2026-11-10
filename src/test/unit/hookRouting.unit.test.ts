@@ -257,6 +257,8 @@ async function main() {
 
   test('a colon in the project path routes the same way the route file is named', async () => {
     // Windows drive letters put a colon in every path; the script and routeKey must agree on it.
+    // Windows itself can't make a folder named x:y; there every other test here already routes through C:.
+    if (process.platform === 'win32') return;
     const { home, script, projectA } = await setup();
     const colon = path.join(projectA, 'x:y');
     fs.mkdirSync(colon);
@@ -285,6 +287,8 @@ async function main() {
   test('route and script files are private to the user', async () => {
     const { home, script, projectA } = await setup();
     writeRoutes(home, [projectA], { port: 1000, token: 't', pid: process.pid });
+    // Windows has no POSIX modes; there the files are private by living in the user's profile.
+    if (process.platform === 'win32') return;
     assert.strictEqual(fs.statSync(path.join(home, 'routes', routeKey(projectA))).mode & 0o777, 0o600);
     assert.strictEqual(fs.statSync(path.join(home, 'routes')).mode & 0o777, 0o700);
     assert.strictEqual(fs.statSync(script).mode & 0o777, 0o755);
