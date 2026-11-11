@@ -178,7 +178,7 @@ You watch what this project spends on tokens ...
 | Finding usefulness | Responses to findings: useful, dismissed, muted |
 | Milestones completed | Closed tasks: Beads issues where present, else a commit with passing tests |
 
-Outcomes are `outcome` events in the event log (schema version 3), so they get retention, the live feed and the CLI like any event, and they don't count as agent activity. Built: tests going green, and finding usefulness, with a **Useful** response beside acknowledge and mute ("dismissed" is a finding that passed without one). Next: commits kept or reverted and code survival, read from git (read-only, for files sessions edited, on unless `outcomes.git` is off), and milestones from commits made after the session's tests last passed; a Beads adapter later.
+Outcomes are `outcome` events in the event log (schema version 3), so they get retention, the live feed and the CLI like any event, and they don't count as agent activity. Built: tests going green, and finding usefulness, with a **Useful** response beside acknowledge and mute ("dismissed" is a finding that passed without one). Also built, in the core: commits kept or reverted (at 7 days) and code survival (at 7 and 30 days), read from git (read-only, for commits touching files a session edited, on unless `outcomes.git` is off), and milestones from commits made after the session's tests last passed. A Beads adapter for milestones, and multi-root workspaces, later.
 
 ## Storage and experiments
 

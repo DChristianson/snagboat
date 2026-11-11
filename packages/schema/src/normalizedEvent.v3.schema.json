@@ -170,7 +170,11 @@
         "type": {
           "enum": [
             "tests_green",
-            "finding_response"
+            "finding_response",
+            "commit_kept",
+            "commit_reverted",
+            "code_survival",
+            "milestone"
           ]
         },
         "refs": {
@@ -195,6 +199,21 @@
             "acknowledged",
             "passed"
           ]
+        },
+        "commit": {
+          "type": "string"
+        },
+        "files": {
+          "type": "number"
+        },
+        "linesWritten": {
+          "type": "number"
+        },
+        "linesSurviving": {
+          "type": "number"
+        },
+        "days": {
+          "type": "number"
         }
       }
     },

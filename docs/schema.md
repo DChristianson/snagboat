@@ -41,12 +41,18 @@ interface NormalizedEvent {
   endsTurn?: true;       // this event ends its turn (see below)
   workspace?: string;    // v2: the workspace it was recorded in (see below)
   outcome?: {            // v3, outcome events: what was measured (see below)
-    type: 'tests_green' | 'finding_response';
+    type: 'tests_green' | 'finding_response'
+      | 'commit_kept' | 'commit_reverted' | 'code_survival' | 'milestone';
     refs?: string[];       // the events it's about
     failures?: number;     // tests_green: failed runs before it passed
     afterMs?: number;      // tests_green: first failure to green
     heuristicId?: string;  // finding_response
     response?: 'useful' | 'muted' | 'acknowledged' | 'passed';  // finding_response
+    commit?: string;       // git outcomes: the commit
+    files?: number;        // git outcomes: the session's files it touched
+    linesWritten?: number; // code_survival: lines it added to them
+    linesSurviving?: number; // code_survival: still there
+    days?: number;         // code_survival: 7 or 30
   };
   confidence?: number;
   raw: {
@@ -66,7 +72,14 @@ interface NormalizedEvent {
 - `tests_green`: a tool call in the tests-builds category succeeded after one or more failed in the same session. `refs` names the first failure and the passing run; its id is derived from the passing run's, so reading the same events again adds nothing. Whoever writes the workspace's events works it out: the core, or a window writing its own folder.
 - `finding_response`: a finding's episode ended, and `response` says how you met it, strongest first: marked **Useful**, muted, acknowledged, or let it pass. `refs` are the finding's events; filed in the session of the latest one still in the window's recent events.
 
-Outcome events don't count as agent activity: they're left out of totals, the daily chart, session lists and heuristics. The RFC's other outcomes (commits kept or reverted, code survival, milestones) come next.
+- Git outcomes, worked out by the core from the project's history (read-only; `outcomes.git`). A session's commit is one made between its first event and 30 minutes after its last that touches a file its agent edited:
+  - `milestone`, at the commit's time: the session's last test or build run before it passed.
+  - `commit_kept` or `commit_reverted`, 7 days after it: whether a commit saying "This reverts commit <id>" came within those 7 days.
+  - `code_survival`, 7 and 30 days after it: of the lines it added to the session's files, `linesSurviving` are still there at HEAD (`git blame`).
+
+  Each has a fixed id and time, so running again adds nothing. Multi-root workspaces aren't read yet.
+
+Outcome events don't count as agent activity: they're left out of totals, the daily chart, session lists and heuristics.
 
 `model` is optional and populated per event where the source reliably reports it, since coverage varies by adapter: the Claude Code transcript carries `message.model` directly alongside `message.usage` on every assistant turn, so the `claude-code` adapter should populate it whenever it emits token-bearing `turn_stop` events. Copilot OTel spans/metrics are expected to carry the model via the OpenTelemetry GenAI semantic conventions (`gen_ai.request.model` / `gen_ai.response.model`), so the `copilot` adapter's OTel path should populate it once that is verified against a live capture. Copilot's log-scrape path should leave `model` unset rather than guessing: its local session log's model field is consistently empty regardless of which model actually served the request. Per-event `model` is intended to support future per-model cost-weighting in longer-horizon rollups, distinct from the flat token totals used today.
 

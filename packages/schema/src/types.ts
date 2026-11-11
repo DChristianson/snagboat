@@ -33,7 +33,15 @@ export type OutcomeType =
   /** A test or build tool call succeeded after failing in the same session. */
   | 'tests_green'
   /** A finding's episode ended; response says how you met it. */
-  | 'finding_response';
+  | 'finding_response'
+  /** A commit made in a session, still not reverted 7 days after it was made. */
+  | 'commit_kept'
+  /** A commit made in a session, reverted within 7 days. */
+  | 'commit_reverted'
+  /** Of the lines a session's commit added, how many are still there after `days` (7 or 30). */
+  | 'code_survival'
+  /** A commit made in a session after its tests last passed: a piece of work done. */
+  | 'milestone';
 
 /** How you met a finding: marked it useful, muted it, acknowledged it, or let it pass. */
 export type FindingResponse = 'useful' | 'muted' | 'acknowledged' | 'passed';
@@ -50,6 +58,16 @@ export interface EventOutcome {
   heuristicId?: string;
   /** finding_response. */
   response?: FindingResponse;
+  /** Git outcomes: the commit's id. */
+  commit?: string;
+  /** Git outcomes: how many of the session's files the commit touched. */
+  files?: number;
+  /** code_survival: lines the commit added to those files. */
+  linesWritten?: number;
+  /** code_survival: how many of them are still there. */
+  linesSurviving?: number;
+  /** code_survival: days after the commit it was measured (7 or 30). */
+  days?: number;
 }
 
 export interface NormalizedEvent {
