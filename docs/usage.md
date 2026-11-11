@@ -108,7 +108,7 @@ By default each window collects its own workspace's sessions and keeps them in V
 - The core records Claude Code and Copilot CLI sessions in **every project on this machine**, open in VS Code or not, and applies retention. `"collect": false` for a project, `"collect.unopened": false`, or `snagboat serve --no-collect` limits it ([settings](settings.md#outside-vs-code-snagboatconfigjson-and-snagboatjson)).
 - Each window shows its own workspace, from the core, and sends it what only the window sees: your edits, and Copilot's OpenTelemetry export. Two windows on one workspace show the same data.
 - Backfill, **Relabel Shell Calls**, **Remove Captured Text** and **Clear Event Log** pause the core's writes to the workspace while they run.
-- Findings, notifications and the advisor work as before, in each window.
+- The core works out each workspace's findings, with that workspace's rules and thresholds, so every window on it shows the same ones; notifications and the advisor work as before. `snagboat findings` prints them from a terminal.
 - If the core can't start, the window says so and writes its own folder in `~/.snagboat/data` instead. `snagboat core stop` stops it; open windows then wait until something starts it again.
 
 Turning the setting off goes back to VS Code's storage as it was: turning it on copies data and never moves or deletes it. See the [README](../README.md#command-line-early) for `snagboat core` and `snagboat migrate`, and [PRIVACY.md](../PRIVACY.md) for where everything is stored.
