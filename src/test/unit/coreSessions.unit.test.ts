@@ -8,6 +8,7 @@ import { coreRequest, readCoreFile } from '../../core/service/coreFile';
 import { CoreService } from '../../core/service/server';
 import { StoreWriter } from '../../core/service/storeWriter';
 import { sessionFindings } from '../../heuristics/sessionFindings';
+import { saveConfig } from '../../core/config';
 
 // Sessions in the advisor UI (RFC step 5b): the core lists a workspace's sessions with their
 // outcomes, builds one session's view as VS Code's Sessions tab does, serves the Explore tab's
@@ -112,6 +113,16 @@ async function main() {
     assert.strictEqual((await get(`/explore?workspace=${encodeURIComponent(a)}&ids=s-new`, token)).status, 403);
     assert.strictEqual((await get(`/sessions/s-new/view`, token)).status, 404, 'not found among its own');
     assert.strictEqual((await get(`/sessions?workspace=${encodeURIComponent(b)}`, token)).status, 200);
+  });
+
+  test("a session's page shows only the live findings about its own events", async () => {
+    // A rule that fires on recent sessions with model calls: live for s-new, not about s-old.
+    saveConfig(home, { version: 1, defaults: { rules: [{ id: 'test:model-calls', title: 'calls', scope: 'session', measure: { type: 'count', filter: { kind: 'turn_stop', hasTokens: true } }, when: { gte: 1 }, severity: 'info', summary: '{value} model calls' }] }, projects: {} });
+    type Page = { view: { findings: Array<{ active: boolean; heuristicId: string }> } };
+    const live = (await get<Page>(`/sessions/s-new/view?workspace=${encodeURIComponent(a)}`)).body.view.findings.filter((f) => f.active);
+    assert.ok(live.some((f) => f.heuristicId === 'test:model-calls'), 'live on its own session');
+    const old = (await get<Page>(`/sessions/s-old/view?workspace=${encodeURIComponent(a)}`)).body.view.findings.filter((f) => f.active);
+    assert.deepStrictEqual(old, [], "s-new's live finding isn't on s-old's page");
   });
 
   test('the list is read again when a day file changes', async () => {

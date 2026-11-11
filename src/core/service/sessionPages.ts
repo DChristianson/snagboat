@@ -111,6 +111,7 @@ export class SessionPages {
   ): SessionView {
     const replay = newReplay();
     for (const e of events) replay.ingest(e);
+    // buildSessionView keeps only findings that point at this session's events, live ones included.
     return buildSessionView(summary, events, this.findings.contextMarks(), sessionFindings(replay.episodes(), live, muted));
   }
 

@@ -576,6 +576,8 @@
   }
   async function renderSession(id) {
     const [ctx, page] = await Promise.all([loadViz(), api(`/sessions/${encodeURIComponent(id)}/view?workspace=${encodeURIComponent(state.workspace)}`)]);
+    // A reply for a session you've since left (or an older refresh) is dropped.
+    if (route()[0] !== 'session' || route()[1] !== id) return;
     const v = page.view;
     const s = v.summary;
     if (!sessionUi.tree) {
@@ -588,7 +590,7 @@
       const c = { ...ctx, select };
       sessionUi.tree = window.snagboatViz.get('turn-tree').mount($('tree-host'), c);
       sessionUi.timeline = window.snagboatViz.get('context-timeline').mount($('timeline-host'), c);
-      $('whole').addEventListener('click', () => sessionUi.timeline.zoomAll());
+      $('whole').onclick = () => sessionUi.timeline?.zoomAll();
     }
     if (!sessionUi.view || sessionUi.view.summary.sessionId !== s.sessionId) {
       sessionUi.focusId = 's';
@@ -719,6 +721,14 @@
       if (view === 'session' && /no session/.test(err.message || '')) {
         $('session-h').textContent = 'Session not found';
         $('session-meta').textContent = 'It may belong to another workspace, or be older than the store keeps.';
+        sessionUi.view = null;
+        sessionUi.tree?.destroy();
+        sessionUi.timeline?.destroy();
+        $('tree-host').replaceChildren();
+        $('timeline-host').replaceChildren();
+        sessionUi.tree = null;
+        sessionUi.timeline = null;
+        for (const box of ['session-outcomes', 'session-findings', 'session-explore']) $(box).replaceChildren();
         return;
       }
       setStatus('down', err.message && !(err instanceof TypeError) ? err.message : 'The core is not answering');
@@ -752,7 +762,7 @@
       state.workspace = $('workspace').value;
       state.lastSession = null;
       // A session belongs to one workspace: switching shows the new one's list.
-      if (route()[0] === 'session') setFragment({ view: 'sessions' });
+      if (route()[0] === 'session') setFragment({ view: 'sessions', days: String(state.days) });
       void refresh();
     });
     $('days').addEventListener('change', () => {
