@@ -1,95 +1,164 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { eventDay, NormalizedEvent } from '@snagboat/schema';
+import { effectiveSettings } from '../config';
 import { EventLog } from '../eventLog';
-import { openWorkspaceStore, userDataDir, workspaceInfoOf, workspaceKey, workspaceStoreDir } from '../userStore';
+import { AggregateStore, applyRetention, EventSink, RetentionPolicy } from '../retention';
+import { listUserStores, openWorkspaceStore, userDataDir, workspaceInfoOf, workspaceKey, workspaceStoreDir } from '../userStore';
 import { claimedBy } from './claims';
 import { isProcessAlive } from '../processes';
 
 /**
- * How the core writes events into the per-user store (3c-2): appended to the
- * day file of the event's workspace, each eventId once. A workspace a VS Code
- * window has claimed (claims.ts) isn't written; its events wait in the spool,
+ * How the core writes into the per-user store (3c-2, 3c-3b). Each workspace the
+ * core owns is written the way a VS Code window writes its own: every eventId
+ * once, through EventSink (a day already rolled up merges into its aggregate,
+ * and text past its retention isn't stored), with the workspace's retention
+ * run by the core (runRetention), using that workspace's settings
+ * (config.json, .snagboat.json).
+ *
+ * A workspace a VS Code window has claimed (claims.ts) is the window's: the
+ * core neither writes nor prunes it. Its events wait in the spool,
  * data/spool/events/<workspace key>.jsonl, until ingestSpool() finds the claim
- * gone. The core never rewrites or deletes event files: retention stays with
- * whoever owns the workspace (the window today, the core from 3c-3).
+ * gone, unless the caller says to drop them (the window records them itself).
  */
 
 export interface WriteResult {
   written: number;
   duplicates: number;
   spooled: number;
+  dropped: number;
 }
+
+/** For an event whose workspace a window has claimed: keep it for later, or drop it because the window has it. */
+export type ClaimedPolicy = (event: NormalizedEvent) => 'spool' | 'drop';
 
 export function spoolDir(home: string): string {
   return path.join(userDataDir(home), 'spool', 'events');
 }
 
+const todayKey = (now = Date.now()) => new Date(now).toISOString().slice(0, 10);
+
+/** A workspace's retention, from its settings, with the built-in defaults. */
+export function retentionPolicyFor(home: string, workspace: string): RetentionPolicy {
+  const values = effectiveSettings(home, workspaceInfoOf(workspace).folder ?? workspace).values;
+  const num = (key: string, fallback: number) => (typeof values[key] === 'number' ? (values[key] as number) : fallback);
+  return { rawDays: num('retention.rawDays', 90), aggregateDays: num('retention.aggregateDays', -1), textDays: num('retention.textDays', 30) };
+}
+
+interface OpenStore {
+  dir: string;
+  log: EventLog;
+  aggregates: AggregateStore;
+  sink: EventSink;
+  /** Aggregate merges EventSink queued, awaited at the end of each write. */
+  merges: Array<Promise<void>>;
+  /** Event ids already in each day, read from disk the first time a day is written. */
+  known: Map<string, Set<string>>;
+}
+
 export class StoreWriter {
-  /** Event ids already in each day file the core has written, read from disk the first time. */
-  private readonly known = new Map<string, Set<string>>();
+  private readonly stores = new Map<string, OpenStore>();
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly home: string) {}
+  constructor(private readonly home: string, private readonly now: () => number = Date.now) {}
 
-  /** Writes events (each must have its workspace set); serialized, so two requests never interleave. */
-  write(events: NormalizedEvent[]): Promise<WriteResult> {
-    const run = this.queue.then(() => this.writeNow(events));
-    this.queue = run.catch(() => undefined);
-    return run;
+  /** Writes events (each must have its workspace set); serialized with every other write, ingest and retention run. */
+  write(events: NormalizedEvent[], onClaimed: ClaimedPolicy = () => 'spool'): Promise<WriteResult> {
+    return this.serial(() => this.writeNow(events, onClaimed));
   }
 
   /** Moves spooled events of workspaces no longer claimed into their stores. Returns how many were written. */
   ingestSpool(): Promise<number> {
-    const run = this.queue.then(() => this.ingestNow());
+    return this.serial(() => this.ingestNow());
+  }
+
+  /** Applies each unclaimed workspace's retention: rolls up old days and removes captured text past textDays. */
+  runRetention(): Promise<number> {
+    return this.serial(() => this.retentionNow());
+  }
+
+  private serial<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(op);
     this.queue = run.catch(() => undefined);
     return run;
   }
 
-  private async writeNow(events: NormalizedEvent[]): Promise<WriteResult> {
-    const result: WriteResult = { written: 0, duplicates: 0, spooled: 0 };
+  private async open(workspace: string): Promise<OpenStore> {
+    const existing = this.stores.get(workspace);
+    if (existing) return existing;
+    const dir = await openWorkspaceStore(this.home, workspaceInfoOf(workspace));
+    const log = new EventLog(dir, { workspace });
+    await log.init();
+    const aggregates = new AggregateStore(dir);
+    await aggregates.init();
+    const merges: Array<Promise<void>> = [];
+    const sink = new EventSink(log, aggregates, () => retentionPolicyFor(this.home, workspace), () => todayKey(this.now()), (op) => merges.push(op()));
+    const store: OpenStore = { dir, log, aggregates, sink, merges, known: new Map() };
+    this.stores.set(workspace, store);
+    return store;
+  }
+
+  private async writeNow(events: NormalizedEvent[], onClaimed: ClaimedPolicy): Promise<WriteResult> {
+    const result: WriteResult = { written: 0, duplicates: 0, spooled: 0, dropped: 0 };
     const byWorkspace = new Map<string, NormalizedEvent[]>();
     for (const e of events) byWorkspace.set(e.workspace!, [...(byWorkspace.get(e.workspace!) ?? []), e]);
     for (const [workspace, list] of byWorkspace) {
-      const dir = workspaceStoreDir(this.home, workspace);
-      if (claimedBy(dir) !== undefined) {
-        // A window writes this folder: drop what we know of it (the window adds to it) and spool.
-        for (const key of [...this.known.keys()]) if (key.startsWith(dir + path.sep)) this.known.delete(key);
-        await this.spool(workspace, list);
-        result.spooled += list.length;
+      if (claimedBy(workspaceStoreDir(this.home, workspace)) !== undefined) {
+        // A window writes this folder: forget what we knew of it (the window changes it), and spool or drop.
+        this.stores.delete(workspace);
+        const spool = list.filter((e) => onClaimed(e) === 'spool');
+        if (spool.length > 0) await this.spool(workspace, spool);
+        result.spooled += spool.length;
+        result.dropped += list.length - spool.length;
         continue;
       }
-      const { written, duplicates } = await this.append(workspace, list);
+      const { written, duplicates, dropped } = await this.append(workspace, list);
       result.written += written;
       result.duplicates += duplicates;
+      result.dropped += dropped;
     }
     return result;
   }
 
-  private async append(workspace: string, events: NormalizedEvent[]): Promise<{ written: number; duplicates: number }> {
-    const dir = await openWorkspaceStore(this.home, workspaceInfoOf(workspace));
-    const log = new EventLog(dir, { workspace });
-    await log.init();
+  private async append(workspace: string, events: NormalizedEvent[]): Promise<{ written: number; duplicates: number; dropped: number }> {
+    const store = await this.open(workspace);
     let written = 0;
     let duplicates = 0;
+    let dropped = 0;
     for (const event of events) {
       const day = eventDay(event);
-      const file = path.join(log.dir, `${day}.jsonl`);
-      let ids = this.known.get(file);
+      let ids = store.known.get(day);
       if (!ids) {
-        ids = new Set((await log.readDay(day)).map((e) => e.eventId));
-        this.known.set(file, ids);
+        ids = new Set((await store.log.readDay(day)).map((e) => e.eventId));
+        store.known.set(day, ids);
       }
       if (ids.has(event.eventId)) {
         duplicates += 1;
         continue;
       }
       ids.add(event.eventId);
-      log.append(event);
-      written += 1;
+      if (store.sink.write(event)) written += 1;
+      else dropped += 1; // older than all retention
     }
-    await log.flush();
-    return { written, duplicates };
+    await store.log.flush();
+    await Promise.all(store.merges.splice(0));
+    return { written, duplicates, dropped };
+  }
+
+  private async retentionNow(): Promise<number> {
+    let changed = 0;
+    for (const s of listUserStores(this.home)) {
+      if (claimedBy(s.dir) !== undefined) {
+        this.stores.delete(s.workspace);
+        continue;
+      }
+      const store = await this.open(s.workspace);
+      const result = await applyRetention(store.log, store.aggregates, retentionPolicyFor(this.home, s.workspace), todayKey(this.now()));
+      // Days rolled up or rewritten: their ids are re-read the next time they're written.
+      for (const day of [...result.rolledUp, ...result.textRemoved]) store.known.delete(day);
+      changed += result.rolledUp.length + result.textRemoved.length;
+    }
+    return changed;
   }
 
   private async spool(workspace: string, events: NormalizedEvent[]): Promise<void> {
@@ -128,6 +197,9 @@ export class StoreWriter {
     return total;
   }
 }
+
+/** Every retention run's interval: a day's text or raw events expire at most this late. */
+export const RETENTION_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /** A spool file a core took for ingesting and didn't finish (it exited). */
 function leftOver(name: string): boolean {

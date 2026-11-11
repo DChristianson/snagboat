@@ -3,7 +3,6 @@ import * as path from 'path';
 import { NormalizedEvent } from '@snagboat/schema';
 import { normalizeHookPayload } from '../../adapters/claude-code/normalize';
 import { isCopilotSession } from '../../adapters/copilot/cliSessions';
-import { isWithinFolders, withRealPaths } from '../paths';
 import { isProcessAlive } from '../processes';
 import { userDataDir } from '../userStore';
 
@@ -15,19 +14,12 @@ import { userDataDir } from '../userStore';
  * when it starts. Once windows stop collecting (3c-3) the script goes straight
  * to the core.
  *
- * The core records a hook only for a project inside a workspace it knows
- * (one with a folder in the per-user store, or one a client registered with a
- * token): it doesn't start recording projects that were never opened.
+ * The core records a hook under the workspace its project belongs to
+ * (workspaces.ts): every project, unless its settings say not to.
  */
 
 export function hookSpoolDir(home: string): string {
   return path.join(userDataDir(home), 'spool', 'hooks');
-}
-
-/** The workspace folder that contains projectDir, the nearest when folders nest. */
-export function workspaceForProject(projectDir: string, folders: string[]): string | undefined {
-  const containing = folders.filter((f) => isWithinFolders(projectDir, withRealPaths([f])));
-  return containing.sort((a, b) => b.length - a.length)[0];
 }
 
 /** The event a hook payload stands for; undefined if it maps to none, or its session is Copilot's (its own log covers it). */

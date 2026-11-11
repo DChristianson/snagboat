@@ -4,6 +4,8 @@ Snagboat keeps everything it observes on the developer's machine, and there is n
 
 ## What is captured
 
+**Which projects.** The VS Code extension records the projects you open in VS Code. The core service (`snagboat serve`, a preview) goes further: while it runs, it reads Claude Code's transcripts for **every project on this machine** (`~/.claude/projects`), including ones you've never opened in VS Code, and records them in `~/.snagboat/data`, with your prompts' text unless capture is off for that project. To limit it: `"collect": false` for a project (in `~/.snagboat/config.json` or its `.snagboat.json`), or `"collect.unopened": false` in `config.json`'s defaults to record only projects VS Code knows ([settings](docs/settings.md#outside-vs-code-snagboatconfigjson-and-snagboatjson)), or `snagboat serve --no-collect`.
+
 Each observed action becomes one normalized event (see [docs/schema.md](docs/schema.md)). Most fields are structural (kind, status, timestamps, session id, model, token counts), but some carry details of what the agent did:
 
 | Source | Field | What it holds |
@@ -99,7 +101,8 @@ All under the extension's per-workspace storage folder unless noted. With `snagb
 | `<project>/.snagboat.json` | Not written by Snagboat: a file a project may commit with team settings. It can only make privacy settings more private ([settings](docs/settings.md#outside-vs-code-snagboatconfigjson-and-snagboatjson)). | |
 | `~/.snagboat/core.json`, `~/.snagboat/core.lock` | Only while the core service (`snagboat serve`, a preview) runs: its local port, process id, version, and a random token that reads every workspace's data in the per-user store. Owner-only (`0600`). | Removed when the core stops; a leftover from a crash is replaced by the next core |
 | `~/.snagboat/core.route` | Only while the core service runs: its port, process id, and a token that can only send it Claude Code hooks, for the hook script. Owner-only. | Removed when the core stops |
-| `~/.snagboat/data/spool/hooks/<time>-<pid>.hook` | Only once the core service has run (it creates this folder): Claude Code hook payloads that reached neither a VS Code window nor a running core. Each is the **raw payload Claude Code sends**, which includes the tool's input and output (commands, file paths and contents), with the project folder. Owner-only. | Read and deleted when the core next starts (or within 30 seconds if it's running); only hooks for a workspace Snagboat knows are recorded, and the rest are discarded. Delete the folder to stop spooling |
+| `~/.snagboat/data/spool/hooks/<time>-<pid>.hook` | Only once the core service has run (it creates this folder): Claude Code hook payloads that reached neither a VS Code window nor a running core. Each is the **raw payload Claude Code sends**, which includes the tool's input and output (commands, file paths and contents), with the project folder. Owner-only. | Read and deleted when the core next starts (or within 30 seconds if it's running); recorded for the project's workspace unless its settings say not to (`collect`), else discarded. Delete the folder to stop spooling |
+| `~/.snagboat/data/core/checkpoints/` | Only with the core service collecting: how far it has read each Claude Code project's transcripts, the last few message ids in each, and each file's latest prompt id, keyed by transcript path. No content. | Until deleted by hand; an entry for a deleted transcript is dropped when that project is read again |
 | `~/.snagboat/.hook-in.<pid>` | A copy of one hook payload while the hook script delivers it, so it can try the window and then the core. Owner-only. | Removed when the script finishes; one left by a killed script is removed by the core |
 | `~/.snagboat/data/spool/events/` | Only with the core service: events sent to it for a workspace whose VS Code window is writing the per-user store itself, waiting until that window closes. The same fields as the event log. Owner-only. | Moved into the workspace's event log, and deleted, once the window has closed |
 | `~/.snagboat/data/workspaces/<workspace>/writer.json` | With `snagboat.storage.perUserStore` on: the process id of the VS Code window writing that workspace's folder, so the core service leaves it alone | Removed when the window closes |
@@ -117,6 +120,8 @@ On activation, hourly, and whenever the retention settings change:
 - raw days older than `textDays` (capped at `rawDays`) have their prompt text and reply excerpts removed in place: the events stay, without the text.
 
 Events are filed under the day they happened, so history caught up from an old transcript is retained by its own date: anything older than `rawDays` goes straight into that day's aggregate, anything older than `aggregateDays` isn't stored, and text older than `textDays` is never written.
+
+The core service applies the same retention, every 6 hours and when it starts, to the workspaces it records that no VS Code window has open, using each workspace's own settings (`~/.snagboat/config.json`, `.snagboat.json`). A workspace whose window is open is the window's to prune.
 
 **Still one clock:** other fields, including command-string `target`s and file paths, live as long as their event (`rawDays`). Whether those need a shorter retention of their own is still open.
 

@@ -40,6 +40,7 @@ options:
   --cwd <dir>         treat dir as the current folder
   --store <kind>      vscode (VS Code's storage, the default) or user (the per-user store)
   --port <n>          serve: listen on this port instead of a free one
+  --no-collect        serve, core start: don't read Claude Code transcripts (only accept events and hooks)
   --idle-minutes <n>  serve, core start: stop after n minutes with no requests (default 30; 0 never)
   --dry-run           migrate: count what would be copied, and write nothing
   --verify <file>     migrate: don't copy; check the per-user store against a baseline saved
@@ -63,6 +64,7 @@ interface Options {
   verify?: string;
   port?: number;
   idleMinutes?: number;
+  noCollect?: boolean;
   args: string[];
 }
 
@@ -73,6 +75,7 @@ export function parseArgs(argv: string[]): Options | string {
     if (a === '--json') opts.json = true;
     else if (a === '--all') opts.all = true;
     else if (a === '--dry-run') opts.dryRun = true;
+    else if (a === '--no-collect') opts.noCollect = true;
     else if (a === '--port' || a === '--idle-minutes') {
       const value = argv[++i];
       const n = Number(value);
@@ -194,6 +197,7 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
           home,
           version,
           port: parsed.port,
+          collect: !parsed.noCollect,
           idleMs: parsed.idleMinutes === undefined ? undefined : parsed.idleMinutes * 60_000,
           log: (line) => io.err(`${new Date().toISOString()} ${line}\n`),
         });
@@ -221,7 +225,7 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       }
       if (sub === 'start') {
         try {
-          const info = await ensureCore(home, __filename, { idleMinutes: parsed.idleMinutes });
+          const info = await ensureCore(home, __filename, { idleMinutes: parsed.idleMinutes, collect: !parsed.noCollect });
           print({ running: true, port: info.port, pid: info.pid }, () => `running: pid ${info.pid}, 127.0.0.1:${info.port}\n`);
           return 0;
         } catch (err) {

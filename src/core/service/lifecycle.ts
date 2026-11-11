@@ -24,11 +24,12 @@ export async function findCore(home: string): Promise<CoreInfo | undefined> {
  * cliPath. In VS Code's extension host process.execPath is Electron, which
  * ELECTRON_RUN_AS_NODE makes run as Node; plain Node ignores it.
  */
-export async function ensureCore(home: string, cliPath: string, opts: { idleMinutes?: number; timeoutMs?: number } = {}): Promise<CoreInfo> {
+export async function ensureCore(home: string, cliPath: string, opts: { idleMinutes?: number; timeoutMs?: number; collect?: boolean } = {}): Promise<CoreInfo> {
   const running = await findCore(home);
   if (running) return running;
   const args = [cliPath, 'serve'];
   if (opts.idleMinutes !== undefined) args.push('--idle-minutes', String(opts.idleMinutes));
+  if (opts.collect === false) args.push('--no-collect');
   const child = spawn(process.execPath, args, {
     detached: true,
     stdio: 'ignore',
