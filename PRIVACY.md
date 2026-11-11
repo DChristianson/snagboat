@@ -11,7 +11,7 @@ Each observed action becomes one normalized event (see [docs/schema.md](docs/sch
 | Source | Field | What it holds |
 | --- | --- | --- |
 | Claude Code hooks | `target` | The tool's `file_path`, or the **full shell command string** for Bash calls. Commands can contain secrets such as tokens in headers, credentials in connection strings, or exported environment variables. |
-| Claude Code hooks | `raw.ref` | The tool name (`hook:PostToolUse:<tool>`) |
+| Claude Code hooks | `raw.ref` | The hook and tool name (`hook:PostToolUse:<tool>`, `hook:PostToolUseFailure:<tool>`) |
 | Claude Code transcript | `raw.ref` | The transcript file path and byte offset the event came from |
 | Claude Code transcript | `user_prompt` events | When you sent each prompt, and its id. Its text is in `promptText` (below) when text capture is on. |
 | Claude Code transcript | `compaction` events | When the context was compacted, whether automatically or by you, and the context size before and after |
@@ -107,7 +107,7 @@ All under the extension's per-workspace storage folder unless noted. With `snagb
 | `~/.snagboat/data/spool/events/` | Only with the core service: events for a workspace whose VS Code window is writing the per-user store itself (waiting until that window closes) or holding it while a command rewrites it, and events a window sent while the core wasn't running. The same fields as the event log. Owner-only. | Moved into the workspace's event log, and deleted, once the window has closed or let go (within 30 seconds, or when the core next starts) |
 | `~/.snagboat/data/workspaces/<workspace>/writer.json` | With `snagboat.storage.perUserStore` on: the process id of a VS Code window writing that workspace's folder itself (the core couldn't start), or holding it while backfill, relabelling, removing captured text or clearing the log rewrites it, so the core service leaves it alone | Removed when the window closes, or when the command finishes |
 | `~/.snagboat/bin/snagboat-hook` | The hook forwarder script that Claude Code runs | Rewritten on every activation |
-| `<project>/.claude/settings.json` | Outside Snagboat's storage: the `PostToolUse`/`Stop` hook entries Snagboat adds so Claude Code runs `snagboat-hook` | Until removed with `Snagboat: Remove Claude Code Hooks from Project...` or by hand |
+| `<project>/.claude/settings.json` | Outside Snagboat's storage: the `PostToolUse`/`PostToolUseFailure`/`Stop` hook entries Snagboat adds so Claude Code runs `snagboat-hook` | Until removed with `Snagboat: Remove Claude Code Hooks from Project...` or by hand |
 
 Snagboat also reads data it doesn't own: Claude Code transcripts (`~/.claude/projects/…`), Copilot CLI session logs and their `workspace.yaml` (`~/.copilot/session-state/…`), and Copilot's OTel export. It never modifies or deletes them.
 

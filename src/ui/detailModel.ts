@@ -41,6 +41,8 @@ export interface FindingItem {
   /** The session most of its events belong to, for "Show in session". */
   sessionId?: string;
   acknowledged: boolean;
+  /** Marked useful this episode. */
+  useful: boolean;
   muted: boolean;
 }
 
@@ -209,7 +211,7 @@ export function buildDetailState(inputs: {
         openable: e.target !== undefined && inputs.isOpenable(e.target),
       })),
     },
-    findings: inputs.findings.map(({ finding, acknowledged, muted }) => ({
+    findings: inputs.findings.map(({ finding, acknowledged, useful, muted }) => ({
       sessionId: dominantSession(finding.eventRefs, sessionOf),
       heuristicId: finding.heuristicId,
       severity: finding.severity,
@@ -218,6 +220,7 @@ export function buildDetailState(inputs: {
       detectedAt: finding.detectedAt,
       eventRefs: finding.eventRefs,
       acknowledged,
+      useful,
       muted,
     })),
     muted: inputs.muted,

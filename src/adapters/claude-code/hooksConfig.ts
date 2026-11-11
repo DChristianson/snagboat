@@ -18,7 +18,8 @@ interface ClaudeSettings {
 }
 
 const HOOK_COMMAND_MARKER = 'snagboat-hook-receiver';
-const HOOK_EVENT_NAMES = ['PostToolUse', 'Stop'] as const;
+/** PostToolUseFailure: Claude Code sends failed tool calls there, not to PostToolUse. */
+const HOOK_EVENT_NAMES = ['PostToolUse', 'PostToolUseFailure', 'Stop'] as const;
 
 /**
  * The settings.json command for our hooks: runs the routing script at a stable

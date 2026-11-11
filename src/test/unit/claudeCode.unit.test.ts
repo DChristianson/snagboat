@@ -100,6 +100,20 @@ async function main() {
     });
     assert.strictEqual(failure!.status, 'failure');
     assert.strictEqual(failure!.target, 'false');
+
+    // Claude Code sends failed calls (a Bash command exiting non-zero) to PostToolUseFailure, with the error at the top level.
+    const failed = normalizeHookPayload({
+      session_id: 'sess-1',
+      hook_event_name: 'PostToolUseFailure',
+      tool_use_id: 'toolu_1',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm test' },
+      error: 'Exit code 1\nError: 2 tests failed',
+    });
+    assert.deepStrictEqual([failed!.kind, failed!.status, failed!.target, failed!.eventId, failed!.raw.ref], ['tool_call', 'failure', 'npm test', 'tool:toolu_1', 'hook:PostToolUseFailure:Bash']);
+    assert.strictEqual(failed!.toolCategory, 'tests-builds');
+    const interrupted = normalizeHookPayload({ session_id: 'sess-1', hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_input: { command: 'npm test' }, error: 'interrupted', is_interrupt: true });
+    assert.strictEqual(interrupted!.status, 'unknown', 'interrupted: neither passed nor failed');
   });
 
   test('normalizeHookPayload maps Stop to a turn_stop event and ignores unknown hook names', () => {
@@ -131,6 +145,7 @@ async function main() {
     assert.strictEqual(afterFirst.hooks.PostToolUse[0].hooks[0].command, 'echo existing');
     assert.ok(afterFirst.hooks.PostToolUse[1].hooks[0].command === CMD);
     assert.strictEqual(afterFirst.hooks.Stop.length, 1);
+    assert.strictEqual(afterFirst.hooks.PostToolUseFailure[0].hooks[0].command, CMD, 'failed tool calls too');
 
     // Calling again must be idempotent: no duplicate snagboat entries.
     await ensureHooksConfigured(dir, CMD);

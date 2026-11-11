@@ -453,6 +453,10 @@ interface ClaudeHookPayload {
   tool_name?: string;
   tool_input?: { file_path?: string; command?: string };
   tool_response?: { error?: unknown };
+  /** PostToolUseFailure: the failure's text (for Bash, "Exit code N" then its output). */
+  error?: unknown;
+  /** PostToolUseFailure: you interrupted it rather than it failing. */
+  is_interrupt?: boolean;
 }
 
 function isClaudeHookPayload(value: unknown): value is ClaudeHookPayload {
@@ -489,9 +493,12 @@ export function normalizeHookPayload(
   if (turnId) attribution.turnId = turnId;
   if (payload.agent_id) attribution.agentId = payload.agent_id;
 
-  if (payload.hook_event_name === 'PostToolUse') {
+  // Claude Code sends a successful call as PostToolUse and a failed one (an error, or a Bash command
+  // exiting non-zero) as PostToolUseFailure; an interrupted call is neither a pass nor a failure.
+  if (payload.hook_event_name === 'PostToolUse' || payload.hook_event_name === 'PostToolUseFailure') {
     const target = payload.tool_input?.file_path ?? payload.tool_input?.command;
-    const status: NormalizedEvent['status'] = payload.tool_response?.error ? 'failure' : 'success';
+    const failed = payload.hook_event_name === 'PostToolUseFailure';
+    const status: NormalizedEvent['status'] = failed ? (payload.is_interrupt ? 'unknown' : 'failure') : payload.tool_response?.error ? 'failure' : 'success';
     return {
       // Keyed by the call's tool_use_id, as tool calls rebuilt from transcripts are, so the two never both count.
       eventId: payload.tool_use_id ? `tool:${payload.tool_use_id}` : crypto.randomUUID(),
@@ -504,7 +511,7 @@ export function normalizeHookPayload(
       toolName: payload.tool_name,
       toolCategory: classifyTool(payload.tool_name, payload.tool_input?.command),
       ...attribution,
-      raw: { adapter: 'claude-code', ref: `hook:PostToolUse:${payload.tool_name ?? 'unknown'}` },
+      raw: { adapter: 'claude-code', ref: `hook:${payload.hook_event_name}:${payload.tool_name ?? 'unknown'}` },
     };
   }
 

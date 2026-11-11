@@ -10,13 +10,13 @@ import { CoreClient } from '../../core/service/client';
 import { CoreInfo, readCoreFile } from '../../core/service/coreFile';
 import { CoreService } from '../../core/service/server';
 import { workspaceStoreDir } from '../../core/userStore';
-import { OUTCOMES_ADAPTER, TestsGreen } from '../../outcomes/testsGreen';
+import { commandOf, OUTCOMES_ADAPTER, TestsGreen } from '../../outcomes/testsGreen';
 
 // Outcome capture (RFC step 4, 4a): tests going green worked out from tool calls, in a window
 // writing its own folder and in the core; outcome events are measures, not activity.
 
 let n = 0;
-const run = (status: NormalizedEvent['status'], opts: { session?: string; category?: NormalizedEvent['toolCategory']; at?: number } = {}): NormalizedEvent => ({
+const run = (status: NormalizedEvent['status'], opts: { session?: string; category?: NormalizedEvent['toolCategory']; at?: number; command?: string } = {}): NormalizedEvent => ({
   eventId: `t${(n += 1)}`,
   sessionId: opts.session ?? 's1',
   agent: 'claude-code',
@@ -24,7 +24,7 @@ const run = (status: NormalizedEvent['status'], opts: { session?: string; catego
   kind: 'tool_call',
   status,
   toolName: 'Bash',
-  target: 'npm test',
+  target: opts.command ?? 'npm test',
   toolCategory: opts.category ?? 'tests-builds',
   raw: { adapter: 'test', ref: `r${n}` },
 });
@@ -56,6 +56,20 @@ async function main() {
     assert.deepStrictEqual([out[0].kind, out[0].sessionId, out[0].ts, out[0].eventId, out[0].raw.adapter], ['outcome', 's1', pass.ts, `outcome:tests_green:${pass.eventId}`, OUTCOMES_ADAPTER]);
     assert.deepStrictEqual(green.observe([run('success')]), [], 'green again: nothing new');
     assert.strictEqual(green.observe([run('success', { session: 's2' })]).length, 1, 'the other session goes green on its own');
+  });
+
+  test('only the same command passing turns it green: a build or typecheck passing leaves failing tests red', () => {
+    assert.deepStrictEqual(
+      ['npm test', 'npm test -- -t login', 'npx tsc --noEmit', 'cargo test --release', 'pytest tests/test_a.py', 'cd app && npm run build'].map((c) => commandOf(run('success', { command: c }))),
+      ['npm test', 'npm test', 'npx tsc', 'cargo test', 'pytest', 'npm run']
+    );
+    const green = new TestsGreen();
+    assert.deepStrictEqual(green.observe([run('failure', { command: 'npm test' }), run('success', { command: 'npx tsc --noEmit' })]), []);
+    const [out] = green.observe([run('success', { command: 'npm test -- -t login' })]);
+    assert.strictEqual(out?.outcome?.type, 'tests_green', 'the same runner and subcommand');
+    green.observe([run('failure', { command: 'npm test' })]);
+    green.reset();
+    assert.deepStrictEqual(green.observe([run('success', { command: 'npm test' })]), [], 'forgotten after a reset (the log was cleared)');
   });
 
   test('outcome events are measures, not activity: totals and heuristics leave them out', () => {

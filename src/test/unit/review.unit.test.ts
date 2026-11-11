@@ -50,6 +50,15 @@ async function main() {
     assert.strictEqual(responseStats(written.map(([e]) => e)).get('stalled')!.useful, 1);
   });
 
+  test("a muted heuristic's episodes are muted from the start, never 'passed'", () => {
+    const written: ResponseEpisode[] = [];
+    const tracker = new ResponseTracker((e) => written.push(e), () => at(0));
+    const registry = new FindingsRegistry(['stalled'], tracker);
+    registry.report('stalled', [finding('stalled')]);
+    registry.report('stalled', []);
+    assert.strictEqual(episodeResponse(written[0]), 'muted');
+  });
+
   test('each episode is recorded when it ends, with when it was acknowledged or muted', () => {
     const written: ResponseEpisode[] = [];
     let t = 0;

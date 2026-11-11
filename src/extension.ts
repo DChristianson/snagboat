@@ -65,6 +65,8 @@ import { SuggestionsController } from './ui/suggestionsController';
 import { exportRules, importRules } from './ui/ruleTransfer';
 
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
+/** A finding that passed unanswered in less time than this isn't recorded as an outcome: it flickered. */
+const MIN_PASSED_EPISODE_MS = 30_000;
 const MUTED_HEURISTICS_KEY = 'snagboat.mutedHeuristics';
 // Global: saved rules are shared by every workspace, so a dismissed suggestion stays dismissed everywhere.
 const DISMISSED_SUGGESTIONS_KEY = 'snagboat.dismissedSuggestions';
@@ -399,19 +401,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const bus = new EventBus();
   const testsGreen = new TestsGreen();
   recordResponse = (episode, refs) => {
-    // Filed in the session of the finding's latest event; a finding with none in reach isn't recorded.
-    const wanted = new Set(refs);
-    const ref = eventStore.query().filter((e) => wanted.has(e.eventId)).pop();
-    if (!ref || !episode.endedAt) return;
-    bus.publish({
-      eventId: `outcome:finding_response:${episode.heuristicId}:${episode.startedAt}`,
-      sessionId: ref.sessionId,
-      agent: ref.agent,
-      ts: episode.endedAt,
-      kind: 'outcome',
-      status: 'unknown',
-      outcome: { type: 'finding_response', heuristicId: episode.heuristicId, response: episodeResponse(episode), refs },
-      raw: { adapter: OUTCOMES_ADAPTER, ref: `finding:${episode.heuristicId}:${episode.startedAt}` },
+    const response = episodeResponse(episode);
+    const endedAt = episode.endedAt;
+    if (!endedAt) return;
+    // A finding that came and went within seconds unanswered says nothing about its use: it flickered (as when a
+    // window hands its findings over to the core, or back). Wait for the report that ended it to finish, too.
+    if (response === 'passed' && Date.parse(endedAt) - Date.parse(episode.startedAt) < MIN_PASSED_EPISODE_MS) return;
+    queueMicrotask(() => {
+      // A rule you deleted ended its episode by going away, not by passing.
+      if (!heuristics.some((h) => h.id === episode.heuristicId) && !fromCore.has(episode.heuristicId)) return;
+      // Filed in the session of the finding's latest event; a finding with none in reach isn't recorded.
+      const wanted = new Set(refs);
+      const ref = eventStore.query().filter((e) => wanted.has(e.eventId)).pop();
+      if (!ref) return;
+      bus.publish({
+        eventId: `outcome:finding_response:${episode.heuristicId}:${episode.startedAt}`,
+        sessionId: ref.sessionId,
+        agent: ref.agent,
+        ts: endedAt,
+        kind: 'outcome',
+        status: 'unknown',
+        outcome: { type: 'finding_response', heuristicId: episode.heuristicId, response, refs },
+        raw: { adapter: OUTCOMES_ADAPTER, ref: `finding:${episode.heuristicId}:${episode.startedAt}` },
+      });
     });
   };
   // Retention runs, aggregate merges from the sink, and Clear Event Log all
@@ -445,6 +457,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       sessionIndex.reset();
       eventStore.reset();
       loggedIds.clear();
+      testsGreen.reset();
       const logged = await eventLog.snapshot();
       await aggregate.rehydrateFrom(logged, aggregateStore);
       await todayAggregate.rehydrateFrom(logged);
@@ -957,6 +970,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         sessions.closeExplorer();
         eventStore.reset();
         loggedIds.clear();
+        testsGreen.reset();
       }));
       retentionQueue = clearOp.catch(() => undefined);
       try {
