@@ -108,6 +108,23 @@
     tabButtons[name] = btn;
   }
   const tabBar = el('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Snagboat views' }, Object.values(tabButtons));
+  // With the per-user store on, Sessions and Explore live in the advisor UI in your browser (RFC step 5c).
+  const openUi = (view) => vscode.postMessage({ type: 'openAdvisorUi', ...(view ? { view } : {}) });
+  const browserLinks = el('span', { class: 'browser-links small', hidden: true }, [
+    el('button', { class: 'link', text: 'Sessions ↗', title: 'Open the sessions in the advisor UI, in your browser' }),
+    el('button', { class: 'link', text: 'Explore ↗', title: 'Open Explore in the advisor UI, in your browser' }),
+    el('button', { class: 'link', text: 'Advisor UI ↗', title: 'Open the advisor UI in your browser' }),
+  ]);
+  browserLinks.children[0].addEventListener('click', () => openUi('sessions'));
+  browserLinks.children[1].addEventListener('click', () => openUi('explore'));
+  browserLinks.children[2].addEventListener('click', () => openUi());
+  tabBar.append(browserLinks);
+  function setInBrowser(on) {
+    tabButtons.sessions.hidden = on;
+    tabButtons.explore.hidden = on;
+    browserLinks.hidden = !on;
+    if (on && (!sessionsRoot.hidden || !exploreRoot.hidden)) selectTab('overview', false);
+  }
 
   app.replaceChildren(el('div', { class: 'title-row' }, [el('h1', { text: 'Snagboat' }), tabBar]), overviewRoot, sessionsRoot, suggestionsRoot, exploreRoot);
   overviewRoot.append(
@@ -499,6 +516,7 @@
 
   window.addEventListener('message', (evt) => {
     if (evt.data && evt.data.type === 'state') {
+      setInBrowser(!!evt.data.inBrowser);
       state = evt.data.state;
       render();
     } else if (evt.data && evt.data.type === 'navigate') {

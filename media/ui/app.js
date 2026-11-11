@@ -60,7 +60,8 @@
   }
 
   // --- The fragment: #<one-time code> when opened from Snagboat; then #days=…[&advisor=…] ----------
-  const CODE = /^#([A-Za-z0-9_-]{20,})$/;
+  // A link may name where to go after signing in: #<code>&session=<id> (from VS Code's "Show in session").
+  const CODE = /^#([A-Za-z0-9_-]{20,})(?:&(.*))?$/;
   function fragment() {
     return new URLSearchParams(CODE.test(location.hash) ? '' : location.hash.replace(/^#/, ''));
   }
@@ -85,7 +86,11 @@
   async function signIn() {
     const m = CODE.exec(location.hash);
     if (!m) return;
-    setFragment({}); // the code is used once; don't leave it in the address or history
+    // The code is used once; don't leave it in the address or history. Keep only where it said to go.
+    const then = new URLSearchParams(m[2] || '');
+    const keep = {};
+    for (const k of ['session', 'advisor', 'view']) if (then.get(k)) keep[k] = then.get(k);
+    setFragment(keep);
     const { token: t, workspace } = await api('/ui-session', { method: 'POST', body: JSON.stringify({ code: m[1] }) });
     token = t;
     remember(TOKEN_KEY, t);
@@ -288,7 +293,10 @@
     const q = `workspace=${encodeURIComponent(state.workspace)}`;
     const [data, findings] = await Promise.all([api(`/advisors?${q}&days=${state.days}&series=1`), api(`/findings?${q}`).catch(() => [])]);
     state.advisors = data.advisors;
-    const add = el('button', { class: 'adv-add', type: 'button', disabled: 'disabled', title: 'Adding an advisor comes with the next step', 'aria-label': 'Add an advisor (coming with the next step)', text: '+' });
+    const add = el('button', { class: 'adv-add', type: 'button', title: 'Add an advisor', 'aria-label': 'Add an advisor', text: '+' });
+    add.addEventListener('click', () => {
+      location.hash = '#view=add';
+    });
     $('advisors').replaceChildren(...data.advisors.map(advisorCard), add);
     $('count-advisors').textContent = String(data.advisors.length);
     // Findings no advisor speaks for still show, below the cards.
@@ -393,18 +401,18 @@
     $('problems').hidden = !problems || problems.length === 0;
     $('problems').textContent = problems && problems.length ? `Problems in your advisors' persona.md files: ${problems.join('; ')}` : '';
   }
-  const VIEWS = ['advisors', 'advisor', 'sessions', 'session', 'explore'];
+  const VIEWS = ['advisors', 'advisor', 'add', 'sessions', 'session', 'explore'];
   function showView(name) {
     for (const v of VIEWS) $(`view-${v}`).hidden = v !== name;
     // The nav marks the section you're in: an advisor's page is under Advisors, a session's under Sessions.
-    const section = { advisor: 'advisors', session: 'sessions' }[name] || name;
+    const section = { advisor: 'advisors', add: 'advisors', session: 'sessions' }[name] || name;
     for (const n of ['advisors', 'sessions', 'explore']) {
       $(`nav-${n}`).classList.toggle('on', n === section);
       if (n === section) $(`nav-${n}`).setAttribute('aria-current', 'page');
       else $(`nav-${n}`).removeAttribute('aria-current');
     }
     // The period applies to advisors' measures only.
-    for (const e of document.querySelectorAll('[data-advisors-only]')) e.hidden = section !== 'advisors';
+    for (const e of document.querySelectorAll('[data-advisors-only]')) e.hidden = name !== 'advisors' && name !== 'advisor';
     if (name !== 'explore' && exploreTab) window.snagboatExplore.hidden();
     if (name !== 'sessions') state.sessionLimit = SESSIONS_PAGE;
   }
@@ -413,7 +421,7 @@
     const f = fragment();
     if (f.get('advisor')) return ['advisor', f.get('advisor')];
     if (f.get('session')) return ['session', f.get('session')];
-    if (f.get('view') === 'sessions' || f.get('view') === 'explore') return [f.get('view')];
+    if (['sessions', 'explore', 'add'].includes(f.get('view'))) return [f.get('view')];
     return ['advisors'];
   }
 
@@ -685,6 +693,69 @@
     exploreTab.shown();
   }
 
+  // --- Adding an advisor (step 5c) ---------------------------------------------------------------------
+  // The form writes a new persona.md through the core (POST /advisors); the built-ins are templates.
+  let addForm = null; // { measures, rules, templates, colors, icons } from GET /advisor-form
+  let addWired = false; // the form's listeners, added once
+  function checkbox(name, value, label, note) {
+    return el('label', {}, [el('input', { type: 'checkbox', name, value }), document.createTextNode(label), note ? el('span', { class: 'note', text: note }) : null]);
+  }
+  function radio(name, value, children) {
+    return el('label', {}, [el('input', { type: 'radio', name, value }), ...children]);
+  }
+  function fillAdd(t) {
+    $('add-name').value = t ? `${t.name} (yours)` : '';
+    $('add-status').value = t ? t.status : '';
+    $('add-goal').value = t ? t.goal : '';
+    $('add-max').value = String(t ? t.maxPerHour : 2);
+    $('add-voice').value = t ? t.voice : '';
+    for (const box of document.querySelectorAll('#add-measures input')) box.checked = !!t && t.measures.includes(box.value);
+    for (const box of document.querySelectorAll('#add-rules input')) box.checked = !!t && t.rules.includes(box.value);
+    for (const r of document.querySelectorAll('#add-colors input')) r.checked = r.value === (t ? t.color : addForm.colors[0]);
+    for (const r of document.querySelectorAll('#add-icons input')) r.checked = r.value === (t ? t.icon : addForm.icons[0]);
+  }
+  async function renderAdd() {
+    if (addForm) return;
+    addForm = await api('/advisor-form');
+    $('add-template').replaceChildren(el('option', { value: '', text: 'A blank advisor' }), ...addForm.templates.map((t) => el('option', { value: t.from, text: `A copy of ${t.name}` })));
+    $('add-measures').replaceChildren(...addForm.measures.map((m) => checkbox('measure', m.id, m.label, m.notYet ? 'not measured yet' : '')));
+    $('add-rules').replaceChildren(...addForm.rules.map((r) => checkbox('rule', r.id, r.title ? `${r.id}: ${r.title}` : r.id)));
+    $('add-colors').replaceChildren(...addForm.colors.map((c) => radio('color', c, [el('span', { class: `glyph cue-${c}` }, [glyph('default', 14)]), document.createTextNode(c)])));
+    $('add-icons').replaceChildren(...addForm.icons.map((i) => radio('icon', i, [el('span', { class: 'glyph' }, [glyph(i, 16)]), document.createTextNode(i)])));
+    fillAdd(null);
+    if (addWired) return;
+    addWired = true;
+    $('add-template').addEventListener('change', () => fillAdd(addForm.templates.find((t) => t.from === $('add-template').value) || null));
+    $('add-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const picked = (sel) => [...document.querySelectorAll(sel)].filter((x) => x.checked).map((x) => x.value);
+      const body = {
+        name: $('add-name').value,
+        status: $('add-status').value,
+        goal: $('add-goal').value,
+        measures: picked('#add-measures input'),
+        rules: picked('#add-rules input'),
+        maxPerHour: Number($('add-max').value),
+        color: picked('#add-colors input')[0],
+        icon: picked('#add-icons input')[0],
+        voice: $('add-voice').value,
+      };
+      $('add-submit').disabled = true;
+      $('add-error').textContent = '';
+      try {
+        const { advisor } = await api('/advisors', { method: 'POST', body: JSON.stringify(body) });
+        addForm = null; // fresh choices (and a clean form) next time
+        $('add-form').reset();
+        location.hash = `#${new URLSearchParams({ days: String(state.days), advisor: advisor.id }).toString()}`;
+      } catch (err) {
+        if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core.');
+        $('add-error').textContent = err.message;
+      } finally {
+        $('add-submit').disabled = false;
+      }
+    });
+  }
+
   // --- The page ------------------------------------------------------------------------
   const state = { workspace: null, days: 7, advisors: [], sessionLimit: SESSIONS_PAGE, lastSession: null };
 
@@ -705,7 +776,7 @@
   /** Draws the view the address names; on the timer, Explore is left alone (it keeps its own sessions). */
   async function refresh(timer = false) {
     const [view, id] = route();
-    if (timer && view === 'explore') return;
+    if (timer && (view === 'explore' || view === 'add')) return;
     try {
       const health = await api('/health');
       setStatus('ok', `core ${health.version}`);
@@ -715,6 +786,7 @@
       else if (view === 'session') await renderSession(id);
       else if (view === 'sessions') await renderSessions();
       else if (view === 'explore') await renderExplore();
+      else if (view === 'add') await renderAdd();
       else await renderAdvisors();
     } catch (err) {
       if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core: the core restarted, or the link was already used.');
@@ -757,7 +829,7 @@
       if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core: the core restarted, or the link was already used.');
       return showMessage('The core is not answering', [String(err.message || err)]);
     }
-    if (!fragment().get('days')) setFragment({ days: String(state.days) });
+    if (!fragment().get('days')) setFragment({ ...Object.fromEntries(fragment()), days: String(state.days) });
     $('workspace').addEventListener('change', () => {
       state.workspace = $('workspace').value;
       state.lastSession = null;

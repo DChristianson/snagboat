@@ -85,6 +85,19 @@ export class Nudger {
     return { ok: true, advisor: limit.advisor };
   }
 
+  /**
+   * The advisor a heuristic notifies for, and whether its hourly limit is used up, so its findings
+   * are held back from notifying; reads only, unlike take(). For the compact findings panel.
+   */
+  room(heuristicId: string, s: Pick<NudgeSettings, 'limits'>): { advisor?: string; held: boolean } {
+    const limit = s.limits?.find((l) => l.rules.includes(heuristicId));
+    if (!limit) return { held: false };
+    if (limit.maxPerHour === undefined) return { advisor: limit.advisor, held: false };
+    const now = this.now();
+    const recent = (this.sent.get(limit.advisor) ?? []).filter((t) => now - t < 60 * 60_000);
+    return { advisor: limit.advisor, held: recent.length >= limit.maxPerHour };
+  }
+
   private allowed(heuristicId: string, severity: 'info' | 'warn', s: NudgeSettings): boolean {
     if (s.notify === 'off' || s.quiet.includes(heuristicId) || s.muted.includes(heuristicId)) return false;
     return s.notify === 'all' || severity === 'warn';

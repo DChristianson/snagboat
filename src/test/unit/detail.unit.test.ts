@@ -185,6 +185,9 @@ async function main() {
 
   test('isDetailMessage accepts only well-formed messages', () => {
     assert.ok(isDetailMessage({ type: 'ready' }));
+    assert.ok(isDetailMessage({ type: 'openAdvisorUi' }));
+    assert.ok(isDetailMessage({ type: 'openAdvisorUi', view: 'explore' }));
+    assert.ok(!isDetailMessage({ type: 'openAdvisorUi', view: 'elsewhere' }));
     assert.ok(isDetailMessage({ type: 'acknowledge', heuristicId: 'stalled' }));
     assert.ok(isDetailMessage({ type: 'setMuted', heuristicId: 'stalled', muted: false }));
     assert.ok(isDetailMessage({ type: 'openFile', target: 'a.ts' }));

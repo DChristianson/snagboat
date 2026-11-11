@@ -80,6 +80,62 @@
       </div>
     </section>
 
+    <section id="view-add" hidden aria-labelledby="add-h">
+      <a class="back small" href="#">← All advisors</a>
+      <div class="view-head">
+        <h1 id="add-h">Add an advisor</h1>
+        <span class="muted small">Written to your advisors folder as persona.md; edit that file to change it later.</span>
+      </div>
+      <form id="add-form" class="panel add-form" novalidate>
+        <div class="field">
+          <label for="add-template">Start from</label>
+          <select id="add-template"><option value="">A blank advisor</option></select>
+        </div>
+        <div class="field">
+          <label for="add-name">Name</label>
+          <input id="add-name" type="text" maxlength="40" required autocomplete="off" placeholder="Quartermaster">
+        </div>
+        <div class="field">
+          <label for="add-status">Status line</label>
+          <input id="add-status" type="text" maxlength="80" required autocomplete="off" placeholder="Keeping retries rare">
+          <span class="hint small muted">Its goal in plain words, shown on its card.</span>
+        </div>
+        <div class="field">
+          <label for="add-goal">Goal id</label>
+          <input id="add-goal" type="text" maxlength="48" required autocomplete="off" placeholder="fewer-retries" pattern="[a-z][a-z0-9-]*">
+          <span class="hint small muted">Lowercase letters, digits and dashes. Names the goal in experiments and the CLI.</span>
+        </div>
+        <fieldset class="field">
+          <legend>Measures</legend>
+          <div class="checks" id="add-measures"></div>
+        </fieldset>
+        <fieldset class="field">
+          <legend>Speaks for</legend>
+          <span class="hint small muted">The heuristics and rules whose notifications count against its limit.</span>
+          <div class="checks" id="add-rules"></div>
+        </fieldset>
+        <div class="field">
+          <label for="add-max">Notifications an hour, at most</label>
+          <input id="add-max" type="number" min="0" max="20" step="1" value="2">
+          <span class="hint small muted">0: it never notifies.</span>
+        </div>
+        <fieldset class="field">
+          <legend>Look</legend>
+          <div class="swatches" id="add-colors"></div>
+          <div class="swatches" id="add-icons"></div>
+        </fieldset>
+        <div class="field">
+          <label for="add-voice">Voice</label>
+          <textarea id="add-voice" rows="5" maxlength="2000" placeholder="Who it is and how it speaks, for when it has a model to ask."></textarea>
+        </div>
+        <div class="acts">
+          <button class="btn primary" type="submit" id="add-submit">Add advisor</button>
+          <a class="btn ghost" href="#">Cancel</a>
+          <span class="err" id="add-error" role="alert"></span>
+        </div>
+      </form>
+    </section>
+
     <section id="view-sessions" hidden aria-labelledby="sessions-h">
       <div class="view-head">
         <h1 id="sessions-h">Sessions</h1>
