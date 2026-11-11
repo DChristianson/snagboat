@@ -110,12 +110,6 @@ export function startPage(): void {
   const traces = readDemoTraces(globals.snagboatDemoTraces);
   const examplesNote = byId('examples-note');
 
-  // detail.css switches its dark colors on body.vscode-dark, as the webview does; follow the browser's scheme.
-  const dark = window.matchMedia('(prefers-color-scheme: dark)');
-  const applyTheme = () => document.body.classList.toggle('vscode-dark', dark.matches);
-  applyTheme();
-  dark.addEventListener('change', applyTheme);
-
   const kit = globals.snagboatVizKit;
   const ctx = { ...kit, tooltip, ...kit.tipFor(tooltip) };
   let tab: ExploreTab | null = null;
