@@ -95,22 +95,22 @@ async function main() {
   test('a tweaked threshold is re-scored, and going back restores the proposal', () =>
     withController(async (c) => {
       await c.discover();
-      c.tweak(READS, 2);
+      await c.tweak(READS, 2);
       let reads = c.view().candidates.find((x) => x.id === READS)!;
       assert.deepStrictEqual([reads.threshold, reads.proposedThreshold], [2, 6]);
       assert.strictEqual(reads.turnsAbove, 3);
       assert.deepStrictEqual((reads.rule.when as { gte: number }).gte, 2);
-      c.tweak(READS, 7);
+      await c.tweak(READS, 7);
       reads = c.view().candidates.find((x) => x.id === READS)!;
       assert.deepStrictEqual([reads.turnsAbove, reads.episodes], [0, 0]);
-      c.tweak(READS, 6);
+      await c.tweak(READS, 6);
       assert.strictEqual(c.view().candidates.find((x) => x.id === READS)!.episodes, 3);
     }));
 
   test('accepting saves the rule as shown, with discovery provenance and this workspace, and rebuilds heuristics', () =>
     withController(async (c, calls, store) => {
       await c.discover();
-      c.tweak(READS, 5);
+      await c.tweak(READS, 5);
       await c.accept(READS);
       const [saved] = store.list('rules');
       assert.strictEqual(saved.doc.id, READS);

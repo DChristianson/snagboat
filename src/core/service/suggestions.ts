@@ -8,6 +8,8 @@ import { heuristicSettingsSection } from '../../heuristics';
 import { RuleSource } from '../../heuristics/rule';
 import { RuleStore } from '../../heuristics/ruleStore';
 import { SuggestionsController, SuggestionsView } from '../../discovery/suggestionsController';
+import { runDiscovery } from '../../discovery/discover';
+import { AsyncDiscoveryRun, DiscoveryData, discoverOffThread, discoveryOptionsOf, inProcess, workerAvailable } from '../../discovery/offThread';
 import { FindingsService } from './findings';
 
 /**
@@ -21,6 +23,10 @@ import { FindingsService } from './findings';
  * (~/.snagboat/rules.json), a built-in's threshold to your user settings (config.json's
  * defaults, which a VS Code window with the per-user store on takes into its settings),
  * dismissals to suggestions.json. Advisor proposals (a model) come with step 5c-2b.
+ *
+ * Discovery and re-scoring a tweaked threshold run in a worker thread (discovery/offThread.ts), so the
+ * core keeps answering hooks, event posts and the UI meanwhile; without the worker's script beside
+ * the core's (a build that left it out), they run in process.
  */
 
 export type SuggestionAction =
@@ -64,6 +70,8 @@ interface Entry {
 
 export class SuggestionsService {
   private readonly entries = new Map<string, Entry>();
+  /** Set once the worker's script turned out missing. */
+  private inProcess = false;
 
   constructor(
     private readonly home: string,
@@ -90,7 +98,7 @@ export class SuggestionsService {
         void c.discover().catch((err) => this.log(`discovery failed for ${workspace}: ${err instanceof Error ? err.message : String(err)}`));
         break;
       case 'tweak':
-        c.tweak(a.id, a.threshold);
+        await c.tweak(a.id, a.threshold);
         break;
       case 'accept':
         await c.accept(a.id);
@@ -112,6 +120,35 @@ export class SuggestionsService {
         break;
     }
     return c.view();
+  }
+
+  /** Stops every workspace's discovery worker. */
+  dispose(): void {
+    for (const entry of this.entries.values()) entry.controller.dispose();
+    this.entries.clear();
+  }
+
+  /** Discovery over the events with the workspace's heuristics as data, in the worker. */
+  private async discover(events: NormalizedEvent[], data: DiscoveryData): Promise<AsyncDiscoveryRun> {
+    if (this.inProcess || !workerAvailable()) {
+      if (!this.inProcess) this.log(`the discovery worker isn't beside the core; discovery runs in process`);
+      this.inProcess = true;
+      return inProcess(runDiscovery(events, discoveryOptionsOf(data)));
+    }
+    return discoverOffThread(events, data);
+  }
+
+  /** The heuristics discovery runs with, as data a worker can rebuild them from. */
+  private discoveryData(options: Awaited<ReturnType<FindingsService['heuristicsFor']>>): DiscoveryData {
+    const ruleIds = new Set(options.rules.map((r) => r.id));
+    const contextLimits: Record<string, number> = {};
+    for (const [model, marks] of Object.entries(this.findings.contextMarks())) if (typeof marks.limit === 'number') contextLimits[model] = marks.limit;
+    return {
+      builtIns: options.heuristics.map((h) => h.id).filter((id) => !ruleIds.has(id)),
+      rules: options.rules,
+      settings: Object.fromEntries(options.heuristics.map((h) => [h.id, options.settingsFor(h.id)])),
+      contextLimits,
+    };
   }
 
   private folderOf(workspace: string): string {
@@ -143,7 +180,7 @@ export class SuggestionsService {
           }
           return events;
         },
-        options: () => ({ existing: options.heuristics, settingsFor: options.settingsFor, contextLimit: options.contextLimit }),
+        discover: (events) => this.discover(events, this.discoveryData(options)),
         store,
         settingsRules: (): RuleSource => {
           const rules = configHost(this.home, this.folderOf(workspace)).get<unknown>('snagboat', 'rules', []);

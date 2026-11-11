@@ -7,7 +7,7 @@ const { execFileSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
 const plugin = path.join(root, 'plugins', 'snagboat');
-for (const f of ['dist/snagboat.js', 'hooks/forward.sh']) {
+for (const f of ['dist/snagboat.js', 'dist/discoveryWorker.js', 'hooks/forward.sh']) {
   if (!fs.existsSync(path.join(plugin, f))) {
     console.error(`plugins/snagboat/${f} is missing; run npm run build:plugin first`);
     process.exit(1);
