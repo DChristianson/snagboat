@@ -2,6 +2,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
+import { sanitizeCwd } from '../adapters/claude-code/workspace';
+import { coreRequest, readCoreFile } from '../core/service/coreFile';
 
 /**
  * When npm test is started by a process running inside VS Code's extension
@@ -40,7 +42,11 @@ async function runSuite(vscodeExecutablePath: string, perUserStore: boolean): Pr
   const extensionTestsPath = path.resolve(__dirname, './suite/index');
 
   const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-workspace-'));
-  const transcriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-transcripts-'));
+  // Claude Code's projects folder: the window reads its own project's transcripts, or, as a
+  // client of the core (per-user store), the core reads every project's.
+  const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-projects-'));
+  const transcriptsDir = path.join(projectsDir, sanitizeCwd(workspaceDir));
+  fs.mkdirSync(transcriptsDir);
   const snagboatHome = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-home-'));
   const copilotSessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-copilot-sessions-'));
   const launchArgs = [workspaceDir, '--disable-extensions'];
@@ -62,13 +68,21 @@ async function runSuite(vscodeExecutablePath: string, perUserStore: boolean): Pr
     // might have open (~/.snagboat, port 4318).
     extensionTestsEnv: {
       SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR: transcriptsDir,
+      SNAGBOAT_CLAUDE_PROJECTS_DIR: projectsDir,
       SNAGBOAT_HOME: snagboatHome,
       SNAGBOAT_COPILOT_SESSIONS_DIR: copilotSessionsDir,
       SNAGBOAT_COPILOT_DISCOVERY_MS: '500',
       SNAGBOAT_COPILOT_OTLP_PORT: '4319',
       SNAGBOAT_TEST_PER_USER_STORE: perUserStore ? '1' : '',
     },
-  });
+  }).finally(() => stopCore(snagboatHome));
+}
+
+/** The core the test window started outlives it (it exits when idle); stop it with the run. */
+async function stopCore(home: string): Promise<void> {
+  const info = readCoreFile(home);
+  if (!info) return;
+  await coreRequest(info.port, info.token, 'POST', '/shutdown', {}).catch(() => undefined);
 }
 
 async function main() {

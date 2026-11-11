@@ -3,9 +3,10 @@ import * as path from 'path';
 import { eventDay, NormalizedEvent } from '@snagboat/schema';
 import { effectiveSettings } from '../config';
 import { EventLog } from '../eventLog';
-import { AggregateStore, applyRetention, EventSink, RetentionPolicy } from '../retention';
+import { AggregateStore, applyRetention, EventSink, oldestTextDay, RetentionPolicy } from '../retention';
+import { withoutCapturedText } from '../excerpt';
 import { listUserStores, openWorkspaceStore, userDataDir, workspaceInfoOf, workspaceKey, workspaceStoreDir } from '../userStore';
-import { claimedBy } from './claims';
+import { Claim, claimedBy, claimOf } from './claims';
 import { isProcessAlive } from '../processes';
 
 /**
@@ -30,7 +31,10 @@ export interface WriteResult {
 }
 
 /** For an event whose workspace a window has claimed: keep it for later, or drop it because the window has it. */
-export type ClaimedPolicy = (event: NormalizedEvent) => 'spool' | 'drop';
+export type ClaimedPolicy = (event: NormalizedEvent, claim: Claim) => 'spool' | 'drop';
+
+/** Told of each batch written to a workspace's store (stored raw or merged into an aggregate): the live feed (GET /events/stream). */
+export type WrittenListener = (workspace: string, events: NormalizedEvent[]) => void;
 
 export function spoolDir(home: string): string {
   return path.join(userDataDir(home), 'spool', 'events');
@@ -59,6 +63,7 @@ interface OpenStore {
 export class StoreWriter {
   private readonly stores = new Map<string, OpenStore>();
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly listeners = new Set<WrittenListener>();
 
   constructor(private readonly home: string, private readonly now: () => number = Date.now) {}
 
@@ -67,14 +72,35 @@ export class StoreWriter {
     return this.serial(() => this.writeNow(events, onClaimed));
   }
 
+  /** Calls the listener with each batch written from now on; returns a function that stops it. */
+  onWritten(listener: WrittenListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * Waits for every write already started, then moves spooled events of
+   * workspaces no longer claimed into their stores. A client window calls it
+   * after holding its folder (nothing is written there once it returns) and
+   * after letting go (what was spooled meanwhile is in). What the core knew of
+   * each folder (its days, its event ids) is read again, since the window may
+   * have rewritten days.
+   */
+  flush(): Promise<number> {
+    return this.serial(() => {
+      this.stores.clear();
+      return this.ingestNow();
+    });
+  }
+
   /** Moves spooled events of workspaces no longer claimed into their stores. Returns how many were written. */
   ingestSpool(): Promise<number> {
     return this.serial(() => this.ingestNow());
   }
 
   /** Applies each unclaimed workspace's retention: rolls up old days and removes captured text past textDays. */
-  runRetention(): Promise<number> {
-    return this.serial(() => this.retentionNow());
+  runRetention(only?: (workspace: string) => boolean): Promise<number> {
+    return this.serial(() => this.retentionNow(only));
   }
 
   private serial<T>(op: () => Promise<T>): Promise<T> {
@@ -103,10 +129,11 @@ export class StoreWriter {
     const byWorkspace = new Map<string, NormalizedEvent[]>();
     for (const e of events) byWorkspace.set(e.workspace!, [...(byWorkspace.get(e.workspace!) ?? []), e]);
     for (const [workspace, list] of byWorkspace) {
-      if (claimedBy(workspaceStoreDir(this.home, workspace)) !== undefined) {
+      const claim = claimOf(workspaceStoreDir(this.home, workspace));
+      if (claim) {
         // A window writes this folder: forget what we knew of it (the window changes it), and spool or drop.
         this.stores.delete(workspace);
-        const spool = list.filter((e) => onClaimed(e) === 'spool');
+        const spool = list.filter((e) => onClaimed(e, claim) === 'spool');
         if (spool.length > 0) await this.spool(workspace, spool);
         result.spooled += spool.length;
         result.dropped += list.length - spool.length;
@@ -125,6 +152,9 @@ export class StoreWriter {
     let written = 0;
     let duplicates = 0;
     let dropped = 0;
+    const kept: NormalizedEvent[] = [];
+    // As EventSink stores them: text past its retention removed.
+    const textFrom = oldestTextDay(todayKey(this.now()), retentionPolicyFor(this.home, workspace));
     for (const event of events) {
       const day = eventDay(event);
       let ids = store.known.get(day);
@@ -137,17 +167,29 @@ export class StoreWriter {
         continue;
       }
       ids.add(event.eventId);
-      if (store.sink.write(event)) written += 1;
-      else dropped += 1; // older than all retention
+      if (store.sink.write(event)) {
+        written += 1;
+        kept.push({ ...(eventDay(event) < textFrom ? withoutCapturedText(event) : event), workspace });
+      } else dropped += 1; // older than all retention
     }
     await store.log.flush();
     await Promise.all(store.merges.splice(0));
+    if (kept.length > 0) {
+      for (const listener of this.listeners) {
+        try {
+          listener(workspace, kept);
+        } catch {
+          // a listener's failure is its own
+        }
+      }
+    }
     return { written, duplicates, dropped };
   }
 
-  private async retentionNow(): Promise<number> {
+  private async retentionNow(only?: (workspace: string) => boolean): Promise<number> {
     let changed = 0;
     for (const s of listUserStores(this.home)) {
+      if (only && !only(s.workspace)) continue;
       if (claimedBy(s.dir) !== undefined) {
         this.stores.delete(s.workspace);
         continue;

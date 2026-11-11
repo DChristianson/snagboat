@@ -8,6 +8,7 @@ import { parseArgs, runCli } from '../../cli/main';
 import { EXTENSION_ID, findStores, isInside, selectStores, Store, userDirs } from '../../cli/stores';
 import { workspaceOfVsCodeStore, workspaceStoreDir, WORKSPACE_MARKER } from '../../core/userStore';
 import { syntheticEvents } from '../../web/synthetic';
+import { StoreWriter } from '../../core/service/storeWriter';
 
 function writeStore(dir: string, events: NormalizedEvent[]): void {
   fs.mkdirSync(path.join(dir, 'events'), { recursive: true });
@@ -192,6 +193,29 @@ async function main() {
     assert.deepStrictEqual(selectStores(stores, path.join(inner, 'src'), false).map((s) => s.dir), [innerStore]);
     assert.deepStrictEqual(selectStores(stores, os.tmpdir(), false), []);
     assert.strictEqual(selectStores(stores, os.tmpdir(), true).length, 3);
+  });
+
+  test('sessions --all names the workspace of each session in text; one store needs none', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-cli-all-'));
+    const [a, b] = [path.join(home, 'src', 'alpha'), path.join(home, 'src', 'beta')];
+    const now = Date.now();
+    const at = (e: NormalizedEvent, workspace: string): NormalizedEvent => ({ ...e, ts: new Date(now).toISOString(), workspace });
+    const events = syntheticEvents();
+    await new StoreWriter(home).write([at({ ...events[1], sessionId: 'sa', eventId: 'ea' }, a), at({ ...events[1], sessionId: 'sb', eventId: 'eb' }, b)]);
+    process.env.SNAGBOAT_HOME = home;
+    delete process.env.SNAGBOAT_STORE;
+    try {
+      const all = capture();
+      assert.strictEqual(await runCli(['sessions', '--all', '--store', 'user'], { ...all.io, cwd: '/', now: new Date(now) }, 'test'), 0, all.get().err);
+      const lines = all.get().out.trim().split('\n');
+      assert.ok(lines.find((l) => l.includes(' sa'))?.endsWith(`  ${a}`), all.get().out);
+      assert.ok(lines.find((l) => l.includes(' sb'))?.endsWith(`  ${b}`), all.get().out);
+      const one = capture();
+      assert.strictEqual(await runCli(['sessions', '--store', 'user'], { ...one.io, cwd: a, now: new Date(now) }, 'test'), 0, one.get().err);
+      assert.ok(!one.get().out.includes(a), 'the current workspace goes without saying');
+    } finally {
+      restoreEnv();
+    }
   });
 
   test('isInside', () => {
