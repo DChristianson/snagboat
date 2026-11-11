@@ -44,6 +44,23 @@ async function main() {
     assert.deepStrictEqual(new Nudger(locate).update(active, [], on('all')).map((x) => x.heuristicId), ['backtracking', 'verbal-hedge']);
   });
 
+  test("an advisor's max_per_hour caps the notifications of the heuristics it speaks for; others are unaffected", () => {
+    let now = 0;
+    const n = new Nudger(locate, () => now);
+    const limits = [{ advisor: 'navigator', rules: ['backtracking', 'runaway-turn'], maxPerHour: 1 }];
+    const episode = (id: string, turn: string) => new Map([[id, [finding(id, 'warn', `s1/${turn}/a`)]]]);
+    const first = n.update(episode('backtracking', 't1'), [], on('warnings', { limits }));
+    assert.deepStrictEqual(first.map((x) => [x.heuristicId, x.advisor]), [['backtracking', 'navigator']]);
+    n.update(new Map(), [], on('warnings', { limits }));
+    now = 10 * 60_000;
+    assert.deepStrictEqual(n.update(episode('backtracking', 't2'), [], on('warnings', { limits })), [], 'a second within the hour: capped');
+    assert.deepStrictEqual(n.update(new Map(), [progress('runaway-turn', 's1/t3/x')], on('warnings', { limits })), [], 'early warnings count too');
+    assert.strictEqual(n.update(episode('stalled', 't4'), [], on('warnings', { limits })).length, 1, 'a heuristic no advisor lists');
+    n.update(new Map(), [], on('warnings', { limits }));
+    now = 61 * 60_000;
+    assert.strictEqual(n.update(episode('backtracking', 't5'), [], on('warnings', { limits })).length, 1, 'an hour later');
+  });
+
   test('off, quiet, and muted never notify, and an episode already under way when notifications turn on stays quiet', () => {
     const active = new Map([['backtracking', [finding('backtracking', 'warn', 's1/t1/a')]]]);
     assert.deepStrictEqual(new Nudger(locate).update(active, [progress('runaway-turn', 's1/t9/x')], on('off')), []);

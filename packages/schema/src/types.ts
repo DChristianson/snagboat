@@ -41,7 +41,9 @@ export type OutcomeType =
   /** Of the lines a session's commit added, how many are still there after `days` (7 or 30). */
   | 'code_survival'
   /** A commit made in a session after its tests last passed: a piece of work done. */
-  | 'milestone';
+  | 'milestone'
+  /** Snagboat showed you a notification for a finding or early warning. */
+  | 'notified';
 
 /** How you met a finding: marked it useful, muted it, acknowledged it, or let it pass. */
 export type FindingResponse = 'useful' | 'muted' | 'acknowledged' | 'passed';
@@ -68,6 +70,8 @@ export interface EventOutcome {
   linesSurviving?: number;
   /** code_survival: days after the commit it was measured (7 or 30). */
   days?: number;
+  /** notified: the advisor whose notify rules it falls under, if any. */
+  advisor?: string;
 }
 
 export interface NormalizedEvent {

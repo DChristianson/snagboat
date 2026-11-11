@@ -4,7 +4,8 @@ import { Finding, Progress } from '../heuristics/types';
  * Live nudges: which findings and early warnings are worth interrupting you
  * for, as dismissible notifications. Rate-limited: one per episode (a
  * heuristic reporting, until it stops), one early warning per heuristic and
- * turn, and at most one nudge per turn whatever fires. See
+ * turn, and at most one nudge per turn whatever fires; and each advisor's
+ * notify.max_per_hour over the heuristics it speaks for. See
  * docs/design/trusted-advisor.md#live-nudges.
  */
 
@@ -17,6 +18,19 @@ export interface NudgeSettings {
   quiet: string[];
   /** Muted heuristics never notify either. */
   muted: string[];
+  /**
+   * Advisors' notify limits (persona.md front matter, RFC step 4c): the
+   * heuristics or rules each speaks for, and at most how many of their
+   * notifications an hour. A heuristic no advisor lists has no such limit;
+   * one listed by two goes by the first.
+   */
+  limits?: AdvisorLimit[];
+}
+
+export interface AdvisorLimit {
+  advisor: string;
+  rules: string[];
+  maxPerHour?: number;
 }
 
 export interface Nudge {
@@ -30,6 +44,8 @@ export interface Nudge {
   /** Where it happened, when that's one session's turn. */
   sessionId?: string;
   turnId?: string;
+  /** The advisor whose notify rules it falls under. */
+  advisor?: string;
 }
 
 /** The session and turn a finding's events belong to, if they're one turn's. */
@@ -49,8 +65,25 @@ export class Nudger {
   private turns = new Set<string>();
   /** Early warnings given, by heuristic and turn. */
   private early = new Set<string>();
+  /** When each advisor's notifications were given, for its max_per_hour. */
+  private sent = new Map<string, number[]>();
 
-  constructor(private readonly locate: Locate) {}
+  constructor(private readonly locate: Locate, private readonly now: () => number = Date.now) {}
+
+  /** The advisor a heuristic notifies for, and whether its hourly limit has room; records the use when it has. */
+  private take(heuristicId: string, s: NudgeSettings): { ok: boolean; advisor?: string } {
+    const limit = s.limits?.find((l) => l.rules.includes(heuristicId));
+    if (!limit) return { ok: true };
+    if (limit.maxPerHour === undefined) return { ok: true, advisor: limit.advisor };
+    const now = this.now();
+    const recent = (this.sent.get(limit.advisor) ?? []).filter((t) => now - t < 60 * 60_000);
+    if (recent.length >= limit.maxPerHour) {
+      this.sent.set(limit.advisor, recent);
+      return { ok: false, advisor: limit.advisor };
+    }
+    this.sent.set(limit.advisor, [...recent, now]);
+    return { ok: true, advisor: limit.advisor };
+  }
 
   private allowed(heuristicId: string, severity: 'info' | 'warn', s: NudgeSettings): boolean {
     if (s.notify === 'off' || s.quiet.includes(heuristicId) || s.muted.includes(heuristicId)) return false;
@@ -71,8 +104,11 @@ export class Nudger {
       const where = this.locate(worst.eventRefs);
       const turnKey = where?.turnId ? `${where.sessionId}:${where.turnId}` : undefined;
       if (turnKey && this.turns.has(turnKey)) continue;
+      // Over its advisor's hourly limit: this episode passes without a notification (it's considered once).
+      const { ok, advisor } = this.take(id, s);
+      if (!ok) continue;
       if (turnKey) remember(this.turns, turnKey);
-      out.push({ heuristicId: id, severity: worst.severity, early: false, summary: worst.summary, ...(worst.suggestedAction ? { suggestedAction: worst.suggestedAction } : {}), eventRefs: worst.eventRefs, ...where });
+      out.push({ heuristicId: id, severity: worst.severity, early: false, summary: worst.summary, ...(worst.suggestedAction ? { suggestedAction: worst.suggestedAction } : {}), eventRefs: worst.eventRefs, ...where, ...(advisor ? { advisor } : {}) });
     }
 
     for (const p of progress) {
@@ -82,8 +118,10 @@ export class Nudger {
       const earlyKey = `${p.heuristicId}|${turnKey ?? ''}`;
       if (this.early.has(earlyKey) || (turnKey && this.turns.has(turnKey))) continue;
       remember(this.early, earlyKey);
+      const { ok, advisor } = this.take(p.heuristicId, s);
+      if (!ok) continue;
       if (turnKey) remember(this.turns, turnKey);
-      out.push({ heuristicId: p.heuristicId, severity: 'info', early: true, summary: p.summary, eventRefs: p.eventRefs, ...where });
+      out.push({ heuristicId: p.heuristicId, severity: 'info', early: true, summary: p.summary, eventRefs: p.eventRefs, ...where, ...(advisor ? { advisor } : {}) });
     }
     return out;
   }

@@ -174,7 +174,8 @@
             "commit_kept",
             "commit_reverted",
             "code_survival",
-            "milestone"
+            "milestone",
+            "notified"
           ]
         },
         "refs": {
@@ -214,6 +215,9 @@
         },
         "days": {
           "type": "number"
+        },
+        "advisor": {
+          "type": "string"
         }
       }
     },

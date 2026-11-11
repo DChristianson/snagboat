@@ -104,7 +104,10 @@ async function main() {
     assert.strictEqual(values.dismiss_rate, 50);
     assert.strictEqual(values.useful_share, 25);
     assert.match(String(values.approvals_per_session), /not measured yet/);
-    assert.match(String(values.notifications_per_hour), /not measured yet/);
+    assert.strictEqual(values.notifications_per_hour, 0, 'active hours, no notifications');
+    const notified = [...events, outcome('s1', 6, { type: 'notified', heuristicId: 'stalled' }), outcome('s1', 7, { type: 'notified', heuristicId: 'stalled' })];
+    const [perHour] = measure(['notifications_per_hour'], notified, [], { risky: patterns });
+    assert.strictEqual(Math.round(perHour.value! * 10) / 10, 5.7, '2 notifications over 21 active minutes (s1: 20, the 15-minute gap included; s2: 1)');
     // Against a period before: the trend follows which way is better.
     const [cache] = measure(['cache_hit_rate'], events, [call('s0', 0, 100, 0)], { risky: patterns });
     assert.deepStrictEqual([cache.previous, cache.trend], [0, 'better']);
