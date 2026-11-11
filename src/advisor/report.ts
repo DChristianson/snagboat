@@ -15,7 +15,8 @@ export interface AdvisorReport {
   goal: string;
   version: string;
   source: string;
-  notify: AdvisorGoal['notify'];
+  cue?: AdvisorGoal['cue'];
+  notify: AdvisorGoal['notify'] & { /** Notifications under its rules in the hour before now. */ lastHour?: number };
   measures: MeasureResult[];
   problems: string[];
 }
@@ -48,17 +49,37 @@ export async function eventsIn(logs: EventLogReader[], period: Period): Promise<
   return out;
 }
 
-export function advisorReports(advisors: AdvisorGoal[], current: NormalizedEvent[], previous: NormalizedEvent[]): AdvisorReport[] {
+/**
+ * Each advisor's report. With `now`, how many notifications fell under its
+ * rules in the hour before; with `seriesDays` too, each measure for each of the
+ * last that many days (from `current`, which must cover them), for sparklines.
+ */
+export function advisorReports(advisors: AdvisorGoal[], current: NormalizedEvent[], previous: NormalizedEvent[], opts: { now?: Date; seriesDays?: number } = {}): AdvisorReport[] {
+  const now = opts.now?.getTime();
+  const days = opts.seriesDays && now !== undefined ? Array.from({ length: opts.seriesDays }, (_, i) => {
+    const from = new Date(now - (opts.seriesDays! - i) * 86_400_000).toISOString();
+    const to = new Date(now - (opts.seriesDays! - i - 1) * 86_400_000).toISOString();
+    return current.filter((e) => e.ts >= from && e.ts < to);
+  }) : undefined;
   return advisors.map((a) => {
     const { patterns, problems } = riskyPatterns(a.riskyCommands);
+    const lastHour = now === undefined ? undefined : current.filter((e) => e.kind === 'outcome' && e.outcome?.type === 'notified' && e.outcome.advisor === a.id && Date.parse(e.ts) > now - 3_600_000).length;
+    const measures = measure(a.measures, current, previous, { risky: patterns });
+    if (days) {
+      for (const m of measures) {
+        if (m.note) continue;
+        m.series = days.map((events) => measure([m.id], events, [], { risky: patterns })[0].value ?? null);
+      }
+    }
     return {
       id: a.id,
       name: a.name,
       goal: a.goal,
       version: a.version,
       source: a.source,
-      notify: a.notify,
-      measures: measure(a.measures, current, previous, { risky: patterns }),
+      ...(a.cue ? { cue: a.cue } : {}),
+      notify: { ...a.notify, ...(lastHour !== undefined ? { lastHour } : {}) },
+      measures,
       problems,
     };
   });

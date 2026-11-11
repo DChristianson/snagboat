@@ -58,6 +58,11 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              a workspace token's stream also carries them ("findings" messages)
  *   GET  /advisors[?workspace=w&days=n]  each advisor's goal and measures, this period against
  *                              the one before (RFC step 4c)
+ *   GET  /workspaces           the workspaces the token reads, most recently active first
+ *   POST /ui-links             admin: [{ workspace }] -> a one-time code (2 minutes) and the advisor UI
+ *                              address that uses it (http://127.0.0.1:<port>/ui/#<code>)
+ *   POST /ui-session           no token: { code } -> a reader token (every workspace, read only), once
+ *   GET  /ui/...               the advisor UI's files (RFC step 5a), no token; the page exchanges its code
  *   POST /retention            applies the token's workspaces' retention now (a window whose
  *                              retention settings changed) -> { changed: <days> }
  *
@@ -104,7 +109,20 @@ export interface CoreOptions {
   log?: (line: string) => void;
 }
 
-type Scope = { admin: true } | { admin: false; workspaces: string[] };
+/**
+ * What a token may do. admin: everything (core.json). A workspace token: read and write its
+ * workspaces (a VS Code window). A reader (the browser advisor UI, step 5a): read every
+ * workspace, write nothing.
+ */
+type Scope = { admin: true; reader?: false } | { admin: false; workspaces: string[]; reader?: false } | { admin: false; reader: true; workspaces: string[] };
+
+/** Whether the scope may read this workspace. */
+const sees = (scope: Scope, workspace: string) => scope.admin || scope.reader === true || scope.workspaces.includes(workspace);
+/** Readers and the admin token name a workspace (or read all); a workspace token reads its own. */
+const readsAll = (scope: Scope) => scope.admin || scope.reader === true;
+
+/** How long a one-time UI link's code is good for. */
+const UI_LINK_TTL_MS = 2 * 60_000;
 
 const MAX_BODY = 16 * 1024 * 1024;
 const DEFAULT_IDLE_MS = 30 * 60_000;
@@ -176,6 +194,10 @@ export class CoreService {
   /** Streams that want findings, told of each change. */
   private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
+  /** Reader tokens for browser tabs (POST /ui-session), and the one-time codes that open them. */
+  private readonly readerTokens = new Set<string>();
+  private readonly uiCodes = new Map<string, { expires: number; workspace?: string }>();
+  private readonly uiDir = findUiDir();
   /** Folder -> the .code-workspace workspace it's part of, per token that registered them. */
   private readonly tokenFolders = new Map<string, Map<string, string>>();
   /** Ends each open event stream with "stopping"; resolves when it has closed. */
@@ -359,6 +381,7 @@ export class CoreService {
     const given = req.headers.authorization?.replace(/^Bearer\s+/i, '') ?? '';
     if (tokenEquals(given, this.token)) return { admin: true };
     for (const [token, workspaces] of this.workspaceTokens) if (tokenEquals(given, token)) return { admin: false, workspaces };
+    for (const token of this.readerTokens) if (tokenEquals(given, token)) return { admin: false, reader: true, workspaces: [] };
     return undefined;
   }
 
@@ -383,7 +406,15 @@ export class CoreService {
       res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
     };
     try {
+      // Only this machine's names for the core: a page elsewhere that renamed itself to 127.0.0.1 (DNS rebinding) is refused.
+      if (!this.hostAllowed(req.headers.host)) {
+        req.resume();
+        return send(421, { error: 'requests must be addressed to 127.0.0.1 or localhost' });
+      }
       if (req.method === 'POST' && req.url === '/hook') return send(200, await this.hook(req));
+      // The advisor UI's files, and the exchange of a one-time code for a reader token: no token yet.
+      if (req.method === 'GET' && (req.url === '/ui' || req.url?.startsWith('/ui/'))) return this.serveUi(req, res);
+      if (req.method === 'POST' && req.url === '/ui-session') return send(200, this.uiSession(await this.readBody(req)));
       const scope = this.scopeOf(req);
       if (!scope) {
         req.resume();
@@ -394,16 +425,20 @@ export class CoreService {
       if (route === 'GET /health') return send(200, { ok: true, version: this.opts.version, pid: process.pid, startedAt: this.startedAt, features: CORE_FEATURES });
       if (route === 'POST /retention') {
         req.resume();
-        return send(200, { changed: await this.writer.runRetention((w) => scope.admin || scope.workspaces.includes(w)) });
+        if (scope.reader) throw new HttpError(403, 'this token reads; it can\'t run retention');
+        return send(200, { changed: await this.writer.runRetention((w) => sees(scope, w)) });
       }
       if (route === 'POST /tokens') return send(200, this.mintToken(scope, await this.readBody(req)));
       if (route === 'GET /events/stream') return this.stream(scope, url.searchParams.get('changedSince'), req, res);
       if (route === 'POST /flush') {
         req.resume();
+        if (scope.reader) throw new HttpError(403, 'this token reads; it can\'t flush');
         return send(200, { ingested: await this.writer.flush() });
       }
       if (route === 'POST /events') return send(200, await this.postEvents(scope, await this.readBody(req)));
-      if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days')));
+      if (route === 'GET /workspaces') return send(200, this.workspaces(scope));
+      if (route === 'POST /ui-links') return send(200, this.uiLink(scope, await this.readBody(req).catch(() => ({}))));
+      if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days'), url.searchParams.get('series') === '1'));
       if (route === 'GET /findings') return send(200, await this.currentFindings(scope, url.searchParams.get('workspace')));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days')));
       if (req.method === 'GET' && url.pathname.startsWith('/sessions/')) return send(200, await this.session(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length))));
@@ -482,6 +517,7 @@ export class CoreService {
     for (const [i, e] of list.entries()) {
       if (!isEvent(e)) throw new HttpError(400, `event ${i} is not a NormalizedEvent`);
       let workspace = e.workspace;
+      if (scope.reader) throw new HttpError(403, 'this token reads; it can\'t write events');
       if (workspace === undefined) {
         if (scope.admin || scope.workspaces.length !== 1) throw new HttpError(400, `event ${i} needs a workspace`);
         workspace = scope.workspaces[0];
@@ -500,7 +536,7 @@ export class CoreService {
     req.resume();
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write(': connected\n\n');
-    const visible = (workspace: string) => scope.admin || scope.workspaces.includes(workspace);
+    const visible = (workspace: string) => sees(scope, workspace);
     const send = (events: NormalizedEvent[]) => {
       for (let i = 0; i < events.length; i += STREAM_BATCH) res.write(`data: ${JSON.stringify(events.slice(i, i + STREAM_BATCH))}\n\n`);
     };
@@ -515,7 +551,7 @@ export class CoreService {
     });
     this.stoppingStreams.add(sayStopping);
     // A workspace token's stream also carries its workspaces' findings: each change, and the current ones to start.
-    const stopFindings = scope.admin
+    const stopFindings = readsAll(scope)
       ? undefined
       : this.followFindings(scope.workspaces, (result) => {
           if (!res.destroyed && visible(result.workspace)) res.write(`event: findings\ndata: ${JSON.stringify(result)}\n\n`);
@@ -573,27 +609,108 @@ export class CoreService {
    * GET /advisors: each advisor's goal and measures over the token's workspaces (or the one named), the last
    * `days` (default 7) against the days before (RFC step 4c). The admin token names a workspace, or reads all.
    */
-  private async advisors(scope: Scope, workspace: string | null, daysParam: string | null): Promise<{ days: number; workspaces: string[]; advisors: AdvisorReport[]; problems: string[] }> {
+  private async advisors(scope: Scope, workspace: string | null, daysParam: string | null, series = false): Promise<{ days: number; workspaces: string[]; advisors: AdvisorReport[]; problems: string[] }> {
     const days = daysParam === null ? 7 : Number(daysParam);
     if (!Number.isInteger(days) || days <= 0 || days > 366) throw new HttpError(400, 'days must be a whole number from 1 to 366');
-    if (workspace !== null && !scope.admin && !scope.workspaces.includes(workspace)) throw new HttpError(400, `this token can't read ${workspace}`);
+    if (workspace !== null && !sees(scope, workspace)) throw new HttpError(400, `this token can't read ${workspace}`);
     const stores = this.visibleStores(scope).filter((s) => workspace === null || s.workspace === workspace);
     const { advisors, problems } = loadAdvisorGoals(path.join(this.opts.home, 'advisors'));
     const { current, previous } = periods(new Date(), days);
     const logs = stores.map((s) => new EventLog(s.dir));
-    return { days, workspaces: stores.map((s) => s.workspace), advisors: advisorReports(advisors, await eventsIn(logs, current), await eventsIn(logs, previous)), problems };
+    const now = new Date();
+    const currentEvents = await eventsIn(logs, current);
+    return { days, workspaces: stores.map((s) => s.workspace), advisors: advisorReports(advisors, currentEvents, await eventsIn(logs, previous), { now, ...(series ? { seriesDays: days } : {}) }), problems };
   }
 
   /** GET /findings: the token's workspaces' findings now (the admin token names one with ?workspace=). */
   private async currentFindings(scope: Scope, workspace: string | null): Promise<WorkspaceFindings[]> {
-    const list = scope.admin ? (workspace ? [workspace] : []) : workspace ? scope.workspaces.filter((w) => w === workspace) : scope.workspaces;
-    if (list.length === 0) throw new HttpError(400, scope.admin ? 'the admin token needs ?workspace=<workspace>' : `this token can't read ${workspace}`);
+    const list = readsAll(scope) ? (workspace ? [workspace] : []) : workspace ? scope.workspaces.filter((w) => w === workspace) : scope.workspaces;
+    if (list.length === 0) throw new HttpError(400, readsAll(scope) ? 'name the workspace: ?workspace=<workspace>' : `this token can't read ${workspace}`);
     return Promise.all(list.map((w) => this.findings.current(w)));
+  }
+
+/** Whether a Host header names this core: 127.0.0.1, localhost or [::1], on its port. */
+  private hostAllowed(host: string | undefined): boolean {
+    if (!host) return false;
+    const m = /^(127\.0\.0\.1|localhost|\[::1\])(?::(\d+))?$/i.exec(host);
+    return !!m && (m[2] === undefined || Number(m[2]) === this.boundPort);
+  }
+
+  /** POST /ui-links (admin): a one-time code, good for two minutes, and the address that uses it. */
+  private uiLink(scope: Scope, body: unknown): { code: string; url: string; expiresAt: string } {
+    if (!scope.admin) throw new HttpError(403, 'only the admin token can open the advisor UI');
+    const now = Date.now();
+    for (const [code, c] of this.uiCodes) if (c.expires < now) this.uiCodes.delete(code);
+    const code = crypto.randomBytes(24).toString('base64url');
+    // The workspace to show first, kept with the code rather than put in the address.
+    const workspace = (body as { workspace?: unknown })?.workspace;
+    this.uiCodes.set(code, { expires: now + UI_LINK_TTL_MS, ...(typeof workspace === 'string' && workspace ? { workspace } : {}) });
+    // The code rides in the fragment, which a browser never sends to a server or in a Referer. Bare (base64url
+    // only), so nothing that opens links (VS Code's openExternal) re-encodes it.
+    return { code, url: `http://127.0.0.1:${this.boundPort}/ui/#${code}`, expiresAt: new Date(now + UI_LINK_TTL_MS).toISOString() };
+  }
+
+  /** POST /ui-session { code }: the code, once, for a reader token (every workspace, read only). */
+  private uiSession(body: unknown): { token: string; workspace?: string } {
+    const code = (body as { code?: unknown })?.code;
+    const link = typeof code === 'string' ? this.uiCodes.get(code) : undefined;
+    if (typeof code === 'string') this.uiCodes.delete(code);
+    if (link === undefined || link.expires < Date.now()) throw new HttpError(401, 'that link has expired or was already used; open the advisor UI again with snagboat open');
+    const token = crypto.randomBytes(32).toString('hex');
+    this.readerTokens.add(token);
+    return { token, ...(link.workspace ? { workspace: link.workspace } : {}) };
+  }
+
+  /** GET /workspaces: the workspaces this token reads, most recently active first. */
+  private workspaces(scope: Scope): Array<{ workspace: string; folder?: string; lastDay?: string }> {
+    return this.visibleStores(scope)
+      .map((s) => {
+        let lastDay: string | undefined;
+        try {
+          lastDay = fs.readdirSync(path.join(s.dir, 'events')).filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f)).sort().pop()?.slice(0, 10);
+        } catch {
+          // no events yet
+        }
+        return { workspace: s.workspace, ...(s.folder ? { folder: s.folder } : {}), ...(lastDay ? { lastDay } : {}) };
+      })
+      .sort((a, b) => (b.lastDay ?? '').localeCompare(a.lastDay ?? '') || a.workspace.localeCompare(b.workspace));
+  }
+
+  /** GET /ui/...: the advisor UI's files, with a policy that lets the page load only its own files and talk only to the core. */
+  private serveUi(req: http.IncomingMessage, res: http.ServerResponse): void {
+    req.resume();
+    const security = {
+      'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Cache-Control': 'no-store',
+    };
+    const pathname = new URL(req.url ?? '/ui/', 'http://127.0.0.1').pathname;
+    if (pathname === '/ui') {
+      res.writeHead(308, { Location: '/ui/', ...security }).end();
+      return;
+    }
+    const name = pathname === '/ui/' ? 'index.html' : pathname.slice('/ui/'.length);
+    const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
+    const type = types[path.extname(name)];
+    // Plain names only (no folders, no ..), of the types above; theme.css is the visualizers' shared one.
+    const file = !type || !/^[a-z0-9][a-z0-9.-]*$/i.test(name) || !this.uiDir ? undefined : name === 'theme.css' ? path.join(this.uiDir, '..', 'theme.css') : path.join(this.uiDir, name);
+    let body: Buffer | undefined;
+    try {
+      if (file) body = fs.readFileSync(file);
+    } catch {
+      body = undefined;
+    }
+    if (!body) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...security }).end(this.uiDir ? 'Not found' : 'The advisor UI files are missing from this install');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': type!, ...security }).end(body);
   }
 
   private visibleStores(scope: Scope) {
     const stores = listUserStores(this.opts.home);
-    return scope.admin ? stores : stores.filter((s) => scope.workspaces.includes(s.workspace));
+    return stores.filter((s) => sees(scope, s.workspace));
   }
 
   private async sessions(scope: Scope, daysParam: string | null): Promise<Array<SessionSummary & { workspace: string }>> {
@@ -617,4 +734,17 @@ export class CoreService {
     if (found.length > 1) throw new HttpError(409, `${id} matches ${found.length} sessions; give more of the id`);
     return found[0];
   }
+}
+
+/** media/ui, found from wherever the core runs (dist/snagboat.js, or compiled tests under out/). */
+function findUiDir(): string | undefined {
+  let dir = __dirname;
+  for (let i = 0; i < 6; i++) {
+    const candidate = path.join(dir, 'media', 'ui');
+    if (fs.existsSync(path.join(candidate, 'index.html'))) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
 }

@@ -5,6 +5,8 @@ import { EventBus } from './core/eventBus';
 import { OUTCOMES_ADAPTER, TestsGreen } from './outcomes/testsGreen';
 import { loadAdvisorGoals } from './advisor/goals';
 import { snagboatHome } from './core/userStore';
+import { findCore } from './core/service/lifecycle';
+import { coreRequest } from './core/service/coreFile';
 import { advisorReports, eventsIn, periods } from './advisor/report';
 import { EventLog } from './core/eventLog';
 import { Aggregate, AggregateSnapshot, TodayAggregate } from './core/aggregate';
@@ -831,6 +833,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     vscode.commands.registerCommand('snagboat.openSession', async () => {
       const sessionId = await pickSession('Open a session (most recent first)');
       if (sessionId) detailPanel.show({ sessionId });
+    }),
+    vscode.commands.registerCommand('snagboat.openAdvisorUi', async () => {
+      // The advisor UI (RFC step 5a) is served by the core, which runs with the per-user store on.
+      if (!core) {
+        void vscode.window.showInformationMessage('Snagboat: the advisor UI is served by the core service, which runs with snagboat.storage.perUserStore on (User settings, then reload).');
+        return;
+      }
+      const info = await findCore(snagboatHome());
+      if (!info) {
+        void vscode.window.showWarningMessage('Snagboat: the core service isn\'t answering; reload the window to start it again.');
+        return;
+      }
+      const res = await coreRequest(info.port, info.token, 'POST', '/ui-links', storage.workspace ? { workspace: storage.workspace } : {});
+      if (res.status !== 200) {
+        void vscode.window.showErrorMessage(`Snagboat: the core couldn't open the advisor UI: ${JSON.stringify(res.body)}`);
+        return;
+      }
+      await vscode.env.openExternal(vscode.Uri.parse((res.body as { url: string }).url));
     }),
     vscode.commands.registerCommand('snagboat.revealEventLog', async () => {
       // Shows the daily files' folder in the file manager (to load them into the

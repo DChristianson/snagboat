@@ -101,6 +101,12 @@ Off by default. With `snagboat.nudges.notify` set to `warnings` or `all`, a find
 
 It names heuristics, rules, models, and session ids, never prompts, paths, or commands. Afterwards, **Ask the Advisor** has a model add three sections to the file, labelled as model output: a summary of the week, how findings were shown with suggested changes, and tactics to try from the two costliest sessions. **Ask Another Advisor** appears when several advisors offer those. `snagboat.advisor.weeklyReview` (off by default) writes the review once a week by itself.
 
+## The advisor UI (preview)
+
+With the per-user store on, the core service serves a page in your browser: run `snagboat open` in a project, or **Snagboat: Open Advisor UI** in VS Code. It shows each advisor's measures for the last 7, 14 or 30 days against the period before, with a line for each day, how many notifications each has used this hour, and the findings active now, for any workspace the core records (pick it at the top). Sessions, Explore and responding to findings come to it next; until then they stay in VS Code's Snagboat view.
+
+The page lives at `http://127.0.0.1:<port>/ui/` and only ever talks to the core. Each link opens it once, within 2 minutes: the link carries a one-time code, which the page swaps for a read-only key kept in that browser tab, and the code can't be used again. The key reads every workspace and changes nothing; it ends when the core stops. Open the page again with a new link after that.
+
 ## Advisors and their goals
 
 An advisor is one measurement goal plus the rules, and the voice, that serve it. Four are built in:
@@ -163,6 +169,7 @@ Turning the setting off goes back to VS Code's storage as it was: turning it on 
 | **Snagboat: Write Default Advisor Prompts...** | Writes an advisor's default goal and voice (`persona.md`) and per-ability instructions to `~/.snagboat/advisors/<id>/` to edit from (see [settings.md](settings.md#installed-advisors)). |
 | **Snagboat: Write Review** | Writes this workspace's weekly review (above). |
 | **Snagboat: Backfill Sessions from Transcripts...** | Re-reads the transcripts behind days logged by older versions and rewrites those days, so their sessions get turns, turn ends, and tool calls, and their past findings are complete. It shows what will change and asks first. |
+| **Snagboat: Open Advisor UI** | Opens the advisor UI in your browser (needs the per-user store on). |
 | **Snagboat: Reveal Event Log Folder** | Shows this workspace's event log folder (the daily `events/<date>.jsonl` files) in your file manager, to load them into the [web demo](#explore-experimental). Says so instead if nothing has been logged yet. |
 | **Snagboat: Remove Captured Text** | Deletes stored prompts and reply excerpts, keeping the events, and can turn capture off. |
 | **Snagboat: Remove Claude Code Hooks from Project...** | Removes Snagboat's entries from a folder's `.claude/settings.json`, leaving your own hooks alone, and stops adding them there. |

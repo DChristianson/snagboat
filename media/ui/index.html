@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snagboat</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="Snagboat">
+    <div class="brand">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 12 L9 3 L16 12 Z" class="stroke"/><path d="M1 14 H17" class="stroke"/></svg>
+      Snagboat
+    </div>
+    <nav class="navgroup" aria-label="This workspace">
+      <div class="eyebrow">This workspace</div>
+      <a class="nav on" href="#" aria-current="page">Advisors <span class="count" id="count-advisors"></span></a>
+      <span class="nav soon" title="Coming with the next step">Findings <span class="count" id="count-findings"></span></span>
+      <span class="nav soon" title="Coming with the next step">Sessions</span>
+      <span class="nav soon" title="Coming with the next step">Explore</span>
+    </nav>
+    <p class="side-note small muted">Sessions, Explore and responding to findings come next. Until then, use VS Code's Snagboat view.</p>
+  </aside>
+  <main class="main" id="main">
+    <div class="bar">
+      <div class="left">
+        <label class="sr-only" for="workspace">Workspace</label>
+        <select id="workspace"></select>
+        <label class="sr-only" for="days">Period</label>
+        <select id="days">
+          <option value="7">Last 7 days against the 7 before</option>
+          <option value="14">Last 14 days against the 14 before</option>
+          <option value="30">Last 30 days against the 30 before</option>
+        </select>
+      </div>
+      <div class="right"><span class="status" id="status">Connecting…</span></div>
+    </div>
+    <div id="message" class="message" hidden></div>
+    <section aria-labelledby="advisors-h">
+      <h1 id="advisors-h" class="sr-only">Advisors</h1>
+      <div class="advisors" id="advisors"></div>
+    </section>
+    <section class="strip" aria-labelledby="findings-h">
+      <h2 id="findings-h">Findings now <span class="muted small" id="findings-note"></span></h2>
+      <div id="findings"></div>
+    </section>
+    <p class="small muted" id="problems" hidden></p>
+  </main>
+</div>
+</body>
+</html>

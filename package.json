@@ -55,6 +55,10 @@
         "title": "Snagboat: Reveal Event Log Folder"
       },
       {
+        "command": "snagboat.openAdvisorUi",
+        "title": "Snagboat: Open Advisor UI"
+      },
+      {
         "command": "snagboat.previewDigest",
         "title": "Snagboat: Preview Advisor Digest..."
       },
