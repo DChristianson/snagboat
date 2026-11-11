@@ -110,6 +110,8 @@ export interface SnagboatTestApi {
   getAggregateSnapshot(): AggregateSnapshot;
   getTodaySnapshot(): AggregateSnapshot;
   getEventStore(): ReadonlyEventStore;
+  /** core: a client of the core (3c-3c); per-user: writes the per-user store itself; vscode: VS Code's storage. */
+  getStorageMode(): 'core' | 'per-user' | 'vscode';
   getContextLimits(): Record<string, ModelContextMarks>;
   getSessions(): SessionController;
   getFindings(): Finding[];
@@ -126,6 +128,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   context.subscriptions.push(watchPerUserStoreSetting());
   // The core and the CLI read settings from ~/.snagboat/config.json; this window keeps it current.
   if (storage.perUser) context.subscriptions.push(syncSettingsToConfig(context));
+  // With the core running (3c-3c), it collects and writes this workspace's folder; this window follows it.
+  const core = storage.core;
+  if (core) context.subscriptions.push({ dispose: () => core.close() });
 
   const eventLog = new EventLog(storageDir, { workspace: storage.workspace });
   await eventLog.init();
@@ -135,13 +140,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const aggregateStore = new AggregateStore(storageDir);
   await aggregateStore.init();
 
-  // Prune before rehydrating, so nothing past retention is ever loaded.
-  try {
-    await applyRetention(eventLog, aggregateStore, retentionPolicy(), todayKey());
-  } catch (err) {
-    console.error('snagboat: retention failed on activation', err);
+  // Prune before rehydrating, so nothing past retention is ever loaded. The core prunes the folders it writes.
+  if (!core) {
+    try {
+      await applyRetention(eventLog, aggregateStore, retentionPolicy(), todayKey());
+    } catch (err) {
+      console.error('snagboat: retention failed on activation', err);
+    }
   }
 
+  // The core's feed replays the days written after this, so nothing falls between the read and the feed.
+  const readAt = new Date(Date.now() - 2_000).toISOString();
   // The raw log is read once and shared by everything rehydrated from it.
   const logged = await eventLog.snapshot();
   const aggregate = new Aggregate();
@@ -371,9 +380,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const enqueueStorageOp = (op: () => Promise<void>) => {
     retentionQueue = retentionQueue.then(op).catch((err) => console.error('snagboat: storage operation failed', err));
   };
-  // Like enqueueStorageOp, but the caller sees the operation's result or failure.
+  // Like enqueueStorageOp, but the caller sees the operation's result or failure. With the core, the
+  // operation runs with this workspace's folder held, so the core writes nothing there meanwhile.
+  const holding = (op: () => Promise<void>) => (core ? () => core.hold(storageDir, op) : op);
   const runStorageOp = (op: () => Promise<void>): Promise<void> => {
-    const run = retentionQueue.then(op);
+    const run = retentionQueue.then(holding(op));
     retentionQueue = run.catch(() => undefined);
     return run;
   };
@@ -425,7 +436,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     contextLimits.observe(event);
     // An event older than all retention isn't stored, so it's left out of the
     // all-time totals and chart too; they'd otherwise drop on the next reload.
-    if (sink.write(event)) {
+    // The core sends only what it stored.
+    if (core || sink.write(event)) {
       aggregate.apply(event);
       dailyHistory.apply(event);
       sessionIndex.ingest(event);
@@ -436,7 +448,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     runHeuristics(event.kind);
     refresh();
   };
-  bus.onEvent(handleEvent);
+  if (core) {
+    // What this window's own adapters see (edits, Copilot) goes to the core, and comes back on its feed.
+    let outgoing: NormalizedEvent[] = [];
+    bus.onEvent((event) => {
+      outgoing.push(event);
+      if (outgoing.length > 1) return;
+      setImmediate(() => {
+        const batch = outgoing;
+        outgoing = [];
+        void core.post(batch);
+      });
+    });
+  } else {
+    bus.onEvent(handleEvent);
+  }
 
   // Catch a stalled/over-budget condition immediately on activation (e.g. the
   // workspace was already idle before this window opened), rather than
@@ -452,6 +478,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   // whenever its settings change. Runs are serialized so two never race over
   // the same files.
   const runRetention = () => {
+    if (core) return retentionQueue; // the core runs retention for the folders it writes
     retentionQueue = retentionQueue
       .then(async () => {
         const result = await applyRetention(eventLog, aggregateStore, retentionPolicy(), todayKey());
@@ -862,7 +889,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       // Queued behind any in-flight retention run so the two never touch the same files at once.
       // In-memory state is reset in the same continuation as the last file
       // delete, so no event can land between the wipe and the reset.
-      const clearOp = retentionQueue.then(async () => {
+      const clearOp = retentionQueue.then(holding(async () => {
         await aggregateStore.clear();
         await eventLog.clear();
         await responseLog.clear();
@@ -874,7 +901,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         sessions.closeExplorer();
         eventStore.reset();
         loggedIds.clear();
-      });
+      }));
       retentionQueue = clearOp.catch(() => undefined);
       try {
         await clearOp;
@@ -894,7 +921,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       .then((choice) => choice === 'Relabel' && vscode.commands.executeCommand('snagboat.relabelShellCalls'));
   };
 
-  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter(path.join(storage.sharedDir, 'copilot-structure'))];
+  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter({ collect: !core }), new CopilotAdapter(path.join(storage.sharedDir, 'copilot-structure'))];
   for (const adapter of adapters) {
     const adapterCtx = makeAdapterContext(adapter.agentId, bus, checkpoints, health, captureContentEnabled);
     await adapter.init(adapterCtx);
@@ -907,6 +934,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       }
     },
   });
+  // Following the core starts once everything that handles its events is in place.
+  core?.follow({ onEvents: (events) => events.forEach(handleEvent) }, readAt);
   // Last, so the claim on the per-user store's folder outlasts the writes made while shutting down.
   context.subscriptions.push({ dispose: () => storage.release?.() });
 
@@ -939,6 +968,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     getContextLimits: () => contextLimits.all(),
     getSessions: () => sessions,
     getVsCodeStorageDir: () => context.storageUri?.fsPath,
+    getStorageMode: () => (core ? 'core' : storage.perUser ? 'per-user' : 'vscode'),
   };
 }
 

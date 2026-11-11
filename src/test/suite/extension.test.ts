@@ -80,6 +80,8 @@ suite('Snagboat core plumbing', () => {
     await vscode.commands.executeCommand('snagboat._emitTestEvent');
     await vscode.commands.executeCommand('snagboat._emitTestEvent');
 
+    // As a client of the core, the events go to the core and come back on its feed.
+    await waitFor(() => api.getAggregateSnapshot().totalTokens >= beforeTokens + 2 * 35);
     const after = api.getAggregateSnapshot();
     assert.strictEqual(after.totalTokens, beforeTokens + 2 * 35, 'total tokens should include both emitted events');
     assert.strictEqual(
@@ -121,9 +123,12 @@ suite('Snagboat core plumbing', () => {
       return false;
     };
     await waitFor(tagged);
-    // This window writes its folder itself, so it claims it and the core leaves it alone.
+    // The window is a client: the core writes the folder, and the window claims nothing (3c-3c).
+    assert.strictEqual(api.getStorageMode(), 'core', 'the window started the core and follows it');
     const claims = fs.readdirSync(workspacesDir).map((key) => path.join(workspacesDir, key, 'writer.json')).filter((f) => fs.existsSync(f));
-    assert.deepStrictEqual(claims.map((f) => JSON.parse(fs.readFileSync(f, 'utf8')).pid), [process.pid], "the window's claim, with the extension host's pid");
+    assert.deepStrictEqual(claims, [], 'no claim');
+    const core = JSON.parse(fs.readFileSync(path.join(home!, 'core.json'), 'utf8'));
+    assert.notStrictEqual(core.pid, process.pid, 'the core runs in its own process');
   });
 
   test("the window marks its VS Code storage folder with its workspace, whichever store the setting picks", () => {
@@ -181,6 +186,7 @@ suite('Snagboat core plumbing', () => {
       type: 'assistant',
       uuid: `fixture-${Date.now()}`,
       sessionId: 'fixture-session',
+      cwd: vscode.workspace.workspaceFolders![0].uri.fsPath,
       timestamp: new Date().toISOString(),
       message: {
         model: 'claude-sonnet-5',
@@ -205,6 +211,7 @@ suite('Snagboat core plumbing', () => {
         type: 'assistant',
         uuid: `${messageId}-${i}`,
         sessionId: 'fixture-split-session',
+        cwd: vscode.workspace.workspaceFolders![0].uri.fsPath,
         timestamp: new Date().toISOString(),
         message: {
           id: messageId,
@@ -247,8 +254,9 @@ suite('Snagboat core plumbing', () => {
     await waitFor(() => toolCalls() > before);
     assert.strictEqual(toolCalls(), before + 1);
 
-    // The same payload without the token is rejected (the token check comes first).
-    const routeFile = path.join(home!, 'routes', folder.replace(/\//g, '-'));
+    // The same payload without the token is rejected (the token check comes first). A client
+    // window publishes no route of its own: the script sends hooks to the core (core.route).
+    const routeFile = api.getStorageMode() === 'core' ? path.join(home!, 'core.route') : path.join(home!, 'routes', folder.replace(/\//g, '-'));
     const [port] = fs.readFileSync(routeFile, 'utf8').trim().split(' ');
     const status = await postJsonStatus(Number(port), '/hook', payload);
     assert.strictEqual(status, 401);

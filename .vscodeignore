@@ -2,6 +2,8 @@
 # docs vsce expects at the package root are shipped.
 **
 !dist/extension.js
+# The CLI, which the extension also runs as the core service (snagboat serve).
+!dist/snagboat.js
 !media/**
 !package.json
 !README.md

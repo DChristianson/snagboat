@@ -14,6 +14,10 @@ import { effectiveSettings } from '../config';
 import { projectDirHeader } from '../../adapters/claude-code/hooksReceiver';
 import { isProcessAlive } from '../processes';
 import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
+import { EventLog } from '../eventLog';
+
+const STREAM_BATCH = 500;
+const STREAM_PING_MS = 15_000;
 
 /**
  * The core service (docs/design/architecture-rfc.md, step 3; handoff 3c-2):
@@ -33,12 +37,19 @@ import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
  *   POST /events               one event or an array; workspace set from the token if missing
  *   GET  /sessions[?days=n]    sessions of the token's workspaces, newest first
  *   GET  /sessions/:id         one session, by id or unique id prefix
+ *   GET  /events/stream[?changedSince=<iso>]
+ *                              server-sent events: each batch written to the token's
+ *                              workspaces, as a JSON array per message; with changedSince,
+ *                              first every event in day files changed since then, then a
+ *                              "replayed" message (3c-3c: a client window's live feed)
+ *   POST /flush                waits for writes in flight, then ingests the spool of
+ *                              workspaces no longer claimed (a window holding its folder)
  *   POST /hook                 hook token (core.route): a Claude Code hook payload, with the
  *                              project dir header the hook script sends
  *   POST /shutdown             admin: stop the core
  *
- * It exits after idleMs with no requests (0: never). It doesn't run retention:
- * that stays with whoever owns a workspace's folder (claims.ts).
+ * It exits after idleMs with no requests and no open event stream (0: never).
+ * It runs retention for the workspaces no window has claimed (storeWriter.ts).
  */
 
 export class CoreRunningError extends Error {
@@ -138,6 +149,8 @@ export class CoreService {
   private readonly settingsCache = new Map<string, { at: number; values: Record<string, unknown> }>();
   private readonly startedAt = new Date().toISOString();
   private lastActivity = Date.now();
+  /** Open GET /events/stream responses: a window that's a client keeps the core up. */
+  private streams = 0;
   private timers: NodeJS.Timeout[] = [];
   private resolveStopped!: () => void;
   private stopping = false;
@@ -210,9 +223,10 @@ export class CoreService {
         deliver: (events, projectDir) => {
           // Collecting counts as activity: the core stays up while an agent is working.
           core.lastActivity = Date.now();
-          // A window that claimed the workspace reads this very transcript folder itself when the
-          // project is its folder: drop. A session started in a subfolder it never reads: keep.
-          return core.writer.write(events, (e) => (workspaceInfoOf(e.workspace!).folder === projectDir ? 'drop' : 'spool'));
+          // A window that claimed the workspace to write it reads this very transcript folder itself
+          // when the project is its folder: drop. A session started in a subfolder it never reads,
+          // or a client window holding the folder for a rewrite (it reads no transcripts): keep.
+          return core.writer.write(events, (e, claim) => (!claim.hold && workspaceInfoOf(e.workspace!).folder === projectDir ? 'drop' : 'spool'));
         },
         log: (line) => core.log(line),
       });
@@ -222,6 +236,7 @@ export class CoreService {
     if (idleMs > 0) {
       core.timers.push(
         setInterval(() => {
+          if (core.streams > 0) core.lastActivity = Date.now();
           if (Date.now() - core.lastActivity >= idleMs) {
             core.log(`idle for ${Math.round(idleMs / 1000)}s; stopping`);
             void core.stop();
@@ -289,6 +304,11 @@ export class CoreService {
       const route = `${req.method} ${url.pathname}`;
       if (route === 'GET /health') return send(200, { ok: true, version: this.opts.version, pid: process.pid, startedAt: this.startedAt });
       if (route === 'POST /tokens') return send(200, this.mintToken(scope, await this.readBody(req)));
+      if (route === 'GET /events/stream') return this.stream(scope, url.searchParams.get('changedSince'), req, res);
+      if (route === 'POST /flush') {
+        req.resume();
+        return send(200, { ingested: await this.writer.flush() });
+      }
       if (route === 'POST /events') return send(200, await this.postEvents(scope, await this.readBody(req)));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days')));
       if (req.method === 'GET' && url.pathname.startsWith('/sessions/')) return send(200, await this.session(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length))));
@@ -369,6 +389,46 @@ export class CoreService {
       events.push({ ...e, workspace });
     }
     return this.writer.write(events);
+  }
+
+  /** GET /events/stream: a server-sent event per batch written to the scope's workspaces. */
+  private stream(scope: Scope, changedSince: string | null, req: http.IncomingMessage, res: http.ServerResponse): void {
+    const since = changedSince === null ? undefined : Date.parse(changedSince);
+    if (since !== undefined && !Number.isFinite(since)) throw new HttpError(400, 'changedSince must be an ISO date');
+    req.resume();
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.write(': connected\n\n');
+    const visible = (workspace: string) => scope.admin || scope.workspaces.includes(workspace);
+    const send = (events: NormalizedEvent[]) => {
+      for (let i = 0; i < events.length; i += STREAM_BATCH) res.write(`data: ${JSON.stringify(events.slice(i, i + STREAM_BATCH))}\n\n`);
+    };
+    // Registered before the replay, so nothing written meanwhile falls between the two (the client drops repeats by eventId).
+    const stop = this.writer.onWritten((workspace, events) => visible(workspace) && send(events));
+    const ping = setInterval(() => res.write(': ping\n\n'), STREAM_PING_MS);
+    ping.unref();
+    this.streams += 1;
+    res.on('close', () => {
+      stop();
+      clearInterval(ping);
+      this.streams -= 1;
+      this.lastActivity = Date.now();
+    });
+    if (since === undefined) return;
+    void (async () => {
+      for (const store of this.visibleStores(scope)) {
+        const log = new EventLog(store.dir);
+        for (const day of await log.listDays()) {
+          let mtime: number;
+          try {
+            mtime = fs.statSync(path.join(log.dir, `${day}.jsonl`)).mtimeMs;
+          } catch {
+            continue;
+          }
+          if (mtime >= since && !res.destroyed) send((await log.readDay(day)).map((e) => ({ ...e, workspace: store.workspace })));
+        }
+      }
+      if (!res.destroyed) res.write('event: replayed\ndata: {}\n\n');
+    })().catch((err) => this.log(`replay failed: ${err instanceof Error ? err.message : String(err)}`));
   }
 
   private visibleStores(scope: Scope) {

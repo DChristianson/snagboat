@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { WORKSPACE_NO_FOLDER } from '@snagboat/schema';
 import { migrate } from '../core/migrate';
 import { claimWorkspace, releaseClaim } from '../core/service/claims';
+import { CoreClient } from '../core/service/client';
 import { openWorkspaceStore, snagboatHome, userDataDir, WORKSPACE_MARKER, WorkspaceInfo, WorkspaceMarker, workspaceOfVsCodeStore } from '../core/userStore';
 
 /** Where this window keeps its data. */
@@ -19,6 +20,12 @@ export interface StorageLocations {
   perUser: boolean;
   /** Per-user store: gives up this window's claim on its workspace's folder (core/service/claims.ts). */
   release?: () => void;
+  /**
+   * Per-user store with the core running (3c-3c): the core collects and writes
+   * this workspace's folder, and this window follows it. Unset when the window
+   * writes the folder itself (the setting off, or the core couldn't start).
+   */
+  core?: CoreClient;
 }
 
 export const PER_USER_STORE_SETTING = 'snagboat.storage.perUserStore';
@@ -86,9 +93,19 @@ export async function resolveStorage(context: vscode.ExtensionContext): Promise<
     await fs.promises.mkdir(userDataDir(home), { recursive: true });
     await migrate([{ dir: legacy.storageDir, label: 'this window', info }], [context.globalStorageUri.fsPath], home);
     const storageDir = await openWorkspaceStore(home, info);
+    const perUser = { storageDir, sharedDir: userDataDir(home), rulesDir: home, workspace: info.workspace, perUser: true };
+    try {
+      const core = await CoreClient.connect({ home, cliPath: path.join(context.extensionPath, 'dist', 'snagboat.js'), workspace: info.workspace, log: (line) => console.log(`snagboat: ${line}`) });
+      return { ...perUser, core };
+    } catch (err) {
+      console.error('snagboat: the core service could not start', err);
+      void vscode.window.showWarningMessage(
+        `Snagboat: the core service could not start, so this window collects and writes its own workspace for now: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
     // This window writes the folder itself, so the core leaves it alone (it spools instead) until released.
     claimWorkspace(storageDir);
-    return { storageDir, sharedDir: userDataDir(home), rulesDir: home, workspace: info.workspace, perUser: true, release: () => releaseClaim(storageDir) };
+    return { ...perUser, release: () => releaseClaim(storageDir) };
   } catch (err) {
     console.error('snagboat: per-user store unavailable', err);
     void vscode.window.showWarningMessage(
