@@ -13,6 +13,12 @@ const FRONT_DOOR = ['vscode', 'ui', 'extension'];
 const ALLOWED: Record<string, string> = {
   // review/presentation formats status text with ui/format, which is itself vscode-free; step 3 decides its home.
   'review/presentation.ts -> ui/format': 'step 3',
+  // The core serves the advisor UI's Explore tab (step 5b) with the visualizer catalog and the explorer's
+  // state, both vscode-free (the web demo bundles them); Factory Clock step 4 moves them into packages/viz.
+  'core/service/server.ts -> ui/explorerModel': 'Factory Clock step 4',
+  'core/service/server.ts -> ui/visualizers': 'Factory Clock step 4',
+  'core/service/sessionPages.ts -> ui/explorerModel': 'Factory Clock step 4',
+  'core/service/sessionPages.ts -> ui/visualizers': 'Factory Clock step 4',
 };
 
 async function main() {

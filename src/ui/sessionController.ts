@@ -3,6 +3,7 @@ import { EventLog } from '../core/eventLog';
 import { SessionIndex } from '@snagboat/schema';
 import { NormalizedEvent } from '@snagboat/schema';
 import { FindingReplay } from '../heuristics/replay';
+import { sessionFindings } from '../heuristics/sessionFindings';
 import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState, SessionListPayload } from './explorerModel';
 import { buildSessionView, FindingInput, SessionView } from '@snagboat/schema';
 import { EXPLORE_SESSION_CAP } from './visualizers';
@@ -182,32 +183,8 @@ export class SessionController {
     return { ...buildSessionView(summary, session.events, this.marks(), this.sessionFindings(session.replay)), ...(headline ? { headline } : {}) };
   }
 
-  /**
-   * Replayed episodes plus live findings. A replayed episode still reporting
-   * at the end that shares events with a live finding of the same heuristic is
-   * that finding, so it shows once, as active.
-   */
+  /** Replayed episodes plus live findings, without muted heuristics (sessionFindings). */
   private sessionFindings(replay: FindingReplay | undefined): FindingInput[] {
-    const muted = new Set(this.findings.muted?.() ?? []);
-    const active = this.findings.active().filter((f) => !muted.has(f.heuristicId));
-    const out: FindingInput[] = [];
-    const matched = new Set<FindingLike>();
-    for (const ep of replay?.episodes() ?? []) {
-      if (muted.has(ep.heuristicId)) continue;
-      const refs = new Set(ep.eventRefs);
-      const live = ep.open ? active.find((f) => !matched.has(f) && f.heuristicId === ep.heuristicId && f.eventRefs.some((r) => refs.has(r))) : undefined;
-      if (live) matched.add(live);
-      out.push({
-        heuristicId: ep.heuristicId,
-        severity: live?.severity ?? ep.severity,
-        summary: live?.summary ?? ep.summary,
-        eventRefs: live ? [...new Set([...ep.eventRefs, ...live.eventRefs])] : ep.eventRefs,
-        startTs: ep.startTs,
-        endTs: ep.endTs,
-        active: !!live,
-      });
-    }
-    for (const f of active) if (!matched.has(f)) out.push({ ...f, active: true });
-    return out;
+    return sessionFindings(replay?.episodes() ?? [], this.findings.active(), this.findings.muted?.() ?? []);
   }
 }

@@ -3,9 +3,12 @@
 // the address's fragment for a key kept in this tab, then reads the core's
 // API. Every value from the core goes into the page as text, never as markup.
 //
-// Two views: the advisors (a card each, holding its brief and the finding it
-// has to surface, with Useful / Acknowledge / Mute), and one advisor's page
-// (its measures, chart, rules and voice), at #advisor=<id>.
+// Views: the advisors (a card each, holding its brief and the finding it has
+// to surface, with Useful / Acknowledge / Mute); one advisor's page (its
+// measures, chart, rules and voice), at #advisor=<id>; and from step 5b the
+// sessions (#view=sessions), one session with what came of it
+// (#session=<id>), and Explore (#view=explore), which draw with the Factory
+// Clock visualizers the core serves beside this page.
 (function () {
   'use strict';
 
@@ -335,7 +338,7 @@
     svg('path', { d: `M${pts[0][0]},${y(0)} ${pts.map((p) => `L${p[0]},${p[1]}`).join(' ')} L${pts[pts.length - 1][0]},${y(0)} Z`, class: 'area' }, s);
     svg('polyline', { points: pts.map((p) => p.join(',')).join(' '), class: 'line' }, s);
     const last = pts[pts.length - 1];
-    svg('circle', { cx: last[0], cy: last[1], r: 3.5, class: 'dot' }, s);
+    svg('circle', { cx: last[0], cy: last[1], r: 3.5, class: 'pt' }, s);
     svg('text', { x: last[0] - 6, y: Math.max(T + 10, last[1] - 8), 'text-anchor': 'end', class: 'end' }, s).textContent = format(known[known.length - 1], unit);
   }
 
@@ -390,13 +393,300 @@
     $('problems').hidden = !problems || problems.length === 0;
     $('problems').textContent = problems && problems.length ? `Problems in your advisors' persona.md files: ${problems.join('; ')}` : '';
   }
+  const VIEWS = ['advisors', 'advisor', 'sessions', 'session', 'explore'];
   function showView(name) {
-    $('view-advisors').hidden = name !== 'advisors';
-    $('view-advisor').hidden = name !== 'advisor';
+    for (const v of VIEWS) $(`view-${v}`).hidden = v !== name;
+    // The nav marks the section you're in: an advisor's page is under Advisors, a session's under Sessions.
+    const section = { advisor: 'advisors', session: 'sessions' }[name] || name;
+    for (const n of ['advisors', 'sessions', 'explore']) {
+      $(`nav-${n}`).classList.toggle('on', n === section);
+      if (n === section) $(`nav-${n}`).setAttribute('aria-current', 'page');
+      else $(`nav-${n}`).removeAttribute('aria-current');
+    }
+    // The period applies to advisors' measures only.
+    for (const e of document.querySelectorAll('[data-advisors-only]')) e.hidden = section !== 'advisors';
+    if (name !== 'explore' && exploreTab) window.snagboatExplore.hidden();
+    if (name !== 'sessions') state.sessionLimit = SESSIONS_PAGE;
+  }
+  /** Which view the address names: #advisor=<id>, #session=<id>, #view=sessions|explore, else the advisors. */
+  function route() {
+    const f = fragment();
+    if (f.get('advisor')) return ['advisor', f.get('advisor')];
+    if (f.get('session')) return ['session', f.get('session')];
+    if (f.get('view') === 'sessions' || f.get('view') === 'explore') return [f.get('view')];
+    return ['advisors'];
+  }
+
+  // --- Sessions, one session, and Explore (RFC step 5b) ------------------------------------------------
+  // The Factory Clock visualizers draw a session as VS Code's Sessions and Explore tabs do; the core
+  // serves them beside this page, and they load the first time a session or Explore is shown.
+  let vizLoading = null;
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = el('script', { src });
+      s.addEventListener('load', resolve);
+      s.addEventListener('error', () => reject(new Error(`couldn't load ${src}`)));
+      document.body.append(s);
+    });
+  }
+  function loadViz() {
+    vizLoading ??= (async () => {
+      await loadScript('vizkit.js');
+      const res = await fetch('viz/index.json');
+      const files = res.ok ? await res.json() : [];
+      for (const f of files) await loadScript(f);
+      await loadScript('explore.js');
+      const kit = window.snagboatVizKit;
+      return { ...kit, tooltip: $('tooltip'), ...kit.tipFor($('tooltip')) };
+    })();
+    vizLoading.catch(() => {
+      vizLoading = null;
+    });
+    return vizLoading;
+  }
+
+  const AGENTS = { 'claude-code': 'Claude Code', copilot: 'Copilot', 'copilot-cli': 'Copilot CLI' };
+  const agentLabel = (a) => AGENTS[a] || a;
+  function compactNumber(n) {
+    if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+    if (n >= 1e4) return `${Math.round(n / 1e3)}k`;
+    return n.toLocaleString();
+  }
+  function lengthText(fromTs, toTs) {
+    const min = Math.round((Date.parse(toTs) - Date.parse(fromTs)) / 60_000);
+    if (!(min >= 1)) return 'under a minute';
+    if (min < 60) return `${min} min`;
+    const h = Math.floor(min / 60);
+    return min % 60 ? `${h} h ${min % 60} min` : `${h} h`;
+  }
+  function startedText(ts) {
+    const d = new Date(ts);
+    const today = new Date();
+    const sameDay = d.toDateString() === today.toDateString();
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return sameDay ? `Today ${time}` : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+  }
+  const sessionTitle = (s) => s.name || `${agentLabel(s.agent)} session ${s.sessionId.slice(0, 8)}`;
+  const short = (commit) => (commit || '').slice(0, 7);
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many || `${one}s`}`;
+
+  // What each outcome type is called, and whether it's good news, bad news or neither.
+  const OUTCOMES = {
+    tests_green: ['tests green', 'good'],
+    milestone: ['milestone', 'good'],
+    commit_kept: ['commit kept', 'good'],
+    commit_reverted: ['commit reverted', 'bad'],
+    code_survival: ['code survival', ''],
+    finding_response: ['finding', ''],
+    notified: ['notified', ''],
+    approval: ['approval', ''],
+  };
+  /** One outcome as a chip: its name, and what it says. */
+  function outcomeChip(o) {
+    const [name, tone] = OUTCOMES[o.type] || [o.type, ''];
+    let text = '';
+    let cls = tone;
+    if (o.type === 'tests_green') text = `${o.failures ? `after ${plural(o.failures, 'failure')}` : 'first run'}${o.afterMs ? `, ${lengthText(new Date(0).toISOString(), new Date(o.afterMs).toISOString())}` : ''}`;
+    else if (o.type === 'milestone' || o.type === 'commit_kept' || o.type === 'commit_reverted') text = `${short(o.commit)}${o.days ? ` · ${o.days} days` : ''}`;
+    else if (o.type === 'code_survival') {
+      text = `${(o.linesSurviving ?? 0).toLocaleString()} of ${(o.linesWritten ?? 0).toLocaleString()} lines at ${o.days} days`;
+      if (o.linesWritten && o.linesSurviving / o.linesWritten < 0.5) cls = 'bad';
+    } else if (o.type === 'finding_response') {
+      text = `${o.heuristicId} · ${{ useful: 'marked useful', acknowledged: 'acknowledged', muted: 'muted', passed: 'passed unanswered' }[o.response] || o.response}`;
+      if (o.response === 'useful') cls = 'good';
+    } else if (o.type === 'notified') text = o.heuristicId ? `${o.heuristicId}${o.advisor ? ` · ${o.advisor}` : ''}` : o.advisor || '';
+    else if (o.type === 'approval') {
+      text = o.decision === 'denied' ? 'denied by auto mode' : 'asked you';
+      if (o.decision === 'denied') cls = 'bad';
+    }
+    return el('span', { class: `oc ${cls}`, title: new Date(o.ts).toLocaleString() }, [el('b', { text: name }), text ? document.createTextNode(` ${text}`) : null]);
+  }
+  /** A session's outcome counts as chips, for the list. */
+  function countChips(counts) {
+    const order = Object.keys(OUTCOMES).filter((t) => counts[t]);
+    if (!order.length) return [el('span', { class: 'muted small', text: '—' })];
+    return order.map((t) => {
+      const [name, tone] = OUTCOMES[t];
+      return el('span', { class: `oc ${tone}` }, [el('b', { text: name }), counts[t] > 1 ? document.createTextNode(` ×${counts[t]}`) : null]);
+    });
+  }
+
+  const SESSIONS_PAGE = 100;
+  async function renderSessions() {
+    const list = await api(`/sessions?workspace=${encodeURIComponent(state.workspace)}`);
+    $('count-sessions').textContent = String(list.length);
+    const shown = list.slice(0, state.sessionLimit);
+    $('sessions-note').textContent = list.length ? `${plural(list.length, 'session')}, latest activity first` : '';
+    $('sessions-body').replaceChildren(
+      ...(shown.length
+        ? shown.map((s) =>
+            el('tr', {}, [
+              el('td', {}, [
+                el('a', { href: `#${new URLSearchParams({ session: s.sessionId }).toString()}`, text: sessionTitle(s) }),
+                el('div', { class: 'muted small', text: [agentLabel(s.agent), ...s.models].join(' · ') }),
+              ]),
+              el('td', { class: 'nowrap', text: startedText(s.firstTs) }),
+              el('td', { class: 'n', text: lengthText(s.firstTs, s.lastTs) }),
+              el('td', { class: 'n', text: s.prompts.toLocaleString() }),
+              el('td', { class: 'n', text: s.toolCalls.toLocaleString() }),
+              el('td', { class: 'n', text: compactNumber(s.tokens) }),
+              el('td', {}, [el('div', { class: 'outcomes' }, countChips(s.outcomes || {}))]),
+            ])
+          )
+        : [el('tr', {}, [el('td', { colspan: '7', class: 'empty', text: 'No sessions recorded in this workspace yet.' })])])
+    );
+    $('sessions-more').hidden = list.length <= shown.length;
+  }
+
+  /**
+   * A session's findings, one row per heuristic: the one reporting now first (with its responses), then
+   * those found replaying the session, each with how many times and over what span, its latest summary shown.
+   */
+  function sessionFindingRows(findings, states) {
+    const clock = (ts) => new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const groups = new Map();
+    for (const f of findings) {
+      const key = `${f.active ? 'now' : 'then'}:${f.heuristicId}`;
+      groups.set(key, [...(groups.get(key) || []), f]);
+    }
+    const rows = [...groups.values()].sort((a, b) => Number(b[0].active) - Number(a[0].active));
+    return rows.map((group) => {
+      const starts = group.map((f) => f.startedTs || f.fromTs).filter(Boolean).sort();
+      const latest = group[group.length - 1];
+      const severity = group.some((f) => f.severity === 'warn') ? 'warn' : 'info';
+      const when = starts.length ? (starts.length > 1 ? `from ${clock(starts[0])} to ${clock(starts[starts.length - 1])}` : `from ${clock(starts[0])}`) : '';
+      const what = [latest.active ? 'Reporting now' : 'Found replaying the session', group.length > 1 ? `${group.length} times` : '', when].filter(Boolean).join(' · ');
+      return el('div', { class: 'finding' }, [
+        el('span', { class: `sev ${severity}` }),
+        el('div', { class: 'what' }, [el('b', { text: `${latest.heuristicId}: ${latest.summary}` }), el('span', { text: what }), latest.active ? responses(latest, states[latest.heuristicId]) : null]),
+        el('span'),
+      ]);
+    });
+  }
+
+  // The session page's two drawings stay mounted, so a refresh keeps your focus and zoom.
+  const sessionUi = { tree: null, timeline: null, view: null, focusId: 's', selectedTurn: null };
+  function drawSession() {
+    const v = sessionUi.view;
+    if (!v || !sessionUi.tree) return;
+    const selection = { sessionId: v.summary.sessionId, turnId: sessionUi.selectedTurn || undefined, focusId: sessionUi.focusId };
+    sessionUi.tree.update([v], selection, {});
+    sessionUi.timeline.update([v], selection, {});
+  }
+  async function renderSession(id) {
+    const [ctx, page] = await Promise.all([loadViz(), api(`/sessions/${encodeURIComponent(id)}/view?workspace=${encodeURIComponent(state.workspace)}`)]);
+    // A reply for a session you've since left (or an older refresh) is dropped.
+    if (route()[0] !== 'session' || route()[1] !== id) return;
+    const v = page.view;
+    const s = v.summary;
+    if (!sessionUi.tree) {
+      const select = (sel) => {
+        sessionUi.selectedTurn = sel.turnId || null;
+        sessionUi.focusId = sel.focusId || 's';
+        if (sel.focusId) sessionUi.timeline.zoomTo(null);
+        drawSession();
+      };
+      const c = { ...ctx, select };
+      sessionUi.tree = window.snagboatViz.get('turn-tree').mount($('tree-host'), c);
+      sessionUi.timeline = window.snagboatViz.get('context-timeline').mount($('timeline-host'), c);
+      $('whole').onclick = () => sessionUi.timeline?.zoomAll();
+    }
+    if (!sessionUi.view || sessionUi.view.summary.sessionId !== s.sessionId) {
+      sessionUi.focusId = 's';
+      sessionUi.selectedTurn = null;
+    }
+    sessionUi.view = v;
+    state.lastSession = s.sessionId;
+    $('session-h').textContent = sessionTitle(s);
+    $('session-meta').textContent = [agentLabel(s.agent), ...s.models, lengthText(s.firstTs, s.lastTs), plural(s.prompts, 'prompt'), plural(s.toolCalls, 'tool call'), `${compactNumber(s.tokens)} tokens`, startedText(s.firstTs)].join(' · ');
+    $('session-outcomes').replaceChildren(...(page.outcomes.length ? page.outcomes.map(outcomeChip) : [el('span', { class: 'empty', text: 'Nothing recorded yet. Tests going green, commits and what became of them, and how you met its findings show here as they happen; commits kept and code survival take 7 days.' })]));
+    drawSession();
+    $('session-findings').replaceChildren(...(v.findings.length ? sessionFindingRows(v.findings, page.responses) : [el('p', { class: 'empty', text: 'No findings in this session.' })]));
+    const exploreWith = (vizId, label) => {
+      const b = el('button', { class: 'btn', type: 'button', text: label });
+      b.addEventListener('click', () => {
+        writeExploreState({ ...readExploreState(), picked: [s.sessionId], current: vizId });
+        if (exploreTab) exploreTab.destroy();
+        exploreTab = null;
+        location.hash = '#view=explore';
+      });
+      return b;
+    };
+    $('session-explore').replaceChildren(exploreWith('factory-clock', 'Factory Clock'), exploreWith('living-network', 'Living Network'), exploreWith('gantt', 'Gantt and waterfall'), exploreWith('tool-ribbon', 'Tool-call ribbon'), el('span', { class: 'muted small', text: 'or any of the others in Explore' }));
+  }
+
+  // Explore: media/explore.js over a source that reads the core. Its saved state (picked sessions,
+  // the current visualizer, the puck's corner) is kept per workspace in this tab.
+  let exploreTab = null;
+  let exploreWorkspace = null;
+  const exploreKey = () => `snagboat.ui.explore.${state.workspace}`;
+  function readExploreState() {
+    try {
+      const v = JSON.parse(recall(exploreKey()) || '{}');
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+    } catch {
+      return {};
+    }
+  }
+  function writeExploreState(v) {
+    remember(exploreKey(), JSON.stringify(v));
+  }
+  function exploreSource() {
+    const workspace = state.workspace;
+    const q = `workspace=${encodeURIComponent(workspace)}`;
+    const listeners = { sessions: [], explorer: [] };
+    const failed = (err) => {
+      if (err instanceof Unauthorized) needLink('This page has lost its connection to the core.');
+      else setStatus('down', err.message || 'The core is not answering');
+    };
+    return {
+      listSessions() {
+        api(`/sessions?${q}`)
+          .then((list) => {
+            const sessions = [...list].sort((a, b) => b.firstTs.localeCompare(a.firstTs) || a.sessionId.localeCompare(b.sessionId));
+            for (const cb of listeners.sessions) cb({ sessions, headlines: {} });
+          })
+          .catch(failed);
+      },
+      loadSessions(ids) {
+        api(`/explore?${q}&ids=${ids.map(encodeURIComponent).join(',')}`)
+          .then((st) => {
+            for (const cb of listeners.explorer) cb(st);
+          })
+          .catch(failed);
+      },
+      closeExplorer() {
+        for (const cb of listeners.explorer) cb(null);
+      },
+      getState: readExploreState,
+      setState(partial) {
+        writeExploreState({ ...readExploreState(), ...partial });
+      },
+      onSessions(cb) {
+        listeners.sessions.push(cb);
+      },
+      onExplorer(cb) {
+        listeners.explorer.push(cb);
+      },
+      openSessionId: () => state.lastSession || null,
+    };
+  }
+  async function renderExplore() {
+    const ctx = await loadViz();
+    if (exploreTab && exploreWorkspace !== state.workspace) {
+      exploreTab.destroy();
+      exploreTab = null;
+    }
+    if (!exploreTab) {
+      exploreWorkspace = state.workspace;
+      exploreTab = window.snagboatExplore.mount($('explore-root'), exploreSource(), ctx);
+    }
+    exploreTab.shown();
   }
 
   // --- The page ------------------------------------------------------------------------
-  const state = { workspace: null, days: 7, advisors: [] };
+  const state = { workspace: null, days: 7, advisors: [], sessionLimit: SESSIONS_PAGE, lastSession: null };
 
   async function loadWorkspaces() {
     const list = await api('/workspaces');
@@ -412,18 +702,36 @@
     return true;
   }
 
-  async function refresh() {
+  /** Draws the view the address names; on the timer, Explore is left alone (it keeps its own sessions). */
+  async function refresh(timer = false) {
+    const [view, id] = route();
+    if (timer && view === 'explore') return;
     try {
       const health = await api('/health');
       setStatus('ok', `core ${health.version}`);
       remember(WORKSPACE_KEY, state.workspace);
-      const advisor = fragment().get('advisor');
-      showView(advisor ? 'advisor' : 'advisors');
-      if (advisor) await renderAdvisor(advisor);
+      showView(view);
+      if (view === 'advisor') await renderAdvisor(id);
+      else if (view === 'session') await renderSession(id);
+      else if (view === 'sessions') await renderSessions();
+      else if (view === 'explore') await renderExplore();
       else await renderAdvisors();
     } catch (err) {
       if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core: the core restarted, or the link was already used.');
-      setStatus('down', 'The core is not answering');
+      if (view === 'session' && /no session/.test(err.message || '')) {
+        $('session-h').textContent = 'Session not found';
+        $('session-meta').textContent = 'It may belong to another workspace, or be older than the store keeps.';
+        sessionUi.view = null;
+        sessionUi.tree?.destroy();
+        sessionUi.timeline?.destroy();
+        $('tree-host').replaceChildren();
+        $('timeline-host').replaceChildren();
+        sessionUi.tree = null;
+        sessionUi.timeline = null;
+        for (const box of ['session-outcomes', 'session-findings', 'session-explore']) $(box).replaceChildren();
+        return;
+      }
+      setStatus('down', err.message && !(err instanceof TypeError) ? err.message : 'The core is not answering');
     }
   }
 
@@ -452,6 +760,9 @@
     if (!fragment().get('days')) setFragment({ days: String(state.days) });
     $('workspace').addEventListener('change', () => {
       state.workspace = $('workspace').value;
+      state.lastSession = null;
+      // A session belongs to one workspace: switching shows the new one's list.
+      if (route()[0] === 'session') setFragment({ view: 'sessions', days: String(state.days) });
       void refresh();
     });
     $('days').addEventListener('change', () => {
@@ -461,9 +772,13 @@
     });
     $('back').addEventListener('click', home);
     $('nav-advisors').addEventListener('click', home);
+    $('sessions-more').addEventListener('click', () => {
+      state.sessionLimit += SESSIONS_PAGE;
+      void renderSessions();
+    });
     window.addEventListener('hashchange', () => void refresh());
     await refresh();
-    setInterval(refresh, REFRESH_MS);
+    setInterval(() => void refresh(true), REFRESH_MS);
   }
 
   void start();
