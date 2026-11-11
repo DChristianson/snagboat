@@ -57,14 +57,8 @@ function readRoute(file: string): Route | undefined {
   }
 }
 
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
+import { isProcessAlive } from '../../core/processes';
+export { isProcessAlive };
 
 /** Publishes this window as the hook destination for each of its workspace folders. Files are owner-only: they hold the token. */
 export function writeRoutes(home: string, folders: string[], route: Route): void {

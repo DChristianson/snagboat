@@ -902,6 +902,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       }
     },
   });
+  // Last, so the claim on the per-user store's folder outlasts the writes made while shutting down.
+  context.subscriptions.push({ dispose: () => storage.release?.() });
 
   // Dev/test-only: emits a synthetic Claude Code turn (35 tokens) through the full
   // bus -> log -> aggregate -> status bar pipeline; the integration suite relies on

@@ -121,6 +121,9 @@ suite('Snagboat core plumbing', () => {
       return false;
     };
     await waitFor(tagged);
+    // This window writes its folder itself, so it claims it and the core leaves it alone.
+    const claims = fs.readdirSync(workspacesDir).map((key) => path.join(workspacesDir, key, 'writer.json')).filter((f) => fs.existsSync(f));
+    assert.deepStrictEqual(claims.map((f) => JSON.parse(fs.readFileSync(f, 'utf8')).pid), [process.pid], "the window's claim, with the extension host's pid");
   });
 
   test('saving a real file triggers the edit-tracker adapter', async () => {

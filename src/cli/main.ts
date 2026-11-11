@@ -1,9 +1,12 @@
-import { SessionIndex, SessionSummary } from '@snagboat/schema';
-import { EventLog } from '../core/eventLog';
+import { SessionSummary } from '@snagboat/schema';
+import { storeSessions } from '../core/sessionSummaries';
 import { findGlobalDirs, findStores, findUserStores, selectStores, Store, userHome } from './stores';
 import { migrate, MigrationReport, MigrationSource } from '../core/migrate';
 import { workspaceOfVsCodeStore } from '../core/userStore';
 import { compareToBaseline, parseBaseline, SessionCounts, verifyText } from './verify';
+import { CoreService } from '../core/service/server';
+import { ensureCore, findCore } from '../core/service/lifecycle';
+import { coreRequest, liveCore } from '../core/service/coreFile';
 import * as fs from 'fs';
 
 /**
@@ -19,6 +22,10 @@ commands:
   stores              list the event stores on this machine
   sessions            list sessions in the current workspace's store
   session <id>        one session's summary
+  serve               run the core service in the foreground (Ctrl-C stops it)
+  core start          start the core in the background, unless it's running
+  core status         whether the core is running, and where
+  core stop           stop the core
   migrate             copy every VS Code store into the per-user store (~/.snagboat/data);
                       copies only, leaving the VS Code stores as they are, and a rerun copies
                       only what's new
@@ -30,6 +37,8 @@ options:
   --days <n>          only sessions active in the last n days (sessions)
   --cwd <dir>         treat dir as the current folder
   --store <kind>      vscode (VS Code's storage, the default) or user (the per-user store)
+  --port <n>          serve: listen on this port instead of a free one
+  --idle-minutes <n>  serve, core start: stop after n minutes with no requests (default 30; 0 never)
   --dry-run           migrate: count what would be copied, and write nothing
   --verify <file>     migrate: don't copy; check the per-user store against a baseline saved
                       with \`snagboat sessions --all --json\` before migrating
@@ -50,6 +59,8 @@ interface Options {
   store?: 'vscode' | 'user';
   dryRun?: boolean;
   verify?: string;
+  port?: number;
+  idleMinutes?: number;
   args: string[];
 }
 
@@ -60,7 +71,13 @@ export function parseArgs(argv: string[]): Options | string {
     if (a === '--json') opts.json = true;
     else if (a === '--all') opts.all = true;
     else if (a === '--dry-run') opts.dryRun = true;
-    else if (a === '--days' || a === '--cwd' || a === '--store' || a === '--verify') {
+    else if (a === '--port' || a === '--idle-minutes') {
+      const value = argv[++i];
+      const n = Number(value);
+      if (value === undefined || !Number.isInteger(n) || n < 0) return `${a} takes a whole number, not ${value ?? 'nothing'}`;
+      if (a === '--port') opts.port = n;
+      else opts.idleMinutes = n;
+    } else if (a === '--days' || a === '--cwd' || a === '--store' || a === '--verify') {
       const value = argv[++i];
       if (value === undefined) return `${a} needs a value`;
       if (a === '--days') {
@@ -81,10 +98,7 @@ export function parseArgs(argv: string[]): Options | string {
 async function summaries(stores: Store[]): Promise<Array<SessionSummary & { store: string; folder?: string }>> {
   const all: Array<SessionSummary & { store: string; folder?: string }> = [];
   for (const store of stores) {
-    const log = new EventLog(store.dir);
-    const index = new SessionIndex();
-    for (const day of await log.listDays()) for (const e of await log.readDay(day)) index.ingest(e);
-    for (const s of index.list()) all.push({ ...s, store: store.dir, folder: store.folder });
+    for (const s of await storeSessions(store.dir)) all.push({ ...s, store: store.dir, folder: store.folder });
   }
   return all.sort((a, b) => b.lastTs.localeCompare(a.lastTs));
 }
@@ -146,6 +160,64 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       const stores = process.env.SNAGBOAT_STORE ? findStores() : [...findStores(), ...findUserStores()];
       print(stores, () => (stores.length ? stores.map((s) => `${storeLabel(s)}  ${s.dir}`).join('\n') + '\n' : 'no Snagboat event stores found\n'));
       return 0;
+    }
+    case 'serve': {
+      const home = userHome();
+      let core: CoreService;
+      try {
+        core = await CoreService.start({
+          home,
+          version,
+          port: parsed.port,
+          idleMs: parsed.idleMinutes === undefined ? undefined : parsed.idleMinutes * 60_000,
+          log: (line) => io.err(`${new Date().toISOString()} ${line}\n`),
+        });
+      } catch (err) {
+        io.err(`${err instanceof Error ? err.message : String(err)}\n`);
+        return 1;
+      }
+      const stop = () => void core.stop();
+      process.once('SIGINT', stop);
+      process.once('SIGTERM', stop);
+      await core.stopped;
+      process.off('SIGINT', stop);
+      process.off('SIGTERM', stop);
+      return 0;
+    }
+    case 'core': {
+      const home = userHome();
+      const sub = rest[0];
+      if (sub === 'status') {
+        const info = await findCore(home);
+        print(info ? { running: true, port: info.port, pid: info.pid, version: info.version, startedAt: info.startedAt } : { running: false }, () =>
+          info ? `running: pid ${info.pid}, 127.0.0.1:${info.port}, version ${info.version}, since ${info.startedAt}\n` : 'not running\n'
+        );
+        return info ? 0 : 1;
+      }
+      if (sub === 'start') {
+        try {
+          const info = await ensureCore(home, __filename, { idleMinutes: parsed.idleMinutes });
+          print({ running: true, port: info.port, pid: info.pid }, () => `running: pid ${info.pid}, 127.0.0.1:${info.port}\n`);
+          return 0;
+        } catch (err) {
+          io.err(`${err instanceof Error ? err.message : String(err)}\n`);
+          return 1;
+        }
+      }
+      if (sub === 'stop') {
+        const info = await findCore(home);
+        if (!info) {
+          print({ running: false }, () => 'not running\n');
+          return 0;
+        }
+        await coreRequest(info.port, info.token, 'POST', '/shutdown');
+        const deadline = Date.now() + 5_000;
+        while (liveCore(home) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+        print({ stopped: !liveCore(home), pid: info.pid }, () => (liveCore(home) ? `asked pid ${info.pid} to stop; it's still running\n` : `stopped pid ${info.pid}\n`));
+        return liveCore(home) ? 1 : 0;
+      }
+      io.err(`core needs start, status or stop\n\n${USAGE}`);
+      return 2;
     }
     case 'migrate': {
       if (parsed.verify !== undefined) {
