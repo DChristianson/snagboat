@@ -44,10 +44,10 @@ The companion review, *Review: ChatGPT's Snagboat Ecosystem Proposal*, explains 
 
 **Goals**
 
-- The same sessions, findings and personas from VS Code, the Claude Code CLI, Gas City and a browser.
+- The same sessions, findings and advisors from VS Code, the Claude Code CLI, Gas City and a browser.
 - macOS first, without shutting out Linux or Windows. When this RFC was written, the POSIX hook script blocked Windows; step 3a runs it through Git Bash there.
 - Everything stays local. The advisor UI is served from your machine; sharing means exporting a redacted report.
-- Personas stand for your project's measurement goals: cost, clock time, safety and focus.
+- Each advisor stands for one of your project's measurement goals: cost, clock time, safety or focus.
 - Experiments become tracked, auditable work with a clear decision.
 - The visualizations become a standalone web project built on the shared schema.
 - Keep the repo's current rule: no runtime dependencies beyond Node and VS Code built-ins.
@@ -73,7 +73,7 @@ flowchart LR
     COL["Collectors<br>hooks, transcript and log tailers"]
     LOG["Event log and index<br>daily JSONL, SQLite side index"]
     HEU["Heuristics and rules<br>deterministic notifications"]
-    PER["Personas and advisor<br>Purser, Navigator, Bosun, Lookout"]
+    PER["Advisors<br>Purser, Navigator, Bosun, Lookout"]
     EXP["Experiment tracker<br>SQLite tables or Beads"]
     API["Local API and advisor UI<br>127.0.0.1 only, token in core.json"]
   end
@@ -100,7 +100,7 @@ Every current module has a destination in one of four packages: `schema`, `core`
 | `src/heuristics` | Engine, eight built-ins, rules, replay | `core` | Settings read from core config; only `index.ts` touches VS Code |
 | `src/discovery` | Rule proposals from your history | `core` (intelligence) | None |
 | `src/review` | Reviews and heuristic effectiveness | `core` (intelligence) | None |
-| `src/nudges/nudger.ts` | Live nudges | `core` notification policy | Front doors only deliver; the Lookout persona measures it |
+| `src/nudges/nudger.ts` | Live nudges | `core` notification policy | Front doors only deliver; the Lookout advisor measures it |
 | `src/advisor` | Gateway, digests, providers, audit, prompts, abilities | `core` (intelligence) | Keys move from VS Code SecretStorage to the OS keychain; `persona.md` gains front matter |
 | `src/backfill` | Backfill command | `core` CLI | `snagboat backfill` |
 | `src/scripts` | Replay, eval, discovery and demo-trace scripts | `core` CLI (research) | Useful ones become `snagboat` subcommands |
@@ -118,12 +118,12 @@ The `schema` package is the only thing every other package depends on. It ships 
 | --- | --- | --- |
 | `NormalizedEvent` | Today's event shape from `docs/schema.md`, unchanged at version 1 | Collectors, core, HypAware import |
 | Session view | The derived session, turn and actor structure that `buildSessionView` produces today | Advisor UI, `viz` |
-| Metric | Name, inputs, unit, scope, value | Personas, experiments |
+| Metric | Name, inputs, unit, scope, value | Advisors, experiments |
 | Finding | Heuristic, evidence event IDs, severity, confidence | Front doors, advisor UI |
-| Recommendation | Persona, finding IDs, proposed action, expected effect | Advisor UI, experiments |
-| Rule | Today's `rules.json` format | Heuristics, personas |
-| Persona | Front matter fields of `persona.md` | Core, advisor UI |
-| Experiment | Hypothesis, persona version, data version, steps, decision | Experiment tracker |
+| Recommendation | Advisor, finding IDs, proposed action, expected effect | Advisor UI, experiments |
+| Rule | Today's `rules.json` format | Heuristics, advisors |
+| Advisor | Front matter fields of `persona.md` | Core, advisor UI |
+| Experiment | Hypothesis, advisor version, data version, steps, decision | Experiment tracker |
 
 Events, metrics, findings and recommendations stay separate records, each pointing back to what it came from, so an inference never passes as a measurement.
 
@@ -136,18 +136,20 @@ Events, metrics, findings and recommendations stay separate records, each pointi
 
 The existing `AgentAdapter` and `AdapterContext` contracts stay as they are.
 
-## Personas and measurable outcomes
+## Advisors and measurable outcomes
 
-The repo already supports personas as `~/.snagboat/advisors/<id>/persona.md`. This RFC keeps that file and adds structured front matter, so each persona is a measurement goal for your project and not just a voice. A persona and its goal are the same thing: each persona owns one measurable goal, sets up experiments to move it, and tracks its progress in the experiment store.
+An **advisor** is one measurement goal plus the rules, and the voice, that serve it. It owns that goal, sets up experiments to move it, and tracks its progress in the experiment store. Purser, Navigator, Bosun and Lookout are the four default advisors.
 
-| Persona | Goal | First measures |
+Today an advisor is a model with prompts and abilities (`snagboat.advisors`), and its voice can live in `~/.snagboat/advisors/<id>/persona.md`. This RFC keeps that file, the one that holds an advisor's goal and voice, and adds structured front matter for the goal.
+
+| Advisor | Goal | First measures |
 | --- | --- | --- |
 | Purser | Token cost down | Cost per completed milestone; tokens per accepted change; cache hit rate |
 | Navigator | Clock time not wasted | Milestones per session; time per milestone; build and test duration; stall minutes |
 | Bosun | Unsafe tool use limited | Risky commands; approvals granted per session |
 | Lookout | User not overly distracted | Notifications per hour; dismiss rate; share marked useful |
 
-A persona file under this proposal:
+An advisor's `persona.md` under this proposal:
 
 ```markdown
 ---
@@ -164,9 +166,9 @@ cue: { icon: coin, color: amber, mood: frugal }
 You watch what this project spends on tokens ...
 ```
 
-**Deterministic alerts, agentic setup.** Notifications fire only from rules in the existing rule format. The persona's model work happens off the hot path: proposing rules and thresholds for this project (through today's `proposeHeuristics` and `proposeNudges` abilities) and measuring whether they helped (through `review/effectiveness`).
+**Deterministic alerts, agentic setup.** Notifications fire only from rules in the existing rule format. The advisor's model work happens off the hot path: proposing rules and thresholds for this project (through today's `proposeHeuristics` and `proposeNudges` abilities) and measuring whether they helped (through `review/effectiveness`).
 
-**Outcome capture.** These signals ship in the core before any persona depends on them:
+**Outcome capture.** These signals ship in the core before any advisor depends on them:
 
 | Outcome | Source |
 | --- | --- |
@@ -187,13 +189,13 @@ Keep the repo's existing rule: daily JSONL is the source of truth, and SQLite is
 | Analysis exports | Parquet or JSONL from `snagboat export` | For DuckDB, notebooks and HypAware |
 | Rules | `~/.snagboat/rules.json` | Moves out of VS Code global storage. Built, with the per-user store on |
 | Settings | `~/.snagboat/config.json`; a project's `.snagboat.json` | Copied from VS Code's settings when they change; a project file may set team settings, and privacy settings only to be more private. Built, with the per-user store on |
-| Personas | `~/.snagboat/advisors/<id>/persona.md` | Already there; local only, versioned by content hash |
+| Advisors | `~/.snagboat/advisors/<id>/persona.md` | Already there; local only, versioned by content hash |
 | Audit log and API keys | `~/.snagboat/data/advisor-audit.jsonl`; OS keychain | The audit log moved with the per-user store. Keys leave VS Code SecretStorage so the CLI can use them; not built yet |
 | Experiments | Tracker interface: built-in SQLite tables, or a Beads adapter | Beads stores the steps and decision; results stay in Snagboat |
 
 A migration copies each workspace's existing event log into the per-user store, tagging the workspace, and leaves the originals in place. Running it again copies only what's new (`snagboat migrate`, with `--dry-run` and `--verify`).
 
-**Experiments.** An experiment is a chain of steps: baseline, replay, evaluate, decide. Every experiment belongs to the persona whose goal it serves, so a persona's history of experiments is its progress record. With the Beads adapter, each step is a bead that becomes ready only when the one before it closes, and Dolt history keeps the audit trail. The experiment record names the persona version (a hash of its persona.md, stored with a copy of the file) and the data version (the days and index build it used), so a replay can be repeated. Experiment beads live in a Beads store with no remote, because they point at your session data. A long experiment is an epic; its sub-experiments are child beads, and a reworded experiment is a new bead linked to the old one with a discovered-from edge. Snagboat keeps each experiment's state and results itself, because Beads can garbage-collect closed beads after a retention window.
+**Experiments.** An experiment is a chain of steps: baseline, replay, evaluate, decide. Every experiment belongs to the advisor whose goal it serves, so an advisor's history of experiments is its progress record. With the Beads adapter, each step is a bead that becomes ready only when the one before it closes, and Dolt history keeps the audit trail. The experiment record names the advisor version (a hash of its `persona.md`, stored with a copy of the file) and the data version (the days and index build it used), so a replay can be repeated. Experiment beads live in a Beads store with no remote, because they point at your session data. A long experiment is an epic; its sub-experiments are child beads, and a reworded experiment is a new bead linked to the old one with a discovered-from edge. Snagboat keeps each experiment's state and results itself, because Beads can garbage-collect closed beads after a retention window.
 
 ## Front doors
 
@@ -231,7 +233,7 @@ Seven steps, each shippable on its own. Steps 1 and 2 move code without changing
 1. **Monorepo and schema.** Switch to npm workspaces with `packages/schema`, `packages/core`, `packages/vscode` and `packages/viz`. Move `src/core/types.ts` into `schema` and generate its JSON Schema.
 2. **Core as a library.** Move core, adapters, heuristics, discovery, review, nudges, advisor and backfill into `packages/core`, replacing the 11 VS Code imports with small interfaces the extension implements. The extension still runs everything in-process.
 3. **Core service and CLI.** Add the `snagboat` CLI, the local service and `core.json`. Run the POSIX hook script through Git Bash on Windows, migrate storage to `~/.snagboat/data`, and add Windows to CI. The extension becomes a client. (All built but the last, which is step 3c-3.)
-4. **Outcomes and personas.** Capture the outcome signals, add persona front matter, and ship the four default personas.
+4. **Outcomes and advisors.** Capture the outcome signals, add front matter to `persona.md`, and ship the four default advisors.
 5. **Claude Code plugin and advisor UI.** Package hooks, the MCP server, slash commands and the status line as a plugin. Serve the full advisor UI from the core in a browser tab; the VS Code webview shows a compact findings panel that links to it.
 6. **Experiments and Gas City.** Add the experiment tracker with its SQLite and Beads implementations, then a Gas City pack once its hook points are confirmed.
 7. **Visualization package.** Runs in parallel from step 1, following the visualization plan.

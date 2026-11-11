@@ -206,7 +206,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 
 From the [roadmap](docs/roadmap.md):
 
-- advisors with their own prompts and personas, and the advisor's use of your prompts' text
+- the four default advisors, Purser, Navigator, Bosun and Lookout, each with one measurement goal ([architecture RFC](docs/design/architecture-rfc.md#advisors-and-measurable-outcomes))
 - telling an agent that's waiting on you from one that's stuck (`stalled`)
 - terminal exit codes and `git diff` polling, to tell real edits from no-op saves
 - a token budget across all workspaces, with a treemap view
