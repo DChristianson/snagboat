@@ -81,7 +81,7 @@ Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md)). Install
 
 ## Install
 
-Requires VS Code 1.119 or later.
+Requires VS Code 1.145 or later.
 
 Download `snagboat-<version>.vsix` from the [latest release](https://github.com/DChristianson/snagboat/releases/latest), then:
 
@@ -89,7 +89,7 @@ Download `snagboat-<version>.vsix` from the [latest release](https://github.com/
 code --install-extension snagboat-0.0.2.vsix
 ```
 
-Or build it yourself (needs Node.js 22 or later):
+Or build it yourself (needs Node.js 24 or later):
 
 ```bash
 git clone https://github.com/DChristianson/snagboat.git

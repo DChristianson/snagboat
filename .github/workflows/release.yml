@@ -49,7 +49,7 @@ jobs:
             echo "CHANGELOG.md has no section for ${VERSION}" >&2
             exit 1
           fi
-          printf '\nInstall: download `snagboat-%s.vsix` below, then run `code --install-extension snagboat-%s.vsix` and reload your VS Code windows. Requires VS Code 1.119 or later; macOS and Linux only.\n' "$VERSION" "$VERSION" >> notes.md
+          printf '\nInstall: download `snagboat-%s.vsix` below, then run `code --install-extension snagboat-%s.vsix` and reload your VS Code windows. Requires VS Code 1.145 or later; macOS and Linux only.\n' "$VERSION" "$VERSION" >> notes.md
           gh release create "$GITHUB_REF_NAME" "snagboat-${VERSION}.vsix" \
             --title "Snagboat ${VERSION}" \
             --generate-notes \
