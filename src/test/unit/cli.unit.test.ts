@@ -46,6 +46,9 @@ function capture() {
   return { io: { out: (t: string) => (out += t), err: (t: string) => (err += t) }, get: () => ({ out, err }) };
 }
 
+// workspaceOfVsCodeStore spells a Windows drive letter the way VS Code does (c:\), Node's tmpdir C:\.
+const vs = (p: string) => (/^[A-Z]:[\\/]/.test(p) ? p[0].toLowerCase() + p.slice(1) : p);
+
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
   const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
@@ -138,13 +141,13 @@ async function main() {
     assert.strictEqual(byDir.get(marked)?.folder, project);
     assert.strictEqual(byDir.get(both)?.folder, other);
     assert.deepStrictEqual(selectStores(stores, path.join(project, 'sub'), false).map((s) => s.dir), [marked]);
-    assert.deepStrictEqual(workspaceOfVsCodeStore(marked, false), { workspace: project, folder: project, workspaceFile: undefined });
-    assert.strictEqual(workspaceOfVsCodeStore(both, false)?.workspace, other);
+    assert.deepStrictEqual(workspaceOfVsCodeStore(marked, false), { workspace: vs(project), folder: vs(project), workspaceFile: undefined });
+    assert.strictEqual(workspaceOfVsCodeStore(both, false)?.workspace, vs(other));
     // A saved multi-root workspace's marker names its .code-workspace file.
     const multi = path.join(user, 'workspaceStorage', 'h-multi', EXTENSION_ID);
     fs.mkdirSync(multi, { recursive: true });
     fs.writeFileSync(path.join(multi, WORKSPACE_MARKER), JSON.stringify({ workspaceFile: path.join(home, 'both.code-workspace') }));
-    assert.strictEqual(workspaceOfVsCodeStore(multi, false)?.workspace, path.join(home, 'both.code-workspace'));
+    assert.strictEqual(workspaceOfVsCodeStore(multi, false)?.workspace, vs(path.join(home, 'both.code-workspace')));
 
     process.env.HOME = home;
     process.env.USERPROFILE = home;
@@ -164,8 +167,8 @@ async function main() {
       const report = JSON.parse(migrated.get().out);
       assert.deepStrictEqual(report.skipped, []);
       const dests = new Map<string, string>(report.stores.map((r: { source: string; dest: string }) => [r.source, r.dest]));
-      assert.strictEqual(dests.get(marked), workspaceStoreDir(process.env.SNAGBOAT_HOME, project), JSON.stringify(report.stores));
-      assert.strictEqual(dests.get(both), workspaceStoreDir(process.env.SNAGBOAT_HOME, other));
+      assert.strictEqual(dests.get(marked), workspaceStoreDir(process.env.SNAGBOAT_HOME, vs(project)), JSON.stringify(report.stores));
+      assert.strictEqual(dests.get(both), workspaceStoreDir(process.env.SNAGBOAT_HOME, vs(other)));
     } finally {
       restoreEnv();
     }
