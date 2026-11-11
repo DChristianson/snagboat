@@ -81,6 +81,22 @@ export interface EventOutcome {
   advisor?: string;
 }
 
+/** A todo item's state, as the agent's todo list tool reports it. */
+export type TodoStatus = 'pending' | 'in_progress' | 'completed';
+
+/**
+ * The agent's plan or todo list, as one of its todo tool calls set it (Claude
+ * Code's TodoWrite): how many items are in each state, and, only when
+ * snagboat.captureContent is on, the items' text (redacted; removed with the
+ * other captured text).
+ */
+export interface EventTodos {
+  pending: number;
+  inProgress: number;
+  completed: number;
+  items?: Array<{ text: string; status: TodoStatus }>;
+}
+
 export interface NormalizedEvent {
   eventId: string;
   sessionId: string;
@@ -119,6 +135,8 @@ export interface NormalizedEvent {
   endsTurn?: true;
   /** The model's prompt budget for this call, when the source reports it. */
   contextLimit?: number;
+  /** tool_call events for the agent's todo tool (TodoWrite): the list it set. Item text only when snagboat.captureContent is on. */
+  todos?: EventTodos;
   /** For compaction events. */
   compaction?: {
     trigger: 'auto' | 'manual' | 'unknown';

@@ -238,12 +238,25 @@
     return dd;
   }
   function aheadLine(ahead) {
+    if (ahead.source === 'plan') return planLine(ahead);
     const parts = [];
     if (ahead.inProgress.length) parts.push(el('b', { text: 'Now: ' }), document.createTextNode(`${ahead.inProgress.map((b) => `${b.id} "${b.title}"`).join(', ')}. `));
     if (ahead.next) parts.push(el('b', { text: 'Next: ' }), document.createTextNode(`${ahead.next.id} "${ahead.next.title}" (ready). `));
     if (ahead.firstBlocked) parts.push(el('b', { text: 'Blocked: ' }), document.createTextNode(`${ahead.blocked}, first ${ahead.firstBlocked.id}${ahead.firstBlocked.blockedBy.length ? ` waiting on ${ahead.firstBlocked.blockedBy.join(', ')}` : ''}. `));
     parts.push(document.createTextNode(`${ahead.closedThisWeek} closed this week.`));
     return el('dd', {}, [el('span', { class: 'surf source', text: 'beads' }), ...parts]);
+  }
+
+  /** No Beads: the agent's own todo list, its items' text when it was captured, else counts. */
+  function planLine(plan) {
+    const total = plan.pending + plan.inProgressCount + plan.completed;
+    const parts = [];
+    if (plan.inProgress.length) parts.push(el('b', { text: 'Now: ' }), document.createTextNode(`${plan.inProgress.map((t) => `"${t}"`).join(', ')}. `));
+    if (plan.next) parts.push(el('b', { text: 'Next: ' }), document.createTextNode(`"${plan.next}". `));
+    const counts = `${plan.completed} of ${total} done${!plan.text && plan.inProgressCount ? `, ${plan.inProgressCount} in progress` : ''}`;
+    const from = plan.live ? '' : ` In ${plan.sessionName ? `"${plan.sessionName}"` : 'the last session'}.`;
+    parts.push(document.createTextNode(`${counts}.${from}`));
+    return el('dd', { title: "the agent's todo list in its session" }, [el('span', { class: 'surf source', text: 'plan' }), ...parts]);
   }
 
   function advisorCard(a) {

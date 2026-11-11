@@ -23,11 +23,13 @@ Each observed action becomes one normalized event (see [docs/schema.md](docs/sch
 | Copilot OTel | `target` | The tool or hook name only, not its arguments |
 | Copilot CLI session logs (Agent mode) | `target` | Like Claude Code: the tool's file path, or the **full shell command string** for shell tools |
 | Copilot CLI session logs (Agent mode) | `user_prompt`, model calls | When you sent each prompt, and each model call's model, token counts, and the model's prompt budget |
+| Claude Code transcript and hooks | `todos` on a `TodoWrite` tool call | How many items of the agent's todo list are pending, in progress and completed; not their text |
 | Edit tracker | `target`, `raw.ref` | The saved file's path and URI, not its contents |
 | Claude Code transcript, with text capture on (the default) | `promptText` | **Your prompt's text**, up to 2,000 characters, secrets redacted. Only what you typed: context Claude Code or the IDE adds (open files, selections, task notifications, command output) is left out; a slash command is kept as `/name args`. |
 | Copilot CLI session logs, with text capture on (the default) | `promptText` | **Your prompt's text** (`user.message` content), up to 2,000 characters, secrets redacted |
 | Claude Code transcript, with text capture on (the default) | `sessionName` | Claude Code's generated session title (`ai-title` lines), secrets redacted |
 | Copilot CLI session logs, with text capture on (the default) | `sessionName` | The session's name from the `workspace.yaml` beside its log: a generated title, or one you set |
+| Claude Code transcript and hooks, with text capture on (the default) | `todos.items` | The text and status of each item in the agent's todo list (`TodoWrite`), up to 50 items of 200 characters each, secrets redacted. Never the `activeForm` wording. |
 | Claude Code transcript, with text capture on (the default) | `textExcerpt` | The reply's `text` blocks, truncated to 500 characters, secrets redacted. Never thinking blocks or tool inputs. |
 | Copilot CLI session logs, with text capture on (the default) | `textExcerpt` | The reply's text (`assistant.message` content), truncated to 500 characters, secrets redacted. Never reasoning text, tool arguments, or tool results. |
 | Copilot OTel, with text capture on **and** Copilot's `github.copilot.chat.otel.captureContent` | `textExcerpt` | The assistant `text` parts of `gen_ai.output.messages`, truncated to 500 characters, secrets redacted. Never reasoning parts, prompts, tool arguments, or tool results. |
@@ -38,15 +40,15 @@ Snagboat reads subagent transcripts (`<session>/subagents/*.jsonl` under Claude 
 
 ### Captured text
 
-**`snagboat.captureContent` is on by default.** It stores three kinds of text: your prompts (`promptText`), reply excerpts (`textExcerpt`), and session names (`sessionName`). Prompts and replies give the Sessions tab and the verbal-hedge heuristic something to show; names make sessions recognizable. Earlier versions stored no prompt text and had this setting off by default; installs that never changed it start capturing text from this version on.
+**`snagboat.captureContent` is on by default.** It stores four kinds of text: your prompts (`promptText`), reply excerpts (`textExcerpt`), session names (`sessionName`), and the items of the agent's todo list (`todos.items`). Prompts and replies give the Sessions tab and the verbal-hedge heuristic something to show; names make sessions recognizable; todo items are what Navigator's Ahead line shows when a workspace has no Beads. With capture off, a todo list is recorded as counts only. Earlier versions stored no prompt text and had this setting off by default; installs that never changed it start capturing text from this version on.
 
 Text is protected three ways instead of by an opt-in:
 
 - **Redaction.** Before anything is stored, common secret formats are replaced with a `[redacted …]` marker: private key blocks, AWS keys, GitHub, Anthropic, OpenAI, Stripe, Slack, and Google tokens, JWTs, bearer tokens, passwords in URLs, and `password=`/`token=`/`api_key=`-style values that look like secrets. It's a backstop for the common cases, not a guarantee: a secret in an unrecognized format is stored as is.
-- **Shorter retention.** Prompts and reply excerpts are kept for `snagboat.retention.textDays` (default 30 days, the same as Claude Code keeps its own transcripts), then removed from their events, which stay for `rawDays`. Session names stay with their session's events.
-- **Removal.** `Snagboat: Remove Captured Text` removes every stored prompt and reply excerpt now, and can turn capture off at the same time.
+- **Shorter retention.** Prompts, reply excerpts and todo items are kept for `snagboat.retention.textDays` (default 30 days, the same as Claude Code keeps its own transcripts), then removed from their events, which stay for `rawDays`. Session names stay with their session's events.
+- **Removal.** `Snagboat: Remove Captured Text` removes every stored prompt, reply excerpt and todo item now (a todo list's counts stay), and can turn capture off at the same time.
 
-The text is stored **in the same event logs as everything else**, not in a separate store. Turning the setting off stops new capture of all three; text already stored stays until text retention removes it or you run Remove Captured Text. Token tracking and the behavioral heuristics never require it.
+The text is stored **in the same event logs as everything else**, not in a separate store. Turning the setting off stops new capture of all four; text already stored stays until text retention removes it or you run Remove Captured Text. Token tracking and the behavioral heuristics never require it.
 
 The same text is already on disk in the agents' own logs: Claude Code keeps full prompts in its transcripts, and Copilot in its session logs. Snagboat's copy adds a second location (VS Code's workspace storage, and whatever backs it up) for up to `textDays`.
 
@@ -122,7 +124,7 @@ On activation, hourly, and whenever the retention settings change:
 
 - raw daily files older than `rawDays` are rolled up into `aggregates/<date>.json` and deleted;
 - aggregates older than `aggregateDays` are removed;
-- raw days older than `textDays` (capped at `rawDays`) have their prompt text and reply excerpts removed in place: the events stay, without the text.
+- raw days older than `textDays` (capped at `rawDays`) have their prompt text, reply excerpts and todo items' text removed in place: the events stay, without the text.
 
 Events are filed under the day they happened, so history caught up from an old transcript is retained by its own date: anything older than `rawDays` goes straight into that day's aggregate, anything older than `aggregateDays` isn't stored, and text older than `textDays` is never written.
 
@@ -133,7 +135,7 @@ The core service applies the same retention, every 6 hours and when it starts, t
 ## User controls
 
 - `Snagboat: Clear Event Log` (`snagboat.clearLog`) deletes all raw logs and daily aggregates after a confirmation prompt. Adapter checkpoints are kept so already-seen transcript history is not re-imported.
-- `Snagboat: Remove Captured Text` (`snagboat.removeCapturedText`) removes every stored prompt and reply excerpt after a confirmation prompt, keeping the events, and can turn capture off too.
+- `Snagboat: Remove Captured Text` (`snagboat.removeCapturedText`) removes every stored prompt, reply excerpt and todo item after a confirmation prompt, keeping the events, and can turn capture off too.
 - `Snagboat: Remove Claude Code Hooks from Project...` (`snagboat.removeClaudeHooks`) removes Snagboat's hook entries from a folder's `.claude/settings.json` and turns off `snagboat.claudeCode.configureHooks` for it, so they aren't added back.
 - `snagboat.captureContent` (on by default) turns all text capture on or off; `snagboat.retention.textDays` sets how long prompts and replies are kept. The detail view shows whether capture is on and for how long text is kept.
 
@@ -141,7 +143,7 @@ The core service applies the same retention, every 6 hours and when it starts, t
 
 With the per-user store on, the core serves the advisor UI at `http://127.0.0.1:<port>/ui/`, on this machine only. It answers only requests addressed to `127.0.0.1` or `localhost` (so a web page that renames itself to look local can't reach it), plus, in a remote VS Code window, the forwarded address VS Code gives it, and the page is sent with a policy that lets it load only its own files and talk only to the core. `snagboat open` or **Snagboat: Open Advisor UI** gives the browser a one-time code in the link's fragment, which browsers never send to a server; the page swaps it once for a read-only key, kept in that tab's session storage; it ends after 12 hours unused, when the core stops, or when a 21st is opened (the oldest ends). The workspace shown is kept there too, not in the address, so your project paths stay out of browser history. That key can read every workspace's sessions (including the prompt text and reply excerpts kept when `snagboat.captureContent` is on, which the session page and Explore show, as VS Code's Sessions and Explore tabs do), findings, outcomes and advisors' measures, and can send two things back: **Useful**, **Acknowledge**, **Mute** or **Unmute** on a finding, which the core keeps for every front door (the page, VS Code, the Claude Code plugin); and a new advisor from the **+** form, written as a new `~/.snagboat/advisors/<id>/persona.md` (owner-only), never over one that exists. It can't write events, change settings or rules, mint keys or stop the core.
 
-For Navigator's card, the core reads the work ahead from a workspace's Beads issues when it has a `.beads` folder: it runs `bd --readonly --sandbox` (`ready`, `blocked`, `list`) there, which can't change your issues or push them anywhere, and shows issue ids and titles on the page. The page loads no fonts, scripts or images from anywhere else.
+For Navigator's card, the core reads the work ahead from a workspace's Beads issues when it has a `.beads` folder: it runs `bd --readonly --sandbox` (`ready`, `blocked`, `list`) there, which can't change your issues or push them anywhere, and shows issue ids and titles on the page. Without Beads, it shows the todo list the agent kept in the workspace's most recent session (a live one first) from the events already recorded: the items' text when it was captured, otherwise only how many are done and in progress. The page loads no fonts, scripts or images from anywhere else.
 
 ## The Claude Code plugin
 
