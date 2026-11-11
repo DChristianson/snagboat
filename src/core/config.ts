@@ -45,6 +45,8 @@ export const PRIVACY_DEFAULTS = {
   'claudeCode.configureHooks': true,
   /** Record this project at all (config and project files only; not a VS Code setting). */
   collect: true,
+  /** Read the project's git history (read-only) for commit outcomes (RFC step 4b). */
+  'outcomes.git': true,
 } as const;
 
 /** Whether `value` is at least as private as `than` for a privacy key. */

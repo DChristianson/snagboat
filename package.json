@@ -134,6 +134,12 @@
     "configuration": {
       "title": "Snagboat",
       "properties": {
+        "snagboat.outcomes.git": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "With the per-user store on, the core service reads this project's git history (read-only: `git log`, `git show`, `git blame`) to record what became of commits made in a session: whether each was kept or reverted after 7 days, how many of its lines survive after 7 and 30 days, and whether it was a milestone (made after the session's tests last passed). Commit ids, counts and times only; no code. Off stops it for this project. A project's `.snagboat.json` can turn it off, not on."
+        },
         "snagboat.captureContent": {
           "type": "boolean",
           "default": true,

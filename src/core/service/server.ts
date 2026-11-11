@@ -19,6 +19,7 @@ import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
 import { EventLog } from '../eventLog';
 import { FindingsService, WorkspaceFindings } from './findings';
 import { TestsGreen } from '../../outcomes/testsGreen';
+import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
 import { HEURISTICS_INTERVAL_MS } from '../../heuristics/engine';
 
 const STREAM_BATCH = 500;
@@ -82,6 +83,8 @@ export interface CoreOptions {
   port?: number;
   /** Exit after this long with no requests; 0 never. Default 30 minutes. */
   idleMs?: number;
+  /** How often git outcomes are read (when collecting); default 6 hours, the first a minute after start. */
+  gitOutcomesEveryMs?: number;
   /** How often followed workspaces' heuristics run with no new events; default 30 seconds. */
   heuristicsEveryMs?: number;
   /** How often to move spooled events of workspaces no longer claimed; default 30 seconds. */
@@ -298,6 +301,13 @@ export class CoreService {
         log: (line) => core.log(line),
       });
       await core.copilot.start();
+      // Commit outcomes from git (RFC step 4b), for the workspaces it records.
+      const gitJob = new GitOutcomesJob(opts.home, core.writer, (line) => core.log(line));
+      const runGitJob = () => void gitJob.run().catch((err) => core.log(`git outcomes failed: ${err instanceof Error ? err.message : String(err)}`));
+      const first = setTimeout(runGitJob, Math.min(60_000, opts.gitOutcomesEveryMs ?? GIT_OUTCOMES_INTERVAL_MS));
+      first.unref();
+      core.timers.push(first as unknown as NodeJS.Timeout);
+      core.timers.push(setInterval(runGitJob, opts.gitOutcomesEveryMs ?? GIT_OUTCOMES_INTERVAL_MS));
     }
     const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
     if (idleMs > 0) {

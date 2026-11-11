@@ -46,7 +46,7 @@ async function main() {
     const kinds: Record<NormalizedEventKind, true> = {
       tool_call: true, edit: true, turn_start: true, turn_stop: true, user_prompt: true, compaction: true, session_name: true, outcome: true,
     };
-    const outcomeTypes: Record<EventOutcome['type'], true> = { tests_green: true, finding_response: true };
+    const outcomeTypes: Record<EventOutcome['type'], true> = { tests_green: true, finding_response: true, commit_kept: true, commit_reverted: true, code_survival: true, milestone: true };
     const responses: Record<NonNullable<EventOutcome['response']>, true> = { useful: true, muted: true, acknowledged: true, passed: true };
     const statuses: Record<NormalizedEvent['status'], true> = { success: true, failure: true, unknown: true };
     const triggers: Record<NonNullable<NormalizedEvent['compaction']>['trigger'], true> = { auto: true, manual: true, unknown: true };
@@ -58,7 +58,7 @@ async function main() {
     assert.deepStrictEqual(sorted(props.outcome.properties.type.enum), sorted(Object.keys(outcomeTypes)));
     assert.deepStrictEqual(sorted(props.outcome.properties.response.enum), sorted(Object.keys(responses)));
     // The compile-time check covers the event's fields; this covers the outcome's.
-    const outcomeFields: Record<keyof EventOutcome, true> = { type: true, refs: true, failures: true, afterMs: true, heuristicId: true, response: true };
+    const outcomeFields: Record<keyof EventOutcome, true> = { type: true, refs: true, failures: true, afterMs: true, heuristicId: true, response: true, commit: true, files: true, linesWritten: true, linesSurviving: true, days: true };
     assert.deepStrictEqual(sorted(Object.keys(props.outcome.properties)), sorted(Object.keys(outcomeFields)));
   });
 
