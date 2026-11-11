@@ -1,14 +1,22 @@
 # The visualizer contract
 
-Status: describes the code as of 2026-11-11, for step 5 of the [Factory Clock plan](factory-clock-plan.md#steps). This file moves with the package in step 4. Where the code and this page disagree, the code wins; say so in an issue.
+Status: describes the code as of 2026-11-11, written for step 5 of the [Factory Clock plan](factory-clock-plan.md#steps). The package is `packages/viz` ([README](../../packages/viz/README.md), [contribution guide](../../packages/viz/CONTRIBUTING.md)); this page stays in `docs/design` until the package moves to its own repository (step 7). Where the code and this page disagree, the code wins; say so in an issue.
 
 This page is for someone writing a new visualizer. The design behind it is in [visualization-explorer.md](visualization-explorer.md#the-visualizer-contract).
 
 ## What a visualizer is
 
-One plain browser script in `packages/viz/viz/`. No modules, no build step, no dependencies. It registers itself with the registry and draws one or more sessions into a DOM element it is given. It sees only that element, a `ctx` object of helpers, and the sessions. It doesn't know which page it runs in: the Explore tab in VS Code, the web demo, or later the advisor UI.
+One plain browser script in `packages/viz/viz/`. No modules, no build step, no dependencies. It registers itself with the registry and draws one or more sessions into a DOM element it is given. It sees only that element, a `ctx` object of helpers, and the sessions. It doesn't know which page it runs in: the web page on GitHub Pages, the Explore and session pages of Snagboat's advisor UI, or the VS Code detail view's Explore and Sessions tabs.
 
-The page loads, in order: `vizkit.js` (sets `window.snagboatVizKit`), `viz/registry.js` (sets `window.snagboatViz`), every visualizer, then `explore.js`. So a visualizer can rely on the registry existing when it runs, and on nothing else being ready yet.
+Every host loads `vizkit.js` (sets `window.snagboatVizKit`) first, then `viz/registry.js` (sets `window.snagboatViz`), then the visualizers, then `explore.js`. The order of the visualizers, and what loads between them, differs by host:
+
+| Host | Order |
+| --- | --- |
+| Web page | `vizkit.js`, `viz/registry.js`, every file in `viz/` in name order (written by `packages/viz/scripts/webDemo.js`), `explore.js`, then the page's bundle |
+| Advisor UI | `vizkit.js`, then the files the core lists at `/ui/viz/index.json` (`registry.js` first, the rest in name order), then `explore.js`, each loaded when the page first needs them (`media/ui/app.js`) |
+| VS Code detail view | `vizkit.js`, the detail view's `shared.js` and `detail.js`, `viz/registry.js`, the visualizers in the order `src/ui/detailPanel.ts` lists them, then the tabs (`sessions.js`, `explore.js`, ...) |
+
+So a visualizer can rely on the registry existing when its script runs, and on nothing else being ready yet. Do the work in `mount`, not at load time.
 
 ## Registering
 
@@ -57,7 +65,15 @@ How the explorer mounts you:
 
 ## ctx
 
-`ctx` is every helper in `window.snagboatVizKit` (`packages/viz/vizkit.js`), plus four fields from the host. Read the comments in `vizkit.js` for details; this is the list.
+`ctx` is every helper in `window.snagboatVizKit` (`packages/viz/vizkit.js`), plus four fields from the host. Each host builds it the same way:
+
+```js
+const kit = window.snagboatVizKit;
+const ctx = { ...kit, tooltip, ...kit.tipFor(tooltip) };    // the page
+// the explorer then mounts each visualizer with { ...ctx, select }
+```
+
+The Sessions tab and the advisor UI's session page mount `turn-tree` and `context-timeline` themselves, with their own `select`. Read the comments in `vizkit.js` for details; this is the list, in the groups below, of every name `vizkit.js` exports.
 
 **From the host**
 
@@ -78,6 +94,7 @@ How the explorer mounts you:
 - `legendKey(cls, text)`: a swatch and label for a legend.
 - `interact(ctx, node, { label, tip, pick })`: the tooltip on hover, and with `pick`, a click and Enter that call it, `tabindex` and `role="button"`. Pass `ctx` itself as the first argument.
 - `fitHeight(host)`, `fitter(host)`: the height left in the carousel's slide, so a view fills it without scrolling. `null` or the fallback outside the carousel.
+- `tipFor(tooltip)` → `{ showTip, hideTip }`: how a host makes the tooltip functions. A visualizer uses `ctx.showTip` and `ctx.hideTip` instead.
 
 **Formatting**
 
@@ -107,7 +124,7 @@ The clock respects `prefers-reduced-motion`: it opens on the final state and doe
 
 **Force layout**
 
-`forceLayout(nodes, links, { width, height, previous? })` returns `Map(id → { x, y })`. Deterministic: starting positions come from `hashId(id)`. Pass the last result as `previous` so an update moves nodes gently. `drift(id, t, amplitude)` → `{ dx, dy }` is decoration only. Every pair of nodes is compared, so fold to a few dozen nodes first. See [Shared force layout](visualization-explorer.md#shared-force-layout).
+`forceLayout(nodes, links, { width, height, previous? })` returns `Map(id → { x, y })`. Deterministic: starting positions come from `hashId(id)`, a stable number for a string, also in `ctx`. Pass the last result as `previous` so an update moves nodes gently. `drift(id, t, amplitude)` → `{ dx, dy }` is decoration only. Every pair of nodes is compared, so fold to a few dozen nodes first. See [Shared force layout](visualization-explorer.md#shared-force-layout).
 
 ## The data
 
@@ -142,7 +159,7 @@ The explorer loads at most 8 sessions (`EXPLORE_SESSION_CAP`), and each carries 
 
 ## Constraints
 
-- **No network.** The web page's policy is `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'`. No `fetch`, no XHR, no remote images or fonts. The webview's is stricter (scripts by nonce only).
+- **No network.** The web page's policy is `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'`. No `fetch`, no XHR, no remote images or fonts. The webview's is stricter (scripts by nonce only). The advisor UI's allows `connect-src 'self'`, for the page's own calls to the core; a visualizer still makes none.
 - **No globals** beyond `window.snagboatViz` to register. Everything else comes through `ctx`. Don't read `window.snagboatVizKit` directly, and don't touch the page outside `host` (the tooltip is reached through `showTip`).
 - **The host owns saved state.** Keep a view's state in the instance. The explorer saves only the shared selection and the replay settings.
 - **Any size.** Work at any slide width and down to a 320 px slide height. Use `viewBox` and the host's width.
@@ -168,7 +185,7 @@ The page draws the slides from the catalog, not the registry. Add an entry to `C
 - Order in the array is carousel order. Standard views come before the hero views.
 - A new `language` value is added only with the view that brings that look, so the puck never offers a chip that matches nothing.
 
-Then load the script. The web demo picks up every file in `packages/viz/viz/` (`packages/viz/scripts/webDemo.js`). The VS Code webview lists each script by name in `src/ui/detailPanel.ts`; add yours before `sessions.js`.
+Then load the script. The web demo picks up every file in `packages/viz/viz/` (`packages/viz/scripts/webDemo.js`), and so does the advisor UI (the core lists them at `/ui/viz/index.json`). The VS Code webview lists each script by name in `src/ui/detailPanel.ts`; add yours before `sessions.js`. The VSIX ships every file in `packages/viz/viz/` (`.vscodeignore`), so nothing else changes.
 
 If the catalog and the registry disagree, the puck says so ("Catalog mismatch") and the slide shows "No renderer is registered".
 
@@ -247,11 +264,36 @@ Run `npm run test:unit`.
 
 For a short real one, read `packages/viz/viz/bubble.js` or `histogram.js`. For a view with replay, `factoryClock.js`.
 
+## Hosting the explorer
+
+This part is for someone putting the explorer on a new page, not for a visualizer author. A host loads the files in the order above, plus `theme.css` then `viz.css` (and its own stylesheet after them), and gives the page a tooltip element. Then:
+
+```js
+const kit = window.snagboatVizKit;
+const ctx = { ...kit, tooltip, ...kit.tipFor(tooltip) };
+const tab = window.snagboatExplore.mount(root, source, ctx);   // -> { shown(), destroy() }
+```
+
+`window.snagboatExplore.shown()` and `hidden()` tell the mounted explorer its tab was shown or hidden; hidden stops every slide (`setActive(false)`). `source` is a plain object, documented at the top of `packages/viz/explore.js`:
+
+| Member | What it does |
+| --- | --- |
+| `listSessions()` | Ask for every session, newest start first. Answer through `onSessions`. |
+| `loadSessions(ids)` | Load these sessions, in this order. Answer through `onExplorer`. |
+| `closeExplorer()` | Unload them. Answer through `onExplorer` with `null`. |
+| `getState()` | The explorer's saved state, `{}` the first time. |
+| `setState(partial)` | Merge these keys into the saved state. |
+| `onSessions(cb)` | Register `cb({ sessions, headlines })`, called on each list. |
+| `onExplorer(cb)` | Register `cb(state)`, called on each load with an `ExplorerState` or `null`. `ExplorerState` is in `packages/viz/src/explorerModel.ts`. |
+| `openSessionId()` | The session open elsewhere on the page, or `null`. Pre-checked the first time. |
+
+The saved state is `{ picked, current, filters, replay, collapsed, corner, selection }`; the host stores it however it likes. The three sources today are `packages/viz/src/web/` (in memory, the web page), `media/ui/app.js` (the core's HTTP API, the advisor UI) and `media/exploreSource.js` (messages to the extension, VS Code).
+
 ## Gaps before outside authors
 
 Things an outside author can't do today without changing Snagboat, or that the contract leaves loose:
 
-- **The catalog is TypeScript in the extension.** Title, description and tags live in `packages/viz/src/catalog.ts`, so a new visualizer means editing and compiling the package, which Snagboat builds. Step 4 of the plan moved it into the package as TypeScript; a `catalog.json` is still open.
+- **The catalog is TypeScript.** Title, description and tags live in `packages/viz/src/catalog.ts`, so a new visualizer means editing and compiling the package, which Snagboat builds. Step 4 of the plan moved it into the package as TypeScript; a `catalog.json` is still open.
 - **Tags are written twice.** `register` takes `title` and `tags` that nothing reads, and nothing checks they match the catalog. The explorer design's example also passes `description` to `register`, which is ignored.
 - **The webview lists scripts by hand.** `src/ui/detailPanel.ts` names every file in `packages/viz/viz/`; the web demo finds them on its own. This goes away when VS Code drops the Explore tab (architecture RFC step 5c, behind the per-user store setting).
 - **The catalog test lists every id.** Adding a view means editing `explorer.unit.test.ts`. No unit test checks that each catalog entry has a registered script, or the reverse; only the puck's runtime note does.

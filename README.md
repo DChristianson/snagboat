@@ -12,7 +12,7 @@ Snagboat is a VS Code extension that watches AI coding agents (Claude Code and G
 
 ## Try it in your browser
 
-No install needed: the [web demo](https://dchristianson.github.io/snagboat/) runs the Explore tab's views over example sessions, or over your own event log files, read in the browser and sent nowhere ([PRIVACY.md](PRIVACY.md#the-web-demo)).
+No install needed: [Factory Clock](https://dchristianson.github.io/snagboat/), Snagboat's set of session visualizations, runs in a web page over example sessions, or over your own event log files, read in the browser and sent nowhere ([PRIVACY.md](PRIVACY.md#the-web-demo)). It is the same set of views as the Explore tab ([packages/viz](packages/viz/README.md)).
 
 ## An example
 
@@ -83,7 +83,7 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
 - **Status bar:** today's tokens, agent events, and local edits, plus the most important active finding. Snagboat counts tokens, not dollars: it has no price data. Hover for the breakdown by agent and any health problems with Snagboat itself.
 - **Detail view** (click the status bar, or **Snagboat: Open Detail View**): the **Overview** tab has today's totals, active findings, a daily token chart, and a filterable 24-hour timeline. **Acknowledge** a finding to hide it from the status bar until that problem clears; **mute** a heuristic to hide its findings in this workspace until you unmute it.
 - **Sessions tab:** each day's sessions by name. Open one for its turn tree (where the tokens went, by prompt, agent, and tool category), its context timeline, and its findings, past ones included.
-- **Explore tab** (experimental): up to eight sessions through a carousel of visualizers: charts and diagrams (timelines, treemaps, graphs, and more), each drawing the same sessions its own way. A puck, a small panel you can drag to any corner, names the current visualizer and filters the carousel by its tags. The same views are in the [web demo](#try-it-in-your-browser).
+- **Explore tab** (experimental): [Factory Clock](packages/viz/README.md), up to eight sessions through a carousel of 32 visualizers: charts and diagrams (timelines, treemaps, graphs, and more), each drawing the same sessions its own way. A puck, a small panel you can drag to any corner, names the current visualizer and filters the carousel by its tags. With the per-user store preview (`snagboat.storage.perUserStore`) on, Explore and Sessions open in the advisor UI in your browser instead of the detail view. The same views are on the [Factory Clock web page](#try-it-in-your-browser).
 - **Suggestions tab** (**Snagboat: Discover Heuristics**): rules, thresholds, and shell categories proposed from your own history, scored by replay; accept, adjust, or dismiss.
 - **Snagboat: Write Review** writes a weekly Markdown review of this workspace to `~/.snagboat/reviews/`.
 
@@ -178,7 +178,7 @@ I built it for myself. I spend long stretches in agent sessions and wanted to se
 **Build your own.** This is the age of AI. Why download a plugin and live with someone else's choices? Snagboat is a starting point, MIT licensed, and there are three ways to make it yours:
 
 - **Without code:** raise or lower any heuristic's thresholds ([settings](docs/settings.md#heuristic-thresholds)), and write your own rules as JSON in `snagboat.rules` ([docs/heuristics.md](docs/heuristics.md#rules)).
-- **In a fork:** add a heuristic (one file in `src/heuristics/`), an adapter for another agent (one folder in `src/adapters/`), or a visualizer for the Explore tab (one file in `packages/viz/viz/`, plus its entry in `packages/viz/src/catalog.ts`). [CONTRIBUTING.md](CONTRIBUTING.md) has the layout and the steps for heuristics and adapters; [docs/architecture.md](docs/architecture.md#detail-webview) has the visualizer contract.
+- **In a fork:** add a heuristic (one file in `src/heuristics/`), an adapter for another agent (one folder in `src/adapters/`), or a visualizer for Factory Clock (one file in `packages/viz/viz/`, plus its entry in `packages/viz/src/catalog.ts`). [CONTRIBUTING.md](CONTRIBUTING.md) has the layout and the steps for heuristics and adapters; [packages/viz/CONTRIBUTING.md](packages/viz/CONTRIBUTING.md) has the steps for a visualizer, and [the visualizer contract](docs/design/visualizer-contract.md) the interface.
 - **From scratch:** point your coding agent at this repo, or at an empty one, and build the version with the views and heuristics you actually want.
 
 ## Development
@@ -188,7 +188,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 | Script | What it does |
 | --- | --- |
 | `npm run build` | Bundles `src/extension.ts` to `dist/extension.js` with esbuild, and the web demo's bundle, so a Node import creeping into the browser-side model fails here |
-| `npm run build:web` | Builds the web demo into `out/web/`: type-checks the page, bundles it, and copies the Factory Clock package's scripts and stylesheets in (`packages/viz/scripts/webDemo.js`); the Pages workflow deploys that folder |
+| `npm run build:web` | Builds the Factory Clock web page into `out/web/`: type-checks the page, bundles it, and copies the Factory Clock package's scripts and stylesheets in (`packages/viz/scripts/webDemo.js`); the Pages workflow deploys that folder |
 | `npm run watch` | Rebuilds on change |
 | `npm run test:unit` | Unit tests, no VS Code needed |
 | `npm test` | Compiles and bundles, then runs the integration suite in a real VS Code instance via `@vscode/test-electron` |

@@ -5,7 +5,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
-<title>Snagboat explorer</title>
+<title>Factory Clock</title>
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="viz.css">
 <link rel="stylesheet" href="web.css">
@@ -14,15 +14,15 @@
 <main id="app">
   <header class="web-head">
     <div class="title-row">
-      <h1>Snagboat</h1>
-      <span class="muted small">The Explore tab, in a browser</span>
+      <h1>Factory Clock</h1>
+      <span class="muted small">Session visualizations for coding agents, part of Snagboat</span>
       <a class="repo" href="https://github.com/DChristianson/snagboat">github.com/DChristianson/snagboat</a>
     </div>
   </header>
   <div id="explore-root"></div>
   <section class="below-explorer" aria-label="About this page and loading your own sessions">
     <p id="examples-note" class="examples-note small"></p>
-    <p>The Explore tab of the Snagboat VS Code extension, in a browser, over example sessions: every visualizer draws the same sessions its own way. Pick which ones above, under <strong>Sessions</strong>.</p>
+    <p>Factory Clock is a set of visualizations of coding-agent sessions, with a carousel to move through them. Every visualizer draws the same sessions its own way. Pick which sessions above, under <strong>Sessions</strong>. It is part of <a href="https://github.com/DChristianson/snagboat">Snagboat</a>, a VS Code extension that watches Claude Code and GitHub Copilot sessions, where the same views run as its Explore tab.</p>
     <section class="loader" aria-label="Load your own sessions">
       <div id="drop" class="drop">
         <p><label>Load your own sessions: <input id="files" type="file" multiple accept=".jsonl,application/jsonl,application/x-ndjson,text/plain"></label> or drop the daily files Snagboat writes (<code>events/YYYY-MM-DD.jsonl</code>) here.</p>

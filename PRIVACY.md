@@ -145,7 +145,7 @@ For Navigator's card, the core reads the work ahead from a workspace's Beads iss
 
 ## The web demo
 
-The detail view's Explore tab also runs as a page on GitHub Pages (<https://dchristianson.github.io/snagboat/>), over example sessions by default. It can load the daily files Snagboat writes (`events/<date>.jsonl`; **Snagboat: Reveal Event Log Folder** opens the folder) when you choose them: they are read in your browser and sent nowhere. The page's content security policy forbids network requests (`connect-src 'none'`), and it has no analytics, no service worker, and no third-party script. It stores nothing beyond the explorer's small view state (picked session ids, the current visualizer, its filters) in the browser's local storage; loaded events live in the page's memory until the tab closes. GitHub sees the request for the page, as for any site, but none of the data.
+The detail view's Explore tab also runs as a page on GitHub Pages, Factory Clock (<https://dchristianson.github.io/snagboat/>), over example sessions by default. It can load the daily files Snagboat writes (`events/<date>.jsonl`; **Snagboat: Reveal Event Log Folder** opens the folder) when you choose them: they are read in your browser and sent nowhere. The page's content security policy forbids network requests (`connect-src 'none'`), and it has no analytics, no service worker, and no third-party script. It stores nothing beyond the explorer's small view state (picked session ids, the current visualizer, its filters) in the browser's local storage; loaded events live in the page's memory until the tab closes. GitHub sees the request for the page, as for any site, but none of the data.
 
 ## Design guardrails
 

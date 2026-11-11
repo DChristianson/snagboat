@@ -122,7 +122,15 @@ Each step leaves the web demo working.
    The page's `EventSet` used to replay Snagboat's heuristics itself. It now takes a findings function from its host, and Snagboat's bundle entry passes `replayFindings` with the same heuristics, so the page is unchanged. That entry (`src/web/main.ts`, `src/web/findings.ts`) stays in Snagboat, and its bundle and the assembled page still land in `out/web`, which `pages.yml` deploys. The workflow stays in `.github/workflows`, the only place GitHub runs one from, until step 7.
 
    Hosts load the page files from the package folder. The VS Code webview adds `packages/viz` as a second local resource root, and the core serves them under `/ui/` from `packages/viz` beside `media/ui`. The VSIX ships those files through `.vscodeignore`, so the layout is the same in the repo and the installed extension. VS Code keeps its Explore tab for now: dropping it is RFC step 5c, behind the per-user store setting.
-5. **Give it an identity.** Write its README and contribution guide, document the [visualizer contract](visualizer-contract.md) for outside authors, and publish the gallery as Factory Clock.
+5. **Give it an identity — done.** Write its README and contribution guide, document the [visualizer contract](visualizer-contract.md) for outside authors, and publish the gallery as Factory Clock.
+
+   **As built.** Docs and the page's name only; no code or contract changed:
+   - [`packages/viz/README.md`](../../packages/viz/README.md): what Factory Clock is, the five hero views and the 32 in the catalog, how to build and open the web page, the three hosts, the input, the rules (no runtime dependencies, its own theme, its own imports), and the web page's privacy.
+   - [`packages/viz/CONTRIBUTING.md`](../../packages/viz/CONTRIBUTING.md): the steps to add a visualizer (script, catalog entry, each host's loading, styling, accessibility, tests), and a checklist.
+   - [The visualizer contract](visualizer-contract.md) now covers each host's load order, how hosts build `ctx` (with `tipFor` and `hashId`, so its list matches every name `vizkit.js` exports), the advisor UI's security policy, and the explorer's own host interface (`snagboatExplore.mount(root, source, ctx)` and the source object). Its list of gaps before outside authors stands.
+   - The web page is titled Factory Clock, with a line saying it is part of Snagboat and a link to the repository. The root README's "Try it in your browser" section and Quick tour's Explore bullet name it, and the bullet says Explore opens in the advisor UI when the per-user store preview is on. `docs/usage.md` and `PRIVACY.md` name it too.
+
+   Left for later, outside the repository's files: the page is still served at `dchristianson.github.io/snagboat/`, from the Snagboat repository's Pages site. A Factory Clock address of its own comes with its own repository in step 7. The globals keep the names `snagboatViz`, `snagboatVizKit` and `snagboatExplore`, and the package keeps the npm name `@snagboat/viz`; renaming either would change the contract, so it waits for step 6 or 7.
 6. **Release `dist/`.** Version the package, commit prebuilt files, and have the core's advisor UI pin a version.
 7. **Move to its own repository** once steps 1 to 6 land.
 
