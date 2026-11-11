@@ -175,6 +175,7 @@
             "commit_reverted",
             "code_survival",
             "milestone",
+            "approval",
             "notified"
           ]
         },
@@ -218,6 +219,12 @@
         },
         "advisor": {
           "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "asked",
+            "denied"
+          ]
         }
       }
     },
