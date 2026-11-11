@@ -122,7 +122,7 @@ Besides the built-ins, Snagboat runs **rules**: heuristics written as JSON inste
 
 Rules come from two places, and a rule in settings replaces a saved rule with the same id:
 
-- **Saved rules** in `rules.json` in VS Code's global storage, shared by every workspace. Each saved rule records who proposed it, when, and its replay score. Nothing adds saved rules yet: discovery (phase 2 of the [advisor design](design/trusted-advisor.md#phases)) will.
+- **Saved rules** in `rules.json` in VS Code's global storage (`~/.snagboat/rules.json` with `snagboat.storage.perUserStore` on), shared by every workspace. Each saved rule records who proposed it, when, and its replay score. Rules you accept in the [Suggestions tab](#discovery) or import with **Snagboat: Import Rules...** are saved here.
 - **`snagboat.rules`** in settings, for writing rules by hand.
 
 A rule that doesn't validate is ignored. Each problem is listed in the Snagboat output (and again by **Snagboat: Show Token/Event Breakdown**), and the status bar shows a health warning until it's fixed.
