@@ -10,6 +10,8 @@ const UPDATE_DEBOUNCE_MS = 500;
 export interface DetailPanelHooks {
   buildState(isOpenable: (target: string) => boolean): DetailState;
   acknowledge(heuristicId: string): void;
+  /** Marks a finding useful (and acknowledges it). */
+  useful(heuristicId: string): void;
   setMuted(heuristicId: string, muted: boolean): void;
   sessions: SessionController;
   suggestions: SuggestionsController;
@@ -236,6 +238,9 @@ export class DetailPanel implements vscode.Disposable {
         break;
       case 'acknowledge':
         this.hooks.acknowledge(message.heuristicId);
+        break;
+      case 'useful':
+        this.hooks.useful(message.heuristicId);
         break;
       case 'setMuted':
         this.hooks.setMuted(message.heuristicId, message.muted);

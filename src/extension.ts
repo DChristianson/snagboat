@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import { EventBus } from './core/eventBus';
+import { OUTCOMES_ADAPTER, TestsGreen } from './outcomes/testsGreen';
 import { EventLog } from './core/eventLog';
 import { Aggregate, AggregateSnapshot, TodayAggregate } from './core/aggregate';
 import { EventStore, ReadonlyEventStore } from './core/eventStore';
@@ -28,7 +29,7 @@ import { headlineLine, headlineMessages } from './advisor/summarizeSession';
 import { Headliner, HeadlineEntry } from './advisor/headlines';
 import { positiveNumberOr } from './heuristics/settings';
 import { Nudge, Nudger, NudgeSettings, NotifyLevel } from './nudges/nudger';
-import { ResponseLog, ResponseTracker } from './heuristics/responses';
+import { episodeResponse, ResponseEpisode, ResponseLog, ResponseTracker } from './heuristics/responses';
 import { buildReview, isoWeek, renderReview, Review } from './review/review';
 import { advisorSection, summarizeWeekMessages } from './advisor/summarizeWeek';
 import * as os from 'os';
@@ -64,6 +65,8 @@ import { SuggestionsController } from './ui/suggestionsController';
 import { exportRules, importRules } from './ui/ruleTransfer';
 
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
+/** A finding that passed unanswered in less time than this isn't recorded as an outcome: it flickered. */
+const MIN_PASSED_EPISODE_MS = 30_000;
 const MUTED_HEURISTICS_KEY = 'snagboat.mutedHeuristics';
 // Global: saved rules are shared by every workspace, so a dismissed suggestion stays dismissed everywhere.
 const DISMISSED_SUGGESTIONS_KEY = 'snagboat.dismissedSuggestions';
@@ -192,7 +195,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const responseLog = new ResponseLog(storageDir);
   void responseLog.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
   if (!context.workspaceState.get<string>(RESPONDING_SINCE_KEY)) void context.workspaceState.update(RESPONDING_SINCE_KEY, new Date().toISOString());
-  const responses = new ResponseTracker((episode) => responseLog.append(episode));
+  // Each ended episode is also an outcome (RFC step 4: finding usefulness), once the bus exists to carry it.
+  let recordResponse: (episode: ResponseEpisode, refs: string[]) => void = () => undefined;
+  const responses = new ResponseTracker((episode, refs) => {
+    responseLog.append(episode);
+    recordResponse(episode, refs);
+  });
   context.subscriptions.push({ dispose: () => responseLog.appendNow(responses.drain()) });
   const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []), responses);
   const contextLimitFor = (model: string | undefined) => (model ? contextLimits.get(model)?.limit : undefined);
@@ -369,6 +377,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     sessions,
     today: todayKey,
     acknowledge: (heuristicId) => findings.acknowledge(heuristicId),
+    useful: (heuristicId) => findings.markUseful(heuristicId),
     setMuted: (heuristicId, muted) => {
       findings.setMuted(heuristicId, muted);
       void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
@@ -390,6 +399,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   findings.onChange(refresh);
 
   const bus = new EventBus();
+  const testsGreen = new TestsGreen();
+  recordResponse = (episode, refs) => {
+    const response = episodeResponse(episode);
+    const endedAt = episode.endedAt;
+    if (!endedAt) return;
+    // A finding that came and went within seconds unanswered says nothing about its use: it flickered (as when a
+    // window hands its findings over to the core, or back). Wait for the report that ended it to finish, too.
+    if (response === 'passed' && Date.parse(endedAt) - Date.parse(episode.startedAt) < MIN_PASSED_EPISODE_MS) return;
+    queueMicrotask(() => {
+      // A rule you deleted ended its episode by going away, not by passing.
+      if (!heuristics.some((h) => h.id === episode.heuristicId) && !fromCore.has(episode.heuristicId)) return;
+      // Filed in the session of the finding's latest event; a finding with none in reach isn't recorded.
+      const wanted = new Set(refs);
+      const ref = eventStore.query().filter((e) => wanted.has(e.eventId)).pop();
+      if (!ref) return;
+      bus.publish({
+        eventId: `outcome:finding_response:${episode.heuristicId}:${episode.startedAt}`,
+        sessionId: ref.sessionId,
+        agent: ref.agent,
+        ts: endedAt,
+        kind: 'outcome',
+        status: 'unknown',
+        outcome: { type: 'finding_response', heuristicId: episode.heuristicId, response, refs },
+        raw: { adapter: OUTCOMES_ADAPTER, ref: `finding:${episode.heuristicId}:${episode.startedAt}` },
+      });
+    });
+  };
   // Retention runs, aggregate merges from the sink, and Clear Event Log all
   // touch the same files, so they share one queue and never interleave.
   let retentionQueue: Promise<void> = Promise.resolve();
@@ -421,6 +457,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       sessionIndex.reset();
       eventStore.reset();
       loggedIds.clear();
+      testsGreen.reset();
       const logged = await eventLog.snapshot();
       await aggregate.rehydrateFrom(logged, aggregateStore);
       await todayAggregate.rehydrateFrom(logged);
@@ -449,6 +486,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     }
     if (loggedIds.has(event.eventId)) return;
     loggedIds.add(event.eventId);
+    // A window writing its own folder works out outcomes too (the core does for its clients).
+    if (!core) for (const outcome of testsGreen.observe([event])) queueMicrotask(() => bus.publish(outcome));
     contextLimits.observe(event);
     // An event older than all retention isn't stored, so it's left out of the
     // all-time totals and chart too; they'd otherwise drop on the next reload.
@@ -636,11 +675,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   };
   showNudge = (nudge: Nudge) => {
     const text = `Snagboat: ${nudge.summary}${nudge.suggestedAction ? `. ${nudge.suggestedAction}` : ''}`;
-    const actions = [...(nudge.sessionId ? ['Show in Session'] : []), ...(nudge.sessionId ? ['Explain'] : []), ...(nudge.early ? [] : ['Acknowledge']), 'Mute'];
+    const actions = [...(nudge.sessionId ? ['Show in Session'] : []), ...(nudge.sessionId ? ['Explain'] : []), ...(nudge.early ? [] : ['Useful', 'Acknowledge']), 'Mute'];
     const shown = nudge.severity === 'warn' ? vscode.window.showWarningMessage(text, ...actions) : vscode.window.showInformationMessage(text, ...actions);
     void shown.then((choice) => {
       if (choice === 'Show in Session' && nudge.sessionId) detailPanel.show({ sessionId: nudge.sessionId });
       else if (choice === 'Explain' && nudge.sessionId) void advisor.explain({ sessionId: nudge.sessionId, ...(nudge.turnId ? { turnId: nudge.turnId } : {}), ...(nudge.early ? {} : { heuristicId: nudge.heuristicId }) });
+      else if (choice === 'Useful') findings.markUseful(nudge.heuristicId);
       else if (choice === 'Acknowledge') findings.acknowledge(nudge.heuristicId);
       else if (choice === 'Mute') {
         findings.setMuted(nudge.heuristicId, true);
@@ -930,6 +970,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         sessions.closeExplorer();
         eventStore.reset();
         loggedIds.clear();
+        testsGreen.reset();
       }));
       retentionQueue = clearOp.catch(() => undefined);
       try {

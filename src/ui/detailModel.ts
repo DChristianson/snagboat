@@ -41,6 +41,8 @@ export interface FindingItem {
   /** The session most of its events belong to, for "Show in session". */
   sessionId?: string;
   acknowledged: boolean;
+  /** Marked useful this episode. */
+  useful: boolean;
   muted: boolean;
 }
 
@@ -60,6 +62,7 @@ export interface DetailState {
 export type DetailMessage =
   | { type: 'ready' }
   | { type: 'acknowledge'; heuristicId: string }
+  | { type: 'useful'; heuristicId: string }
   | { type: 'setMuted'; heuristicId: string; muted: boolean }
   | { type: 'openFile'; target: string }
   | { type: 'tab'; tab: DetailTab }
@@ -92,6 +95,7 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
     case 'ready':
       return true;
     case 'acknowledge':
+    case 'useful':
       return typeof m.heuristicId === 'string';
     case 'setMuted':
       return typeof m.heuristicId === 'string' && typeof m.muted === 'boolean';
@@ -207,7 +211,7 @@ export function buildDetailState(inputs: {
         openable: e.target !== undefined && inputs.isOpenable(e.target),
       })),
     },
-    findings: inputs.findings.map(({ finding, acknowledged, muted }) => ({
+    findings: inputs.findings.map(({ finding, acknowledged, useful, muted }) => ({
       sessionId: dominantSession(finding.eventRefs, sessionOf),
       heuristicId: finding.heuristicId,
       severity: finding.severity,
@@ -216,6 +220,7 @@ export function buildDetailState(inputs: {
       detectedAt: finding.detectedAt,
       eventRefs: finding.eventRefs,
       acknowledged,
+      useful,
       muted,
     })),
     muted: inputs.muted,

@@ -1,10 +1,10 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { NormalizedEvent, NormalizedEventKind, normalizedEventSchema, normalizedEventSchemaV1, TOOL_CATEGORY_LABELS } from '@snagboat/schema';
+import { EventOutcome, NormalizedEvent, NormalizedEventKind, normalizedEventSchema, normalizedEventSchemaV1, normalizedEventSchemaV2, TOOL_CATEGORY_LABELS } from '@snagboat/schema';
 import { sessionEvents } from '../../scripts/replayHeuristics';
 import { syntheticEvents } from '../../web/synthetic';
 
-// The JSON Schema in @snagboat/schema (normalizedEvent.v2.schema.json) must describe the
+// The JSON Schema in @snagboat/schema (normalizedEvent.v3.schema.json) must describe the
 // events Snagboat actually writes. A compile-time check in jsonSchema.ts keeps its field
 // list equal to NormalizedEvent's; this test checks the values: enums against the
 // TypeScript unions, and real events (the Claude Code fixture, the web demo's
@@ -44,8 +44,10 @@ async function main() {
   test('enums match the TypeScript unions', () => {
     // A Record over the union is exhaustive at compile time, so these key lists are complete.
     const kinds: Record<NormalizedEventKind, true> = {
-      tool_call: true, edit: true, turn_start: true, turn_stop: true, user_prompt: true, compaction: true, session_name: true,
+      tool_call: true, edit: true, turn_start: true, turn_stop: true, user_prompt: true, compaction: true, session_name: true, outcome: true,
     };
+    const outcomeTypes: Record<EventOutcome['type'], true> = { tests_green: true, finding_response: true };
+    const responses: Record<NonNullable<EventOutcome['response']>, true> = { useful: true, muted: true, acknowledged: true, passed: true };
     const statuses: Record<NormalizedEvent['status'], true> = { success: true, failure: true, unknown: true };
     const triggers: Record<NonNullable<NormalizedEvent['compaction']>['trigger'], true> = { auto: true, manual: true, unknown: true };
     const sorted = (xs: string[]) => [...xs].sort();
@@ -53,6 +55,11 @@ async function main() {
     assert.deepStrictEqual(sorted(props.status.enum), sorted(Object.keys(statuses)));
     assert.deepStrictEqual(sorted(props.compaction.properties.trigger.enum), sorted(Object.keys(triggers)));
     assert.deepStrictEqual(sorted(props.toolCategory.anyOf[0].enum), sorted(Object.keys(TOOL_CATEGORY_LABELS)));
+    assert.deepStrictEqual(sorted(props.outcome.properties.type.enum), sorted(Object.keys(outcomeTypes)));
+    assert.deepStrictEqual(sorted(props.outcome.properties.response.enum), sorted(Object.keys(responses)));
+    // The compile-time check covers the event's fields; this covers the outcome's.
+    const outcomeFields: Record<keyof EventOutcome, true> = { type: true, refs: true, failures: true, afterMs: true, heuristicId: true, response: true };
+    assert.deepStrictEqual(sorted(Object.keys(props.outcome.properties)), sorted(Object.keys(outcomeFields)));
   });
 
   test('the validator rejects what the schema forbids', () => {
@@ -78,15 +85,31 @@ async function main() {
     const v1 = normalizedEventSchemaV1 as Schema;
     const ok = { eventId: 'e', sessionId: 's', agent: 'claude-code', ts: '2026-11-09T00:00:00Z', kind: 'edit', status: 'success', raw: { adapter: 'a', ref: 'r' } };
     const tagged = { ...ok, workspace: '/w/project' };
-    assert.deepStrictEqual(validate(schema, tagged), []);
+    const v2 = normalizedEventSchemaV2 as Schema;
+    assert.deepStrictEqual(validate(v2, tagged), []);
     assert.ok(validate(v1, tagged).length > 0, 'version 1 has no workspace');
-    assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in v1.properties)), ['workspace']);
-    assert.deepStrictEqual(Object.keys(v1.properties).filter((k) => !(k in props)), []);
+    assert.deepStrictEqual(Object.keys(v2.properties).filter((k) => !(k in v1.properties)), ['workspace']);
+    assert.deepStrictEqual(Object.keys(v1.properties).filter((k) => !(k in v2.properties)), []);
     for (const e of syntheticEvents()) {
       const event = JSON.parse(JSON.stringify(e));
       assert.deepStrictEqual(validate(v1, event), [], e.eventId);
       assert.deepStrictEqual(validate(schema, event), [], e.eventId);
     }
+  });
+
+  test('version 3 adds outcome events; every version 2 event is a valid version 3 event', () => {
+    const v2 = normalizedEventSchemaV2 as Schema;
+    const green = {
+      eventId: 'outcome:tests_green:t2', sessionId: 's', agent: 'claude-code', ts: '2026-11-09T00:00:00Z', kind: 'outcome', status: 'success',
+      outcome: { type: 'tests_green', refs: ['t1', 't2'], failures: 1, afterMs: 60000 }, raw: { adapter: 'snagboat-outcomes', ref: 'tests:t2' },
+    };
+    assert.deepStrictEqual(validate(schema, green), []);
+    assert.ok(validate(v2, green).length > 0, 'version 2 has no outcome');
+    assert.ok(validate(schema, { ...green, outcome: { type: 'mood' } }).length > 0);
+    assert.ok(validate(schema, { ...green, outcome: { type: 'finding_response', response: 'loved' } }).length > 0);
+    assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in v2.properties)), ['outcome']);
+    assert.deepStrictEqual(Object.keys(v2.properties).filter((k) => !(k in props)), []);
+    for (const e of syntheticEvents()) assert.deepStrictEqual(validate(v2, JSON.parse(JSON.stringify(e))), [], e.eventId);
   });
 
   test("every event in the web demo's synthetic sessions is valid", () => {

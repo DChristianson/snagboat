@@ -11,7 +11,7 @@ Each observed action becomes one normalized event (see [docs/schema.md](docs/sch
 | Source | Field | What it holds |
 | --- | --- | --- |
 | Claude Code hooks | `target` | The tool's `file_path`, or the **full shell command string** for Bash calls. Commands can contain secrets such as tokens in headers, credentials in connection strings, or exported environment variables. |
-| Claude Code hooks | `raw.ref` | The tool name (`hook:PostToolUse:<tool>`) |
+| Claude Code hooks | `raw.ref` | The hook and tool name (`hook:PostToolUse:<tool>`, `hook:PostToolUseFailure:<tool>`) |
 | Claude Code transcript | `raw.ref` | The transcript file path and byte offset the event came from |
 | Claude Code transcript | `user_prompt` events | When you sent each prompt, and its id. Its text is in `promptText` (below) when text capture is on. |
 | Claude Code transcript | `compaction` events | When the context was compacted, whether automatically or by you, and the context size before and after |
@@ -80,12 +80,12 @@ All under the extension's per-workspace storage folder unless noted. With `snagb
 
 | Store | Contents | Retention |
 | --- | --- | --- |
-| `events/<date>.jsonl` | Every normalized event, including `target` and, when capture is on, `promptText`, `textExcerpt`, and `sessionName` | `snagboat.retention.rawDays` (default 90 days, counting today); `promptText` and `textExcerpt` only `snagboat.retention.textDays` (default 30) |
+| `events/<date>.jsonl` | Every normalized event, including `target` and, when capture is on, `promptText`, `textExcerpt`, and `sessionName`; and outcome events Snagboat works out (a test run going green, how you met a finding: heuristic id, your response, and the ids of the events involved; no content) | `snagboat.retention.rawDays` (default 90 days, counting today); `promptText` and `textExcerpt` only `snagboat.retention.textDays` (default 30) |
 | `aggregates/<date>.json` | Per-day, per-agent token and event counts. No targets or text. | `snagboat.retention.aggregateDays` (default `-1`, kept indefinitely; `0` keeps none) |
 | `checkpoints/<adapter>.json` | Read offsets into Claude Code transcript files (including subagent transcripts), the last few API message ids seen in each, and each file's most recent prompt id, keyed by transcript path (Copilot's: offsets and last turn per session log) | Until the transcript or session log is deleted (its entry is dropped at the next activation), or cleared manually; not covered by `Clear Event Log` |
 | `snagboat-workspace.json` | In VS Code's storage folder only (not the per-user store): the path of this workspace's folder, or of its `.code-workspace` file, so the `snagboat` CLI knows whose store it is (VS Code's server doesn't record it). | Rewritten when a window opens the workspace; until Snagboat is uninstalled |
 | VS Code workspace state | The list of muted heuristics, and when Snagboat started recording your responses to findings | Until unmuted, or Snagboat is uninstalled |
-| `finding-responses.jsonl` | One line per finding episode: heuristic id, worst severity, when it started and ended, and when you acknowledged or muted it. No summaries or targets. Read by **Snagboat: Write Review**. | `snagboat.retention.rawDays`, pruned at activation; removed by `Clear Event Log` |
+| `finding-responses.jsonl` | One line per finding episode: heuristic id, worst severity, when it started and ended, and when you marked it useful, acknowledged or muted it. No summaries or targets. Read by **Snagboat: Write Review**. | `snagboat.retention.rawDays`, pruned at activation; removed by `Clear Event Log` |
 | `~/.snagboat/reviews/<week>-<workspace>.md` (or `snagboat.advisor.reviewDirectory`) | Reviews you write with **Snagboat: Write Review**: token and call counts by model, day, and tool category; session ids; heuristic and rule ids, titles, and episode counts; your response counts; status bar snapshots with findings shown only by heuristic id. No prompts, replies, paths, commands, or session names. | Until you delete them; Snagboat never reads them back or sends them anywhere |
 | VS Code global state | The ids of suggestions you dismissed in the Suggestions tab, shared by all workspaces. No content. | Until you show dismissed suggestions again |
 | VS Code webview state | The detail view's filters, including the timeline search text | Managed by VS Code |
@@ -107,7 +107,7 @@ All under the extension's per-workspace storage folder unless noted. With `snagb
 | `~/.snagboat/data/spool/events/` | Only with the core service: events for a workspace whose VS Code window is writing the per-user store itself (waiting until that window closes) or holding it while a command rewrites it, and events a window sent while the core wasn't running. The same fields as the event log. Owner-only. | Moved into the workspace's event log, and deleted, once the window has closed or let go (within 30 seconds, or when the core next starts) |
 | `~/.snagboat/data/workspaces/<workspace>/writer.json` | With `snagboat.storage.perUserStore` on: the process id of a VS Code window writing that workspace's folder itself (the core couldn't start), or holding it while backfill, relabelling, removing captured text or clearing the log rewrites it, so the core service leaves it alone | Removed when the window closes, or when the command finishes |
 | `~/.snagboat/bin/snagboat-hook` | The hook forwarder script that Claude Code runs | Rewritten on every activation |
-| `<project>/.claude/settings.json` | Outside Snagboat's storage: the `PostToolUse`/`Stop` hook entries Snagboat adds so Claude Code runs `snagboat-hook` | Until removed with `Snagboat: Remove Claude Code Hooks from Project...` or by hand |
+| `<project>/.claude/settings.json` | Outside Snagboat's storage: the `PostToolUse`/`PostToolUseFailure`/`Stop` hook entries Snagboat adds so Claude Code runs `snagboat-hook` | Until removed with `Snagboat: Remove Claude Code Hooks from Project...` or by hand |
 
 Snagboat also reads data it doesn't own: Claude Code transcripts (`~/.claude/projects/…`), Copilot CLI session logs and their `workspace.yaml` (`~/.copilot/session-state/…`), and Copilot's OTel export. It never modifies or deletes them.
 

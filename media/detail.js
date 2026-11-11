@@ -185,7 +185,7 @@
             el('div', { class: 'head' }, [
               el('span', { class: `badge ${f.severity}`, text: f.severity === 'warn' ? 'Warning' : 'Info' }),
               el('strong', { text: f.heuristicId }),
-              f.acknowledged && el('span', { class: 'muted small', text: 'Acknowledged: hidden from the status bar until it clears' }),
+              f.acknowledged && el('span', { class: 'muted small', text: f.useful ? 'Marked useful: hidden from the status bar until it clears' : 'Acknowledged: hidden from the status bar until it clears' }),
             ]),
             el('p', { class: 'summary', text: f.summary }),
             f.suggestedAction && el('p', { class: 'muted small', text: f.suggestedAction }),
@@ -206,6 +206,12 @@
                     persist({ sessionId: f.sessionId });
                     vscode.postMessage({ type: 'openSession', sessionId: f.sessionId });
                   },
+                }),
+              !f.useful &&
+                el('button', {
+                  text: 'Useful',
+                  title: 'This finding helped; also hides it from the status bar until it clears',
+                  onclick: () => vscode.postMessage({ type: 'useful', heuristicId: f.heuristicId }),
                 }),
               !f.acknowledged &&
                 el('button', { text: 'Acknowledge', onclick: () => vscode.postMessage({ type: 'acknowledge', heuristicId: f.heuristicId }) }),

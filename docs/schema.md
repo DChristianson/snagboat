@@ -1,8 +1,8 @@
 # Common schema and transformation matrix
 
-The types below live in [packages/schema/src/types.ts](../packages/schema/src/types.ts), in the `@snagboat/schema` workspace package that Snagboat and Factory Clock share ([design/architecture-rfc.md](design/architecture-rfc.md)). The same shape is published as JSON Schema in [normalizedEvent.v2.schema.json](../packages/schema/src/normalizedEvent.v2.schema.json); a compile-time check keeps its field list equal to the type's, and `normalizedEventSchema.unit.test.ts` validates real events against it.
+The types below live in [packages/schema/src/types.ts](../packages/schema/src/types.ts), in the `@snagboat/schema` workspace package that Snagboat and Factory Clock share ([design/architecture-rfc.md](design/architecture-rfc.md)). The same shape is published as JSON Schema in [normalizedEvent.v3.schema.json](../packages/schema/src/normalizedEvent.v3.schema.json); a compile-time check keeps its field list equal to the type's, and `normalizedEventSchema.unit.test.ts` validates real events against it.
 
-**Versions.** Version 2 adds `workspace`; nothing else changed. Every version 1 event is a valid version 2 event, so a reader takes both, and logs written before version 2 need no conversion. Version 1 stays published as [normalizedEvent.v1.schema.json](../packages/schema/src/normalizedEvent.v1.schema.json) (`normalizedEventSchemaV1`). The package imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`).
+**Versions.** Version 3 adds the `outcome` kind and the `outcome` field (below); version 2 added `workspace`. Each version only adds, so every version 1 and 2 event is a valid version 3 event, a reader takes all three, and older logs need no conversion. A reader that switches on `kind` should ignore kinds it doesn't know. Versions 1 and 2 stay published as [normalizedEvent.v1.schema.json](../packages/schema/src/normalizedEvent.v1.schema.json) (`normalizedEventSchemaV1`) and [normalizedEvent.v2.schema.json](../packages/schema/src/normalizedEvent.v2.schema.json) (`normalizedEventSchemaV2`). Version 3 is unreleased: it may still gain outcome types and fields before the `refactor` branch ships. The package imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`).
 
 ## `NormalizedEvent`
 
@@ -16,7 +16,8 @@ interface NormalizedEvent {
   agent: AgentId;
   ts: string;
   kind: 'tool_call' | 'tool_result' | 'edit' | 'test_run'
-    | 'turn_start' | 'turn_stop' | 'user_prompt' | 'compaction' | 'session_name';
+    | 'turn_start' | 'turn_stop' | 'user_prompt' | 'compaction' | 'session_name'
+    | 'outcome';           // v3
   target?: string;
   status: 'success' | 'failure' | 'unknown';
   model?: string;
@@ -39,6 +40,14 @@ interface NormalizedEvent {
   contextLimit?: number; // the model's prompt budget for this call, when reported
   endsTurn?: true;       // this event ends its turn (see below)
   workspace?: string;    // v2: the workspace it was recorded in (see below)
+  outcome?: {            // v3, outcome events: what was measured (see below)
+    type: 'tests_green' | 'finding_response';
+    refs?: string[];       // the events it's about
+    failures?: number;     // tests_green: failed runs before it passed
+    afterMs?: number;      // tests_green: first failure to green
+    heuristicId?: string;  // finding_response
+    response?: 'useful' | 'muted' | 'acknowledged' | 'passed';  // finding_response
+  };
   confidence?: number;
   raw: {
     adapter: string;
@@ -52,6 +61,13 @@ interface NormalizedEvent {
 
 `workspace` (version 2) names the workspace an event was recorded in: its folder path, its `.code-workspace` file path, or `(no folder)` for a window with no folder open (a remote window's is its URI, such as `vscode-remote://…`). It's set on every event in the per-user store (`~/.snagboat/data`, `snagboat.storage.perUserStore`), which holds every workspace's events, and absent in a VS Code window's own storage, which holds only that window's. `snagboat migrate` sets it on the events it copies there.
 
+`outcome` events (version 3) measure how work went; Snagboat works them out, no agent reports them (`raw.adapter` is `snagboat-outcomes`). Each is filed in the session it's about:
+
+- `tests_green`: a tool call in the tests-builds category succeeded after one or more failed in the same session. `refs` names the first failure and the passing run; its id is derived from the passing run's, so reading the same events again adds nothing. Whoever writes the workspace's events works it out: the core, or a window writing its own folder.
+- `finding_response`: a finding's episode ended, and `response` says how you met it, strongest first: marked **Useful**, muted, acknowledged, or let it pass. `refs` are the finding's events; filed in the session of the latest one still in the window's recent events.
+
+Outcome events don't count as agent activity: they're left out of totals, the daily chart, session lists and heuristics. The RFC's other outcomes (commits kept or reverted, code survival, milestones) come next.
+
 `model` is optional and populated per event where the source reliably reports it, since coverage varies by adapter: the Claude Code transcript carries `message.model` directly alongside `message.usage` on every assistant turn, so the `claude-code` adapter should populate it whenever it emits token-bearing `turn_stop` events. Copilot OTel spans/metrics are expected to carry the model via the OpenTelemetry GenAI semantic conventions (`gen_ai.request.model` / `gen_ai.response.model`), so the `copilot` adapter's OTel path should populate it once that is verified against a live capture. Copilot's log-scrape path should leave `model` unset rather than guessing: its local session log's model field is consistently empty regardless of which model actually served the request. Per-event `model` is intended to support future per-model cost-weighting in longer-horizon rollups, distinct from the flat token totals used today.
 
 ## Transformation matrix
@@ -60,7 +76,7 @@ Every adapter should document how each raw signal maps into the shared schema.
 
 | Raw signal | Source | `kind` | `target` | `status` | `tokens` | `textExcerpt` | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `PostToolUse` hook payload | Claude Code | `tool_call` | `tool_input.file_path` or `.command` | Derived from `tool_response.error` | — | — | Hooks provide structure but not usage. |
+| `PostToolUse` and `PostToolUseFailure` hook payloads | Claude Code | `tool_call` | `tool_input.file_path` or `.command` | `success` from `PostToolUse` (`failure` if `tool_response.error`); `failure` from `PostToolUseFailure` (a failed call, or a Bash command exiting non-zero), `unknown` if `is_interrupt` | — | — | Hooks provide structure but not usage. |
 | `Stop` hook payload | Claude Code | `turn_stop` with `endsTurn` | — | `unknown` | — | — | Marks the end of a turn. |
 | `prompt_id`, `agent_id` on any hook payload | Claude Code | Decorates the hook's event | — | — | — | — | Become `turnId` and `agentId`. Payloads without `prompt_id` (older Claude Code) take the session's current turn from the transcript. |
 | Transcript message with usage block | Claude Code JSONL | `turn_stop` | — | `unknown` | Direct map from `input_tokens`, `output_tokens`, and cache fields, **once per `message.id`** | See next row | Primary token-accounting source. Claude Code writes one line per content block (thinking, text, tool_use), each repeating the whole message's `usage`; consecutive lines sharing a `message.id` are merged into one event. |
@@ -93,7 +109,7 @@ The schema is designed so sensitive content remains optional:
 
 - structural fields (`kind`, `status`, `target`, `tokens`) support most heuristics and reporting
 - `promptText` and `textExcerpt` are captured by default (`snagboat.captureContent`), redacted, and kept for `snagboat.retention.textDays` (default 30), after which they're removed from their events; `sessionName` stays with its session (see [PRIVACY.md](../PRIVACY.md#retention))
-- `session_name` events are metadata: they don't count as agent activity in totals or heuristics
+- `session_name` and `outcome` events don't count as agent activity in totals or heuristics
 - `target` is structural for file paths but can carry sensitive content for shell commands, so it is a candidate for a shorter retention too
 - `raw.ref` points back to source material without copying entire payloads into the normalized record
 - `raw.event` is optional debug data and should be omitted unless an adapter has a clear inspection need

@@ -1,12 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { FindingResponse } from '@snagboat/schema';
 import { Finding } from './types';
 
 /**
  * How you responded to findings: one record per episode (a heuristic
- * reporting, until it stops), with when it was acknowledged or muted. The
- * review reads these to see which findings get noticed. Heuristic ids,
- * severities, and times only: no summaries or targets.
+ * reporting, until it stops), with when it was marked useful, acknowledged
+ * or muted. The review reads these to see which findings get noticed. Heuristic
+ * ids, severities, and times only: no summaries or targets.
  */
 export interface ResponseEpisode {
   heuristicId: string;
@@ -17,23 +18,41 @@ export interface ResponseEpisode {
   endedAt?: string;
   acknowledgedAt?: string;
   mutedAt?: string;
+  /** You marked it useful (which also acknowledges it). */
+  usefulAt?: string;
 }
 
-/** Follows the findings registry and writes each episode when it ends (or the window closes). */
+/** How an episode was met, strongest first: useful, muted, acknowledged, else it passed (RFC step 4's finding usefulness). */
+export function episodeResponse(episode: ResponseEpisode): FindingResponse {
+  if (episode.usefulAt) return 'useful';
+  if (episode.mutedAt) return 'muted';
+  if (episode.acknowledgedAt) return 'acknowledged';
+  return 'passed';
+}
+
+/**
+ * Follows the findings registry and writes each episode when it ends (or the
+ * window closes). An ended episode also comes with the events its findings
+ * last named, for the outcome it records.
+ */
 export class ResponseTracker {
   private open = new Map<string, ResponseEpisode>();
+  private refs = new Map<string, string[]>();
 
-  constructor(private readonly write: (episode: ResponseEpisode) => void, private readonly now: () => string = () => new Date().toISOString()) {}
+  constructor(private readonly write: (episode: ResponseEpisode, refs: string[]) => void, private readonly now: () => string = () => new Date().toISOString()) {}
 
   reported(heuristicId: string, findings: Finding[]): void {
     const episode = this.open.get(heuristicId);
     if (findings.length === 0) {
       if (episode) {
         this.open.delete(heuristicId);
-        this.write({ ...episode, endedAt: this.now() });
+        const refs = this.refs.get(heuristicId) ?? [];
+        this.refs.delete(heuristicId);
+        this.write({ ...episode, endedAt: this.now() }, refs);
       }
       return;
     }
+    this.refs.set(heuristicId, [...new Set(findings.flatMap((f) => f.eventRefs))]);
     const severity = findings.some((f) => f.severity === 'warn') ? 'warn' : 'info';
     if (!episode) this.open.set(heuristicId, { heuristicId, severity, startedAt: this.now() });
     else if (severity === 'warn') episode.severity = 'warn';
@@ -42,6 +61,13 @@ export class ResponseTracker {
   acknowledged(heuristicId: string): void {
     const episode = this.open.get(heuristicId);
     if (episode && !episode.acknowledgedAt) episode.acknowledgedAt = this.now();
+  }
+
+  useful(heuristicId: string): void {
+    const episode = this.open.get(heuristicId);
+    if (!episode) return;
+    episode.usefulAt ??= this.now();
+    episode.acknowledgedAt ??= episode.usefulAt;
   }
 
   muted(heuristicId: string, muted: boolean): void {
@@ -53,6 +79,7 @@ export class ResponseTracker {
   drain(): ResponseEpisode[] {
     const open = [...this.open.values()].map((e) => ({ ...e }));
     this.open.clear();
+    this.refs.clear();
     return open;
   }
 }
@@ -116,6 +143,8 @@ export interface ResponseStats {
   episodes: number;
   warnings: number;
   acknowledged: number;
+  /** Marked useful (each also counts as acknowledged). */
+  useful: number;
   /** Median minutes from appearing to acknowledged, over acknowledged episodes. */
   medianMinutesToAcknowledge?: number;
   /** Ended on their own, never acknowledged or muted: nobody acted on them. */
@@ -128,13 +157,14 @@ export function responseStats(episodes: ResponseEpisode[]): Map<string, Response
   const out = new Map<string, ResponseStats>();
   const ackMinutes = new Map<string, number[]>();
   for (const e of episodes) {
-    const s = out.get(e.heuristicId) ?? { episodes: 0, warnings: 0, acknowledged: 0, expiredUnacknowledged: 0, muted: 0 };
+    const s = out.get(e.heuristicId) ?? { episodes: 0, warnings: 0, acknowledged: 0, useful: 0, expiredUnacknowledged: 0, muted: 0 };
     s.episodes += 1;
     if (e.severity === 'warn') s.warnings += 1;
     if (e.acknowledgedAt) {
       s.acknowledged += 1;
       ackMinutes.set(e.heuristicId, [...(ackMinutes.get(e.heuristicId) ?? []), (Date.parse(e.acknowledgedAt) - Date.parse(e.startedAt)) / 60_000]);
     }
+    if (e.usefulAt) s.useful += 1;
     if (e.mutedAt) s.muted += 1;
     if (e.endedAt && !e.acknowledgedAt && !e.mutedAt) s.expiredUnacknowledged += 1;
     out.set(e.heuristicId, s);

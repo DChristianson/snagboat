@@ -18,7 +18,7 @@ See [PRIVACY.md](../PRIVACY.md) for what each source records and where everythin
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `snagboat.claudeCode.configureHooks` | `true` | Add Snagboat's `PostToolUse` and `Stop` hooks to each workspace folder's `.claude/settings.json` (set per folder). Off leaves the file alone: token usage still comes from transcripts, but tool calls and turn ends from hooks stop. **Snagboat: Remove Claude Code Hooks from Project...** removes existing entries and turns this off. |
+| `snagboat.claudeCode.configureHooks` | `true` | Add Snagboat's `PostToolUse`, `PostToolUseFailure` and `Stop` hooks to each workspace folder's `.claude/settings.json` (set per folder). Off leaves the file alone: token usage still comes from transcripts, but tool calls and turn ends from hooks stop. **Snagboat: Remove Claude Code Hooks from Project...** removes existing entries and turns this off. |
 | `snagboat.copilot.otlpPort` | `4318` | Local port for Copilot's OpenTelemetry export; point `github.copilot.chat.otel.otlpEndpoint` at `http://127.0.0.1:<port>`. Only one window can listen on it. |
 | `snagboat.copilot.captureStructure` | `false` | Development aid: record the structure of Copilot's telemetry (span names, links, timings, attribute names, and numbers such as token counts; every text value replaced by its length) to global storage, for mapping its spans. Summarize with `npm run summarize:copilot`. |
 

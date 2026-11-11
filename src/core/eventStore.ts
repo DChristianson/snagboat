@@ -68,6 +68,8 @@ export class EventStore implements ReadonlyEventStore {
   }
 
   ingest(event: NormalizedEvent): void {
+    // Outcomes measure how work went; they aren't activity a heuristic should see (a "stalled" session isn't un-stalled by one).
+    if (event.kind === 'outcome') return;
     this.events.push(event);
     this.evictOld(event.ts);
 

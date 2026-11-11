@@ -18,6 +18,7 @@ import { isProcessAlive } from '../processes';
 import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
 import { EventLog } from '../eventLog';
 import { FindingsService, WorkspaceFindings } from './findings';
+import { TestsGreen } from '../../outcomes/testsGreen';
 import { HEURISTICS_INTERVAL_MS } from '../../heuristics/engine';
 
 const STREAM_BATCH = 500;
@@ -199,6 +200,13 @@ export class CoreService {
       log: (line) => this.log(line),
     });
     this.writer.onWritten((workspace, events) => this.findings.ingest(workspace, events));
+    // Outcomes (RFC step 4): tests going green, worked out from what's written and written back.
+    const testsGreen = new TestsGreen();
+    this.writer.onWritten((workspace, events) => {
+      const outcomes = testsGreen.observe(events);
+      if (outcomes.length === 0) return;
+      this.writer.write(outcomes.map((o) => ({ ...o, workspace }))).catch((err) => this.log(`couldn't record outcomes: ${err instanceof Error ? err.message : String(err)}`));
+    });
     this.stopped = new Promise((resolve) => (this.resolveStopped = resolve));
     this.server = http.createServer((req, res) => void this.handle(req, res));
   }
