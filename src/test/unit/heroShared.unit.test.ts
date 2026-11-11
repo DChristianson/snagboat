@@ -3,11 +3,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vm from 'vm';
 import { SessionView } from '@snagboat/schema';
-import { EventSet } from '../../web/eventSet';
-import { syntheticEvents, syntheticSessionIds } from '../../web/synthetic';
+import { EventSet } from '@snagboat/viz/web';
+import { syntheticEvents, syntheticSessionIds } from '@snagboat/viz/web';
+import { replayFindings } from '../../web/findings';
 
 /**
- * The hero views' shared helpers in the visualization kit, media/vizkit.js (replay, force
+ * The hero views' shared helpers in the visualization kit, packages/viz/vizkit.js (replay, force
  * layout), run in Node, and the detail view's media/shared.js on top of it.
  * The files are plain browser scripts, so it's loaded into a sandbox with a bare window;
  * only the parts that build DOM need a document, and these tests don't touch them.
@@ -53,11 +54,11 @@ interface Pt {
 }
 const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
 
-/** Runs media files, in order, in one sandbox with a bare window, and returns the window. */
+/** Runs page files (repo-relative), in order, in one sandbox with a bare window, and returns the window. */
 function loadMedia(...files: string[]): Record<string, unknown> {
   const sandbox = { window: {} as Record<string, unknown> };
   for (const name of files) {
-    const file = path.join(__dirname, '..', '..', '..', 'media', name);
+    const file = path.join(__dirname, '..', '..', '..', name);
     vm.runInNewContext(fs.readFileSync(file, 'utf8'), sandbox, { filename: file });
   }
   return sandbox.window;
@@ -91,14 +92,14 @@ function frames() {
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
   const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
-  const shared = loadMedia('vizkit.js').snagboatVizKit as Shared;
-  const set = new EventSet(syntheticEvents());
+  const shared = loadMedia('packages/viz/vizkit.js').snagboatVizKit as Shared;
+  const set = new EventSet(syntheticEvents(), replayFindings);
   const views = set.explorerState(syntheticSessionIds()).sessions;
   const one = [views[0]];
   const longAfter = () => Date.parse('2030-01-01T00:00:00Z'); // the examples are long finished
 
   test('shared.js is the kit plus the detail view\'s own helpers, and the kit has none of them', () => {
-    const win = loadMedia('vizkit.js', 'shared.js');
+    const win = loadMedia('packages/viz/vizkit.js', 'media/shared.js');
     const kit = win.snagboatVizKit as Record<string, unknown>;
     const page = win.snagboatShared as Record<string, unknown>;
     for (const name of Object.keys(kit)) assert.strictEqual(page[name], kit[name], name);

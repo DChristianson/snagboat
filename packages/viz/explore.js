@@ -17,17 +17,17 @@
 //   getState()           the tab's saved state, {} the first time
 //   setState(partial)    merge these keys into the saved state
 //   onSessions(cb)       cb({ sessions, headlines }) on each list push
-//   onExplorer(cb)       cb(ExplorerState | null) on each explorer push (src/ui/explorerModel.ts)
+//   onExplorer(cb)       cb(ExplorerState | null) on each explorer push (packages/viz/src/explorerModel.ts)
 //   openSessionId()      the session open in the Sessions tab, or null (pre-checked the first time)
 //
 // ctx: the helpers from vizkit.js plus tooltip, showTip(evt, rows), hideTip(). The tab adds
-// select(selection) for each visualizer it mounts (see media/viz/registry.js).
+// select(selection) for each visualizer it mounts (see packages/viz/viz/registry.js).
 //
 // Saved state: { picked: string[], current: visualizer id, filters: { facet: [values] }, replay: { speed, loop },
 // collapsed: boolean, corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
 // selection: { sessionId?, turnId?, range?, focusId? } | null }.
 (function () {
-  // The most sessions the picker allows; matches EXPLORE_SESSION_CAP in src/ui/visualizers.ts.
+  // The most sessions the picker allows; matches EXPLORE_SESSION_CAP in packages/viz/src/catalog.ts.
   const CAP = 8;
   const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
   // The strip never gets shorter than this; in a window too short for it, the page scrolls and the nav sticks to the window's bottom.

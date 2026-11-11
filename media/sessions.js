@@ -1,6 +1,6 @@
 // Snagboat Sessions tab: a session list, then one session as a turn tree
 // (icicle) above a context timeline. See docs/design/conversation-view.md.
-// The two drawings are the registered visualizers in media/viz/ (see
+// The two drawings are the registered visualizers in packages/viz/viz/ (see
 // docs/design/visualization-explorer.md); this file is the tab's chrome
 // around them: the list, breadcrumb, buttons, prompt panel, and findings
 // table, with its own focus and selected turn mapped onto the shared

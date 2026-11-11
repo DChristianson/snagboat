@@ -1,16 +1,16 @@
-import { ExploreSessionList, ExplorerState } from '../ui/explorerModel';
-import { EventSet } from './eventSet';
+import { ExploreSessionList, ExplorerState } from '../explorerModel';
+import { EventSet, FindingsFor } from './eventSet';
 import { parseJsonl } from './jsonl';
 import { readDemoTraces } from './traces';
 import { syntheticEvents, syntheticSessionIds } from './synthetic';
 
 /**
  * The web demo's page (docs/design/visualization-explorer.md, "A web demo on
- * GitHub Pages"): mounts media/explore.js over a source backed by an EventSet
+ * GitHub Pages"): mounts the package's explore.js over a source backed by an EventSet
  * in memory, the example traces (or the generated sessions, when the page was
  * built without traces) until files are loaded, and keeps the tab's
- * small state in localStorage. This is the only DOM-touching file under
- * src/web; tsconfig.web.json checks it. Nothing here fetches, posts, or
+ * small state in localStorage. This is the only DOM-touching file in
+ * the package's TypeScript, whose tsconfig has the DOM lib. Nothing here fetches, posts, or
  * stores anything but that state: the page's CSP forbids network requests,
  * and loaded events live in memory until the tab closes.
  */
@@ -18,7 +18,7 @@ import { syntheticEvents, syntheticSessionIds } from './synthetic';
 /** The explorer's saved state, under one key. */
 const STATE_KEY = 'snagboat.explore';
 
-/** The source object media/explore.js expects (see its header). */
+/** The source object packages/viz/explore.js expects (see its header). */
 interface ExploreSource {
   listSessions(): void;
   loadSessions(ids: string[]): void;
@@ -35,11 +35,11 @@ interface ExploreTab {
   destroy(): void;
 }
 
-/** What the page's plain scripts (media/vizkit.js, media/explore.js) put on window. */
+/** What the page's plain scripts (vizkit.js, explore.js) put on window. */
 interface PageGlobals {
   snagboatVizKit: Record<string, unknown> & { tipFor(tooltip: HTMLElement): { showTip: (evt: MouseEvent, rows: unknown[]) => void; hideTip: () => void } };
   snagboatExplore: { mount(root: HTMLElement, source: ExploreSource, ctx: Record<string, unknown>): ExploreTab };
-  /** Set by demo-traces.js (web/demo/traces.js, from npm run demo:traces) when the page was built with it. */
+  /** Set by demo-traces.js (hosts/web/demo/traces.js, from npm run demo:traces) when the page was built with it. */
   snagboatDemoTraces?: { picked?: unknown; events?: unknown };
 }
 
@@ -93,7 +93,8 @@ function sourceOver(data: EventSet): ExploreSource {
   };
 }
 
-export function startPage(): void {
+/** Mounts the page; findingsFor gives each session's findings (see EventSet). */
+export function startPage(findingsFor?: FindingsFor): void {
   const globals = window as unknown as PageGlobals;
   const byId = <T extends HTMLElement>(id: string): T => {
     const node = document.getElementById(id);
@@ -136,8 +137,8 @@ export function startPage(): void {
     examplesBtn.hidden = !useTraces;
     examplesNote.hidden = false;
     examplesNote.textContent = useTraces ? TRACES_NOTE : GENERATED_NOTE;
-    if (useTraces && traces) mountExplorer(new EventSet(traces.events), traces.picked.slice(0, 2));
-    else mountExplorer(new EventSet(syntheticEvents()), syntheticSessionIds().slice(0, 2));
+    if (useTraces && traces) mountExplorer(new EventSet(traces.events, findingsFor), traces.picked.slice(0, 2));
+    else mountExplorer(new EventSet(syntheticEvents(), findingsFor), syntheticSessionIds().slice(0, 2));
   }
 
   async function loadFiles(files: ArrayLike<File>): Promise<void> {
@@ -154,7 +155,7 @@ export function startPage(): void {
       skipped += parsed.skipped;
       duplicates += parsed.duplicates;
     }
-    const data = new EventSet(events);
+    const data = new EventSet(events, findingsFor);
     const sessions = data.index.list();
     const n = (count: number, noun: string) => `${count.toLocaleString()} ${noun}${count === 1 ? '' : 's'}`;
     const notes = [`Loaded ${n(events.length, 'event')} from ${n(list.length, 'file')}: ${n(sessions.length, 'session')} on ${n(data.index.days().length, 'day')}.`];

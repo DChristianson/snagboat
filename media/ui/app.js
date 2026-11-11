@@ -616,7 +616,7 @@
     $('session-explore').replaceChildren(exploreWith('factory-clock', 'Factory Clock'), exploreWith('living-network', 'Living Network'), exploreWith('gantt', 'Gantt and waterfall'), exploreWith('tool-ribbon', 'Tool-call ribbon'), el('span', { class: 'muted small', text: 'or any of the others in Explore' }));
   }
 
-  // Explore: media/explore.js over a source that reads the core. Its saved state (picked sessions,
+  // Explore: packages/viz/explore.js over a source that reads the core. Its saved state (picked sessions,
   // the current visualizer, the puck's corner) is kept per workspace in this tab.
   let exploreTab = null;
   let exploreWorkspace = null;

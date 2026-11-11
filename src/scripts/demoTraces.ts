@@ -4,7 +4,7 @@
  * every piece of text in them. Dev tooling only; never shipped.
  *
  *   npm run demo:traces -- --events <events dir> [--events <dir> ...] --session <id or prefix> [...]
- *                          [--out web/demo/traces.js] [--report <file.md>]
+ *                          [--out packages/viz/hosts/web/demo/traces.js] [--report <file.md>]
  *
  * What goes in: only the named sessions' events, each slimmed to what the
  * session views read. Shell-command and file targets and the raw source
@@ -163,7 +163,7 @@ function readEvents(dirs: string[]): NormalizedEvent[] {
 function main(argv: string[]): void {
   const dirs: string[] = [];
   const sessions: string[] = [];
-  let outFile = path.join(__dirname, '..', '..', 'web', 'demo', 'traces.js');
+  let outFile = path.join(__dirname, '..', '..', 'packages', 'viz', 'hosts', 'web', 'demo', 'traces.js');
   let report = '';
   for (let i = 0; i < argv.length; i++) {
     const v = argv[++i];
