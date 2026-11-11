@@ -193,6 +193,8 @@ async function main() {
     process.env.SNAGBOAT_HOME = home;
     // The background core collects transcripts: point it at an empty folder, not this machine's.
     process.env.SNAGBOAT_CLAUDE_PROJECTS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-no-projects-'));
+    const savedCopilot = process.env.SNAGBOAT_COPILOT_SESSIONS_DIR;
+    process.env.SNAGBOAT_COPILOT_SESSIONS_DIR = process.env.SNAGBOAT_CLAUDE_PROJECTS_DIR;
     const cli = async (args: string[]) => {
       let out = '';
       let err = '';
@@ -225,6 +227,8 @@ async function main() {
       else process.env.SNAGBOAT_HOME = saved;
       if (savedProjects === undefined) delete process.env.SNAGBOAT_CLAUDE_PROJECTS_DIR;
       else process.env.SNAGBOAT_CLAUDE_PROJECTS_DIR = savedProjects;
+      if (savedCopilot === undefined) delete process.env.SNAGBOAT_COPILOT_SESSIONS_DIR;
+      else process.env.SNAGBOAT_COPILOT_SESSIONS_DIR = savedCopilot;
     }
   });
 

@@ -10,7 +10,7 @@ Every setting Snagboat contributes, by area. All are in the `snagboat` section o
 | `snagboat.retention.rawDays` | `90` | Days of raw events to keep, counting today. Older days are rolled up into daily totals and their raw events deleted. |
 | `snagboat.retention.textDays` | `30` | Days captured prompts and reply excerpts are kept, counting today, capped at `rawDays`. Older events keep everything else, without the text. The default matches how long Claude Code keeps its own transcripts. |
 | `snagboat.retention.aggregateDays` | `-1` | Days of daily totals to keep; `-1` keeps them forever, `0` keeps none (raw days past `rawDays` are then deleted without being rolled up). |
-| `snagboat.storage.perUserStore` | `false` | Preview (RFC step 3c-1): keep data in one per-user store, `~/.snagboat/data`, one folder per workspace, instead of VS Code's storage for each window. Turning it on copies this window's data there and leaves the original in place, so turning it off goes back to it as it was. With it on, the window starts the core service (`snagboat serve`), which collects and writes, and shows its own workspace from it (3c-3c); if the core can't start, the window writes its own folder as before. The core records Claude Code sessions in every project on the machine: see `collect.unopened` below to limit it. Set it in User settings; it is not offered under Workspace. Applies to all windows, when each reloads. See `snagboat migrate` in the CLI. |
+| `snagboat.storage.perUserStore` | `false` | Preview (RFC step 3c-1): keep data in one per-user store, `~/.snagboat/data`, one folder per workspace, instead of VS Code's storage for each window. Turning it on copies this window's data there and leaves the original in place, so turning it off goes back to it as it was. With it on, the window starts the core service (`snagboat serve`), which collects and writes, and shows its own workspace from it (3c-3c); if the core can't start, the window writes its own folder as before. The core records Claude Code and Copilot CLI sessions in every project on the machine: see `collect.unopened` below to limit it. Set it in User settings; it is not offered under Workspace. Applies to all windows, when each reloads. See `snagboat migrate` in the CLI. |
 
 See [PRIVACY.md](../PRIVACY.md) for what each source records and where everything is stored.
 
@@ -135,11 +135,11 @@ Layers, lowest first:
 
 VS Code copies only settings someone set, and only Snagboat's own; `storage.*` and the advisor's settings stay in VS Code. A key it doesn't have, such as `collect`, is left as you wrote it.
 
-Two keys exist only here, for the core service, which records every Claude Code project on the machine while it runs:
+Two keys exist only here, for the core service, which records every Claude Code and Copilot CLI project on the machine while it runs:
 
 | Key | Default | Where | Purpose |
 | --- | --- | --- | --- |
-| `collect` | `true` | defaults, a project entry, or `.snagboat.json` | `false` stops Snagboat recording that project (its transcripts and hooks). |
+| `collect` | `true` | defaults, a project entry, or `.snagboat.json` | `false` stops Snagboat recording that project (its Claude Code transcripts and hooks, and its Copilot CLI sessions). |
 | `collect.unopened` | `true` | `config.json` `"defaults"` only | `false` records only projects inside a workspace Snagboat knows: one with a folder in `~/.snagboat/data`, one in `"projects"` here, or one a VS Code window registered. |
 
 **`.snagboat.json` is shared with everyone who clones the project**, so it can set only team settings: heuristic thresholds, token budgets, `rules`, `toolCategories`, discovery and nudges. Privacy settings it can only make more private: turn `captureContent`, `copilot.captureStructure` or `claudeCode.configureHooks` off, shorten retention, or set `"collect": false`. Anything else in it is ignored, and `snagboat config` says why.
