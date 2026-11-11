@@ -17,6 +17,8 @@ import { projectDirHeader } from '../../adapters/claude-code/hooksReceiver';
 import { isProcessAlive } from '../processes';
 import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
 import { EventLog } from '../eventLog';
+import { FindingsService, WorkspaceFindings } from './findings';
+import { HEURISTICS_INTERVAL_MS } from '../../heuristics/engine';
 
 const STREAM_BATCH = 500;
 const STREAM_PING_MS = 15_000;
@@ -48,6 +50,8 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention'];
  *                              "replayed" message (3c-3c: a client window's live feed)
  *   POST /flush                waits for writes in flight, then ingests the spool of
  *                              workspaces no longer claimed (a window holding its folder)
+ *   GET  /findings[?workspace=w] the token's workspaces' findings and early warnings now (3c-3d);
+ *                              a workspace token's stream also carries them ("findings" messages)
  *   POST /retention            applies the token's workspaces' retention now (a window whose
  *                              retention settings changed) -> { changed: <days> }
  *
@@ -77,6 +81,8 @@ export interface CoreOptions {
   port?: number;
   /** Exit after this long with no requests; 0 never. Default 30 minutes. */
   idleMs?: number;
+  /** How often followed workspaces' heuristics run with no new events; default 30 seconds. */
+  heuristicsEveryMs?: number;
   /** How often to move spooled events of workspaces no longer claimed; default 30 seconds. */
   ingestEveryMs?: number;
   /** Read Claude Code transcripts and Copilot CLI sessions for every project (default true; 3c-3b, 3c-3d). */
@@ -158,6 +164,9 @@ export class CoreService {
   readonly stopped: Promise<void>;
   private readonly server: http.Server;
   private readonly writer: StoreWriter;
+  private readonly findings: FindingsService;
+  /** Streams that want findings, told of each change. */
+  private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
   /** Folder -> the .code-workspace workspace it's part of, per token that registered them. */
   private readonly tokenFolders = new Map<string, Map<string, string>>();
@@ -177,6 +186,14 @@ export class CoreService {
 
   private constructor(private readonly opts: CoreOptions) {
     this.writer = new StoreWriter(opts.home);
+    this.findings = new FindingsService({
+      home: opts.home,
+      onChange: (result) => {
+        for (const listener of this.findingsListeners) listener(result);
+      },
+      log: (line) => this.log(line),
+    });
+    this.writer.onWritten((workspace, events) => this.findings.ingest(workspace, events));
     this.stopped = new Promise((resolve) => (this.resolveStopped = resolve));
     this.server = http.createServer((req, res) => void this.handle(req, res));
   }
@@ -231,6 +248,8 @@ export class CoreService {
     void ingest().then(retention);
     core.timers.push(setInterval(ingest, opts.ingestEveryMs ?? 30_000));
     core.timers.push(setInterval(retention, opts.retentionEveryMs ?? RETENTION_INTERVAL_MS));
+    // Heuristics such as "stalled" fire on the absence of events, so followed workspaces are also evaluated on a timer.
+    core.timers.push(setInterval(() => core.findings.tick(), opts.heuristicsEveryMs ?? HEURISTICS_INTERVAL_MS));
     if (opts.collect ?? true) {
       const checkpoints = new CheckpointStore(path.join(userDataDir(opts.home), 'core'));
       await checkpoints.init();
@@ -295,6 +314,7 @@ export class CoreService {
     for (const t of this.timers) clearInterval(t);
     this.collector?.stop();
     this.copilot?.stop();
+    await this.findings.dispose().catch(() => undefined);
     removeCoreRoute(this.opts.home, process.pid);
     removeCoreFile(this.opts.home, process.pid);
     const closed = new Promise<void>((resolve) => this.server.close(() => resolve()));
@@ -356,6 +376,7 @@ export class CoreService {
         return send(200, { ingested: await this.writer.flush() });
       }
       if (route === 'POST /events') return send(200, await this.postEvents(scope, await this.readBody(req)));
+      if (route === 'GET /findings') return send(200, await this.currentFindings(scope, url.searchParams.get('workspace')));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days')));
       if (req.method === 'GET' && url.pathname.startsWith('/sessions/')) return send(200, await this.session(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length))));
       if (route === 'POST /shutdown') {
@@ -465,8 +486,15 @@ export class CoreService {
       res.end('event: stopping\ndata: {}\n\n');
     });
     this.stoppingStreams.add(sayStopping);
+    // A workspace token's stream also carries its workspaces' findings: each change, and the current ones to start.
+    const stopFindings = scope.admin
+      ? undefined
+      : this.followFindings(scope.workspaces, (result) => {
+          if (!res.destroyed && visible(result.workspace)) res.write(`event: findings\ndata: ${JSON.stringify(result)}\n\n`);
+        });
     res.on('close', () => {
       this.stoppingStreams.delete(sayStopping);
+      stopFindings?.();
       stop();
       clearInterval(ping);
       this.streams -= 1;
@@ -488,6 +516,36 @@ export class CoreService {
       }
       if (!res.destroyed) res.write('event: replayed\ndata: {}\n\n');
     })().catch((err) => this.log(`replay failed: ${err instanceof Error ? err.message : String(err)}`));
+  }
+
+  /** Follows the workspaces' findings for a stream; sends each one's current findings once it's followed. */
+  private followFindings(workspaces: string[], send: (result: WorkspaceFindings) => void): () => void {
+    this.findingsListeners.add(send);
+    const unfollow: Array<() => void> = [];
+    let stopped = false;
+    for (const workspace of workspaces) {
+      void this.findings
+        .follow(workspace)
+        .then(async (stop) => {
+          if (stopped) return stop();
+          unfollow.push(stop);
+          const latest = await this.findings.latest(workspace);
+          if (latest && !stopped) send(latest);
+        })
+        .catch((err) => this.log(`couldn't follow findings for ${workspace}: ${err instanceof Error ? err.message : String(err)}`));
+    }
+    return () => {
+      stopped = true;
+      this.findingsListeners.delete(send);
+      for (const stop of unfollow) stop();
+    };
+  }
+
+  /** GET /findings: the token's workspaces' findings now (the admin token names one with ?workspace=). */
+  private async currentFindings(scope: Scope, workspace: string | null): Promise<WorkspaceFindings[]> {
+    const list = scope.admin ? (workspace ? [workspace] : []) : workspace ? scope.workspaces.filter((w) => w === workspace) : scope.workspaces;
+    if (list.length === 0) throw new HttpError(400, scope.admin ? 'the admin token needs ?workspace=<workspace>' : `this token can't read ${workspace}`);
+    return Promise.all(list.map((w) => this.findings.current(w)));
   }
 
   private visibleStores(scope: Scope) {

@@ -11,8 +11,8 @@ import { userDataDir } from '../userStore';
  * window that routes the project first, as before; with none, or one that
  * refuses it, it posts to the core through ~/.snagboat/core.route; and with no
  * core running, it leaves the payload in the hook spool, which the core reads
- * when it starts. Once windows stop collecting (3c-3) the script goes straight
- * to the core.
+ * when it starts. A window that's a client of the core (3c-3c) publishes no
+ * route, so for its projects the script goes straight to the core.
  *
  * The core records a hook under the workspace its project belongs to
  * (workspaces.ts): every project, unless its settings say not to.
