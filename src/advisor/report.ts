@@ -13,11 +13,18 @@ export interface AdvisorReport {
   id: string;
   name: string;
   goal: string;
+  /** Its goal in plain words. */
+  status: string;
+  /** Who it is and its tone (persona.md's body). */
+  voice: string;
   version: string;
   source: string;
-  notify: AdvisorGoal['notify'];
+  cue?: AdvisorGoal['cue'];
+  notify: AdvisorGoal['notify'] & { /** Notifications under its rules in the hour before now. */ lastHour?: number };
   measures: MeasureResult[];
   problems: string[];
+  /** The card's brief (brief.ts), when the caller asks for one workspace's. */
+  brief?: import('./brief').Brief;
 }
 
 export interface Period {
@@ -48,17 +55,45 @@ export async function eventsIn(logs: EventLogReader[], period: Period): Promise<
   return out;
 }
 
-export function advisorReports(advisors: AdvisorGoal[], current: NormalizedEvent[], previous: NormalizedEvent[]): AdvisorReport[] {
+/** The events in each of `count` windows of `step` days ending at `now`, oldest first. */
+export function buckets(events: NormalizedEvent[], now: Date, count: number, stepDays: number): NormalizedEvent[][] {
+  const end = now.getTime() + 1;
+  return Array.from({ length: count }, (_, i) => {
+    const from = new Date(end - (count - i) * stepDays * 86_400_000).toISOString();
+    const to = new Date(end - (count - i - 1) * stepDays * 86_400_000).toISOString();
+    return events.filter((e) => e.ts >= from && e.ts < to);
+  });
+}
+
+/**
+ * Each advisor's report. With `now`, how many notifications fell under its
+ * rules in the hour before; with `series`, each measure for each of those
+ * windows of events (buckets()), oldest first, for sparklines and charts.
+ */
+export function advisorReports(advisors: AdvisorGoal[], current: NormalizedEvent[], previous: NormalizedEvent[], opts: { now?: Date; series?: NormalizedEvent[][] } = {}): AdvisorReport[] {
+  const now = opts.now?.getTime();
+  const days = opts.series;
   return advisors.map((a) => {
     const { patterns, problems } = riskyPatterns(a.riskyCommands);
+    const lastHour = now === undefined ? undefined : current.filter((e) => e.kind === 'outcome' && e.outcome?.type === 'notified' && e.outcome.advisor === a.id && Date.parse(e.ts) > now - 3_600_000).length;
+    const measures = measure(a.measures, current, previous, { risky: patterns });
+    if (days) {
+      for (const m of measures) {
+        if (m.note) continue;
+        m.series = days.map((events) => measure([m.id], events, [], { risky: patterns })[0].value ?? null);
+      }
+    }
     return {
       id: a.id,
       name: a.name,
       goal: a.goal,
+      status: a.status,
+      voice: a.voice,
       version: a.version,
       source: a.source,
-      notify: a.notify,
-      measures: measure(a.measures, current, previous, { risky: patterns }),
+      ...(a.cue ? { cue: a.cue } : {}),
+      notify: { ...a.notify, ...(lastHour !== undefined ? { lastHour } : {}) },
+      measures,
       problems,
     };
   });

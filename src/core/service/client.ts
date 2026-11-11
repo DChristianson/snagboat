@@ -3,6 +3,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { NormalizedEvent } from '@snagboat/schema';
 import type { WorkspaceFindings } from './findings';
+import type { FindingState, Response } from './responses';
 import { workspaceKey } from '../userStore';
 import { claimWorkspace, releaseClaim } from './claims';
 import { CoreInfo, coreRequest } from './coreFile';
@@ -305,6 +306,16 @@ export class CoreClient {
       return res.status === 200 ? (res.body as WorkspaceFindings[]) : [];
     } catch {
       return [];
+    }
+  }
+
+  /** Responds to one of this workspace's findings (useful, acknowledge, mute, unmute); the core keeps it for every front door. */
+  async respond(heuristicId: string, response: Response): Promise<FindingState | undefined> {
+    try {
+      const res = await this.request401('POST', '/findings/respond', { workspace: this.opts.workspace, heuristicId, response });
+      return res.status === 200 ? (res.body as FindingState) : undefined;
+    } catch {
+      return undefined;
     }
   }
 

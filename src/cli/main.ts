@@ -9,6 +9,7 @@ import { effectiveSettings } from '../core/config';
 import { ensureCore, findCore } from '../core/service/lifecycle';
 import { coreRequest, liveCore } from '../core/service/coreFile';
 import * as fs from 'fs';
+import { spawn } from 'child_process';
 import * as path from 'path';
 import { EventLog } from '../core/eventLog';
 import { loadAdvisorGoals } from '../advisor/goals';
@@ -29,6 +30,7 @@ commands:
   session <id>        one session's summary
   findings            the current workspace's findings and early warnings, from the running core
   advisors            each advisor's goal, and its measures this week against the week before
+  open                open the advisor UI in your browser (starts the core if it isn't running)
   config              the settings that apply to the current folder, and where each comes from
   serve               run the core service in the foreground (Ctrl-C stops it)
   core start          start the core in the background, unless it's running
@@ -49,6 +51,7 @@ options:
   --no-collect        serve, core start: don't read Claude Code transcripts or Copilot CLI sessions
                       (only accept events and hooks)
   --idle-minutes <n>  serve, core start: stop after n minutes with no requests (default 30; 0 never)
+  --no-open           open: print the link instead of opening a browser
   --dry-run           migrate: count what would be copied, and write nothing
   --verify <file>     migrate: don't copy; check the per-user store against a baseline saved
                       with \`snagboat sessions --all --json\` before migrating
@@ -72,6 +75,7 @@ interface Options {
   port?: number;
   idleMinutes?: number;
   noCollect?: boolean;
+  noOpen?: boolean;
   args: string[];
 }
 
@@ -83,6 +87,7 @@ export function parseArgs(argv: string[]): Options | string {
     else if (a === '--all') opts.all = true;
     else if (a === '--dry-run') opts.dryRun = true;
     else if (a === '--no-collect') opts.noCollect = true;
+    else if (a === '--no-open') opts.noOpen = true;
     else if (a === '--port' || a === '--idle-minutes') {
       const value = argv[++i];
       const n = Number(value);
@@ -224,6 +229,31 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       await core.stopped;
       process.off('SIGINT', stop);
       process.off('SIGTERM', stop);
+      return 0;
+    }
+    case 'open': {
+      // The advisor UI (RFC step 5a): a one-time link from the core, for the workspace containing this folder.
+      const home = userHome();
+      let info;
+      try {
+        info = await ensureCore(home, __filename, { idleMinutes: parsed.idleMinutes });
+      } catch (err) {
+        io.err(`the core couldn't start: ${err instanceof Error ? err.message : String(err)}\n`);
+        return 1;
+      }
+      const workspace = selectStores(findUserStores(), cwd, false).find((st) => st.workspace)?.workspace;
+      const res = await coreRequest(info.port, info.token, 'POST', '/ui-links', workspace ? { workspace } : {});
+      if (res.status !== 200) {
+        io.err(`the core answered ${res.status}: ${JSON.stringify(res.body)}\n`);
+        return 1;
+      }
+      const link = res.body as { url: string; expiresAt: string };
+      const opened = !parsed.noOpen && (await openInBrowser(link.url));
+      // The code is printed only when it's needed (--no-open, or no browser), so it doesn't land in a transcript for nothing.
+      const address = link.url.slice(0, link.url.indexOf('#'));
+      print(opened ? { url: address, expiresAt: link.expiresAt, opened } : { ...link, opened }, () =>
+        opened ? `Opened the advisor UI (${address}) in your browser.\n` : `Open the advisor UI: ${link.url}\nThe link works once, within 2 minutes.\n`
+      );
       return 0;
     }
     case 'findings': {
@@ -412,4 +442,22 @@ if (require.main === module) {
       process.exit(1);
     }
   );
+}
+
+/** Opens a URL in the default browser: true once the opener started, false if there's none (a container without xdg-open). */
+function openInBrowser(url: string): Promise<boolean> {
+  // start's first quoted argument is the window title: an empty one, which Node passes to cmd as "".
+  const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(cmd, args as string[], { detached: true, stdio: 'ignore', windowsHide: true });
+      child.once('spawn', () => {
+        child.unref();
+        resolve(true);
+      });
+      child.once('error', () => resolve(false));
+    } catch {
+      resolve(false);
+    }
+  });
 }

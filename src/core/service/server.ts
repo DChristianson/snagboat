@@ -18,14 +18,24 @@ import { isProcessAlive } from '../processes';
 import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
 import { EventLog } from '../eventLog';
 import { FindingsService, WorkspaceFindings } from './findings';
+import { FindingState, Response } from './responses';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
 import { loadAdvisorGoals } from '../../advisor/goals';
-import { AdvisorReport, advisorReports, eventsIn, periods } from '../../advisor/report';
+import { AdvisorReport, advisorReports, buckets, eventsIn, periods } from '../../advisor/report';
+import { advisorBrief } from '../../advisor/brief';
+import { beadsAhead } from '../../advisor/ahead';
 import { HEURISTICS_INTERVAL_MS } from '../../heuristics/engine';
 
 const STREAM_BATCH = 500;
 const STREAM_PING_MS = 15_000;
+/** A response to a finding, from any front door (POST /findings/respond). */
+export interface FindingResponseMessage {
+  workspace: string;
+  heuristicId: string;
+  response: Response;
+}
+
 /** What this core offers beyond 3c-2's endpoints, so a client can tell an older core apart. */
 const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
 
@@ -56,8 +66,17 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              workspaces no longer claimed (a window holding its folder)
  *   GET  /findings[?workspace=w] the token's workspaces' findings and early warnings now (3c-3d);
  *                              a workspace token's stream also carries them ("findings" messages)
- *   GET  /advisors[?workspace=w&days=n]  each advisor's goal and measures, this period against
+ *   GET  /advisors[?workspace=w&days=n&series=1&weeks=n]  each advisor's goal and measures (and, for one
+ *                              workspace, its card's brief), this period against
  *                              the one before (RFC step 4c)
+ *   GET  /workspaces           the workspaces the token reads, most recently active first
+ *   POST /ui-links             admin: [{ workspace, allowHost }] -> a one-time code (2 minutes) and the advisor UI
+ *                              address that uses it (http://127.0.0.1:<port>/ui/#<code>)
+ *   POST /ui-session           no token: { code } -> a reader token (every workspace, read only), once
+ *   GET  /ui/...               the advisor UI's files (RFC step 5a), no token; the page exchanges its code
+ *   POST /findings/respond     { workspace, heuristicId, response }: useful, acknowledge, mute or unmute,
+ *                              kept by the core (responses.ts) for every front door; the one write a reader
+ *                              key may make
  *   POST /retention            applies the token's workspaces' retention now (a window whose
  *                              retention settings changed) -> { changed: <days> }
  *
@@ -104,7 +123,28 @@ export interface CoreOptions {
   log?: (line: string) => void;
 }
 
-type Scope = { admin: true } | { admin: false; workspaces: string[] };
+/**
+ * What a token may do. admin: everything (core.json). A workspace token: read and write its
+ * workspaces (a VS Code window). A reader (the browser advisor UI, step 5a): read every
+ * workspace, write nothing.
+ */
+type Scope = { admin: true; reader?: false } | { admin: false; workspaces: string[]; reader?: false } | { admin: false; reader: true; workspaces: string[] };
+
+/** Whether the scope may read this workspace. */
+const sees = (scope: Scope, workspace: string) => scope.admin || scope.reader === true || scope.workspaces.includes(workspace);
+/** Readers and the admin token name a workspace (or read all); a workspace token reads its own. */
+const readsAll = (scope: Scope) => scope.admin || scope.reader === true;
+
+/** How long a one-time UI link's code is good for. */
+const UI_LINK_TTL_MS = 2 * 60_000;
+/** A browser tab's read-only key ends after this long unused. */
+const READER_IDLE_MS = 12 * 60 * 60_000;
+/** At most this many browser keys at once; a new one ends the oldest. */
+const MAX_READERS = 20;
+/** The longest daily series GET /advisors draws. */
+const MAX_SERIES_DAYS = 31;
+/** The longest weekly series (an advisor's chart). */
+const MAX_SERIES_WEEKS = 12;
 
 const MAX_BODY = 16 * 1024 * 1024;
 const DEFAULT_IDLE_MS = 30 * 60_000;
@@ -176,6 +216,13 @@ export class CoreService {
   /** Streams that want findings, told of each change. */
   private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
+  /** Reader tokens for browser tabs (POST /ui-session), and the one-time codes that open them. */
+  /** Reader tokens and when each was last used: they end after READER_IDLE_MS unused, and the oldest go past MAX_READERS. */
+  private readonly readerTokens = new Map<string, number>();
+  /** Hosts a front door asked the core to accept besides 127.0.0.1 and localhost: VS Code's forwarded address in a remote window. */
+  private readonly extraHosts = new Set<string>();
+  private readonly uiCodes = new Map<string, { expires: number; workspace?: string }>();
+  private readonly uiDir = findUiDir();
   /** Folder -> the .code-workspace workspace it's part of, per token that registered them. */
   private readonly tokenFolders = new Map<string, Map<string, string>>();
   /** Ends each open event stream with "stopping"; resolves when it has closed. */
@@ -205,6 +252,9 @@ export class CoreService {
         return undefined;
       },
       log: (line) => this.log(line),
+      record: (workspace, events) => {
+        this.writer.write(events.map((e) => ({ ...e, workspace }))).catch((err) => this.log(`couldn't record a finding response: ${err instanceof Error ? err.message : String(err)}`));
+      },
     });
     this.writer.onWritten((workspace, events) => this.findings.ingest(workspace, events));
     // Outcomes (RFC step 4): tests going green, worked out from what's written and written back.
@@ -359,15 +409,26 @@ export class CoreService {
     const given = req.headers.authorization?.replace(/^Bearer\s+/i, '') ?? '';
     if (tokenEquals(given, this.token)) return { admin: true };
     for (const [token, workspaces] of this.workspaceTokens) if (tokenEquals(given, token)) return { admin: false, workspaces };
+    const now = Date.now();
+    for (const [token, used] of this.readerTokens) {
+      if (now - used > READER_IDLE_MS) {
+        this.readerTokens.delete(token);
+        continue;
+      }
+      if (tokenEquals(given, token)) {
+        this.readerTokens.set(token, now);
+        return { admin: false, reader: true, workspaces: [] };
+      }
+    }
     return undefined;
   }
 
-  private async readBody(req: http.IncomingMessage): Promise<unknown> {
+  private async readBody(req: http.IncomingMessage, max = MAX_BODY): Promise<unknown> {
     const chunks: Buffer[] = [];
     let size = 0;
     for await (const chunk of req) {
       size += (chunk as Buffer).length;
-      if (size > MAX_BODY) throw new HttpError(413, 'request body too large');
+      if (size > max) throw new HttpError(413, 'request body too large');
       chunks.push(chunk as Buffer);
     }
     try {
@@ -383,7 +444,15 @@ export class CoreService {
       res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
     };
     try {
+      // Only this machine's names for the core: a page elsewhere that renamed itself to 127.0.0.1 (DNS rebinding) is refused.
+      if (!this.hostAllowed(req.headers.host)) {
+        req.resume();
+        return send(421, { error: 'requests must be addressed to 127.0.0.1 or localhost' });
+      }
       if (req.method === 'POST' && req.url === '/hook') return send(200, await this.hook(req));
+      // The advisor UI's files, and the exchange of a one-time code for a reader token: no token yet.
+      if (req.method === 'GET' && (req.url === '/ui' || req.url?.startsWith('/ui/'))) return this.serveUi(req, res);
+      if (req.method === 'POST' && req.url === '/ui-session') return send(200, this.uiSession(await this.readBody(req, 4096)));
       const scope = this.scopeOf(req);
       if (!scope) {
         req.resume();
@@ -394,16 +463,21 @@ export class CoreService {
       if (route === 'GET /health') return send(200, { ok: true, version: this.opts.version, pid: process.pid, startedAt: this.startedAt, features: CORE_FEATURES });
       if (route === 'POST /retention') {
         req.resume();
-        return send(200, { changed: await this.writer.runRetention((w) => scope.admin || scope.workspaces.includes(w)) });
+        if (scope.reader) throw new HttpError(403, 'this token reads; it can\'t run retention');
+        return send(200, { changed: await this.writer.runRetention((w) => sees(scope, w)) });
       }
       if (route === 'POST /tokens') return send(200, this.mintToken(scope, await this.readBody(req)));
       if (route === 'GET /events/stream') return this.stream(scope, url.searchParams.get('changedSince'), req, res);
       if (route === 'POST /flush') {
         req.resume();
+        if (scope.reader) throw new HttpError(403, 'this token reads; it can\'t flush');
         return send(200, { ingested: await this.writer.flush() });
       }
       if (route === 'POST /events') return send(200, await this.postEvents(scope, await this.readBody(req)));
-      if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days')));
+      if (route === 'GET /workspaces') return send(200, this.workspaces(scope));
+      if (route === 'POST /ui-links') return send(200, this.uiLink(scope, await this.readBody(req).catch(() => ({}))));
+      if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days'), url.searchParams.get('series') === '1', url.searchParams.get('weeks')));
+      if (route === 'POST /findings/respond') return send(200, await this.respond(scope, await this.readBody(req, 4096)));
       if (route === 'GET /findings') return send(200, await this.currentFindings(scope, url.searchParams.get('workspace')));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days')));
       if (req.method === 'GET' && url.pathname.startsWith('/sessions/')) return send(200, await this.session(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length))));
@@ -482,6 +556,7 @@ export class CoreService {
     for (const [i, e] of list.entries()) {
       if (!isEvent(e)) throw new HttpError(400, `event ${i} is not a NormalizedEvent`);
       let workspace = e.workspace;
+      if (scope.reader) throw new HttpError(403, 'this token reads; it can\'t write events');
       if (workspace === undefined) {
         if (scope.admin || scope.workspaces.length !== 1) throw new HttpError(400, `event ${i} needs a workspace`);
         workspace = scope.workspaces[0];
@@ -500,7 +575,7 @@ export class CoreService {
     req.resume();
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write(': connected\n\n');
-    const visible = (workspace: string) => scope.admin || scope.workspaces.includes(workspace);
+    const visible = (workspace: string) => sees(scope, workspace);
     const send = (events: NormalizedEvent[]) => {
       for (let i = 0; i < events.length; i += STREAM_BATCH) res.write(`data: ${JSON.stringify(events.slice(i, i + STREAM_BATCH))}\n\n`);
     };
@@ -515,7 +590,7 @@ export class CoreService {
     });
     this.stoppingStreams.add(sayStopping);
     // A workspace token's stream also carries its workspaces' findings: each change, and the current ones to start.
-    const stopFindings = scope.admin
+    const stopFindings = readsAll(scope)
       ? undefined
       : this.followFindings(scope.workspaces, (result) => {
           if (!res.destroyed && visible(result.workspace)) res.write(`event: findings\ndata: ${JSON.stringify(result)}\n\n`);
@@ -573,27 +648,148 @@ export class CoreService {
    * GET /advisors: each advisor's goal and measures over the token's workspaces (or the one named), the last
    * `days` (default 7) against the days before (RFC step 4c). The admin token names a workspace, or reads all.
    */
-  private async advisors(scope: Scope, workspace: string | null, daysParam: string | null): Promise<{ days: number; workspaces: string[]; advisors: AdvisorReport[]; problems: string[] }> {
+  private async advisors(scope: Scope, workspace: string | null, daysParam: string | null, series = false, weeksParam: string | null = null): Promise<{ days: number; workspaces: string[]; advisors: AdvisorReport[]; problems: string[] }> {
+    const weeks = weeksParam === null ? undefined : Number(weeksParam);
+    if (weeks !== undefined && (!Number.isInteger(weeks) || weeks < 2 || weeks > MAX_SERIES_WEEKS)) throw new HttpError(400, `weeks must be a whole number from 2 to ${MAX_SERIES_WEEKS}`);
     const days = daysParam === null ? 7 : Number(daysParam);
     if (!Number.isInteger(days) || days <= 0 || days > 366) throw new HttpError(400, 'days must be a whole number from 1 to 366');
-    if (workspace !== null && !scope.admin && !scope.workspaces.includes(workspace)) throw new HttpError(400, `this token can't read ${workspace}`);
+    if (workspace !== null && !sees(scope, workspace)) throw new HttpError(400, `this token can't read ${workspace}`);
     const stores = this.visibleStores(scope).filter((s) => workspace === null || s.workspace === workspace);
     const { advisors, problems } = loadAdvisorGoals(path.join(this.opts.home, 'advisors'));
     const { current, previous } = periods(new Date(), days);
     const logs = stores.map((s) => new EventLog(s.dir));
-    return { days, workspaces: stores.map((s) => s.workspace), advisors: advisorReports(advisors, await eventsIn(logs, current), await eventsIn(logs, previous)), problems };
+    const now = new Date();
+    const currentEvents = await eventsIn(logs, current);
+    // A series per measure: by week for an advisor's chart (?weeks=), else by day for the cards' sparklines (?series=1).
+    let seriesWindows;
+    if (weeks !== undefined) seriesWindows = buckets(await eventsIn(logs, { from: new Date(now.getTime() - weeks * 7 * 86_400_000).toISOString(), to: new Date(now.getTime() + 1).toISOString() }), now, weeks, 7);
+    else if (series && days <= MAX_SERIES_DAYS) seriesWindows = buckets(currentEvents, now, days, 1);
+    const reports = advisorReports(advisors, currentEvents, await eventsIn(logs, previous), { now, ...(seriesWindows ? { series: seriesWindows } : {}) });
+    // One workspace: each card's brief, from its live findings, recent notifications and (Navigator) the work ahead.
+    if (workspace !== null && stores.length === 1) {
+      const findingsNow = await this.findings.current(workspace);
+      const live = findingsNow.findings;
+      const notified = new Set(currentEvents.filter((e) => e.kind === 'outcome' && e.outcome?.type === 'notified' && Date.parse(e.ts) > now.getTime() - 2 * 3_600_000).map((e) => e.outcome!.heuristicId!));
+      const ahead = stores[0].folder && reports.some((r) => r.id === 'navigator') ? await beadsAhead(stores[0].folder, now.getTime()) : undefined;
+      for (const r of reports) r.brief = advisorBrief(r, live, notified, r.id === 'navigator' ? ahead : undefined, findingsNow.responses);
+    }
+    return { days, workspaces: stores.map((s) => s.workspace), advisors: reports, problems };
+  }
+
+  /**
+   * POST /findings/respond { workspace, heuristicId, response }: Useful, Acknowledge, Mute or Unmute, from
+   * any front door (the advisor UI, a VS Code window that's a client, the Claude Code plugin). The core keeps
+   * it (responses.ts), and every stream on the workspace gets its findings again with it. The one write a
+   * reader (browser) key may make.
+   */
+  private async respond(scope: Scope, body: unknown): Promise<{ heuristicId: string } & FindingState> {
+    const b = (body ?? {}) as Partial<FindingResponseMessage>;
+    if (typeof b.workspace !== 'string' || typeof b.heuristicId !== 'string' || !b.heuristicId || !['useful', 'acknowledge', 'mute', 'unmute'].includes(b.response as string)) {
+      throw new HttpError(400, 'body must be { "workspace": "...", "heuristicId": "...", "response": "useful" | "acknowledge" | "mute" | "unmute" }');
+    }
+    if (!sees(scope, b.workspace)) throw new HttpError(400, `this token can't read ${b.workspace}`);
+    if (!this.visibleStores(scope).some((s) => s.workspace === b.workspace)) throw new HttpError(404, `no workspace ${b.workspace} recorded`);
+    return { heuristicId: b.heuristicId, ...(await this.findings.respond(b.workspace, b.heuristicId, b.response as Response)) };
   }
 
   /** GET /findings: the token's workspaces' findings now (the admin token names one with ?workspace=). */
   private async currentFindings(scope: Scope, workspace: string | null): Promise<WorkspaceFindings[]> {
-    const list = scope.admin ? (workspace ? [workspace] : []) : workspace ? scope.workspaces.filter((w) => w === workspace) : scope.workspaces;
-    if (list.length === 0) throw new HttpError(400, scope.admin ? 'the admin token needs ?workspace=<workspace>' : `this token can't read ${workspace}`);
+    const list = readsAll(scope) ? (workspace ? [workspace] : []) : workspace ? scope.workspaces.filter((w) => w === workspace) : scope.workspaces;
+    if (list.length === 0) throw new HttpError(400, readsAll(scope) ? 'name the workspace: ?workspace=<workspace>' : `this token can't read ${workspace}`);
     return Promise.all(list.map((w) => this.findings.current(w)));
+  }
+
+  /**
+   * Whether a Host header names this machine: 127.0.0.1, localhost or [::1], on any port (a
+   * remote VS Code window forwards the core to another port), or a host a front door added with
+   * the admin token (a Codespaces address). What stops DNS rebinding is the name: a page that
+   * points its own name at 127.0.0.1 still sends that name.
+   */
+  private hostAllowed(host: string | undefined): boolean {
+    if (!host) return false;
+    if (/^(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/i.test(host)) return true;
+    return this.extraHosts.has(host.toLowerCase());
+  }
+
+  /** POST /ui-links (admin): a one-time code, good for two minutes, and the address that uses it. */
+  private uiLink(scope: Scope, body: unknown): { code: string; url: string; expiresAt: string } {
+    if (!scope.admin) throw new HttpError(403, 'only the admin token can open the advisor UI');
+    const now = Date.now();
+    for (const [code, c] of this.uiCodes) if (c.expires < now) this.uiCodes.delete(code);
+    const code = crypto.randomBytes(24).toString('base64url');
+    // The workspace to show first, kept with the code rather than put in the address.
+    const workspace = (body as { workspace?: unknown })?.workspace;
+    // A remote VS Code window's forwarded address for the core (vscode.env.asExternalUri), to accept from now on.
+    const allowHost = (body as { allowHost?: unknown })?.allowHost;
+    if (typeof allowHost === 'string' && /^[a-z0-9.-]+(:\d+)?$/i.test(allowHost)) this.extraHosts.add(allowHost.toLowerCase());
+    this.uiCodes.set(code, { expires: now + UI_LINK_TTL_MS, ...(typeof workspace === 'string' && workspace ? { workspace } : {}) });
+    // The code rides in the fragment, which a browser never sends to a server or in a Referer. Bare (base64url
+    // only), so nothing that opens links (VS Code's openExternal) re-encodes it.
+    return { code, url: `http://127.0.0.1:${this.boundPort}/ui/#${code}`, expiresAt: new Date(now + UI_LINK_TTL_MS).toISOString() };
+  }
+
+  /** POST /ui-session { code }: the code, once, for a reader token (every workspace, read only). */
+  private uiSession(body: unknown): { token: string; workspace?: string } {
+    const code = (body as { code?: unknown })?.code;
+    const link = typeof code === 'string' ? this.uiCodes.get(code) : undefined;
+    if (typeof code === 'string') this.uiCodes.delete(code);
+    if (link === undefined || link.expires < Date.now()) throw new HttpError(401, 'that link has expired or was already used; open the advisor UI again with snagboat open');
+    const token = crypto.randomBytes(32).toString('hex');
+    while (this.readerTokens.size >= MAX_READERS) this.readerTokens.delete(this.readerTokens.keys().next().value!);
+    this.readerTokens.set(token, Date.now());
+    return { token, ...(link.workspace ? { workspace: link.workspace } : {}) };
+  }
+
+  /** GET /workspaces: the workspaces this token reads, most recently active first. */
+  private workspaces(scope: Scope): Array<{ workspace: string; folder?: string; lastDay?: string }> {
+    return this.visibleStores(scope)
+      .map((s) => {
+        let lastDay: string | undefined;
+        try {
+          lastDay = fs.readdirSync(path.join(s.dir, 'events')).filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f)).sort().pop()?.slice(0, 10);
+        } catch {
+          // no events yet
+        }
+        return { workspace: s.workspace, ...(s.folder ? { folder: s.folder } : {}), ...(lastDay ? { lastDay } : {}) };
+      })
+      .sort((a, b) => (b.lastDay ?? '').localeCompare(a.lastDay ?? '') || a.workspace.localeCompare(b.workspace));
+  }
+
+  /** GET /ui/...: the advisor UI's files, with a policy that lets the page load only its own files and talk only to the core. */
+  private serveUi(req: http.IncomingMessage, res: http.ServerResponse): void {
+    req.resume();
+    const security = {
+      'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Cache-Control': 'no-store',
+    };
+    const pathname = new URL(req.url ?? '/ui/', 'http://127.0.0.1').pathname;
+    if (pathname === '/ui') {
+      res.writeHead(308, { Location: '/ui/', ...security }).end();
+      return;
+    }
+    const name = pathname === '/ui/' ? 'index.html' : pathname.slice('/ui/'.length);
+    const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
+    const type = types[path.extname(name)];
+    // Plain names only (no folders, no ..), of the types above; theme.css is the visualizers' shared one.
+    const file = !type || !/^[a-z0-9][a-z0-9.-]*$/i.test(name) || !this.uiDir ? undefined : name === 'theme.css' ? path.join(this.uiDir, '..', 'theme.css') : path.join(this.uiDir, name);
+    let body: Buffer | undefined;
+    try {
+      if (file) body = fs.readFileSync(file);
+    } catch {
+      body = undefined;
+    }
+    if (!body) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...security }).end(this.uiDir ? 'Not found' : 'The advisor UI files are missing from this install');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': type!, ...security }).end(body);
   }
 
   private visibleStores(scope: Scope) {
     const stores = listUserStores(this.opts.home);
-    return scope.admin ? stores : stores.filter((s) => scope.workspaces.includes(s.workspace));
+    return stores.filter((s) => sees(scope, s.workspace));
   }
 
   private async sessions(scope: Scope, daysParam: string | null): Promise<Array<SessionSummary & { workspace: string }>> {
@@ -617,4 +813,17 @@ export class CoreService {
     if (found.length > 1) throw new HttpError(409, `${id} matches ${found.length} sessions; give more of the id`);
     return found[0];
   }
+}
+
+/** media/ui, found from wherever the core runs (dist/snagboat.js, or compiled tests under out/). */
+function findUiDir(): string | undefined {
+  let dir = __dirname;
+  for (let i = 0; i < 6; i++) {
+    const candidate = path.join(dir, 'media', 'ui');
+    if (fs.existsSync(path.join(candidate, 'index.html'))) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
 }

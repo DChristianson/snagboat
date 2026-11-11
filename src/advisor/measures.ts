@@ -177,6 +177,8 @@ export interface MeasureResult {
   trend?: 'better' | 'worse' | 'same';
   /** Why there's no value: not recorded yet, or an unknown measure id. */
   note?: string;
+  /** One value per day of the period, oldest first (null: nothing to measure that day), when asked for. */
+  series?: Array<number | null>;
 }
 
 /** Each measure for this period and the one before. */

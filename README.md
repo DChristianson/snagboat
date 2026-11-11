@@ -153,6 +153,7 @@ node dist/snagboat.js stores              # where the logs are
 node dist/snagboat.js config              # the settings that apply here, and where each comes from
 node dist/snagboat.js findings            # this workspace's findings, from the running core
 node dist/snagboat.js advisors            # each advisor's goal and measures, this week against last
+node dist/snagboat.js open                # the advisor UI in your browser (a one-time link)
 node dist/snagboat.js migrate --dry-run   # what migrate would copy into ~/.snagboat/data
 node dist/snagboat.js migrate             # copy every store into the per-user store
 node dist/snagboat.js sessions --all --store user   # read the per-user store
