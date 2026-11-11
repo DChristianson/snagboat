@@ -149,6 +149,7 @@ node dist/snagboat.js sessions            # sessions in the workspace containing
 node dist/snagboat.js session <id> --json # one session's summary
 node dist/snagboat.js sessions --all      # every workspace's sessions
 node dist/snagboat.js stores              # where the logs are
+node dist/snagboat.js config              # the settings that apply here, and where each comes from
 node dist/snagboat.js migrate --dry-run   # what migrate would copy into ~/.snagboat/data
 node dist/snagboat.js migrate             # copy every store into the per-user store
 node dist/snagboat.js sessions --all --store user   # read the per-user store
