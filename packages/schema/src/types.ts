@@ -43,7 +43,9 @@ export type OutcomeType =
   /** A commit made in a session after its tests last passed: a piece of work done. */
   | 'milestone'
   /** Claude Code asked you to approve a tool call (PermissionRequest hook), or auto mode denied one (PermissionDenied); decision says which. */
-  | 'approval';
+  | 'approval'
+  /** Snagboat showed you a notification for a finding or early warning. */
+  | 'notified';
 
 /** approval: you were asked to approve a tool call, or auto mode denied it. */
 export type ApprovalDecision = 'asked' | 'denied';
@@ -75,6 +77,8 @@ export interface EventOutcome {
   days?: number;
   /** approval: asked (a permission prompt) or denied (by auto mode). */
   decision?: ApprovalDecision;
+  /** notified: the advisor whose notify rules it falls under, if any. */
+  advisor?: string;
 }
 
 export interface NormalizedEvent {

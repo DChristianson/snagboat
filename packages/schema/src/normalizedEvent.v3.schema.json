@@ -175,7 +175,8 @@
             "commit_reverted",
             "code_survival",
             "milestone",
-            "approval"
+            "approval",
+            "notified"
           ]
         },
         "refs": {
@@ -215,6 +216,9 @@
         },
         "days": {
           "type": "number"
+        },
+        "advisor": {
+          "type": "string"
         },
         "decision": {
           "enum": [

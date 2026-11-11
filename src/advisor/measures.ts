@@ -135,7 +135,15 @@ export const MEASURES: Record<string, MeasureDef> = {
   risky_commands: { label: 'Risky commands', unit: '', better: 'lower', compute: (ev, ctx) => (sessions(ev) > 0 ? riskyCount(ev, ctx) : undefined) },
   risky_commands_per_session: { label: 'Risky commands per session', unit: '', better: 'lower', compute: (ev, ctx) => per(riskyCount(ev, ctx), sessions(ev)) },
   approvals_per_session: { label: 'Approvals granted per session', unit: '', better: 'lower', compute: (ev) => per(approvalsGranted(ev), sessions(ev)) },
-  notifications_per_hour: { label: 'Notifications per active hour', unit: '', better: 'lower', compute: () => undefined, notYet: 'notifications are recorded from the next step (4c-2)' },
+  notifications_per_hour: {
+    label: 'Notifications per active hour',
+    unit: '',
+    better: 'lower',
+    compute: (ev) => {
+      const hours = activeMinutes(ev) / 60;
+      return hours > 0 ? outcomes(ev, 'notified').length / hours : undefined;
+    },
+  },
   dismiss_rate: {
     label: 'Findings dismissed (muted or let pass)',
     unit: '%',

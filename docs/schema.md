@@ -42,7 +42,7 @@ interface NormalizedEvent {
   workspace?: string;    // v2: the workspace it was recorded in (see below)
   outcome?: {            // v3, outcome events: what was measured (see below)
     type: 'tests_green' | 'finding_response'
-      | 'commit_kept' | 'commit_reverted' | 'code_survival' | 'milestone' | 'approval';
+      | 'commit_kept' | 'commit_reverted' | 'code_survival' | 'milestone' | 'approval' | 'notified';
     refs?: string[];       // the events it's about
     failures?: number;     // tests_green: failed runs before it passed
     afterMs?: number;      // tests_green: first failure to green
@@ -53,6 +53,7 @@ interface NormalizedEvent {
     linesWritten?: number; // code_survival: lines it added to them
     linesSurviving?: number; // code_survival: still there
     days?: number;         // code_survival: 7 or 30
+    advisor?: string;      // notified: whose notify limit it fell under
     decision?: 'asked' | 'denied';  // approval
   };
   confidence?: number;
@@ -71,6 +72,7 @@ interface NormalizedEvent {
 `outcome` events (version 3) measure how work went. Snagboat works most of them out from other events (`raw.adapter` is `snagboat-outcomes`); `approval` comes straight from Claude Code's permission hooks (`raw.adapter` is `claude-code`). Each is filed in the session it's about:
 
 - `tests_green`: a tool call in the tests-builds category succeeded after one or more failed in the same session. `refs` names the first failure and the passing run; its id is derived from the passing run's, so reading the same events again adds nothing. Whoever writes the workspace's events works it out: the core, or a window writing its own folder.
+- `notified`: Snagboat showed you a notification for `heuristicId` (a finding or an early warning), with `advisor` when it falls under an advisor's `notify` rules; filed in its session. Lookout's notifications per hour count these.
 - `approval`: Claude Code asked you to approve a tool call (`PermissionRequest` hook, `decision: 'asked'`), or auto mode denied one (`PermissionDenied`, `decision: 'denied'`). Only `toolName` is kept, never the tool's input or the denial's reason; a denial's `refs` names its tool call (`tool:<tool_use_id>`) and its id is derived from it. Claude Code sends no hook when you deny a prompt yourself, so a prompt's answer isn't recorded: Bosun's approvals per session is prompts less auto mode's denials.
 - `finding_response`: a finding's episode ended, and `response` says how you met it, strongest first: marked **Useful**, muted, acknowledged, or let it pass. `refs` are the finding's events; filed in the session of the latest one still in the window's recent events.
 
