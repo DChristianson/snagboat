@@ -470,11 +470,20 @@ function isClaudeHookPayload(value: unknown): value is ClaudeHookPayload {
  * `turnFallback` supplies the session's current turn (from the transcript)
  * for payloads that don't carry prompt_id, e.g. from older Claude Code.
  */
-export function normalizeHookPayload(payload: unknown, turnFallback?: (sessionId: string) => string | undefined): NormalizedEvent | undefined {
+/**
+ * receivedAt: when the hook ran. Hook payloads carry no time of their own, so
+ * it's now for a live hook; one that waited in the spool (the core wasn't
+ * running) passes the time it was spooled.
+ */
+export function normalizeHookPayload(
+  payload: unknown,
+  turnFallback?: (sessionId: string) => string | undefined,
+  receivedAt: string = new Date().toISOString()
+): NormalizedEvent | undefined {
   if (!isClaudeHookPayload(payload)) return undefined;
 
   const sessionId = payload.session_id ?? 'unknown-session';
-  const ts = new Date().toISOString();
+  const ts = receivedAt;
   const attribution: Pick<NormalizedEvent, 'turnId' | 'agentId'> = {};
   const turnId = payload.prompt_id ?? turnFallback?.(sessionId);
   if (turnId) attribution.turnId = turnId;

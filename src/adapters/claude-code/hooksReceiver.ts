@@ -19,7 +19,7 @@ function tokensMatch(header: string | undefined, token: string): boolean {
  * curl there takes its arguments in the ANSI code page, which mangles
  * non-ASCII characters, while hex digits survive any encoding.
  */
-function projectDirHeader(value: string | string[] | undefined, hex: string | string[] | undefined): string | undefined {
+export function projectDirHeader(value: string | string[] | undefined, hex: string | string[] | undefined): string | undefined {
   const hexRaw = Array.isArray(hex) ? hex[0] : hex;
   if (hexRaw !== undefined && /^([0-9a-f]{2})+$/i.test(hexRaw)) return Buffer.from(hexRaw, 'hex').toString('utf8');
   const raw = Array.isArray(value) ? value[0] : value;
@@ -119,7 +119,7 @@ export class HooksReceiver {
 }
 
 /** Identifies a hook payload for diagnostics by its event and tool names only, never its contents. */
-function describeHookPayload(payload: unknown): string {
+export function describeHookPayload(payload: unknown): string {
   if (typeof payload !== 'object' || payload === null) return typeof payload;
   const p = payload as Record<string, unknown>;
   const field = (key: string) => (typeof p[key] === 'string' ? (p[key] as string) : '?');
