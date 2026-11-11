@@ -9,8 +9,7 @@ import { normalizeTranscriptChunk, SeenMessages, TurnTracker } from './normalize
  * backfill command and heuristic replay rather than live tailing: the main
  * transcript, then its subagent transcripts, sharing turn attribution. Unlike
  * the live adapter, it also rebuilds tool calls from each message's tool_use
- * blocks (live tool calls come from hooks, which transcripts read back later
- * never had).
+ * blocks, as the live tailer does (LiveToolCalls) alongside the hooks.
  */
 
 /** The main transcript and its subagent transcripts (<session>/subagents/*.jsonl). */
@@ -31,6 +30,74 @@ export function mainTranscriptOf(file: string): string {
   return path.basename(dir) === 'subagents' ? `${path.dirname(dir)}.jsonl` : file;
 }
 
+/** A tool call from its tool_use block, with status and time from its tool_result when there is one. */
+function toolCallEvent(
+  use: { id?: string; name?: string; input?: { file_path?: unknown; command?: unknown }; sessionId?: string; agentId?: string; ts: string; fallbackId: string },
+  result: { failed: boolean; ts: string } | undefined,
+  file: string,
+  turnId: string | undefined
+): NormalizedEvent {
+  const input = use.input ?? {};
+  const target = typeof input.file_path === 'string' ? input.file_path : typeof input.command === 'string' ? input.command : undefined;
+  const command = typeof input.command === 'string' ? input.command : undefined;
+  const event: NormalizedEvent = {
+    // Same id as the PostToolUse/PostToolUseFailure hook's event for this call, so the two never both count.
+    eventId: use.id ? `tool:${use.id}` : use.fallbackId,
+    sessionId: use.sessionId ?? 'unknown-session',
+    agent: 'claude-code',
+    ts: result?.ts ?? use.ts,
+    kind: 'tool_call',
+    target,
+    status: result ? (result.failed ? 'failure' : 'success') : 'unknown',
+    toolName: use.name,
+    toolCategory: classifyTool(use.name, command),
+    raw: { adapter: 'claude-code', ref: `${file}#tool` },
+  };
+  if (turnId) event.turnId = turnId;
+  if (use.agentId) event.agentId = use.agentId;
+  return event;
+}
+
+/**
+ * Tool calls as a transcript is tailed (3c / RFC step 4): a tool_use is held
+ * until its tool_result arrives, then becomes a tool_call with that result's
+ * status and time. Hooks report the same calls with the same ids, so where
+ * both are on, whichever comes first counts and the other is dropped; where
+ * the project has no hooks (the core collects every project, VS Code adds
+ * hooks only to those it opens), this is where its tool calls come from. Only
+ * a call's name, file path or command are kept while it waits; one whose
+ * result comes after a restart is lost.
+ */
+export class LiveToolCalls {
+  private readonly pending = new Map<string, { name?: string; input: { file_path?: unknown; command?: unknown }; sessionId?: string; agentId?: string; ts: string; turnId?: string }>();
+
+  constructor(private readonly maxPending = 2_000) {}
+
+  /** The tool calls this transcript line completes. */
+  observe(line: any, file: string, turnId: string | undefined): NormalizedEvent[] {
+    if (!Array.isArray(line?.message?.content)) return [];
+    if (line.type === 'assistant') {
+      for (const b of line.message.content) {
+        if (b?.type !== 'tool_use' || !b.id) continue;
+        const input = b.input ?? {};
+        this.pending.set(b.id, { name: b.name, input: { file_path: input.file_path, command: input.command }, sessionId: line.sessionId, agentId: line.agentId, ts: line.timestamp, turnId });
+        if (this.pending.size > this.maxPending) this.pending.delete(this.pending.keys().next().value!);
+      }
+      return [];
+    }
+    if (line.type !== 'user') return [];
+    const out: NormalizedEvent[] = [];
+    for (const b of line.message.content) {
+      if (b?.type !== 'tool_result' || !b.tool_use_id) continue;
+      const use = this.pending.get(b.tool_use_id);
+      if (!use) continue;
+      this.pending.delete(b.tool_use_id);
+      out.push(toolCallEvent({ ...use, id: b.tool_use_id, fallbackId: `tool:${b.tool_use_id}` }, { failed: b.is_error === true, ts: line.timestamp ?? use.ts }, file, use.turnId));
+    }
+    return out;
+  }
+}
+
 /** Tool calls rebuilt from tool_use blocks, with status and time from the matching tool_result. */
 export function transcriptToolCalls(lines: any[], file: string, turns: TurnTracker): NormalizedEvent[] {
   const results = new Map<string, { failed: boolean; ts: string }>();
@@ -47,23 +114,7 @@ export function transcriptToolCalls(lines: any[], file: string, turns: TurnTrack
     d.message.content.forEach((b: any, index: number) => {
       if (b?.type !== 'tool_use') return;
       const result = b.id ? results.get(b.id) : undefined;
-      const input = b.input ?? {};
-      const event: NormalizedEvent = {
-        // Same id as the PostToolUse hook's event for this call, so the two never both count.
-        eventId: b.id ? `tool:${b.id}` : `tool:${d.uuid}:${index}`,
-        sessionId: d.sessionId ?? 'unknown-session',
-        agent: 'claude-code',
-        ts: result?.ts ?? d.timestamp,
-        kind: 'tool_call',
-        target: input.file_path ?? input.command,
-        status: result ? (result.failed ? 'failure' : 'success') : 'unknown',
-        toolName: b.name,
-        toolCategory: classifyTool(b.name, input.command),
-        raw: { adapter: 'claude-code', ref: `${file}#tool` },
-      };
-      if (turnId) event.turnId = turnId;
-      if (d.agentId) event.agentId = d.agentId;
-      events.push(event);
+      events.push(toolCallEvent({ id: b.id, name: b.name, input: b.input, sessionId: d.sessionId, agentId: d.agentId, ts: d.timestamp, fallbackId: `tool:${d.uuid}:${index}` }, result, file, turnId));
     });
   }
   return events;

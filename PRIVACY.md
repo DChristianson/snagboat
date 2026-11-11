@@ -10,7 +10,7 @@ Each observed action becomes one normalized event (see [docs/schema.md](docs/sch
 
 | Source | Field | What it holds |
 | --- | --- | --- |
-| Claude Code hooks | `target` | The tool's `file_path`, or the **full shell command string** for Bash calls. Commands can contain secrets such as tokens in headers, credentials in connection strings, or exported environment variables. |
+| Claude Code hooks and transcripts | `target` | The tool's `file_path`, or the **full shell command string** for Bash calls (from the hooks, or, in projects without them, from the transcript's tool calls). Commands can contain secrets such as tokens in headers, credentials in connection strings, or exported environment variables. |
 | Claude Code hooks | `raw.ref` | The hook and tool name (`hook:PostToolUse:<tool>`, `hook:PostToolUseFailure:<tool>`) |
 | Claude Code transcript | `raw.ref` | The transcript file path and byte offset the event came from |
 | Claude Code transcript | `user_prompt` events | When you sent each prompt, and its id. Its text is in `promptText` (below) when text capture is on. |

@@ -264,7 +264,7 @@ export function normalizeTranscriptChunk(
   rawLines: string[],
   filePath: string,
   chunkStartOffset: number,
-  opts: { captureContent?: boolean; seen: SeenMessages; turns?: TurnTracker }
+  opts: { captureContent?: boolean; seen: SeenMessages; turns?: TurnTracker; toolCalls?: { observe(line: unknown, file: string, turnId: string | undefined): NormalizedEvent[] } }
 ): NormalizedEvent[] {
   const turns = opts.turns ?? new TurnTracker();
   const events: NormalizedEvent[] = [];
@@ -309,6 +309,8 @@ export function normalizeTranscriptChunk(
       continue;
     }
     const turnId = turns.observe(filePath, line);
+    // Tool calls this line completes (LiveToolCalls, transcriptSession.ts): a tool_result for an earlier tool_use.
+    if (opts.toolCalls) events.push(...opts.toolCalls.observe(line, filePath, turnId));
 
     if (isUserPrompt(line)) {
       flushGroup();
