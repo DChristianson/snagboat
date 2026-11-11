@@ -932,7 +932,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       .then((choice) => choice === 'Relabel' && vscode.commands.executeCommand('snagboat.relabelShellCalls'));
   };
 
-  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter({ collect: !core }), new CopilotAdapter(path.join(storage.sharedDir, 'copilot-structure'))];
+  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter({ collect: !core }), new CopilotAdapter(path.join(storage.sharedDir, 'copilot-structure'), { cli: !core })];
   for (const adapter of adapters) {
     const adapterCtx = makeAdapterContext(adapter.agentId, bus, checkpoints, health, captureContentEnabled);
     await adapter.init(adapterCtx);

@@ -141,7 +141,7 @@ async function main() {
   test("holding the folder: the core writes nothing there, keeps (doesn't drop) the window's own project, and catches up after", async () => {
     const { home, projects, a } = machine();
     fs.mkdirSync(a, { recursive: true });
-    const core = await start(home, { collect: true, claudeProjectsDir: projects });
+    const core = await start(home, { collect: true, claudeProjectsDir: projects, copilotSessionsDir: path.join(projects, '..', 'no-copilot') });
     const f = await follower(home, a);
     const dir = workspaceStoreDir(home, a);
     const transcript = (session: string) => {
@@ -195,7 +195,7 @@ async function main() {
     const one = path.join(root, 'one');
     fs.mkdirSync(one, { recursive: true });
     const file = path.join(root, 'both.code-workspace');
-    const core = await start(home, { collect: true, claudeProjectsDir: projects });
+    const core = await start(home, { collect: true, claudeProjectsDir: projects, copilotSessionsDir: path.join(projects, '..', 'no-copilot') });
     const client = await CoreClient.connect({ home, cliPath: '/nowhere', workspace: file, folders: [one], ensure: running(home) });
     const got: NormalizedEvent[] = [];
     client.follow({ onEvents: (e) => got.push(...e) }, new Date().toISOString());

@@ -60,7 +60,9 @@ async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 8_00
   }
 }
 
-const start = (home: string, projects: string) => CoreService.start({ home, version: 'test', idleMs: 0, ingestEveryMs: 60_000, claudeProjectsDir: projects });
+// Copilot sessions from a folder of the test's own (empty unless a test writes one), never this machine's.
+const start = (home: string, projects: string, copilot = path.join(path.dirname(projects), 'copilot-sessions')) =>
+  CoreService.start({ home, version: 'test', idleMs: 0, ingestEveryMs: 60_000, claudeProjectsDir: projects, copilotSessionsDir: copilot });
 
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
@@ -186,6 +188,38 @@ async function main() {
       assert.ok(!(await read(home, '/w/mine')).some((e) => e.eventId === 'late'));
     } finally {
       live.kill();
+    }
+  });
+
+  test('Copilot CLI sessions in every project are recorded under their workspace, unless the project opts out', async () => {
+    const { home, projects, repo, root } = machine();
+    const sessions = path.join(root, 'copilot');
+    const quiet = path.join(root, 'quiet');
+    fs.mkdirSync(quiet);
+    saveConfig(home, { version: 1, defaults: {}, projects: { [quiet]: { collect: false } } });
+    const at = new Date().toISOString();
+    const line = (type: string, id: string, parentId: string | null, data: Record<string, unknown>) => JSON.stringify({ type, id, parentId, timestamp: at, data });
+    const session = (id: string, cwd: string) => {
+      fs.mkdirSync(path.join(sessions, id), { recursive: true });
+      fs.writeFileSync(
+        path.join(sessions, id, 'events.jsonl'),
+        [
+          line('session.start', 'c0', null, { sessionId: id, context: { cwd } }),
+          line('user.message', 'c1', 'c0', { content: 'x', interactionId: 'I1' }),
+          line('session.usage_record', 'c2', 'c1', { usage: { model: 'm', inputTokens: 100, outputTokens: 17, cacheReadTokens: 0, cacheWriteTokens: 0, maxPromptTokens: 200000 } }),
+        ].join('\n') + '\n'
+      );
+    };
+    session('cp-app', path.join(repo, 'pkg', 'app'));
+    session('cp-quiet', quiet);
+    const core = await start(home, projects, sessions);
+    try {
+      await waitFor(async () => (await read(home, repo)).some((e) => e.agent === 'copilot' && e.tokens?.output === 17));
+      assert.ok((await read(home, repo)).every((e) => e.sessionId === 'cp-app' && e.workspace === repo), 'a session in a subfolder is recorded under its repository');
+      await new Promise((r) => setTimeout(r, 500));
+      assert.ok(!fs.existsSync(workspaceStoreDir(home, quiet)), 'the opted-out project is not recorded');
+    } finally {
+      await core.stop();
     }
   });
 
