@@ -1,0 +1,122 @@
+{
+  "date": "2026-11-11",
+  "readme": "README.md",
+  "model": "claude-haiku-5-5",
+  "costUsd": 0.0046748,
+  "passed": 10,
+  "total": 14,
+  "results": [
+    {
+      "id": 1,
+      "question": "What is a \"finding\"?",
+      "confidence": "medium",
+      "notInPage": false,
+      "pass": true,
+      "answer": "The page never formally defines \"finding.\" It implies a finding is the output when a heuristic fires: the status bar shows the most important active finding, the Overview tab lists findings to acknowledge or mute, and Sessions shows a session's findings, past ones included. Notifications, if turned on, name a finding and offer to show it, explain it, acknowledge it, or mute it."
+    },
+    {
+      "id": 2,
+      "question": "What is a \"heuristic\" in this project? Name two in your own words.",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "A heuristic is a built-in or user-written rule that checks agent activity for a sign of trouble. Two examples: \"runaway-turn\" fires when one prompt has driven 100 or more model or tool calls, and \"stalled\" fires when an unfinished turn has had no agent activity for a while."
+    },
+    {
+      "id": 3,
+      "question": "What is the \"advisor\"? Is it required? Does it send my code to the cloud?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "The advisor is an optional feature where a model you choose explains sessions, turns, or findings, and can also propose heuristics. It is not required. By default it uses a local model (Ollama at localhost), and nothing goes to a hosted provider unless you add one at a non-local https address with your API key, and you approve what it receives first."
+    },
+    {
+      "id": 4,
+      "question": "What is a \"turn\"?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "A turn is everything since your latest prompt, according to the Findings section. Most heuristics judge each session's current turn, so they clear when you prompt again. The Sessions tab shows a turn tree split by prompt, agent, and tool category."
+    },
+    {
+      "id": 5,
+      "question": "What does \"normalized event log\" mean here, and why would I care?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "Adapters convert Claude Code and Copilot activity into one normalized event shape, stored as a single local daily JSONL event log. This matters because heuristics and the UI never need to know which agent produced an event, and you can read the log yourself with jq or DuckDB."
+    },
+    {
+      "id": 6,
+      "question": "Does it work with Cursor, Codex, or Windows?",
+      "confidence": "medium",
+      "notInPage": true,
+      "pass": false,
+      "answer": "Cursor: the page only says the CLI can find stores written by VS Code and its forks, including Cursor; it does not say Snagboat watches Cursor's agents, and the listed sources are only Claude Code and GitHub Copilot. Codex: NOT IN PAGE. Windows: it is supported but new and less tried; Claude Code hooks run through Git Bash, and it has not been tried on a real Windows machine with Claude Code. macOS and Linux are the main platforms."
+    },
+    {
+      "id": 7,
+      "question": "What does the snagboat name mean, and why was it chosen?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "Snagboats were 1800s boats that pulled sunken trees, called snags, out of rivers like the Mississippi, and snags were a steamboat's deadliest hazard because they couldn't be seen from the deck. The author chose the name because Snagboat watches for hazards you can't see in agent sessions, such as loops, churn, and a context quietly filling up. The page also notes Henry Shreve built the first snagboat, the Heliopolis, in 1829."
+    },
+    {
+      "id": 8,
+      "question": "Does installing it change any files in my repo? Which?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "Yes, for Claude Code projects. On activation, Snagboat adds two hook entries to the project's .claude/settings.json that run ~/.snagboat/bin/snagboat-hook; if that file is committed, the change shows in git status. The page describes no other repo file changes, and its event logs are stored in VS Code's per-workspace storage. The Copilot setup section describes no repo file changes."
+    },
+    {
+      "id": 9,
+      "question": "What does the Explore tab do, and can I try anything without installing?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "The Explore tab (experimental) shows up to eight sessions through a carousel of visualizers, each drawing the same sessions in its own way, with a puck that names the current session and filters by its tags. Yes, you can try it without installing: the page links to https://dchristianson.github.io/snagboat/, where you can use example sessions or your own files, and nothing leaves your machine."
+    },
+    {
+      "id": 10,
+      "question": "What is discovery / the Suggestions tab?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "Discovery proposes rules, thresholds, and shell categories from your own history, and each candidate is scored by replay. It is run with the Snagboat: Discover Heuristics command and shown in the Suggestions tab, where you can accept, adjust, or dismiss each proposal."
+    },
+    {
+      "id": 11,
+      "question": "What does `cache-thrash` mean, and what should I do when it fires?",
+      "confidence": "high",
+      "notInPage": true,
+      "pass": false,
+      "answer": "cache-thrash fires when calls in one turn keep rewriting the prompt cache instead of reusing it, and its status bar glyph is a flame. What to do when it fires: NOT IN PAGE. The page gives no remediation steps for this heuristic."
+    },
+    {
+      "id": 12,
+      "question": "Is it free / what's the license? Is it stable?",
+      "confidence": "medium",
+      "notInPage": true,
+      "pass": false,
+      "answer": "Free and license: NOT IN PAGE. The page mentions third-party licenses and optional hosted advisors, but it does not state the project's price or license. Stability: it is described as \"Working, but early\" at version 0.0.2, installed from GitHub releases and not yet on the Marketplace or Open VSX."
+    },
+    {
+      "id": 13,
+      "question": "What's the one-sentence pitch of this project?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "Snagboat is a local VS Code extension that watches Claude Code and GitHub Copilot agent sessions, records their activity in one event log, and flags hidden trouble such as loops, churn, stalls, budget overruns, and hedging. It shows results in the status bar and a detail view."
+    },
+    {
+      "id": 14,
+      "question": "Would a new user know what to do when a warning appears?",
+      "confidence": "medium",
+      "notInPage": true,
+      "pass": false,
+      "answer": "Partly. The page explains where warnings appear (status bar, hover breakdown, detail view, and optional notifications) and the actions offered (show in session, explain, acknowledge, mute). It does not say how to resolve a given finding or which action to take, so the remediation guidance is NOT IN PAGE."
+    }
+  ]
+}
