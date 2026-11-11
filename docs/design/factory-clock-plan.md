@@ -76,7 +76,7 @@ packages/viz/
   dist/               prebuilt files for hosts that don't build
 ```
 
-**Contracts it keeps.** The visualizer contract stays exactly as documented: `register({ id, title, tags, mount(host, ctx) })`, an instance with `update(sessions, selection, options)`, `resize()`, `destroy()` and optional `setActive()`. The shared selection and the source object (`listSessions`, `loadSessions`, `getState`, `setState`) also stay.
+**Contracts it keeps.** The visualizer contract stays exactly as [documented](visualizer-contract.md): `register({ id, title, tags, mount(host, ctx) })`, an instance with `update(sessions, selection, options)`, `resize()`, `destroy()` and optional `setActive()`. The shared selection and the source object (`listSessions`, `loadSessions`, `getState`, `setState`) also stay.
 
 **Contracts it changes.**
 
@@ -112,7 +112,7 @@ Each step leaves the web demo working.
 2. **Split `shared.js`.** Separate the visualization kit (DOM, format, tooltip, replay, force layout) from detail-view helpers that stay in Snagboat.
 3. **Own the theme.** Add `theme.css` with the package's variables, switch the visualizers to them, and map them in the web page and the advisor UI.
 4. **Move the files.** Move `media/viz`, `explore.js`, `viz.css`, the catalog, `web/`, `src/web` and the Pages workflow into `packages/viz`. The advisor UI loads them from the package, and the VS Code detail view drops its Explore tab.
-5. **Give it an identity.** Write its README and contribution guide, document the visualizer contract for outside authors, and publish the gallery as Factory Clock.
+5. **Give it an identity.** Write its README and contribution guide, document the [visualizer contract](visualizer-contract.md) for outside authors, and publish the gallery as Factory Clock.
 6. **Release `dist/`.** Version the package, commit prebuilt files, and have the core's advisor UI pin a version.
 7. **Move to its own repository** once steps 1 to 6 land.
 
