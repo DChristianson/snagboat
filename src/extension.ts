@@ -113,6 +113,8 @@ export interface SnagboatTestApi {
   getContextLimits(): Record<string, ModelContextMarks>;
   getSessions(): SessionController;
   getFindings(): Finding[];
+  /** VS Code's storage folder for this window (context.storageUri), whichever store the setting picks. */
+  getVsCodeStorageDir(): string | undefined;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<SnagboatTestApi | undefined> {
@@ -936,6 +938,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     getFindings: () => findings.list(),
     getContextLimits: () => contextLimits.all(),
     getSessions: () => sessions,
+    getVsCodeStorageDir: () => context.storageUri?.fsPath,
   };
 }
 

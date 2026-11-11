@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { WORKSPACE_NO_FOLDER } from '@snagboat/schema';
-import { listUserStores, readWorkspaceJson } from '../core/userStore';
+import { listUserStores, readVsCodeStoreWorkspace } from '../core/userStore';
 
 /**
  * Finds the event stores the VS Code extension writes, so the CLI can read
@@ -16,7 +16,9 @@ import { listUserStores, readWorkspaceJson } from '../core/userStore';
  * The user dir is the desktop app's (~/.config/Code/User and the like) or, in a
  * dev container or over Remote-SSH, the VS Code server's (~/.vscode-server/data/User),
  * where the extension runs on the remote side. The server writes no
- * workspace.json, so its stores don't say which workspace they belong to.
+ * workspace.json, so the extension writes its own marker in its storage folder
+ * (snagboat-workspace.json, core/userStore.ts) when a window opens it. A server
+ * store written before that has no marker until a window opens it again.
  *
  * Read-only: nothing here writes to a store (core/migrate.ts copies them).
  */
@@ -98,7 +100,7 @@ export function findStores(opts: { platform?: NodeJS.Platform; env?: NodeJS.Proc
     for (const hash of hashes) {
       const storeDir = path.join(workspaces, hash, EXTENSION_ID);
       if (!hasEvents(storeDir)) continue;
-      stores.push({ kind: 'vscode', dir: storeDir, app, global: false, ...readWorkspaceJson(path.join(workspaces, hash, 'workspace.json')) });
+      stores.push({ kind: 'vscode', dir: storeDir, app, global: false, ...readVsCodeStoreWorkspace(storeDir) });
     }
     const globalDir = path.join(dir, 'globalStorage', EXTENSION_ID);
     if (hasEvents(globalDir)) stores.push({ kind: 'vscode', dir: globalDir, app, global: true });

@@ -73,15 +73,51 @@ export function readWorkspaceJson(file: string): { folder?: string; workspaceFil
 }
 
 /**
+ * The marker the extension writes in its VS Code storage folder
+ * (workspaceStorage/<hash>/dchristianson.snagboat/): { folder } or
+ * { workspaceFile }, as plain paths. VS Code's server (dev containers,
+ * Remote-SSH) writes no workspace.json, so this is how the CLI knows whose a
+ * server's store is.
+ */
+export const WORKSPACE_MARKER = 'snagboat-workspace.json';
+
+export interface WorkspaceMarker {
+  folder?: string;
+  workspaceFile?: string;
+}
+
+/** The marker in a VS Code storage folder, or {} when it's missing or unreadable. */
+export function readWorkspaceMarker(storeDir: string): WorkspaceMarker {
+  try {
+    const json = JSON.parse(fs.readFileSync(path.join(storeDir, WORKSPACE_MARKER), 'utf8')) as WorkspaceMarker;
+    const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+    return { folder: str(json.folder), workspaceFile: str(json.workspaceFile) };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * What a VS Code storage folder's workspace is: <hash>/workspace.json when
+ * there is one (the desktop app writes it), else Snagboat's own marker.
+ */
+export function readVsCodeStoreWorkspace(storeDir: string): { folder?: string; workspaceFile?: string; uri?: string } {
+  const file = path.join(path.dirname(storeDir), 'workspace.json');
+  if (fs.existsSync(file)) return readWorkspaceJson(file);
+  const marker = readWorkspaceMarker(storeDir);
+  return marker.folder || marker.workspaceFile ? marker : {};
+}
+
+/**
  * The workspace a VS Code storage folder belongs to: its .code-workspace file,
  * else its folder, else its non-local URI; a window with no folder (global
- * storage) is WORKSPACE_NO_FOLDER. undefined when workspace.json can't be read.
- * Paths are spelled as VS Code spells them (a lower-case drive letter), so the
- * extension and the CLI name a workspace the same way.
+ * storage) is WORKSPACE_NO_FOLDER. undefined when neither workspace.json nor
+ * the marker says. Paths are spelled as VS Code spells them (a lower-case drive
+ * letter), so the extension and the CLI name a workspace the same way.
  */
 export function workspaceOfVsCodeStore(storeDir: string, global: boolean): WorkspaceInfo | undefined {
   if (global) return { workspace: WORKSPACE_NO_FOLDER };
-  const json = readWorkspaceJson(path.join(path.dirname(storeDir), 'workspace.json'));
+  const json = readVsCodeStoreWorkspace(storeDir);
   const folder = json.folder && normalize(json.folder);
   const workspaceFile = json.workspaceFile && normalize(json.workspaceFile);
   const workspace = workspaceFile ?? folder ?? json.uri;

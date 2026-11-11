@@ -125,9 +125,10 @@ function migrationText(home: string, dryRun: boolean, report: MigrationReport, s
     lines.push(`  ${r.label}`, `      ${what}`, `      -> ${r.dest}`);
   }
   for (const s of skipped) {
-    // VS Code's server (dev containers, Remote-SSH) writes no workspace.json; the window itself knows its folder.
+    // VS Code's server (dev containers, Remote-SSH) writes no workspace.json. Snagboat writes its own marker
+    // when a window opens the store, so this is a store no window has opened since it started doing that.
     const why = s.app.endsWith('(server)')
-      ? "VS Code's server doesn't record which workspace it belongs to; turn on snagboat.storage.perUserStore in that window to copy it"
+      ? "VS Code's server doesn't record which workspace it belongs to, and no window has recorded it yet; open that folder in VS Code once and migrate again"
       : "its workspace.json doesn't say which workspace it belongs to";
     lines.push(`  ${storeLabel(s)}`, `      skipped: ${why}`, `      (${s.dir})`);
   }
@@ -141,10 +142,10 @@ function migrationText(home: string, dryRun: boolean, report: MigrationReport, s
 
 const unknownWorkspace = (s: Store) => !s.global && !s.folder && !s.workspaceFile && !s.uri;
 
-/** unknown: stores whose workspace isn't known (VS Code's server writes no workspace.json), so no cwd picks them. */
+/** unknown: stores whose workspace isn't known (a VS Code server store no window has marked yet), so no cwd picks them. */
 function noStoreMessage(cwd: string, all: boolean, unknown = 0): string {
   if (all) return 'no Snagboat event stores found on this machine';
-  const hint = unknown > 0 ? ` (${unknown} store${unknown === 1 ? '' : 's'} with no known workspace, e.g. from VS Code's server, only show with --all)` : '';
+  const hint = unknown > 0 ? ` (${unknown} store${unknown === 1 ? '' : 's'} with no known workspace, e.g. from VS Code's server before a window recorded it, only show with --all; opening the folder in VS Code records it)` : '';
   return `no Snagboat event store for a workspace containing ${cwd}; use --all to read every workspace, or --cwd <dir>${hint}`;
 }
 
