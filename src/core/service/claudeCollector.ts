@@ -21,7 +21,8 @@ import { keepCheckpointEntry } from '../paths';
  * with a cwd appears the folder is left alone and looked at again later.
  */
 
-export const PROJECTS_DISCOVERY_INTERVAL_MS = 60_000;
+/** How often new project folders, and folders with no cwd yet, are looked for; folders already read are skipped cheaply. */
+export const PROJECTS_DISCOVERY_INTERVAL_MS = 5_000;
 
 export interface ClaudeCollectorOptions {
   /** ~/.claude/projects, or SNAGBOAT_CLAUDE_PROJECTS_DIR. */

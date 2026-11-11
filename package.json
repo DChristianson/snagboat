@@ -167,7 +167,7 @@
           "type": "boolean",
           "default": false,
           "scope": "application",
-          "markdownDescription": "Preview: keep Snagboat's data in one per-user store, `~/.snagboat/data` (one folder per workspace, with saved rules in `~/.snagboat/rules.json`), instead of VS Code's storage for each window. Turning it on copies this window's existing data there; nothing is moved or deleted, so turning it off goes back to the data in VS Code's storage as it was, without what was recorded while it was on. Set it in User settings (it is not offered under Workspace); it applies to every window. Takes effect when the window reloads."
+          "markdownDescription": "Preview: keep Snagboat's data in one per-user store, `~/.snagboat/data` (one folder per workspace, with saved rules in `~/.snagboat/rules.json`), instead of VS Code's storage for each window. Turning it on copies this window's existing data there; nothing is moved or deleted, so turning it off goes back to the data in VS Code's storage as it was, without what was recorded while it was on. With it on, VS Code starts Snagboat's core service, which records Claude Code sessions in **every project on this machine** (see PRIVACY.md; `\"collect.unopened\": false` in `~/.snagboat/config.json` limits it to projects VS Code knows), and each window shows its own workspace from it. Set it in User settings (it is not offered under Workspace); it applies to every window. Takes effect when the window reloads."
         },
         "snagboat.copilot.captureStructure": {
           "type": "boolean",

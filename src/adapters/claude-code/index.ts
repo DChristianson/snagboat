@@ -12,6 +12,18 @@ import { isCopilotSession } from '../copilot/cliSessions';
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly agentId = 'claude-code' as const;
 
+  /**
+   * With collect off (a window that's a client of the core, 3c-3c) the window
+   * reads no transcripts and receives no hooks: the core does both. It still
+   * installs the hook script and adds hooks to its folders' .claude/settings.json,
+   * which the script then sends to the core (core.route).
+   */
+  constructor(private readonly opts: { collect?: boolean } = {}) {}
+
+  private get collects(): boolean {
+    return this.opts.collect ?? true;
+  }
+
   private ctx?: AdapterContext;
   private offsets = new Map<string, number>();
   private seen = new SeenMessages();
@@ -22,6 +34,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   /** Set once hooks are routed: what a folder added later needs to be routed and configured. */
   private hookSetup?: { home: string; route: Route; command: string };
   private hookFolders: string[] = [];
+  /** A client window's hook command (it has no hookSetup). */
+  private hookCommand?: string;
   private folderWatch?: { dispose(): void };
   private settingWatch?: { dispose(): void };
   private folderUpdates: Promise<void> = Promise.resolve();
@@ -39,10 +53,13 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   async start(): Promise<void> {
     if (!this.ctx) throw new Error('ClaudeCodeAdapter.start() called before init()');
 
-    this.transcriptTailer = new TranscriptTailer(this.ctx, resolveTranscriptsDir(), this.offsets, this.seen, () => this.persistCheckpoint(), undefined, { turns: this.turns });
-    this.transcriptTailer.start();
-
-    await this.startHooks(this.ctx);
+    if (this.collects) {
+      this.transcriptTailer = new TranscriptTailer(this.ctx, resolveTranscriptsDir(), this.offsets, this.seen, () => this.persistCheckpoint(), undefined, { turns: this.turns });
+      this.transcriptTailer.start();
+      await this.startHooks(this.ctx);
+    } else {
+      await this.configureHooksOnly(this.ctx);
+    }
     this.folderWatch = onWorkspaceFoldersChanged(() => {
       this.folderUpdates = this.folderUpdates.then(() => this.updateHookFolders());
     });
@@ -89,6 +106,19 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     }
   }
 
+  /** A client window: the hook script and settings.json entries, no receiver or routes. */
+  private async configureHooksOnly(ctx: AdapterContext): Promise<void> {
+    try {
+      const command = buildHookCommand(installHookScript(snagboatHome()));
+      this.hookCommand = command;
+      this.hookFolders = resolveWorkspaceFolders();
+      for (const folder of this.hookFolders) if (hooksEnabledFor(folder)) await ensureHooksConfigured(folder, command);
+      ctx.reportHealth('hooks', undefined);
+    } catch (err) {
+      ctx.reportHealth('hooks', `hooks not configured: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   /**
    * Re-routes hooks when workspace folders are added or removed, so a folder
    * added to an open window gets its hooks without a reload. A removed
@@ -97,6 +127,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
    */
   private async updateHookFolders(): Promise<void> {
     if (!this.ctx) return;
+    if (!this.collects) return this.configureHooksOnly(this.ctx);
     if (!this.hookSetup) {
       // No folder was open at activation, so hooks were never set up.
       if (!this.hooksReceiver) await this.startHooks(this.ctx);
@@ -120,9 +151,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
 
   /** Adds hooks to folders where snagboat.claudeCode.configureHooks was turned back on. */
   private async configureEnabledFolders(): Promise<void> {
-    if (!this.hookSetup) return;
+    const command = this.hookSetup?.command ?? this.hookCommand;
+    if (!command) return;
     try {
-      for (const folder of this.hookFolders) if (hooksEnabledFor(folder)) await ensureHooksConfigured(folder, this.hookSetup.command);
+      for (const folder of this.hookFolders) if (hooksEnabledFor(folder)) await ensureHooksConfigured(folder, command);
     } catch (err) {
       this.ctx?.reportHealth('hooks', `hooks not added after a settings change: ${err instanceof Error ? err.message : String(err)}`);
     }

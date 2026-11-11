@@ -14,6 +14,12 @@ import { effectiveSettings } from '../config';
 import { projectDirHeader } from '../../adapters/claude-code/hooksReceiver';
 import { isProcessAlive } from '../processes';
 import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
+import { EventLog } from '../eventLog';
+
+const STREAM_BATCH = 500;
+const STREAM_PING_MS = 15_000;
+/** What this core offers beyond 3c-2's endpoints, so a client can tell an older core apart. */
+const CORE_FEATURES = ['events-stream', 'flush', 'retention'];
 
 /**
  * The core service (docs/design/architecture-rfc.md, step 3; handoff 3c-2):
@@ -33,12 +39,27 @@ import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
  *   POST /events               one event or an array; workspace set from the token if missing
  *   GET  /sessions[?days=n]    sessions of the token's workspaces, newest first
  *   GET  /sessions/:id         one session, by id or unique id prefix
+ *   GET  /events/stream[?changedSince=<iso>]
+ *                              server-sent events: each batch written to the token's
+ *                              workspaces, as a JSON array per message; with changedSince,
+ *                              first every event in day files changed since then, then a
+ *                              "replayed" message (3c-3c: a client window's live feed)
+ *   POST /flush                waits for writes in flight, then ingests the spool of
+ *                              workspaces no longer claimed (a window holding its folder)
+ *   POST /retention            applies the token's workspaces' retention now (a window whose
+ *                              retention settings changed) -> { changed: <days> }
+ *
+ * POST /tokens takes { workspaces: [w], folders: [...] } for a saved multi-root workspace
+ * (a .code-workspace file): projects in those folders are recorded under w while the token lives.
+ * When the core is stopped on purpose (POST /shutdown: snagboat core stop), each open stream
+ * gets a "stopping" message, so its client doesn't start another core in its place. Any other
+ * exit (a signal, a crash) says nothing, and clients start a new core.
  *   POST /hook                 hook token (core.route): a Claude Code hook payload, with the
  *                              project dir header the hook script sends
  *   POST /shutdown             admin: stop the core
  *
- * It exits after idleMs with no requests (0: never). It doesn't run retention:
- * that stays with whoever owns a workspace's folder (claims.ts).
+ * It exits after idleMs with no requests and no open event stream (0: never).
+ * It runs retention for the workspaces no window has claimed (storeWriter.ts).
  */
 
 export class CoreRunningError extends Error {
@@ -134,10 +155,16 @@ export class CoreService {
   private readonly server: http.Server;
   private readonly writer: StoreWriter;
   private readonly workspaceTokens = new Map<string, string[]>();
+  /** Folder -> the .code-workspace workspace it's part of, per token that registered them. */
+  private readonly tokenFolders = new Map<string, Map<string, string>>();
+  /** Ends each open event stream with "stopping"; resolves when it has closed. */
+  private readonly stoppingStreams = new Set<() => Promise<void>>();
   private collector?: ClaudeCollector;
   private readonly settingsCache = new Map<string, { at: number; values: Record<string, unknown> }>();
   private readonly startedAt = new Date().toISOString();
   private lastActivity = Date.now();
+  /** Open GET /events/stream responses: a window that's a client keeps the core up. */
+  private streams = 0;
   private timers: NodeJS.Timeout[] = [];
   private resolveStopped!: () => void;
   private stopping = false;
@@ -210,9 +237,10 @@ export class CoreService {
         deliver: (events, projectDir) => {
           // Collecting counts as activity: the core stays up while an agent is working.
           core.lastActivity = Date.now();
-          // A window that claimed the workspace reads this very transcript folder itself when the
-          // project is its folder: drop. A session started in a subfolder it never reads: keep.
-          return core.writer.write(events, (e) => (workspaceInfoOf(e.workspace!).folder === projectDir ? 'drop' : 'spool'));
+          // A window that claimed the workspace to write it reads this very transcript folder itself
+          // when the project is its folder: drop. A session started in a subfolder it never reads,
+          // or a client window holding the folder for a rewrite (it reads no transcripts): keep.
+          return core.writer.write(events, (e, claim) => (!claim.hold && workspaceInfoOf(e.workspace!).folder === projectDir ? 'drop' : 'spool'));
         },
         log: (line) => core.log(line),
       });
@@ -222,6 +250,7 @@ export class CoreService {
     if (idleMs > 0) {
       core.timers.push(
         setInterval(() => {
+          if (core.streams > 0) core.lastActivity = Date.now();
           if (Date.now() - core.lastActivity >= idleMs) {
             core.log(`idle for ${Math.round(idleMs / 1000)}s; stopping`);
             void core.stop();
@@ -233,9 +262,15 @@ export class CoreService {
     return core;
   }
 
-  async stop(): Promise<void> {
+  /** Stops the core. final: stopped on purpose (snagboat core stop), so clients shouldn't start another. */
+  async stop(opts: { final?: boolean } = {}): Promise<void> {
     if (this.stopping) return this.stopped;
     this.stopping = true;
+    if (opts.final) {
+      // Said and closed before the connections are cut, so each client hears it (and doesn't start another core).
+      const said = [...this.stoppingStreams].map((say) => say());
+      await Promise.race([Promise.all(said), new Promise((r) => setTimeout(r, 1_000).unref())]);
+    }
     for (const t of this.timers) clearInterval(t);
     this.collector?.stop();
     removeCoreRoute(this.opts.home, process.pid);
@@ -287,15 +322,24 @@ export class CoreService {
       }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const route = `${req.method} ${url.pathname}`;
-      if (route === 'GET /health') return send(200, { ok: true, version: this.opts.version, pid: process.pid, startedAt: this.startedAt });
+      if (route === 'GET /health') return send(200, { ok: true, version: this.opts.version, pid: process.pid, startedAt: this.startedAt, features: CORE_FEATURES });
+      if (route === 'POST /retention') {
+        req.resume();
+        return send(200, { changed: await this.writer.runRetention((w) => scope.admin || scope.workspaces.includes(w)) });
+      }
       if (route === 'POST /tokens') return send(200, this.mintToken(scope, await this.readBody(req)));
+      if (route === 'GET /events/stream') return this.stream(scope, url.searchParams.get('changedSince'), req, res);
+      if (route === 'POST /flush') {
+        req.resume();
+        return send(200, { ingested: await this.writer.flush() });
+      }
       if (route === 'POST /events') return send(200, await this.postEvents(scope, await this.readBody(req)));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days')));
       if (req.method === 'GET' && url.pathname.startsWith('/sessions/')) return send(200, await this.session(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length))));
       if (route === 'POST /shutdown') {
         if (!scope.admin) throw new HttpError(403, 'only the admin token can stop the core');
         send(200, { stopping: true });
-        setImmediate(() => void this.stop());
+        setImmediate(() => void this.stop({ final: true }));
         return;
       }
       req.resume();
@@ -319,7 +363,9 @@ export class CoreService {
 
   /** The workspace a project's activity is recorded under, or undefined when it's not recorded (workspaces.ts). */
   workspaceFor(projectDir: string): string | undefined {
-    return collectedWorkspace(this.opts.home, projectDir, knownWorkspaceFolders(this.opts.home, [...this.workspaceTokens.values()].flat()));
+    const aliases = new Map<string, string>();
+    for (const folders of this.tokenFolders.values()) for (const [folder, workspace] of folders) aliases.set(folder, workspace);
+    return collectedWorkspace(this.opts.home, projectDir, knownWorkspaceFolders(this.opts.home, [...this.workspaceTokens.values()].flat()), aliases);
   }
 
   private async hook(req: http.IncomingMessage) {
@@ -349,8 +395,13 @@ export class CoreService {
     if (!Array.isArray(workspaces) || workspaces.length === 0 || !workspaces.every((w) => typeof w === 'string' && w.length > 0)) {
       throw new HttpError(400, 'body must be { "workspaces": ["<workspace>", ...] }');
     }
+    const folders = (body as { folders?: unknown })?.folders;
+    if (folders !== undefined && (!Array.isArray(folders) || workspaces.length !== 1 || !folders.every((f) => typeof f === 'string' && path.isAbsolute(f)))) {
+      throw new HttpError(400, 'folders must be absolute paths, for exactly one workspace');
+    }
     const token = crypto.randomBytes(32).toString('hex');
     this.workspaceTokens.set(token, [...new Set(workspaces as string[])]);
+    if (folders && folders.length > 0) this.tokenFolders.set(token, new Map((folders as string[]).map((f) => [f, workspaces[0] as string])));
     return { token, workspaces: this.workspaceTokens.get(token)! };
   }
 
@@ -369,6 +420,52 @@ export class CoreService {
       events.push({ ...e, workspace });
     }
     return this.writer.write(events);
+  }
+
+  /** GET /events/stream: a server-sent event per batch written to the scope's workspaces. */
+  private stream(scope: Scope, changedSince: string | null, req: http.IncomingMessage, res: http.ServerResponse): void {
+    const since = changedSince === null ? undefined : Date.parse(changedSince);
+    if (since !== undefined && !Number.isFinite(since)) throw new HttpError(400, 'changedSince must be an ISO date');
+    req.resume();
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.write(': connected\n\n');
+    const visible = (workspace: string) => scope.admin || scope.workspaces.includes(workspace);
+    const send = (events: NormalizedEvent[]) => {
+      for (let i = 0; i < events.length; i += STREAM_BATCH) res.write(`data: ${JSON.stringify(events.slice(i, i + STREAM_BATCH))}\n\n`);
+    };
+    // Registered before the replay, so nothing written meanwhile falls between the two (the client drops repeats by eventId).
+    const stop = this.writer.onWritten((workspace, events) => visible(workspace) && send(events));
+    const ping = setInterval(() => res.write(': ping\n\n'), STREAM_PING_MS);
+    ping.unref();
+    this.streams += 1;
+    const sayStopping = () => new Promise<void>((resolve) => {
+      res.once('close', () => resolve());
+      res.end('event: stopping\ndata: {}\n\n');
+    });
+    this.stoppingStreams.add(sayStopping);
+    res.on('close', () => {
+      this.stoppingStreams.delete(sayStopping);
+      stop();
+      clearInterval(ping);
+      this.streams -= 1;
+      this.lastActivity = Date.now();
+    });
+    if (since === undefined) return;
+    void (async () => {
+      for (const store of this.visibleStores(scope)) {
+        const log = new EventLog(store.dir);
+        for (const day of await log.listDays()) {
+          let mtime: number;
+          try {
+            mtime = fs.statSync(path.join(log.dir, `${day}.jsonl`)).mtimeMs;
+          } catch {
+            continue;
+          }
+          if (mtime >= since && !res.destroyed) send((await log.readDay(day)).map((e) => ({ ...e, workspace: store.workspace })));
+        }
+      }
+      if (!res.destroyed) res.write('event: replayed\ndata: {}\n\n');
+    })().catch((err) => this.log(`replay failed: ${err instanceof Error ? err.message : String(err)}`));
   }
 
   private visibleStores(scope: Scope) {
