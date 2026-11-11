@@ -95,7 +95,15 @@ export async function resolveStorage(context: vscode.ExtensionContext): Promise<
     const storageDir = await openWorkspaceStore(home, info);
     const perUser = { storageDir, sharedDir: userDataDir(home), rulesDir: home, workspace: info.workspace, perUser: true };
     try {
-      const core = await CoreClient.connect({ home, cliPath: path.join(context.extensionPath, 'dist', 'snagboat.js'), workspace: info.workspace, log: (line) => console.log(`snagboat: ${line}`) });
+      // A saved multi-root workspace is named by its .code-workspace file; the core finds its projects by its folders.
+      const folders = info.workspaceFile ? (vscode.workspace.workspaceFolders ?? []).filter((f) => f.uri.scheme === 'file').map((f) => f.uri.fsPath) : undefined;
+      const core = await CoreClient.connect({
+        home,
+        cliPath: path.join(context.extensionPath, 'dist', 'snagboat.js'),
+        workspace: info.workspace,
+        folders,
+        log: (line) => console.log(`snagboat: ${line}`),
+      });
       return { ...perUser, core };
     } catch (err) {
       console.error('snagboat: the core service could not start', err);

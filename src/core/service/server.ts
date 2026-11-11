@@ -18,6 +18,8 @@ import { EventLog } from '../eventLog';
 
 const STREAM_BATCH = 500;
 const STREAM_PING_MS = 15_000;
+/** What this core offers beyond 3c-2's endpoints, so a client can tell an older core apart. */
+const CORE_FEATURES = ['events-stream', 'flush', 'retention'];
 
 /**
  * The core service (docs/design/architecture-rfc.md, step 3; handoff 3c-2):
@@ -44,6 +46,13 @@ const STREAM_PING_MS = 15_000;
  *                              "replayed" message (3c-3c: a client window's live feed)
  *   POST /flush                waits for writes in flight, then ingests the spool of
  *                              workspaces no longer claimed (a window holding its folder)
+ *   POST /retention            applies the token's workspaces' retention now (a window whose
+ *                              retention settings changed) -> { changed: <days> }
+ *
+ * POST /tokens takes { workspaces: [w], folders: [...] } for a saved multi-root workspace
+ * (a .code-workspace file): projects in those folders are recorded under w while the token lives.
+ * When the core stops, each open stream gets a "stopping" message, so its client doesn't
+ * start another core in its place.
  *   POST /hook                 hook token (core.route): a Claude Code hook payload, with the
  *                              project dir header the hook script sends
  *   POST /shutdown             admin: stop the core
@@ -145,6 +154,10 @@ export class CoreService {
   private readonly server: http.Server;
   private readonly writer: StoreWriter;
   private readonly workspaceTokens = new Map<string, string[]>();
+  /** Folder -> the .code-workspace workspace it's part of, per token that registered them. */
+  private readonly tokenFolders = new Map<string, Map<string, string>>();
+  /** Ends each open event stream with "stopping"; resolves when it has closed. */
+  private readonly stoppingStreams = new Set<() => Promise<void>>();
   private collector?: ClaudeCollector;
   private readonly settingsCache = new Map<string, { at: number; values: Record<string, unknown> }>();
   private readonly startedAt = new Date().toISOString();
@@ -251,6 +264,9 @@ export class CoreService {
   async stop(): Promise<void> {
     if (this.stopping) return this.stopped;
     this.stopping = true;
+    // Said and closed before the connections are cut, so each client hears it (and doesn't start another core).
+    const said = [...this.stoppingStreams].map((say) => say());
+    await Promise.race([Promise.all(said), new Promise((r) => setTimeout(r, 1_000).unref())]);
     for (const t of this.timers) clearInterval(t);
     this.collector?.stop();
     removeCoreRoute(this.opts.home, process.pid);
@@ -302,7 +318,11 @@ export class CoreService {
       }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const route = `${req.method} ${url.pathname}`;
-      if (route === 'GET /health') return send(200, { ok: true, version: this.opts.version, pid: process.pid, startedAt: this.startedAt });
+      if (route === 'GET /health') return send(200, { ok: true, version: this.opts.version, pid: process.pid, startedAt: this.startedAt, features: CORE_FEATURES });
+      if (route === 'POST /retention') {
+        req.resume();
+        return send(200, { changed: await this.writer.runRetention((w) => scope.admin || scope.workspaces.includes(w)) });
+      }
       if (route === 'POST /tokens') return send(200, this.mintToken(scope, await this.readBody(req)));
       if (route === 'GET /events/stream') return this.stream(scope, url.searchParams.get('changedSince'), req, res);
       if (route === 'POST /flush') {
@@ -339,7 +359,9 @@ export class CoreService {
 
   /** The workspace a project's activity is recorded under, or undefined when it's not recorded (workspaces.ts). */
   workspaceFor(projectDir: string): string | undefined {
-    return collectedWorkspace(this.opts.home, projectDir, knownWorkspaceFolders(this.opts.home, [...this.workspaceTokens.values()].flat()));
+    const aliases = new Map<string, string>();
+    for (const folders of this.tokenFolders.values()) for (const [folder, workspace] of folders) aliases.set(folder, workspace);
+    return collectedWorkspace(this.opts.home, projectDir, knownWorkspaceFolders(this.opts.home, [...this.workspaceTokens.values()].flat()), aliases);
   }
 
   private async hook(req: http.IncomingMessage) {
@@ -369,8 +391,13 @@ export class CoreService {
     if (!Array.isArray(workspaces) || workspaces.length === 0 || !workspaces.every((w) => typeof w === 'string' && w.length > 0)) {
       throw new HttpError(400, 'body must be { "workspaces": ["<workspace>", ...] }');
     }
+    const folders = (body as { folders?: unknown })?.folders;
+    if (folders !== undefined && (!Array.isArray(folders) || workspaces.length !== 1 || !folders.every((f) => typeof f === 'string' && path.isAbsolute(f)))) {
+      throw new HttpError(400, 'folders must be absolute paths, for exactly one workspace');
+    }
     const token = crypto.randomBytes(32).toString('hex');
     this.workspaceTokens.set(token, [...new Set(workspaces as string[])]);
+    if (folders && folders.length > 0) this.tokenFolders.set(token, new Map((folders as string[]).map((f) => [f, workspaces[0] as string])));
     return { token, workspaces: this.workspaceTokens.get(token)! };
   }
 
@@ -407,7 +434,13 @@ export class CoreService {
     const ping = setInterval(() => res.write(': ping\n\n'), STREAM_PING_MS);
     ping.unref();
     this.streams += 1;
+    const sayStopping = () => new Promise<void>((resolve) => {
+      res.once('close', () => resolve());
+      res.end('event: stopping\ndata: {}\n\n');
+    });
+    this.stoppingStreams.add(sayStopping);
     res.on('close', () => {
+      this.stoppingStreams.delete(sayStopping);
       stop();
       clearInterval(ping);
       this.streams -= 1;

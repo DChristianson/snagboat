@@ -457,7 +457,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       setImmediate(() => {
         const batch = outgoing;
         outgoing = [];
-        void core.post(batch);
+        core.post(batch).catch((err) => {
+          console.error('snagboat: events could not be sent to the core or spooled', err);
+          health.report('core', 'post', `events could not be sent to the core: ${err instanceof Error ? err.message : String(err)}`);
+        });
       });
     });
   } else {
@@ -478,7 +481,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   // whenever its settings change. Runs are serialized so two never race over
   // the same files.
   const runRetention = () => {
-    if (core) return retentionQueue; // the core runs retention for the folders it writes
+    if (core) {
+      // The core prunes the folders it writes; this window then reloads, so nothing it pruned stays in memory.
+      retentionQueue = retentionQueue
+        .then(async () => {
+          if ((await core.retention()) > 0) await reloadFromLog();
+        })
+        .catch((err) => console.error('snagboat: retention failed', err));
+      return retentionQueue;
+    }
     retentionQueue = retentionQueue
       .then(async () => {
         const result = await applyRetention(eventLog, aggregateStore, retentionPolicy(), todayKey());

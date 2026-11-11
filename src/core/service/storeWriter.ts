@@ -99,8 +99,8 @@ export class StoreWriter {
   }
 
   /** Applies each unclaimed workspace's retention: rolls up old days and removes captured text past textDays. */
-  runRetention(): Promise<number> {
-    return this.serial(() => this.retentionNow());
+  runRetention(only?: (workspace: string) => boolean): Promise<number> {
+    return this.serial(() => this.retentionNow(only));
   }
 
   private serial<T>(op: () => Promise<T>): Promise<T> {
@@ -186,9 +186,10 @@ export class StoreWriter {
     return { written, duplicates, dropped };
   }
 
-  private async retentionNow(): Promise<number> {
+  private async retentionNow(only?: (workspace: string) => boolean): Promise<number> {
     let changed = 0;
     for (const s of listUserStores(this.home)) {
+      if (only && !only(s.workspace)) continue;
       if (claimedBy(s.dir) !== undefined) {
         this.stores.delete(s.workspace);
         continue;

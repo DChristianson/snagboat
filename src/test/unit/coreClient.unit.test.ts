@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
+import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import { NormalizedEvent } from '@snagboat/schema';
@@ -187,6 +188,86 @@ async function main() {
       f.client.close();
     }
     await waitFor(() => readCoreFile(home) === undefined, 5_000);
+  });
+
+  test('a saved multi-root workspace: projects in its folders are recorded under its .code-workspace file and reach its window', async () => {
+    const { home, projects, root } = machine();
+    const one = path.join(root, 'one');
+    fs.mkdirSync(one, { recursive: true });
+    const file = path.join(root, 'both.code-workspace');
+    const core = await start(home, { collect: true, claudeProjectsDir: projects });
+    const client = await CoreClient.connect({ home, cliPath: '/nowhere', workspace: file, folders: [one], ensure: running(home) });
+    const got: NormalizedEvent[] = [];
+    client.follow({ onEvents: (e) => got.push(...e) }, new Date().toISOString());
+    try {
+      const folder = path.join(projects, sanitizeCwd(one));
+      fs.mkdirSync(folder, { recursive: true });
+      fs.writeFileSync(path.join(folder, 'm.jsonl'), JSON.stringify({ type: 'user', uuid: 'm-u', sessionId: 'm', cwd: one, timestamp: new Date().toISOString(), promptId: 'm-p', message: { role: 'user', content: [{ type: 'text', text: 'hi' }] } }) + '\n');
+      await waitFor(() => got.some((e) => e.sessionId === 'm'), 15_000);
+      assert.ok(got.every((e) => e.workspace === file));
+      assert.ok(!fs.existsSync(workspaceStoreDir(home, one)), 'not under the folder itself');
+    } finally {
+      client.close();
+      await core.stop();
+    }
+  });
+
+  test("a window's retention request prunes its workspace now", async () => {
+    const { home, a, b } = machine();
+    const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
+    const withText = (id: string, w: string) => ({ ...ev(id, w, old), kind: 'user_prompt' as const, promptText: 'secret' });
+    // Written while the text was young enough to keep (the writer's clock 40 days ago).
+    await new StoreWriter(home, () => Date.parse(old)).write([withText('pa', a), withText('pb', b)]);
+    const core = await start(home, { retentionEveryMs: 3_600_000 });
+    try {
+      await new Promise((r) => setTimeout(r, 300)); // the core's own run at start
+      const client = await CoreClient.connect({ home, cliPath: '/nowhere', workspace: a, ensure: running(home) });
+      await client.retention();
+      assert.strictEqual((await new EventLog(workspaceStoreDir(home, a)).readAll())[0].promptText, undefined, 'text past 30 days removed');
+      client.close();
+    } finally {
+      await core.stop();
+    }
+  });
+
+  test('a core from an older Snagboat (no live feed) is refused, not waited on', async () => {
+    const server = http.createServer((_req, res) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, version: '0.0.1' })));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const { home, a } = machine();
+      await assert.rejects(
+        CoreClient.connect({ home, cliPath: '/nowhere', workspace: a, ensure: async () => ({ port, token: 't', pid: 1, version: '0.0.1', startedAt: '' }) }),
+        /older than this extension/
+      );
+    } finally {
+      server.close();
+    }
+  });
+
+  test('a core stopped on purpose is not started again by its clients; they rejoin the next one', async () => {
+    const { home, a } = machine();
+    let core = await start(home);
+    let ensured = 0;
+    const client = await CoreClient.connect({ home, cliPath: '/nowhere', workspace: a, ensure: () => ((ensured += 1), running(home)()) });
+    let replays = 0;
+    const got: string[] = [];
+    client.follow({ onEvents: (e) => got.push(...e.map((x) => x.eventId)), onReplayed: () => (replays += 1) }, new Date().toISOString());
+    try {
+      await waitFor(() => replays === 1);
+      await core.stop();
+      await new Promise((r) => setTimeout(r, 2_500));
+      assert.strictEqual(ensured, 1, 'only the first connect asked to start one');
+      core = await start(home);
+      await waitFor(() => replays === 2, 15_000);
+      // Right after the restart, a hold re-authorizes for its flush.
+      await client.hold(workspaceStoreDir(home, a), async () => undefined);
+      await client.post([ev('back')]);
+      await waitFor(() => got.includes('back'));
+    } finally {
+      client.close();
+      await core.stop();
+    }
   });
 
   let failures = 0;

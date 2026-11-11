@@ -44,17 +44,21 @@ export interface ProjectWorkspace {
   known: boolean;
 }
 
-/** The workspace a project folder belongs to (steps 1 to 3 above). */
-export function workspaceOfProject(projectDir: string, knownFolders: string[]): ProjectWorkspace {
-  const containing = knownFolders.filter((f) => isWithinFolders(projectDir, withRealPaths([f])));
+/**
+ * The workspace a project folder belongs to (steps 1 to 3 above). aliases maps
+ * a folder to the workspace it's part of when that isn't the folder itself: a
+ * saved multi-root workspace (.code-workspace) whose window is a client.
+ */
+export function workspaceOfProject(projectDir: string, knownFolders: string[], aliases: Map<string, string> = new Map()): ProjectWorkspace {
+  const containing = [...knownFolders, ...aliases.keys()].filter((f) => isWithinFolders(projectDir, withRealPaths([f])));
   const nearest = containing.sort((a, b) => b.length - a.length)[0];
-  if (nearest) return { workspace: nearest, known: true };
+  if (nearest) return { workspace: aliases.get(nearest) ?? nearest, known: true };
   return { workspace: repositoryRoot(projectDir) ?? path.resolve(projectDir), known: false };
 }
 
 /** The workspace to record a project's activity under, or undefined when its settings say not to record it. */
-export function collectedWorkspace(home: string, projectDir: string, knownFolders: string[]): string | undefined {
-  const { workspace, known } = workspaceOfProject(projectDir, knownFolders);
+export function collectedWorkspace(home: string, projectDir: string, knownFolders: string[], aliases?: Map<string, string>): string | undefined {
+  const { workspace, known } = workspaceOfProject(projectDir, knownFolders, aliases);
   const settings = effectiveSettings(home, projectDir).values;
   if (settings.collect === false) return undefined;
   if (!known && loadConfig(home).config.defaults['collect.unopened'] === false) return undefined;
