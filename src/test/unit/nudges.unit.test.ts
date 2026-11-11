@@ -61,6 +61,20 @@ async function main() {
     assert.strictEqual(n.update(episode('backtracking', 't5'), [], on('warnings', { limits })).length, 1, 'an hour later');
   });
 
+  test("room() names a finding's advisor and whether its limit is holding it back, without using it", () => {
+    let now = 0;
+    const n = new Nudger(locate, () => now);
+    const limits = [{ advisor: 'navigator', rules: ['backtracking'], maxPerHour: 1 }, { advisor: 'lookout', rules: ['noisy'] }];
+    assert.deepStrictEqual(n.room('backtracking', { limits }), { advisor: 'navigator', held: false });
+    assert.deepStrictEqual(n.room('backtracking', { limits }), { advisor: 'navigator', held: false }, 'reading uses nothing');
+    assert.deepStrictEqual(n.room('noisy', { limits }), { advisor: 'lookout', held: false }, 'no limit');
+    assert.deepStrictEqual(n.room('stalled', { limits }), { held: false }, 'no advisor');
+    n.update(new Map([['backtracking', [finding('backtracking', 'warn', 's1/t1/a')]]]), [], on('warnings', { limits }));
+    assert.deepStrictEqual(n.room('backtracking', { limits }), { advisor: 'navigator', held: true });
+    now = 61 * 60_000;
+    assert.strictEqual(n.room('backtracking', { limits }).held, false, 'an hour later');
+  });
+
   test('off, quiet, and muted never notify, and an episode already under way when notifications turn on stays quiet', () => {
     const active = new Map([['backtracking', [finding('backtracking', 'warn', 's1/t1/a')]]]);
     assert.deepStrictEqual(new Nudger(locate).update(active, [progress('runaway-turn', 's1/t9/x')], on('off')), []);

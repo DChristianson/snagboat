@@ -127,6 +127,24 @@
         "title": "Snagboat (Dev): Emit Test Event"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "snagboat",
+          "title": "Snagboat",
+          "icon": "media/snagboat-activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "snagboat": [
+        {
+          "type": "webview",
+          "id": "snagboat.findings",
+          "name": "Findings"
+        }
+      ]
+    },
     "menus": {
       "commandPalette": [
         {

@@ -175,3 +175,32 @@ table.sessions { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .tree-host, .timeline-host { width: 100%; min-width: 0; }
 #session-explore { margin-top: 0; }
 #view-explore { min-width: 0; }
+
+/* Adding an advisor (step 5c). */
+#view-add:not([hidden]) { display: grid; gap: 14px; }
+.add-form { max-width: 720px; gap: 14px; }
+.add-form .field { display: grid; gap: 4px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.add-form label, .add-form legend { font-size: 12px; font-weight: 600; padding: 0; }
+.add-form input[type="text"], .add-form input[type="number"], .add-form textarea { font: inherit; font-size: 13px; color: var(--sv-input-ink, var(--sv-ink)); background: var(--sv-input-bg, var(--sv-surface)); border: 1px solid var(--sv-input-border, var(--sv-rule)); border-radius: 5px; padding: 5px 8px; width: 100%; }
+.add-form input[type="number"] { width: 6em; }
+.add-form textarea { resize: vertical; line-height: 1.45; }
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 14px; font-size: 12.5px; }
+.checks label { font-weight: 400; display: flex; gap: 6px; align-items: baseline; }
+.checks .note { color: var(--sv-ink-muted); font-size: 11px; }
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.swatches label { display: inline-flex; gap: 6px; align-items: center; font-weight: 400; font-size: 12.5px; border: 1px solid var(--sv-rule); border-radius: 6px; padding: 4px 10px 4px 6px; cursor: pointer; }
+.swatches input { margin: 0; }
+.swatches .glyph { width: 24px; height: 24px; }
+.adv-add:not(:disabled) { cursor: pointer; }
+.adv-add:not(:disabled):hover { background: var(--sv-hover); color: var(--sv-ink); }
+.btn.primary { background: var(--sv-pressed-bg); color: var(--sv-pressed-ink); }
+a.btn { text-decoration: none; display: inline-block; }
+.cue-amber { --cue: var(--cue-amber); }
+.cue-blue { --cue: var(--cue-blue); }
+.cue-red { --cue: var(--cue-red); }
+.cue-teal { --cue: var(--cue-teal); }
+.swatches .glyph { --cue: var(--sv-ink-muted); }
+.swatches .glyph.cue-amber { --cue: var(--cue-amber); }
+.swatches .glyph.cue-blue { --cue: var(--cue-blue); }
+.swatches .glyph.cue-red { --cue: var(--cue-red); }
+.swatches .glyph.cue-teal { --cue: var(--cue-teal); }

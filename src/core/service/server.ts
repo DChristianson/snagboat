@@ -11,7 +11,7 @@ import { CopilotCollector } from './copilotCollector';
 import { isWithinFolders, withRealPaths } from '../paths';
 import { collectedWorkspace, knownWorkspaceFolders } from './workspaces';
 import { CheckpointStore } from '../checkpointStore';
-import { effectiveSettings } from '../config';
+import { effectiveSettings, loadConfig } from '../config';
 import { projectDirHeader } from '../../adapters/claude-code/hooksReceiver';
 import { isProcessAlive } from '../processes';
 import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
@@ -24,6 +24,10 @@ import { EXPLORE_SESSION_CAP } from '../../ui/visualizers';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
 import { loadAdvisorGoals } from '../../advisor/goals';
+import { MEASURES } from '../../advisor/measures';
+import { advisorTemplates, checkNewAdvisor, CUE_COLORS, CUE_ICONS, writeNewAdvisor } from '../../advisor/newAdvisor';
+import { builtInHeuristics } from '../../heuristics';
+import { RuleStore } from '../../heuristics/ruleStore';
 import { AdvisorReport, advisorReports, buckets, eventsIn, periods } from '../../advisor/report';
 import { advisorBrief } from '../../advisor/brief';
 import { beadsAhead } from '../../advisor/ahead';
@@ -77,6 +81,9 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              workspace, its card's brief), this period against
  *                              the one before (RFC step 4c)
  *   GET  /workspaces           the workspaces the token reads, most recently active first
+ *   GET  /advisor-form         the + form's choices: measures, rules an advisor can speak for, templates (step 5c)
+ *   POST /advisors             a new advisor from the form: ~/.snagboat/advisors/<id>/persona.md, never
+ *                              overwriting one (any token, a reader's included: advisors are yours)
  *   POST /ui-links             admin: [{ workspace, allowHost }] -> a one-time code (2 minutes) and the advisor UI
  *                              address that uses it (http://127.0.0.1:<port>/ui/#<code>)
  *   POST /ui-session           no token: { code } -> a reader token (every workspace, read only), once
@@ -486,6 +493,8 @@ export class CoreService {
       if (route === 'GET /workspaces') return send(200, this.workspaces(scope));
       if (route === 'POST /ui-links') return send(200, this.uiLink(scope, await this.readBody(req).catch(() => ({}))));
       if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days'), url.searchParams.get('series') === '1', url.searchParams.get('weeks')));
+      if (route === 'GET /advisor-form') return send(200, await this.advisorForm());
+      if (route === 'POST /advisors') return send(201, await this.addAdvisor(await this.readBody(req, 8192)));
       if (route === 'POST /findings/respond') return send(200, await this.respond(scope, await this.readBody(req, 4096)));
       if (route === 'GET /findings') return send(200, await this.currentFindings(scope, url.searchParams.get('workspace')));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days'), url.searchParams.get('workspace')));
@@ -687,6 +696,50 @@ export class CoreService {
       for (const r of reports) r.brief = advisorBrief(r, live, notified, r.id === 'navigator' ? ahead : undefined, findingsNow.responses);
     }
     return { days, workspaces: stores.map((s) => s.workspace), advisors: reports, problems };
+  }
+
+  /** Built-in heuristics, saved rules (rules.json) and the user's settings rules: what a new advisor can speak for. */
+  private async knownRules(): Promise<Array<{ id: string; title?: string }>> {
+    const out = new Map<string, string | undefined>();
+    for (const h of builtInHeuristics()) out.set(h.id, undefined);
+    const store = new RuleStore(this.opts.home);
+    await store.load().catch(() => undefined);
+    const defaults = loadConfig(this.opts.home).config.defaults.rules;
+    for (const doc of [...store.source().rules, ...(Array.isArray(defaults) ? defaults : [])]) {
+      const d = doc as { id?: unknown; title?: unknown };
+      if (typeof d.id === 'string') out.set(d.id, typeof d.title === 'string' ? d.title : undefined);
+    }
+    return [...out].map(([id, title]) => ({ id, ...(title ? { title } : {}) }));
+  }
+
+  /** GET /advisor-form: what the + form offers: measures, the rules an advisor can speak for, the built-ins as templates. */
+  private async advisorForm() {
+    const { advisors } = loadAdvisorGoals(path.join(this.opts.home, 'advisors'), () => undefined);
+    return {
+      measures: Object.entries(MEASURES).map(([id, m]) => ({ id, label: m.label, unit: m.unit, ...(m.notYet ? { notYet: m.notYet } : {}) })),
+      rules: await this.knownRules(),
+      templates: advisorTemplates(advisors),
+      colors: CUE_COLORS,
+      icons: CUE_ICONS,
+    };
+  }
+
+  /**
+   * POST /advisors: a new advisor from the + form (RFC step 5c), written as
+   * ~/.snagboat/advisors/<id>/persona.md. Only ever a new folder; a reader (browser) key may make it,
+   * as advisors are yours, not a workspace's.
+   */
+  private async addAdvisor(body: unknown): Promise<{ advisor: { id: string; name: string } }> {
+    const { spec, problems } = checkNewAdvisor(body, (await this.knownRules()).map((r) => r.id));
+    if (!spec) throw new HttpError(400, problems.join(' '));
+    try {
+      const a = writeNewAdvisor(path.join(this.opts.home, 'advisors'), spec);
+      this.log(`added advisor ${a.id}`);
+      return { advisor: { id: a.id, name: a.name } };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new HttpError(/already exists|built-in/.test(message) ? 409 : 500, message);
+    }
   }
 
   /**

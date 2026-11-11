@@ -361,6 +361,11 @@ suite('Snagboat core plumbing', () => {
     );
   });
 
+  test('the compact findings panel opens in its own sidebar view', async () => {
+    // VS Code adds a focus command for each contributed view; it fails if the view isn't registered.
+    await vscode.commands.executeCommand('snagboat.findings.focus');
+  });
+
   test('the detail view opens as a webview tab and the today snapshot tracks new events', async () => {
     const beforeToday = api.getTodaySnapshot().totalTokens;
     await vscode.commands.executeCommand('snagboat._emitTestEvent');

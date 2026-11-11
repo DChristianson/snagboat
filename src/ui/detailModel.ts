@@ -84,7 +84,8 @@ export type DetailMessage =
   | { type: 'explain'; sessionId: string; turnId?: string; heuristicId?: string }
   | { type: 'tactics'; sessionId: string }
   | { type: 'explore'; sessionIds: string[] }
-  | { type: 'closeExplorer' };
+  | { type: 'closeExplorer' }
+  | { type: 'openAdvisorUi'; view?: 'sessions' | 'explore' };
 
 export type DetailTab = 'overview' | 'sessions' | 'suggestions' | 'explore';
 
@@ -107,6 +108,8 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
       return m.day === undefined || (typeof m.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m.day));
     case 'openSession':
       return typeof m.sessionId === 'string';
+    case 'openAdvisorUi':
+      return m.view === undefined || m.view === 'sessions' || m.view === 'explore';
     case 'closeSession':
     case 'closeExplorer':
     case 'listExploreSessions':

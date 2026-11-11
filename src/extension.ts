@@ -49,6 +49,7 @@ import { renderStatusBar } from './ui/statusBar';
 import { buildBreakdownLines, formatCount } from './ui/format';
 import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
 import { DetailPanel } from './ui/detailPanel';
+import { FindingsView } from './ui/findingsView';
 import { EditTrackerAdapter } from './vscode/editTracker';
 import { vscodeHost } from './vscode/host';
 import { resolveStorage, watchPerUserStoreSetting } from './vscode/storage';
@@ -396,6 +397,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   void audit.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
   const advisor = new Advisor({ secrets: context.secrets, globalState: context.globalState, audit, output: outputChannel, digestInput });
 
+  /**
+   * Opens the advisor UI (RFC step 5a) in the browser with a one-time link, optionally at a session or view
+   * (step 5c: with the per-user store on, Sessions and Explore live there). It's served by the core.
+   */
+  const openAdvisorUi = async (target: { sessionId?: string; view?: 'sessions' | 'explore' } = {}): Promise<void> => {
+    if (!core) {
+      void vscode.window.showInformationMessage('Snagboat: the advisor UI is served by the core service, which runs with snagboat.storage.perUserStore on (User settings, then reload).');
+      return;
+    }
+    const info = await findCore(snagboatHome());
+    if (!info) {
+      void vscode.window.showWarningMessage('Snagboat: the core service isn\'t answering; reload the window to start it again.');
+      return;
+    }
+    // In a remote window (dev container, SSH, Codespaces) VS Code forwards the core's port, and the browser reaches
+    // it under another address: ask for that address, and have the core accept it.
+    const external = await vscode.env.asExternalUri(vscode.Uri.parse(`http://127.0.0.1:${info.port}/`));
+    const forwarded = external.authority.toLowerCase() !== `127.0.0.1:${info.port}`;
+    const res = await coreRequest(info.port, info.token, 'POST', '/ui-links', { ...(storage.workspace ? { workspace: storage.workspace } : {}), ...(forwarded ? { allowHost: external.authority } : {}) });
+    if (res.status !== 200) {
+      void vscode.window.showErrorMessage(`Snagboat: the core couldn't open the advisor UI: ${JSON.stringify(res.body)}`);
+      return;
+    }
+    const { code } = res.body as { code: string };
+    // Where to land after the code is used: the page reads #<code>&session=<id> or &view=<name>.
+    const then = target.sessionId ? `&session=${encodeURIComponent(target.sessionId)}` : target.view ? `&view=${target.view}` : '';
+    await vscode.env.openExternal(external.with({ path: '/ui/', fragment: `${code}${then}` }));
+  };
+
   const detailPanel = new DetailPanel(context.extensionUri, {
     suggestions,
     explain: (req) => advisor.explain(req),
@@ -418,8 +448,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     acknowledge: (heuristicId) => respondTo(heuristicId, 'acknowledge'),
     useful: (heuristicId) => respondTo(heuristicId, 'useful'),
     setMuted: (heuristicId, muted) => respondTo(heuristicId, muted ? 'mute' : 'unmute'),
+    // As the core's client, Sessions and Explore are the advisor UI's (RFC step 5c).
+    inBrowser: () => !!core,
+    openInBrowser: (target) => openAdvisorUi(target),
   });
   context.subscriptions.push(detailPanel);
+
+  // The compact findings panel in Snagboat's sidebar (RFC step 5c).
+  const advisorNames = (): Map<string, string> => {
+    const { advisors } = loadAdvisorGoals(path.join(snagboatHome(), 'advisors'));
+    return new Map(advisors.map((a) => [a.id, a.name]));
+  };
+  let namesCache: { at: number; names: Map<string, string> } | undefined;
+  const findingsView = new FindingsView(context.extensionUri, {
+    state: () => {
+      if (!namesCache || Date.now() - namesCache.at > 60_000) namesCache = { at: Date.now(), names: advisorNames() };
+      const limits = { limits: limitsNow() };
+      const today = todayAggregate.snapshot();
+      let cacheRead = 0;
+      let input = 0;
+      for (const a of Object.values(today.perAgent)) {
+        cacheRead += a.tokens.cacheRead;
+        input += a.tokens.input + a.tokens.cacheRead + a.tokens.cacheCreation;
+      }
+      const seen = new Set<string>();
+      return {
+        findings: findings
+          .views()
+          .filter((v) => !v.muted)
+          .filter((v) => (seen.has(v.finding.heuristicId) ? false : (seen.add(v.finding.heuristicId), true)))
+          .map((v) => {
+            const room = nudger.room(v.finding.heuristicId, limits);
+            const advisorName = room.advisor ? namesCache!.names.get(room.advisor) ?? room.advisor : undefined;
+            return { heuristicId: v.finding.heuristicId, severity: v.finding.severity, summary: v.finding.summary, ...(advisorName ? { advisor: advisorName } : {}), held: room.held, useful: v.useful, acknowledged: v.acknowledged };
+          }),
+        today: { tokens: today.totalTokens, ...(input > 0 ? { cacheRate: (100 * cacheRead) / input } : {}), milestones: todayAggregate.milestones() },
+        advisorUi: !!core,
+      };
+    },
+    useful: (heuristicId) => respondTo(heuristicId, 'useful'),
+    openAdvisorUi: () => openAdvisorUi(),
+    openDetail: () => detailPanel.show(),
+  });
+  context.subscriptions.push(findingsView, vscode.window.registerWebviewViewProvider(FindingsView.id, findingsView));
 
   const withAdvice = (list: Finding[]): Finding[] =>
     list.map((f) => {
@@ -429,6 +500,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const refresh = () => {
     renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), withAdvice(findings.visible()), findings.worst());
     detailPanel.scheduleUpdate();
+    findingsView.scheduleUpdate();
   };
   refresh();
   health.onChange(refresh);
@@ -847,29 +919,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       const sessionId = await pickSession('Open a session (most recent first)');
       if (sessionId) detailPanel.show({ sessionId });
     }),
-    vscode.commands.registerCommand('snagboat.openAdvisorUi', async () => {
-      // The advisor UI (RFC step 5a) is served by the core, which runs with the per-user store on.
-      if (!core) {
-        void vscode.window.showInformationMessage('Snagboat: the advisor UI is served by the core service, which runs with snagboat.storage.perUserStore on (User settings, then reload).');
-        return;
-      }
-      const info = await findCore(snagboatHome());
-      if (!info) {
-        void vscode.window.showWarningMessage('Snagboat: the core service isn\'t answering; reload the window to start it again.');
-        return;
-      }
-      // In a remote window (dev container, SSH, Codespaces) VS Code forwards the core's port, and the browser reaches
-      // it under another address: ask for that address, and have the core accept it.
-      const external = await vscode.env.asExternalUri(vscode.Uri.parse(`http://127.0.0.1:${info.port}/`));
-      const forwarded = external.authority.toLowerCase() !== `127.0.0.1:${info.port}`;
-      const res = await coreRequest(info.port, info.token, 'POST', '/ui-links', { ...(storage.workspace ? { workspace: storage.workspace } : {}), ...(forwarded ? { allowHost: external.authority } : {}) });
-      if (res.status !== 200) {
-        void vscode.window.showErrorMessage(`Snagboat: the core couldn't open the advisor UI: ${JSON.stringify(res.body)}`);
-        return;
-      }
-      const { code } = res.body as { code: string };
-      await vscode.env.openExternal(external.with({ path: '/ui/', fragment: code }));
-    }),
+    vscode.commands.registerCommand('snagboat.openAdvisorUi', () => openAdvisorUi()),
     vscode.commands.registerCommand('snagboat.revealEventLog', async () => {
       // Shows the daily files' folder in the file manager (to load them into the
       // web demo), creating nothing: activation makes the folder, so an empty

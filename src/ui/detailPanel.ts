@@ -22,6 +22,12 @@ export interface DetailPanelHooks {
   pickAdvisor(ability: Capability): Promise<string | undefined>;
   /** Today's UTC day key, for the session list's default day. */
   today(): string;
+  /**
+   * Whether Sessions and Explore live in the advisor UI (RFC step 5c: the window is the core's client, with the
+   * per-user store on); the panel then hides those tabs and opens them, and any session, in the browser.
+   */
+  inBrowser?(): boolean;
+  openInBrowser?(target: { sessionId?: string; view?: 'sessions' | 'explore' }): Promise<void>;
 }
 
 /** Where to take the page when opening it from a link or command. */
@@ -54,6 +60,11 @@ export class DetailPanel implements vscode.Disposable {
   }
 
   show(target?: DetailTarget): void {
+    // A session, Sessions or Explore with those in the browser: opened there, without opening this panel for it.
+    if (target && !this.panel && this.hooks.inBrowser?.() && (target.sessionId || target.tab === 'sessions' || target.tab === 'explore')) {
+      void this.navigate(target);
+      return;
+    }
     if (this.panel) {
       this.panel.reveal();
       if (target) void this.navigate(target);
@@ -104,7 +115,10 @@ export class DetailPanel implements vscode.Disposable {
 
   private postState(): void {
     if (!this.panel) return;
-    void this.panel.webview.postMessage({ type: 'state', state: this.hooks.buildState(this.isOpenable) });
+    const inBrowser = !!this.hooks.inBrowser?.();
+    // Sessions and Explore in the browser: neither tab is shown, so a saved one falls back to the overview.
+    if (inBrowser && (this.activeTab === 'sessions' || this.activeTab === 'explore')) this.activeTab = 'overview';
+    void this.panel.webview.postMessage({ type: 'state', state: this.hooks.buildState(this.isOpenable), inBrowser });
     if (this.activeTab === 'sessions') this.postSessions();
     if (this.activeTab === 'suggestions') this.postSuggestions();
     if (this.activeTab === 'explore') {
@@ -137,6 +151,14 @@ export class DetailPanel implements vscode.Disposable {
 
   /** Switches tab, day, and session, then tells the page where it is. */
   private async navigate(target: DetailTarget): Promise<void> {
+    if (this.hooks.inBrowser?.() && this.hooks.openInBrowser && (target.sessionId || target.tab === 'sessions' || target.tab === 'explore')) {
+      await this.hooks.openInBrowser(target.sessionId ? { sessionId: target.sessionId } : { view: target.tab as 'sessions' | 'explore' });
+      if (!this.panel) return;
+      if (this.activeTab === 'sessions' || this.activeTab === 'explore') this.activeTab = 'overview';
+      void this.panel.webview.postMessage({ type: 'navigate', tab: this.activeTab });
+      this.postState();
+      return;
+    }
     if (target.tab) this.activeTab = target.tab;
     if (target.sessionId) {
       this.activeTab = 'sessions';
@@ -235,6 +257,9 @@ export class DetailPanel implements vscode.Disposable {
       case 'closeExplorer':
         this.hooks.sessions.closeExplorer();
         void this.panel?.webview.postMessage({ type: 'explorer', state: null });
+        break;
+      case 'openAdvisorUi':
+        await this.hooks.openInBrowser?.(message.view ? { view: message.view } : {});
         break;
       case 'acknowledge':
         this.hooks.acknowledge(message.heuristicId);

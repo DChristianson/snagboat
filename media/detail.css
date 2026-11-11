@@ -63,6 +63,8 @@ input[type="search"] { min-width: 220px; }
 .tabs { display: flex; gap: 4px; }
 .tab { border-radius: 4px 4px 0 0; border-bottom: 2px solid transparent; background: none; color: var(--sv-ink-muted); }
 .tab[aria-selected="true"] { border-bottom-color: var(--sv-accent, var(--sv-series-1)); color: var(--sv-ink); font-weight: 600; }
+.browser-links { display: inline-flex; gap: 12px; align-items: center; margin-left: 12px; }
+.browser-links[hidden] { display: none; }
 .tab .exp {
   font-size: 0.7em;
   font-weight: 400;
