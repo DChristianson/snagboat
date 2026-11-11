@@ -3,6 +3,7 @@ import * as path from 'path';
 import { AdapterContext } from '@snagboat/schema';
 import { LineTailer } from '../../core/lineTailer';
 import { normalizeTranscriptChunk, SeenMessages, TurnTracker } from './normalize';
+import { LiveToolCalls } from './transcriptSession';
 
 /**
  * How often to look for a transcripts folder that doesn't exist yet (a project
@@ -58,6 +59,9 @@ export class TranscriptTailer {
   ) {
     this.turns = subagentOpts.turns ?? new TurnTracker();
   }
+
+  /** Tool calls from the transcripts themselves, for projects without hooks (deduped against hooks by id). */
+  private readonly toolCalls = new LiveToolCalls();
 
   start(): void {
     const dir = this.dir;
@@ -153,6 +157,7 @@ export class TranscriptTailer {
             captureContent: this.ctx.captureContent(),
             seen: this.seen,
             turns: this.turns,
+            toolCalls: this.toolCalls,
           });
           for (const event of events) this.ctx.publish(event);
         } catch (err) {
