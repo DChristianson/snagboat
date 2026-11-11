@@ -74,6 +74,10 @@ Some unit tests deliberately use real file watching, real HTTP servers, and the 
 3. Give it a status bar glyph in `FINDING_GLYPHS` (`src/ui/format.ts`).
 4. Document it in [docs/heuristics.md](docs/heuristics.md), the README's findings table, and [docs/settings.md](docs/settings.md), including whether it needs optional data such as `textExcerpt`.
 
+## Adding a visualizer
+
+Visualizers belong to Factory Clock, the `packages/viz` workspace. Its [contribution guide](packages/viz/CONTRIBUTING.md) has the steps and a checklist, and [the visualizer contract](docs/design/visualizer-contract.md) the interface.
+
 ## Dependencies and licenses
 
 Runtime dependencies are bundled into `dist/extension.js` and shipped in the `.vsix`. There currently are none, and new ones need a good reason: file watching, HTTP, and charts are all done with Node and VS Code built-ins. Bundled packages must be licensed MIT, ISC, Apache-2.0, BSD-2-Clause, BSD-3-Clause, or 0BSD. After changing runtime dependencies, run `npm run licenses` to regenerate `THIRD_PARTY_LICENSES.md` and commit it; CI fails if it's out of date or a license is outside the allowlist. Development-only tools aren't shipped and aren't subject to this.

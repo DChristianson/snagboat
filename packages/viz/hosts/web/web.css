@@ -34,3 +34,4 @@
   border-left: 3px solid var(--sv-info);
   color: var(--sv-ink-muted);
 }
+.below-explorer a { color: var(--sv-link); }
