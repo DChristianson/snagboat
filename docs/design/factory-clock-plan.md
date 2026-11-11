@@ -111,7 +111,17 @@ Each step leaves the web demo working.
 1. **Move the builder.** Put `buildSessionView` and the session index in `packages/schema/session-view`, with no behavior change. This lines up with step 1 of the architecture RFC.
 2. **Split `shared.js`.** Separate the visualization kit (DOM, format, tooltip, replay, force layout) from detail-view helpers that stay in Snagboat.
 3. **Own the theme.** Add `theme.css` with the package's variables, switch the visualizers to them, and map them in the web page and the advisor UI.
-4. **Move the files.** (The advisor UI already loads them from `media/`, served by the core: RFC step 5b.) Move `media/viz`, `explore.js`, `viz.css`, the catalog, `web/`, `src/web` and the Pages workflow into `packages/viz`. The advisor UI loads them from the package, and the VS Code detail view drops its Explore tab.
+4. **Move the files — done.** (The advisor UI already loads them from `media/`, served by the core: RFC step 5b.) Move `media/viz`, `explore.js`, `viz.css`, the catalog, `web/`, `src/web` and the Pages workflow into `packages/viz`. The advisor UI loads them from the package, and the VS Code detail view drops its Explore tab.
+
+   **As built.** A pure move, no behavior change. `packages/viz` is `@snagboat/viz`, a workspace package like the schema's, built by `npm run build:viz`:
+   - The page files sit at its root: `viz/` (the 32 visualizers and `registry.js`), `vizkit.js`, `explore.js`, `viz.css`, `theme.css`. `vizkit.js` stays one file; the `kit/` split is later.
+   - Its TypeScript: `src/catalog.ts` (was `src/ui/visualizers.ts`), `src/explorerModel.ts`, and the web page's modules in `src/web` (`@snagboat/viz/web`, and `@snagboat/viz/web/page`). The catalog stays TypeScript; `catalog.json` is still open.
+   - The web page's static files are in `hosts/web/`, and `scripts/webDemo.js` assembles it.
+   - It imports only itself and `@snagboat/schema` (`vizBoundary.unit.test.ts`).
+
+   The page's `EventSet` used to replay Snagboat's heuristics itself. It now takes a findings function from its host, and Snagboat's bundle entry passes `replayFindings` with the same heuristics, so the page is unchanged. That entry (`src/web/main.ts`, `src/web/findings.ts`) stays in Snagboat, and its bundle and the assembled page still land in `out/web`, which `pages.yml` deploys. The workflow stays in `.github/workflows`, the only place GitHub runs one from, until step 7.
+
+   Hosts load the page files from the package folder. The VS Code webview adds `packages/viz` as a second local resource root, and the core serves them under `/ui/` from `packages/viz` beside `media/ui`. The VSIX ships those files through `.vscodeignore`, so the layout is the same in the repo and the installed extension. VS Code keeps its Explore tab for now: dropping it is RFC step 5c, behind the per-user store setting.
 5. **Give it an identity.** Write its README and contribution guide, document the [visualizer contract](visualizer-contract.md) for outside authors, and publish the gallery as Factory Clock.
 6. **Release `dist/`.** Version the package, commit prebuilt files, and have the core's advisor UI pin a version.
 7. **Move to its own repository** once steps 1 to 6 land.

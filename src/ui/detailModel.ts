@@ -6,7 +6,7 @@ import { NormalizedEvent } from '@snagboat/schema';
 import { FindingView } from '../heuristics/findingsRegistry';
 import { agentEventTotal } from './format';
 import { toolCategoryLabel } from '@snagboat/schema';
-import { EXPLORE_SESSION_CAP } from './visualizers';
+import { EXPLORE_SESSION_CAP } from '@snagboat/viz';
 
 /** Newest events sent to the timeline; the store's own window caps it further (24h). */
 export const TIMELINE_LIMIT = 1000;

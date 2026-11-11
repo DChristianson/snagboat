@@ -6,10 +6,10 @@ import { EventLog } from '../../core/eventLog';
 import { SessionIndex } from '@snagboat/schema';
 import { NormalizedEvent } from '@snagboat/schema';
 import { isDetailMessage } from '../../ui/detailModel';
-import { buildExplorerState } from '../../ui/explorerModel';
+import { buildExplorerState } from '@snagboat/viz';
 import { SessionController } from '../../ui/sessionController';
 import { SessionView } from '@snagboat/schema';
-import { CATALOG, EXPLORE_SESSION_CAP, TAXONOMY, validateCatalog, VisualizerEntry } from '../../ui/visualizers';
+import { CATALOG, EXPLORE_SESSION_CAP, TAXONOMY, validateCatalog, VisualizerEntry } from '@snagboat/viz';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 22, 10, min)).toISOString();
 let n = 0;

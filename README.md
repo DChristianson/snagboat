@@ -178,7 +178,7 @@ I built it for myself. I spend long stretches in agent sessions and wanted to se
 **Build your own.** This is the age of AI. Why download a plugin and live with someone else's choices? Snagboat is a starting point, MIT licensed, and there are three ways to make it yours:
 
 - **Without code:** raise or lower any heuristic's thresholds ([settings](docs/settings.md#heuristic-thresholds)), and write your own rules as JSON in `snagboat.rules` ([docs/heuristics.md](docs/heuristics.md#rules)).
-- **In a fork:** add a heuristic (one file in `src/heuristics/`), an adapter for another agent (one folder in `src/adapters/`), or a visualizer for the Explore tab (one file in `media/viz/`, plus its entry in `src/ui/visualizers.ts`). [CONTRIBUTING.md](CONTRIBUTING.md) has the layout and the steps for heuristics and adapters; [docs/architecture.md](docs/architecture.md#detail-webview) has the visualizer contract.
+- **In a fork:** add a heuristic (one file in `src/heuristics/`), an adapter for another agent (one folder in `src/adapters/`), or a visualizer for the Explore tab (one file in `packages/viz/viz/`, plus its entry in `packages/viz/src/catalog.ts`). [CONTRIBUTING.md](CONTRIBUTING.md) has the layout and the steps for heuristics and adapters; [docs/architecture.md](docs/architecture.md#detail-webview) has the visualizer contract.
 - **From scratch:** point your coding agent at this repo, or at an empty one, and build the version with the views and heuristics you actually want.
 
 ## Development
@@ -188,7 +188,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 | Script | What it does |
 | --- | --- |
 | `npm run build` | Bundles `src/extension.ts` to `dist/extension.js` with esbuild, and the web demo's bundle, so a Node import creeping into the browser-side model fails here |
-| `npm run build:web` | Builds the web demo into `out/web/`: type-checks the page, bundles it, and copies the explorer's scripts and stylesheet in; the Pages workflow deploys that folder |
+| `npm run build:web` | Builds the web demo into `out/web/`: type-checks the page, bundles it, and copies the Factory Clock package's scripts and stylesheets in (`packages/viz/scripts/webDemo.js`); the Pages workflow deploys that folder |
 | `npm run watch` | Rebuilds on change |
 | `npm run test:unit` | Unit tests, no VS Code needed |
 | `npm test` | Compiles and bundles, then runs the integration suite in a real VS Code instance via `@vscode/test-electron` |

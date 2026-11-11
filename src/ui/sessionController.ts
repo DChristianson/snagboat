@@ -4,12 +4,12 @@ import { SessionIndex } from '@snagboat/schema';
 import { NormalizedEvent } from '@snagboat/schema';
 import { FindingReplay } from '../heuristics/replay';
 import { sessionFindings } from '../heuristics/sessionFindings';
-import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState, SessionListPayload } from './explorerModel';
+import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState, SessionListPayload } from '@snagboat/viz';
 import { buildSessionView, FindingInput, SessionView } from '@snagboat/schema';
-import { EXPLORE_SESSION_CAP } from './visualizers';
+import { EXPLORE_SESSION_CAP } from '@snagboat/viz';
 
 // The list's shape lives in explorerModel.ts (vscode- and fs-free, so the web demo shares it).
-export type { SessionListPayload } from './explorerModel';
+export type { SessionListPayload } from '@snagboat/viz';
 
 export interface SessionExtras {
   /** The advisor's headline for a session, when headlines are on. */

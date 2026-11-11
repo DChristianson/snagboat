@@ -1,15 +1,17 @@
 {
-  // Type-checks the web demo's page code (src/web, which touches the DOM) and
-  // what it imports from the session model. The root tsconfig has no DOM lib
-  // and excludes the page, so `tsc -p .` stays node-only; `npm run build:web`
-  // runs this one. Node types stay on (type-only imports reach fs-touching
-  // modules); esbuild's browser build is what rejects a node import.
+  // Type-checks the web demo's bundle entry (src/web/main.ts, which touches
+  // the DOM) against the Factory Clock package's page (packages/viz, which
+  // checks its own sources with the DOM lib on) and Snagboat's heuristics.
+  // The root tsconfig has no DOM lib and excludes the entry, so `tsc -p .`
+  // stays node-only; `npm run build:web` runs this one. Node types stay on
+  // (type-only imports reach fs-touching modules); esbuild's browser build is
+  // what rejects a node import.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "noEmit": true
   },
   "include": ["src/web/**/*.ts"],
-  // An extending config inherits `exclude`, and the root's leaves out the page.
+  // An extending config inherits `exclude`, and the root's leaves out the entry.
   "exclude": []
 }

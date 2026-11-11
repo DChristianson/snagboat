@@ -1,5 +1,5 @@
 /* The visualizers' styles: the explorer (explore.js), the visualizers
-   (media/viz/*.js, vizkit.js), and the base they draw on (page, buttons,
+   (packages/viz/viz/*.js, vizkit.js), and the base they draw on (page, buttons,
    tables, tooltip). They move with Factory Clock into their own package
    (docs/design/factory-clock-plan.md, step 4), and need only theme.css's
    --sv-* tokens: each host loads theme.css first and may map the tokens to
@@ -109,7 +109,7 @@ select, input[type="search"] {
 .session-list tbody tr:hover { background: var(--sv-hover, rgba(128, 128, 128, 0.12)); }
 .session-list tbody tr.selected { background: var(--sv-active-bg, rgba(128, 128, 128, 0.2)); color: var(--sv-active-ink, var(--sv-ink)); }
 
-/* Turn tree and context timeline (media/viz/turnTree.js, contextTimeline.js) */
+/* Turn tree and context timeline (packages/viz/viz/turnTree.js, contextTimeline.js) */
 .tree, .context-chart { width: 100%; display: block; }
 .tree .node { fill: var(--sv-panel, rgba(128, 128, 128, 0.14)); stroke: var(--sv-rule); stroke-width: 1; }
 .tree .turn-0 { fill: var(--sv-turn-0); }
@@ -165,7 +165,7 @@ select, input[type="search"] {
 .brush { fill: var(--sv-selection, rgba(57, 135, 229, 0.25)); }
 .context-chart .mark-label { fill: var(--sv-ink); }
 
-/* Explorer charts (media/viz/*.js beyond the two ported views): the same
+/* Explorer charts (packages/viz/viz/*.js beyond the two ported views): the same
    grid, axis, hover, and mark conventions as the context chart. */
 .viz-chart { width: 100%; display: block; }
 .viz-chart .grid { stroke: var(--sv-rule); stroke-width: 1; shape-rendering: crispEdges; }

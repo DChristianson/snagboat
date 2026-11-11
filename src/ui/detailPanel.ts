@@ -4,6 +4,7 @@ import { DetailState, DetailTab, isDetailMessage, resolveTargetFile } from './de
 import { SessionController } from './sessionController';
 import { SuggestionsController } from './suggestionsController';
 import { Capability, ExplainRequest } from '../vscode/advisor';
+import { ASSET_FILES } from '@snagboat/viz';
 
 const UPDATE_DEBOUNCE_MS = 500;
 
@@ -72,13 +73,15 @@ export class DetailPanel implements vscode.Disposable {
     }
     this.pendingTarget = target;
     const mediaRoot = vscode.Uri.joinPath(this.extensionUri, 'media');
+    // The visualizers, the explorer, the kit, the theme, and their styles: the Factory Clock package.
+    const vizRoot = vscode.Uri.joinPath(this.extensionUri, 'packages', 'viz');
     const panel = vscode.window.createWebviewPanel('snagboat.detail', 'Snagboat', vscode.ViewColumn.Active, {
       enableScripts: true,
-      localResourceRoots: [mediaRoot],
+      localResourceRoots: [mediaRoot, vizRoot],
     });
     this.panel = panel;
     this.openableCache.clear();
-    panel.webview.html = this.html(panel.webview, mediaRoot);
+    panel.webview.html = this.html(panel.webview, mediaRoot, vizRoot);
     panel.onDidDispose(() => {
       this.panel = undefined;
       clearTimeout(this.pendingUpdate);
@@ -284,19 +287,21 @@ export class DetailPanel implements vscode.Disposable {
     }
   }
 
-  private html(webview: vscode.Webview, mediaRoot: vscode.Uri): string {
+  private html(webview: vscode.Webview, mediaRoot: vscode.Uri, vizRoot: vscode.Uri): string {
     const nonce = crypto.randomBytes(16).toString('base64');
+    // The package's files (viz/ and ASSET_FILES) load from packages/viz; the detail view's own from media.
+    const fileUri = (file: string) => vscode.Uri.joinPath(file.startsWith('viz/') || ASSET_FILES.includes(file) ? vizRoot : mediaRoot, ...file.split('/'));
     // In load order: the visualization kit, the detail view's own helpers, the
     // page, the visualizer registry and the visualizers, then the tabs that
     // draw through them.
     const scripts = ['vizkit.js', 'shared.js', 'detail.js', 'viz/registry.js', 'viz/turnTree.js', 'viz/contextTimeline.js', 'viz/sessionStrips.js', 'viz/costPerPrompt.js', 'viz/contextFill.js', 'viz/sequenceDiagram.js', 'viz/eventGraph.js', 'viz/actorGraph.js', 'viz/promptTerms.js', 'viz/gantt.js', 'viz/treemap.js', 'viz/heatmap.js', 'viz/toolRibbon.js', 'viz/weekPicture.js', 'viz/histogram.js', 'viz/boxViolin.js', 'viz/ridgeline.js', 'viz/scatter.js', 'viz/bubble.js', 'viz/sunburst.js', 'viz/calendarHeatmap.js', 'viz/radar.js', 'viz/parallelCoords.js', 'viz/streamgraph.js', 'viz/sankey.js', 'viz/adjacencyMatrix.js', 'viz/swimlane.js', 'viz/livingNetwork.js', 'viz/sessionFingerprint.js', 'viz/conversationLandscape.js', 'viz/terminalBoard.js', 'viz/factoryClock.js', 'sessions.js', 'explore.js', 'exploreSource.js', 'suggestions.js']
-      .map((file) => webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, ...file.split('/'))))
+      .map((file) => webview.asWebviewUri(fileUri(file)))
       .map((uri) => `<script nonce="${nonce}" src="${uri}"></script>`)
       .join('\n');
     // The visualizations' own tokens, then their mapping to VS Code's theme, then
     // their styles, then the page.
     const styles = ['theme.css', 'vscodeTheme.css', 'viz.css', 'detail.css']
-      .map((file) => webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, file)))
+      .map((file) => webview.asWebviewUri(fileUri(file)))
       .map((uri) => `<link rel="stylesheet" href="${uri}">`)
       .join('\n');
     return `<!DOCTYPE html>

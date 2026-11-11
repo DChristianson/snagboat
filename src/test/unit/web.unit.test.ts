@@ -1,10 +1,11 @@
 import * as assert from 'assert';
 import { NormalizedEvent } from '@snagboat/schema';
-import { EventSet } from '../../web/eventSet';
-import { isNormalizedEvent, parseJsonl } from '../../web/jsonl';
-import { buildMarks } from '../../web/marks';
-import { SYNTHETIC_DAY, syntheticEvents, syntheticSessionIds } from '../../web/synthetic';
-import { readDemoTraces } from '../../web/traces';
+import { EventSet } from '@snagboat/viz/web';
+import { isNormalizedEvent, parseJsonl } from '@snagboat/viz/web';
+import { buildMarks } from '@snagboat/viz/web';
+import { SYNTHETIC_DAY, syntheticEvents, syntheticSessionIds } from '@snagboat/viz/web';
+import { readDemoTraces } from '@snagboat/viz/web';
+import { replayFindings } from '../../web/findings';
 import { buildTraceSet, flagText, reviewReport, scrubText, slimEvent, textLines, traceScript } from '../../scripts/demoTraces';
 import * as vm from 'vm';
 
@@ -99,7 +100,7 @@ async function main() {
   });
 
   test('explorer state over loaded events: views in picked order, a replayed finding, unknown ids named', () => {
-    const set = new EventSet(syntheticEvents());
+    const set = new EventSet(syntheticEvents(), replayFindings);
     const [long, short, copilot] = syntheticSessionIds();
     const state = set.explorerState([short, long, 'nope', short]);
     assert.deepStrictEqual(state.sessions.map((v) => v.summary.sessionId), [short, long]);
@@ -119,6 +120,8 @@ async function main() {
     assert.strictEqual(set.view(long), view, 'built once');
     // The cap applies.
     assert.strictEqual(set.explorerState(Array.from({ length: 12 }, (_, i) => `s${i}`)).notLoaded.length, 8);
+    // The package has no heuristics of its own: without a host's findings, a view has none.
+    assert.deepStrictEqual(new EventSet(syntheticEvents()).view(long)!.findings, []);
   });
 
   test('loaded events replace the examples: a list from what was read', () => {

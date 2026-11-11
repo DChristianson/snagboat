@@ -1,20 +1,25 @@
 import { ModelContextMarks } from '@snagboat/schema';
 import { SessionIndex } from '@snagboat/schema';
 import { NormalizedEvent } from '@snagboat/schema';
-import { builtInHeuristics } from '../heuristics/builtIns';
-import { FindingReplay } from '../heuristics/replay';
-import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState } from '../ui/explorerModel';
+import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState } from '../explorerModel';
 import { buildSessionView, FindingInput, SessionView } from '@snagboat/schema';
-import { EXPLORE_SESSION_CAP } from '../ui/visualizers';
+import { EXPLORE_SESSION_CAP } from '../catalog';
 import { buildMarks } from './marks';
+
+/** A session's findings from its events (in time order) and the context marks. */
+export type FindingsFor = (events: NormalizedEvent[], marks: Record<string, ModelContextMarks>) => FindingInput[];
+
+const noFindings: FindingsFor = () => [];
 
 /**
  * The web demo's stand-in for the extension's log, index, context limits,
  * and SessionController, over events held in memory: the session list, and the explorer's state for picked ids. A view is built the way
  * SessionController.explore builds one (the session's events in time order,
- * a fresh replay of the built-in heuristics with their default settings, and
- * buildSessionView with the marks and the replay's episodes), without the
- * live findings the extension merges in, since nothing is live here.
+ * the findings for them, and buildSessionView with the marks and those
+ * findings), without the live findings the extension merges in, since
+ * nothing is live here. The findings come from the host: Snagboat's build of
+ * the page replays its built-in heuristics (Snagboat's src/web/findings.ts); without
+ * one, views have no findings.
  */
 export class EventSet {
   readonly index = new SessionIndex();
@@ -22,7 +27,7 @@ export class EventSet {
   private readonly bySession = new Map<string, NormalizedEvent[]>();
   private readonly views = new Map<string, SessionView>();
 
-  constructor(readonly events: NormalizedEvent[]) {
+  constructor(readonly events: NormalizedEvent[], private readonly findingsFor: FindingsFor = noFindings) {
     this.marks = buildMarks(events);
     for (const e of events) {
       this.index.ingest(e);
@@ -50,9 +55,7 @@ export class EventSet {
     const summary = this.index.get(sessionId);
     const events = this.bySession.get(sessionId);
     if (!summary || !events) return undefined;
-    const replay = new FindingReplay(builtInHeuristics(), () => ({}), (model) => (model ? this.marks[model]?.limit : undefined));
-    for (const e of events) replay.ingest(e);
-    const findings: FindingInput[] = replay.episodes().map((ep) => ({ heuristicId: ep.heuristicId, severity: ep.severity, summary: ep.summary, eventRefs: ep.eventRefs, startTs: ep.startTs, endTs: ep.endTs, active: false }));
+    const findings = this.findingsFor(events, this.marks);
     const view = buildSessionView(summary, events, this.marks, findings);
     this.views.set(sessionId, view);
     return view;

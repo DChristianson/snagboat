@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// The visualizations style themselves with their own --sv-* tokens from media/theme.css
+// The visualizations style themselves with their own --sv-* tokens from packages/viz/theme.css
 // (docs/design/factory-clock-plan.md, step 3), so they can leave VS Code. Only the
 // webview's mapping, media/vscodeTheme.css, may read VS Code's theme variables.
 
@@ -19,21 +19,22 @@ async function main() {
       if (e.isDirectory()) return filesUnder(child);
       return /\.(js|ts|css|html)$/.test(e.name) ? [child] : [];
     });
-  // What the web page loads, and so what moves into packages/viz in step 4.
+  // The Factory Clock package (step 4), and the web page's entry that Snagboat builds.
   const packageFiles = [
-    'media/theme.css',
-    'media/viz.css',
-    'media/vizkit.js',
-    'media/explore.js',
-    ...filesUnder('media/viz'),
-    ...filesUnder('web').filter((f) => !f.startsWith('web/demo/')),
+    'packages/viz/theme.css',
+    'packages/viz/viz.css',
+    'packages/viz/vizkit.js',
+    'packages/viz/explore.js',
+    ...filesUnder('packages/viz/viz'),
+    ...filesUnder('packages/viz/hosts/web').filter((f) => !f.startsWith('packages/viz/hosts/web/demo/')),
+    ...filesUnder('packages/viz/src'),
     ...filesUnder('src/web'),
   ];
 
   const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
   const decls = (css: string): Map<string, string> =>
     new Map([...stripComments(css).matchAll(/(--sv-[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
-  const theme = stripComments(read('media/theme.css'));
+  const theme = stripComments(read('packages/viz/theme.css'));
   const [lightCss, darkCss] = theme.split('@media (prefers-color-scheme: dark)');
   const light = decls(lightCss);
   const dark = decls(darkCss ?? '');
@@ -46,7 +47,7 @@ async function main() {
   test('no package file reads a VS Code theme variable or theme class', () => {
     for (const file of packageFiles) {
       const text = read(file);
-      assert.ok(!text.includes('--vscode-'), `${file} reads a --vscode-* variable; use a --sv-* token from media/theme.css`);
+      assert.ok(!text.includes('--vscode-'), `${file} reads a --vscode-* variable; use a --sv-* token from packages/viz/theme.css`);
       assert.ok(!/\bvscode-(dark|light|high-contrast)\b/.test(text), `${file} keys on a VS Code theme class`);
     }
   });
@@ -88,11 +89,11 @@ async function main() {
     const order = panel.match(/\[('theme\.css'[^\]]*)\]/);
     assert.ok(order, 'detailPanel.ts lists no stylesheets');
     assert.strictEqual(order[1], "'theme.css', 'vscodeTheme.css', 'viz.css', 'detail.css'");
-    const page = read('web/index.html');
+    const page = read('packages/viz/hosts/web/index.html');
     const links = [...page.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map((m) => m[1]);
     assert.deepStrictEqual(links, ['theme.css', 'viz.css', 'web.css']);
-    assert.ok(read('scripts/webDemo.js').includes("['media/theme.css', 'theme.css']"), 'webDemo.js does not copy theme.css');
-    assert.ok(read('scripts/webDemo.js').includes("['media/viz.css', 'viz.css']"), 'webDemo.js does not copy viz.css');
+    assert.ok(read('packages/viz/scripts/webDemo.js').includes("['theme.css', 'theme.css']"), 'webDemo.js does not copy theme.css');
+    assert.ok(read('packages/viz/scripts/webDemo.js').includes("['viz.css', 'viz.css']"), 'webDemo.js does not copy viz.css');
   });
 
   let failures = 0;

@@ -6,7 +6,7 @@ This page is for someone writing a new visualizer. The design behind it is in [v
 
 ## What a visualizer is
 
-One plain browser script in `media/viz/`. No modules, no build step, no dependencies. It registers itself with the registry and draws one or more sessions into a DOM element it is given. It sees only that element, a `ctx` object of helpers, and the sessions. It doesn't know which page it runs in: the Explore tab in VS Code, the web demo, or later the advisor UI.
+One plain browser script in `packages/viz/viz/`. No modules, no build step, no dependencies. It registers itself with the registry and draws one or more sessions into a DOM element it is given. It sees only that element, a `ctx` object of helpers, and the sessions. It doesn't know which page it runs in: the Explore tab in VS Code, the web demo, or later the advisor UI.
 
 The page loads, in order: `vizkit.js` (sets `window.snagboatVizKit`), `viz/registry.js` (sets `window.snagboatViz`), every visualizer, then `explore.js`. So a visualizer can rely on the registry existing when it runs, and on nothing else being ready yet.
 
@@ -57,7 +57,7 @@ How the explorer mounts you:
 
 ## ctx
 
-`ctx` is every helper in `window.snagboatVizKit` (`media/vizkit.js`), plus four fields from the host. Read the comments in `vizkit.js` for details; this is the list.
+`ctx` is every helper in `window.snagboatVizKit` (`packages/viz/vizkit.js`), plus four fields from the host. Read the comments in `vizkit.js` for details; this is the list.
 
 **From the host**
 
@@ -103,7 +103,7 @@ How the explorer mounts you:
 - `replayEvents(sessions)`: the merged, ordered event list on its own. `countUpTo(events, t)`.
 - `REPLAY_SPEEDS`, `REPLAY_CHOICES`, `getReplayPrefs()`, `setReplayPrefs(partial)`, `onReplayPrefs(cb)`: page-wide speed and loop, shared by every clock. A view doesn't usually touch these.
 
-The clock respects `prefers-reduced-motion`: it opens on the final state and doesn't autoplay. See [Shared replay](visualization-explorer.md#shared-replay) and `media/viz/factoryClock.js` for a full use.
+The clock respects `prefers-reduced-motion`: it opens on the final state and doesn't autoplay. See [Shared replay](visualization-explorer.md#shared-replay) and `packages/viz/viz/factoryClock.js` for a full use.
 
 **Force layout**
 
@@ -133,9 +133,9 @@ The explorer loads at most 8 sessions (`EXPLORE_SESSION_CAP`), and each carries 
 
 ## Styling
 
-- **Colors come from `--sv-*` tokens** in [`media/theme.css`](../../media/theme.css). It gives each a light and a dark value from `prefers-color-scheme`, and a host can remap them. The main ones: `--sv-surface`, `--sv-ink`, `--sv-ink-muted`, `--sv-rule`, `--sv-accent`, `--sv-warn`, `--sv-info`, `--sv-error`, `--sv-ok`, `--sv-hover`, `--sv-selection`, `--sv-series-1` to `-3`, `--sv-cat-1` to `-5`, `--sv-turn-0` and `-1`. Never use a host's variables, such as `--vscode-*`, or a host's theme classes; a unit test fails if you do.
+- **Colors come from `--sv-*` tokens** in [`packages/viz/theme.css`](../../packages/viz/theme.css). It gives each a light and a dark value from `prefers-color-scheme`, and a host can remap them. The main ones: `--sv-surface`, `--sv-ink`, `--sv-ink-muted`, `--sv-rule`, `--sv-accent`, `--sv-warn`, `--sv-info`, `--sv-error`, `--sv-ok`, `--sv-hover`, `--sv-selection`, `--sv-series-1` to `-3`, `--sv-cat-1` to `-5`, `--sv-turn-0` and `-1`. Never use a host's variables, such as `--vscode-*`, or a host's theme classes; a unit test fails if you do.
 - **Shared classes** do most of the work: `viz-chart` on the SVG, `grid`, `axis-label`, `row-label`, `hit` (a transparent hover target), `line-0` to `line-5` (from `sessionClass`), `muted`, `small`, `controls`, `legend`, `key`, `swatch`.
-- **Your own rules** go in the package's stylesheet (`media/viz.css`), scoped under a class on your root element. A new color goes into `theme.css` as a token with a light and a dark value, and into `media/vscodeTheme.css`, the webview's mapping; the theme test checks both. Never a literal in a rule that applies in both themes.
+- **Your own rules** go in the package's stylesheet (`packages/viz/viz.css`), scoped under a class on your root element. A new color goes into `theme.css` as a token with a light and a dark value, and into `media/vscodeTheme.css`, the webview's mapping; the theme test checks both. Never a literal in a rule that applies in both themes.
 - **No inline styles in markup.** Both pages' Content-Security-Policy allow styles only from the page's own files, so `style` attributes and `<style>` elements are dropped. Setting a property from script (`node.style.height = ...`, `node.style.setProperty('--x', ...)`) works. SVG presentation attributes (`fill-opacity`, `stroke-width`) work too.
 - **Hero views** (`language` other than `standard`) draw their own ground and palette in both themes, with their colors in variables scoped to the view. Everything else uses the theme.
 - **Fonts** are system stacks: `--sv-font`, `--sv-mono`. No font files load.
@@ -151,7 +151,7 @@ The explorer loads at most 8 sessions (`EXPLORE_SESSION_CAP`), and each carries 
 
 ## Adding the catalog entry
 
-The page draws the slides from the catalog, not the registry. Add an entry to `CATALOG` in [`src/ui/visualizers.ts`](../../src/ui/visualizers.ts):
+The page draws the slides from the catalog, not the registry. Add an entry to `CATALOG` in [`packages/viz/src/catalog.ts`](../../packages/viz/src/catalog.ts):
 
 ```ts
 {
@@ -168,21 +168,21 @@ The page draws the slides from the catalog, not the registry. Add an entry to `C
 - Order in the array is carousel order. Standard views come before the hero views.
 - A new `language` value is added only with the view that brings that look, so the puck never offers a chip that matches nothing.
 
-Then load the script. The web demo picks up every file in `media/viz/` (`scripts/webDemo.js`). The VS Code webview lists each script by name in `src/ui/detailPanel.ts`; add yours before `sessions.js`.
+Then load the script. The web demo picks up every file in `packages/viz/viz/` (`packages/viz/scripts/webDemo.js`). The VS Code webview lists each script by name in `src/ui/detailPanel.ts`; add yours before `sessions.js`.
 
 If the catalog and the registry disagree, the puck says so ("Catalog mismatch") and the slide shows "No renderer is registered".
 
 ## Tests to add or update
 
 - `src/test/unit/explorer.unit.test.ts`: "the catalog conforms to the taxonomy" runs `validateCatalog` and lists every catalog id in order. Add your id to that list. If you add a hero view, update the hero list in the next test too.
-- `src/test/unit/themeBoundary.unit.test.ts`: scans every file in `media/viz/` for `--vscode-*` names and for `--sv-*` tokens `theme.css` doesn't define. Nothing to add; it must pass.
-- If your view adds logic worth testing on its own, load the file in Node the way `heroShared.unit.test.ts` loads `vizkit.js` (a `vm` sandbox with a bare `window`), over the synthetic sessions from `src/web/synthetic.ts`. Never use real traces in unit tests.
+- `src/test/unit/themeBoundary.unit.test.ts`: scans every file in `packages/viz/viz/` for `--vscode-*` names and for `--sv-*` tokens `theme.css` doesn't define. Nothing to add; it must pass.
+- If your view adds logic worth testing on its own, load the file in Node the way `heroShared.unit.test.ts` loads `vizkit.js` (a `vm` sandbox with a bare `window`), over the synthetic sessions from `packages/viz/src/web/synthetic.ts` (`@snagboat/viz/web`). Never use real traces in unit tests.
 
 Run `npm run test:unit`.
 
 ## A worked example
 
-`media/viz/callsPerSession.js`, with the catalog entry above. It draws one bar per session, uses the theme through shared classes, has a tooltip, and selects a session on click.
+`packages/viz/viz/callsPerSession.js`, with the catalog entry above. It draws one bar per session, uses the theme through shared classes, has a tooltip, and selects a session on click.
 
 ```js
 // Calls per session: one bar per loaded session, as tall as its model calls.
@@ -245,15 +245,15 @@ Run `npm run test:unit`.
 })();
 ```
 
-For a short real one, read `media/viz/bubble.js` or `histogram.js`. For a view with replay, `factoryClock.js`.
+For a short real one, read `packages/viz/viz/bubble.js` or `histogram.js`. For a view with replay, `factoryClock.js`.
 
 ## Gaps before outside authors
 
 Things an outside author can't do today without changing Snagboat, or that the contract leaves loose:
 
-- **The catalog is TypeScript in the extension.** Title, description and tags live in `src/ui/visualizers.ts`, so a new visualizer means editing and compiling Snagboat. Step 4 of the plan moves it to `catalog.json` in the package.
+- **The catalog is TypeScript in the extension.** Title, description and tags live in `packages/viz/src/catalog.ts`, so a new visualizer means editing and compiling the package, which Snagboat builds. Step 4 of the plan moved it into the package as TypeScript; a `catalog.json` is still open.
 - **Tags are written twice.** `register` takes `title` and `tags` that nothing reads, and nothing checks they match the catalog. The explorer design's example also passes `description` to `register`, which is ignored.
-- **The webview lists scripts by hand.** `src/ui/detailPanel.ts` names every file in `media/viz/`; the web demo finds them on its own. This goes away when VS Code drops the Explore tab (step 4).
+- **The webview lists scripts by hand.** `src/ui/detailPanel.ts` names every file in `packages/viz/viz/`; the web demo finds them on its own. This goes away when VS Code drops the Explore tab (architecture RFC step 5c, behind the per-user store setting).
 - **The catalog test lists every id.** Adding a view means editing `explorer.unit.test.ts`. No unit test checks that each catalog entry has a registered script, or the reverse; only the puck's runtime note does.
 - **No per-view stylesheet.** The CSP rules out inline styles, so a view's CSS goes in the shared stylesheet. The shared classes (`viz-chart`, `line-N`, `hit`, ...) aren't documented outside the CSS.
 - **`ctx` is the whole kit, unversioned.** About fifty helpers, some for one view (`termsOf`, `drift`). Any rename breaks outside views, and there's no list of which helpers are stable.

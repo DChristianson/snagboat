@@ -19,8 +19,8 @@ import { EventLog } from '../eventLog';
 import { FindingsService, WorkspaceFindings } from './findings';
 import { FindingState, Response } from './responses';
 import { SessionListItem, SessionPage, SessionPages } from './sessionPages';
-import { ExplorerState } from '../../ui/explorerModel';
-import { EXPLORE_SESSION_CAP } from '../../ui/visualizers';
+import { ExplorerState } from '@snagboat/viz';
+import { ASSET_FILES, EXPLORE_SESSION_CAP } from '@snagboat/viz';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
 import { loadAdvisorGoals } from '../../advisor/goals';
@@ -237,7 +237,7 @@ export class CoreService {
   /** Hosts a front door asked the core to accept besides 127.0.0.1 and localhost: VS Code's forwarded address in a remote window. */
   private readonly extraHosts = new Set<string>();
   private readonly uiCodes = new Map<string, { expires: number; workspace?: string }>();
-  private readonly uiDir = findUiDir();
+  private readonly uiDirs = findUiDirs();
   /** Folder -> the .code-workspace workspace it's part of, per token that registered them. */
   private readonly tokenFolders = new Map<string, Map<string, string>>();
   /** Ends each open event stream with "stopping"; resolves when it has closed. */
@@ -838,16 +838,16 @@ export class CoreService {
     const name = pathname === '/ui/' ? 'index.html' : pathname.slice('/ui/'.length);
     const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8' };
     const type = types[path.extname(name)];
-    const file = type ? uiFile(this.uiDir, name) : undefined;
+    const file = type ? uiFile(this.uiDirs, name) : undefined;
     let body: Buffer | undefined;
     try {
-      if (file === VIZ_INDEX) body = Buffer.from(JSON.stringify(vizScripts(this.uiDir!)));
+      if (file === VIZ_INDEX) body = Buffer.from(JSON.stringify(vizScripts(this.uiDirs!.viz)));
       else if (file) body = fs.readFileSync(file);
     } catch {
       body = undefined;
     }
     if (!body) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...security }).end(this.uiDir ? 'Not found' : 'The advisor UI files are missing from this install');
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...security }).end(this.uiDirs ? 'Not found' : 'The advisor UI files are missing from this install');
       return;
     }
     res.writeHead(200, { 'Content-Type': type!, ...security }).end(body);
@@ -913,39 +913,49 @@ export class CoreService {
 
 /** The name a page asks for the visualizers' scripts by (GET /ui/viz/index.json). */
 const VIZ_INDEX = 'viz/index.json';
-/** Files the advisor UI loads from media/ beside media/ui: the shared theme and the Factory Clock visualizers (step 5b). */
-const MEDIA_FILES = new Set(['theme.css', 'vizkit.js', 'viz.css', 'explore.js']);
+/**
+ * The advisor UI's own files (media/ui), and the Factory Clock package (packages/viz, step 4) it
+ * loads the shared theme and the visualizers from: ASSET_FILES at its root, and viz/<name>.js.
+ */
+interface UiDirs {
+  ui: string;
+  viz: string;
+}
 
 /**
  * The file for a /ui/ name, or undefined: plain names under media/ui (no folders, no ..),
- * the shared files in MEDIA_FILES, and viz/<name>.js under media/viz.
+ * the package's files in ASSET_FILES, and viz/<name>.js under packages/viz/viz.
  */
-function uiFile(uiDir: string | undefined, name: string): string | undefined {
-  if (!uiDir) return undefined;
+function uiFile(dirs: UiDirs | undefined, name: string): string | undefined {
+  if (!dirs) return undefined;
   if (name === VIZ_INDEX) return VIZ_INDEX;
   const viz = /^viz\/([a-z0-9][a-z0-9-]*\.js)$/i.exec(name);
-  if (viz) return path.join(uiDir, '..', 'viz', viz[1]);
+  if (viz) return path.join(dirs.viz, 'viz', viz[1]);
   if (!/^[a-z0-9][a-z0-9.-]*$/i.test(name)) return undefined;
-  return MEDIA_FILES.has(name) ? path.join(uiDir, '..', name) : path.join(uiDir, name);
+  return ASSET_FILES.includes(name) ? path.join(dirs.viz, name) : path.join(dirs.ui, name);
 }
 
 /** The visualizers' scripts in the order a page loads them: the registry first. */
-function vizScripts(uiDir: string): string[] {
+function vizScripts(vizDir: string): string[] {
   let files: string[] = [];
   try {
-    files = fs.readdirSync(path.join(uiDir, '..', 'viz')).filter((f) => /^[a-z0-9][a-z0-9-]*\.js$/i.test(f));
+    files = fs.readdirSync(path.join(vizDir, 'viz')).filter((f) => /^[a-z0-9][a-z0-9-]*\.js$/i.test(f));
   } catch {
     return [];
   }
   return files.sort((a, b) => (a === 'registry.js' ? -1 : b === 'registry.js' ? 1 : a.localeCompare(b))).map((f) => `viz/${f}`);
 }
 
-/** media/ui, found from wherever the core runs (dist/snagboat.js, or compiled tests under out/). */
-function findUiDir(): string | undefined {
+/**
+ * media/ui and packages/viz, found from wherever the core runs: dist/snagboat.js (in the repo, or
+ * in the installed extension, whose VSIX ships both folders) or compiled tests under out/. Both
+ * sit at the same root.
+ */
+function findUiDirs(): UiDirs | undefined {
   let dir = __dirname;
   for (let i = 0; i < 6; i++) {
-    const candidate = path.join(dir, 'media', 'ui');
-    if (fs.existsSync(path.join(candidate, 'index.html'))) return candidate;
+    const ui = path.join(dir, 'media', 'ui');
+    if (fs.existsSync(path.join(ui, 'index.html'))) return { ui, viz: path.join(dir, 'packages', 'viz') };
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;

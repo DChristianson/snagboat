@@ -17,8 +17,10 @@ const extension = {
 };
 
 /**
- * The web demo's bundle: the session model (src/core, src/ui, src/heuristics)
- * and the page under src/web, for the browser. Nothing in it may import fs,
+ * The web demo's bundle: Factory Clock's page and session model
+ * (@snagboat/viz/web, packages/viz/src/web, built by `npm run build:viz`) with
+ * Snagboat's heuristics for findings (src/web, src/heuristics), for the
+ * browser. Nothing in it may import fs,
  * path, crypto, or vscode; esbuild refuses to resolve a node builtin for the
  * browser, so a node import creeping into the model fails this build (and
  * `npm run build`, which CI runs) rather than the deployed page.

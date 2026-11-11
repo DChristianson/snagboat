@@ -1,6 +1,6 @@
 /**
  * The visualizer catalog and the taxonomy its tags come from (see
- * docs/design/visualization-explorer.md). Renderers live in media/viz/ and
+ * docs/design/visualization-explorer.md). Renderers live in the package's viz/ and
  * register by id; the page matches them to these entries, so a visualizer
  * with no entry, or an entry with a tag outside the vocabulary, is caught in
  * unit tests rather than on screen. Nothing here touches vscode or disk: the

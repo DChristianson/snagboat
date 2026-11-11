@@ -1,6 +1,6 @@
 // The visualizer registry (see docs/design/visualization-explorer.md). Each
-// file under media/viz/ registers one visualizer by the id of its entry in the
-// catalog (src/ui/visualizers.ts); the title and tags given here are a
+// file under packages/viz/viz/ registers one visualizer by the id of its entry in the
+// catalog (packages/viz/src/catalog.ts); the title and tags given here are a
 // convenience for reading the file, the catalog wins. Loaded before the
 // visualizers, after vizkit.js. No VS Code here.
 //

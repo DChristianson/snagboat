@@ -1,0 +1,30 @@
+{
+  "name": "@snagboat/viz",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Factory Clock: the visualizers, the explorer, their theme and styles, the visualizer catalog, and the web page that hosts them.",
+  "license": "MIT",
+  "main": "out/index.js",
+  "types": "out/index.d.ts",
+  "exports": {
+    ".": "./out/index.js",
+    "./web": "./out/web/index.js",
+    "./web/page": "./out/web/page.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "out/**",
+    "viz/**",
+    "explore.js",
+    "vizkit.js",
+    "viz.css",
+    "theme.css",
+    "hosts/**"
+  ],
+  "dependencies": {
+    "@snagboat/schema": "0.1.0"
+  },
+  "scripts": {
+    "build": "tsc -p ."
+  }
+}

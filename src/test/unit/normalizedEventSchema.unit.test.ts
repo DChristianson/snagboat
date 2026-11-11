@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as path from 'path';
 import { EventOutcome, NormalizedEvent, NormalizedEventKind, normalizedEventSchema, normalizedEventSchemaV1, normalizedEventSchemaV2, TOOL_CATEGORY_LABELS } from '@snagboat/schema';
 import { sessionEvents } from '../../scripts/replayHeuristics';
-import { syntheticEvents } from '../../web/synthetic';
+import { syntheticEvents } from '@snagboat/viz/web';
 import { normalizeHookPayload } from '../../adapters/claude-code/normalize';
 
 // The JSON Schema in @snagboat/schema (normalizedEvent.v3.schema.json) must describe the

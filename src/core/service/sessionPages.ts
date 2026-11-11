@@ -5,8 +5,8 @@ import { EventLog } from '../eventLog';
 import { workspaceStoreDir } from '../userStore';
 import { FindingReplay } from '../../heuristics/replay';
 import { LiveFinding, sessionFindings } from '../../heuristics/sessionFindings';
-import { buildExplorerState, ExplorerState } from '../../ui/explorerModel';
-import { EXPLORE_SESSION_CAP } from '../../ui/visualizers';
+import { buildExplorerState, ExplorerState } from '@snagboat/viz';
+import { EXPLORE_SESSION_CAP } from '@snagboat/viz';
 import { FindingsService } from './findings';
 import { FindingState } from './responses';
 

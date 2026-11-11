@@ -1,4 +1,4 @@
-// The visualization kit: the helpers the visualizers under media/viz/, the
+// The visualization kit: the helpers the visualizers under packages/viz/viz/, the
 // registry and the explorer (explore.js) use, which reach a visualizer through
 // ctx: DOM and SVG construction, number and time formatting, a tooltip pair
 // bound to an element, the small session helpers, the distribution and slide
