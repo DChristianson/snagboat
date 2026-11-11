@@ -126,6 +126,13 @@ suite('Snagboat core plumbing', () => {
     assert.deepStrictEqual(claims.map((f) => JSON.parse(fs.readFileSync(f, 'utf8')).pid), [process.pid], "the window's claim, with the extension host's pid");
   });
 
+  test("the window marks its VS Code storage folder with its workspace, whichever store the setting picks", () => {
+    const dir = api.getVsCodeStorageDir();
+    assert.ok(dir, 'the test window has a folder open, so it has workspace storage');
+    const marker = JSON.parse(fs.readFileSync(path.join(dir!, 'snagboat-workspace.json'), 'utf8'));
+    assert.deepStrictEqual(marker, { folder: vscode.workspace.workspaceFolders![0].uri.fsPath });
+  });
+
   test("with the per-user store on, the window copies Snagboat's settings into ~/.snagboat/config.json", async function () {
     if (!process.env.SNAGBOAT_TEST_PER_USER_STORE) return this.skip();
     const configFile = path.join(process.env.SNAGBOAT_HOME!, 'config.json');

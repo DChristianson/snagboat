@@ -1,9 +1,10 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { WORKSPACE_NO_FOLDER } from '@snagboat/schema';
 import { migrate } from '../core/migrate';
 import { claimWorkspace, releaseClaim } from '../core/service/claims';
-import { openWorkspaceStore, snagboatHome, userDataDir, WorkspaceInfo, workspaceOfVsCodeStore } from '../core/userStore';
+import { openWorkspaceStore, snagboatHome, userDataDir, WORKSPACE_MARKER, WorkspaceInfo, WorkspaceMarker, workspaceOfVsCodeStore } from '../core/userStore';
 
 /** Where this window keeps its data. */
 export interface StorageLocations {
@@ -25,10 +26,38 @@ export const PER_USER_STORE_SETTING = 'snagboat.storage.perUserStore';
 function thisWorkspace(legacyDir: string, global: boolean): WorkspaceInfo {
   const fromStorage = workspaceOfVsCodeStore(legacyDir, global);
   if (fromStorage) return fromStorage;
-  const file = vscode.workspace.workspaceFile;
-  if (file?.scheme === 'file') return { workspace: file.fsPath, workspaceFile: file.fsPath };
-  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const { workspaceFile, folder } = windowWorkspace() ?? {};
+  if (workspaceFile) return { workspace: workspaceFile, workspaceFile };
   return folder ? { workspace: folder, folder } : { workspace: WORKSPACE_NO_FOLDER };
+}
+
+/** This window's workspace as plain paths: its saved .code-workspace file, else its first folder. */
+function windowWorkspace(): WorkspaceMarker | undefined {
+  const file = vscode.workspace.workspaceFile;
+  if (file?.scheme === 'file') return { workspaceFile: file.fsPath };
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  return folder ? { folder } : undefined;
+}
+
+/**
+ * Writes snagboat-workspace.json (core/userStore.ts) in this window's VS Code
+ * storage folder, so the CLI knows whose store it is even where VS Code writes
+ * no workspace.json (its server). Only when missing or different; temp file
+ * then rename, so a reader never sees half of it.
+ */
+async function writeWorkspaceMarker(storageDir: string): Promise<void> {
+  const marker = windowWorkspace();
+  if (!marker) return;
+  const file = path.join(storageDir, WORKSPACE_MARKER);
+  const text = JSON.stringify(marker, null, 2) + '\n';
+  try {
+    if ((await fs.promises.readFile(file, 'utf8').catch(() => undefined)) === text) return;
+    const temp = `${file}.${process.pid}.tmp`;
+    await fs.promises.writeFile(temp, text, 'utf8');
+    await fs.promises.rename(temp, file);
+  } catch (err) {
+    console.error("snagboat: couldn't write the workspace marker", err);
+  }
 }
 
 /**
@@ -41,6 +70,8 @@ function thisWorkspace(legacyDir: string, global: boolean): WorkspaceInfo {
 export async function resolveStorage(context: vscode.ExtensionContext): Promise<StorageLocations> {
   const legacyUri = context.storageUri ?? context.globalStorageUri;
   await vscode.workspace.fs.createDirectory(legacyUri);
+  // In both modes: the CLI reads VS Code's stores either way.
+  if (context.storageUri) await writeWorkspaceMarker(context.storageUri.fsPath);
   const legacy: StorageLocations = {
     storageDir: legacyUri.fsPath,
     sharedDir: context.globalStorageUri.fsPath,

@@ -6,6 +6,7 @@ import { pathToFileURL } from 'url';
 import { NormalizedEvent } from '@snagboat/schema';
 import { parseArgs, runCli } from '../../cli/main';
 import { EXTENSION_ID, findStores, isInside, selectStores, Store, userDirs } from '../../cli/stores';
+import { workspaceOfVsCodeStore, workspaceStoreDir, WORKSPACE_MARKER } from '../../core/userStore';
 import { syntheticEvents } from '../../web/synthetic';
 
 function writeStore(dir: string, events: NormalizedEvent[]): void {
@@ -44,6 +45,9 @@ function capture() {
   let err = '';
   return { io: { out: (t: string) => (out += t), err: (t: string) => (err += t) }, get: () => ({ out, err }) };
 }
+
+// workspaceOfVsCodeStore spells a Windows drive letter the way VS Code does (c:\), Node's tmpdir C:\.
+const vs = (p: string) => (/^[A-Z]:[\\/]/.test(p) ? p[0].toLowerCase() + p.slice(1) : p);
 
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
@@ -110,9 +114,61 @@ async function main() {
       assert.ok(listed.get().out.includes('Code (server)  vscode-remote://dev-container+abc/workspaces/x'), listed.get().out);
       const dry = capture();
       assert.strictEqual(await runCli(['migrate', '--dry-run'], { ...dry.io, cwd: '/', now: new Date() }, 'test'), 0);
-      assert.ok(dry.get().out.includes("VS Code's server doesn't record which workspace"), dry.get().out);
+      assert.ok(dry.get().out.includes("no window has recorded it yet"), dry.get().out);
       assert.ok(dry.get().out.includes('Code (server)  vscode-remote://dev-container+abc/workspaces/x'), dry.get().out);
       assert.ok(!fs.existsSync(path.join(home, '.snagboat')), 'a dry run writes nothing');
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  test("a server store with Snagboat's marker is matched by its folder, labelled with it, and migrated under it", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-cli-marker-'));
+    const user = path.join(home, '.vscode-server', 'data', 'User');
+    const project = path.join(home, 'workspaces', 'x');
+    const other = path.join(home, 'workspaces', 'y');
+    fs.mkdirSync(path.join(project, 'sub'), { recursive: true });
+    const marked = path.join(user, 'workspaceStorage', 'h-marked', EXTENSION_ID);
+    const both = path.join(user, 'workspaceStorage', 'h-both', EXTENSION_ID);
+    writeStore(marked, syntheticEvents().slice(0, 10));
+    writeStore(both, syntheticEvents().slice(10, 20));
+    fs.writeFileSync(path.join(marked, WORKSPACE_MARKER), JSON.stringify({ folder: project }));
+    // workspace.json (the desktop app's) wins over the marker when both are there.
+    fs.writeFileSync(path.join(both, WORKSPACE_MARKER), JSON.stringify({ folder: project }));
+    fs.writeFileSync(path.join(user, 'workspaceStorage', 'h-both', 'workspace.json'), JSON.stringify({ folder: pathToFileURL(other).href }));
+    const stores = findStores({ platform: 'linux', env: {}, home });
+    const byDir = new Map(stores.map((s) => [s.dir, s]));
+    assert.strictEqual(byDir.get(marked)?.folder, project);
+    assert.strictEqual(byDir.get(both)?.folder, other);
+    assert.deepStrictEqual(selectStores(stores, path.join(project, 'sub'), false).map((s) => s.dir), [marked]);
+    assert.deepStrictEqual(workspaceOfVsCodeStore(marked, false), { workspace: vs(project), folder: vs(project), workspaceFile: undefined });
+    assert.strictEqual(workspaceOfVsCodeStore(both, false)?.workspace, vs(other));
+    // A saved multi-root workspace's marker names its .code-workspace file.
+    const multi = path.join(user, 'workspaceStorage', 'h-multi', EXTENSION_ID);
+    fs.mkdirSync(multi, { recursive: true });
+    fs.writeFileSync(path.join(multi, WORKSPACE_MARKER), JSON.stringify({ workspaceFile: path.join(home, 'both.code-workspace') }));
+    assert.strictEqual(workspaceOfVsCodeStore(multi, false)?.workspace, vs(path.join(home, 'both.code-workspace')));
+
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    delete process.env.XDG_CONFIG_HOME;
+    delete process.env.SNAGBOAT_STORE;
+    delete process.env.VSCODE_AGENT_FOLDER;
+    process.env.SNAGBOAT_HOME = path.join(home, '.snagboat');
+    try {
+      const listed = capture();
+      assert.strictEqual(await runCli(['stores'], { ...listed.io, cwd: '/', now: new Date() }, 'test'), 0);
+      assert.ok(listed.get().out.includes(`Code (server)  ${project}`), listed.get().out);
+      assert.ok(!listed.get().out.includes('(workspace unknown)'), listed.get().out);
+      const sessions = capture();
+      assert.strictEqual(await runCli(['sessions'], { ...sessions.io, cwd: project, now: new Date() }, 'test'), 0, sessions.get().err);
+      const migrated = capture();
+      assert.strictEqual(await runCli(['migrate', '--json'], { ...migrated.io, cwd: '/', now: new Date() }, 'test'), 0);
+      const report = JSON.parse(migrated.get().out);
+      assert.deepStrictEqual(report.skipped, []);
+      const dests = new Map<string, string>(report.stores.map((r: { source: string; dest: string }) => [r.source, r.dest]));
+      assert.strictEqual(dests.get(marked), workspaceStoreDir(process.env.SNAGBOAT_HOME, vs(project)), JSON.stringify(report.stores));
+      assert.strictEqual(dests.get(both), workspaceStoreDir(process.env.SNAGBOAT_HOME, vs(other)));
     } finally {
       restoreEnv();
     }
