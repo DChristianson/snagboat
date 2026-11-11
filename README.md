@@ -1,11 +1,11 @@
 # snagboat
 
-Snagboat is a VS Code extension that watches AI coding agents (Claude Code and GitHub Copilot Chat), normalizes their activity into one local event log, and flags signs of trouble: an agent looping on the same file, churning through tool calls, going quiet, blowing a token budget, or sounding unsure of itself. Results show up in the status bar and a detail view. Everything stays on your machine.
+Snagboat is a VS Code extension that watches AI coding agents (Claude Code and GitHub Copilot Chat), normalizes their activity into one local event log, and flags signs of trouble: an agent looping on the same file, churning through tool calls, going quiet, blowing a token budget, or sounding unsure of itself. Each sign it flags is a **finding**, raised by one of its **heuristics**: rules that watch the agents' recorded activity for one kind of trouble. Findings show up in the status bar and a detail view. Everything stays on your machine.
 
 ![The Sessions tab: a Copilot session's turn tree, split by prompt, agent, and tool category, above its context timeline](docs/images/sessions-tab.png)
 
 - **One event log for both agents.** Claude Code and Copilot activity, normalized into daily JSONL you can read with `jq` or DuckDB.
-- **Eight heuristics, tuned on real sessions.** Thresholds come from replaying real transcripts, and the same replay runs in the unit tests.
+- **Eight heuristics, tuned on real sessions.** Thresholds come from replaying real transcripts (running recorded sessions back through the heuristics, as if live), and the same replay runs in the unit tests.
 - **Heuristics from your own history.** Discovery proposes rules and thresholds from what's unusual for you, each scored by replay before you accept it.
 - **A privacy-first advisor.** A model explains sessions and findings: local by default, a redacted digest for hosted providers, the payload shown before it's sent, no tools for the model, and an audit log.
 
@@ -15,7 +15,7 @@ No install needed: the [web demo](https://dchristianson.github.io/snagboat/) run
 
 ## An example
 
-You ask Claude Code to fix a failing test and turn to something else. The agent runs `npm test`, edits a file, runs it again, and it fails a third time. That trips the `backtracking` heuristic, and the status bar now shows its finding: "npm test failed 3 times in this turn". You click the status bar, and the detail view lists the finding; **Show in session** opens the session, where the turn tree shows what this prompt has cost so far. You stop the agent, read the failure yourself, and prompt again with what it was missing. The new prompt starts a new turn, and the finding clears.
+You ask Claude Code to fix a failing test and turn to something else. That prompt starts a **turn**: the prompt and everything the agent does in answer to it, until it stops or you prompt again. The agent runs `npm test`, edits a file, runs it again, and it fails a third time. That trips the `backtracking` heuristic, and the status bar now shows its finding: "npm test failed 3 times in this turn". You click the status bar, and the detail view lists the finding; **Show in session** opens the session, where the turn tree shows what this prompt has cost so far. You stop the agent, read the failure yourself, and prompt again with what it was missing. The new prompt starts a new turn, and the finding clears.
 
 Each heuristic has a line on [what to try](#findings) when it fires.
 
@@ -33,7 +33,7 @@ Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md) and [what
 
 > **Before you install**
 >
-> - **It edits a file in your projects.** For every folder you open in VS Code, Snagboat adds two hook entries to `.claude/settings.json`. If that file is committed, the change shows up in `git status`. [Removing them](#claude-code-setup) is one command.
+> - **It edits a file in your projects.** For every folder you open in VS Code, Snagboat adds two hook entries to `.claude/settings.json`: commands Claude Code runs after each tool call and when the agent stops, which tell Snagboat what happened. If that file is committed, the change shows up in `git status`. [Removing them](#claude-code-setup) is one command.
 > - **It stores your prompts' text** and the agents' reply excerpts, for 30 days by default (common secret formats are redacted first). Turn `snagboat.captureContent` off to store no text.
 > - **It records full shell commands** from Claude Code's Bash tool, which can contain secrets. They're kept as long as their events: 90 days by default.
 >
@@ -65,7 +65,7 @@ Nothing to configure. Snagboat finds the project's transcripts on its own and, o
 
 Agent mode needs no setup: Snagboat reads its session logs, picking the sessions started inside each window's workspace.
 
-To also count the tokens used by Copilot's inline and next-edit suggestions, turn on Copilot's telemetry in your VS Code settings:
+To also count the tokens used by Copilot's inline and next-edit suggestions, turn on Copilot's OpenTelemetry export in your VS Code settings. OpenTelemetry is an open standard for telemetry, and OTLP its protocol; here Copilot sends it to a receiver Snagboat runs on your machine.
 
 ```json
 {
@@ -79,10 +79,10 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
 
 ## Quick tour
 
-- **Status bar:** today's tokens, agent events, and local edits, plus the most important active finding. Hover for the breakdown by agent and any health problems with Snagboat itself.
-- **Detail view** (click the status bar, or **Snagboat: Open Detail View**): the **Overview** tab has today's totals, findings to acknowledge or mute, a daily token chart, and a filterable 24-hour timeline.
+- **Status bar:** today's tokens, agent events, and local edits, plus the most important active finding. Snagboat counts tokens, not dollars: it has no price data. Hover for the breakdown by agent and any health problems with Snagboat itself.
+- **Detail view** (click the status bar, or **Snagboat: Open Detail View**): the **Overview** tab has today's totals, active findings, a daily token chart, and a filterable 24-hour timeline. **Acknowledge** a finding to hide it from the status bar until that problem clears; **mute** a heuristic to hide its findings in this workspace until you unmute it.
 - **Sessions tab:** each day's sessions by name. Open one for its turn tree (where the tokens went, by prompt, agent, and tool category), its context timeline, and its findings, past ones included.
-- **Explore tab** (experimental): up to eight sessions through a carousel of visualizers, each drawing the same sessions its own way, with a puck that names the current one and filters by its tags. The same views are in the [web demo](#try-it-in-your-browser).
+- **Explore tab** (experimental): up to eight sessions through a carousel of visualizers: charts and diagrams (timelines, treemaps, graphs, and more), each drawing the same sessions its own way. A puck, a small panel you can drag to any corner, names the current visualizer and filters the carousel by its tags. The same views are in the [web demo](#try-it-in-your-browser).
 - **Suggestions tab** (**Snagboat: Discover Heuristics**): rules, thresholds, and shell categories proposed from your own history, scored by replay; accept, adjust, or dismiss.
 - **Snagboat: Write Review** writes a weekly Markdown review of this workspace to `~/.snagboat/reviews/`.
 
@@ -92,20 +92,20 @@ Every view and command: [docs/usage.md](docs/usage.md). Every setting: [docs/set
 
 Most heuristics judge each session's current turn (everything since your latest prompt), so they clear when you prompt again.
 
-| Heuristic | Fires when (defaults) | What to try | Status bar glyph |
+| Heuristic | Fires when (defaults) | What to try | Status bar icon |
 | --- | --- | --- | --- |
-| `runaway-turn` | One prompt has driven 100 or more model calls, or 100 or more tool calls | Check the turn is still on track. If not, stop it and split the job into narrower prompts. | `$(run-all)` |
-| `context-pressure` | Context was compacted automatically during the turn (warning), or the latest call sent 90% or more of the model's limit (info) | After a compaction, restate anything the agent still needs, since earlier details were summarized. Near the limit, wrap up the thread or start a fresh session. | `$(fold)` |
-| `cache-thrash` | Two or more calls in one turn each wrote 50,000 or more tokens to the prompt cache, more than they read from it | Something early in the prompt changes on every call: instructions, the tool list, or files injected each time. Find it and keep it stable, so calls reuse the cache instead of paying full price. | `$(flame)` |
-| `backtracking` | In one turn, one target failed 3 or more times, or one file was edited 10 or more times | Stop the agent and look at why that command or file keeps failing or changing, then re-prompt with what it's missing. | `$(history)` |
-| `tool-churn` | In 5 minutes, 8 or more tool calls in one session, at least 90% of them on the same one or two targets | Look at those calls (the finding filters the Overview timeline to them). If the agent is going in circles, interrupt and redirect it. | `$(sync)` |
-| `stalled` | An unfinished turn has had no agent activity for 15 minutes: a long-running tool, a permission prompt, or a stuck agent. A finished turn going quiet never fires; after 3 hours the turn counts as abandoned. | Go to the agent: answer a permission prompt or question, or stop it if it's stuck. | `$(clock)` |
-| `token-budget` | A session, or today's total for this workspace, crosses a budget you set (none by default) | Start a fresh session, or open the session's turn tree to see where the tokens went. | `$(dashboard)` |
-| `verbal-hedge` | Two or more replies in one session hedge or self-correct ("I think", "let me try again", "my mistake") within 10 minutes. Informational, and a warning only alongside repeated or failing tool activity. Needs `snagboat.captureContent` (on by default). | Skim the agent's recent replies. If it's also repeating or failing actions, step in with more context. | `$(comment-discussion)` |
+| `runaway-turn` | One prompt has driven 100 or more model calls, or 100 or more tool calls | Check the turn is still on track. If not, stop it and split the job into narrower prompts. | `run-all` |
+| `context-pressure` | Context was compacted automatically during the turn, meaning earlier conversation was summarized to make room (warning), or the latest call sent 90% or more of the model's limit (info) | After a compaction, restate anything the agent still needs, since earlier details were summarized. Near the limit, wrap up the thread or start a fresh session. | `fold` |
+| `cache-thrash` | Two or more calls in one turn each wrote 50,000 or more tokens to the prompt cache (where the provider keeps the start of a prompt, so the next call can reuse it at a lower price), more than they read from it | Something early in the prompt changes on every call: instructions, the tool list, or files injected each time. Find it and keep it stable, so calls reuse the cache instead of paying full price. | `flame` |
+| `backtracking` | In one turn, one target (a file or shell command) failed 3 or more times, or one file was edited 10 or more times | Stop the agent and look at why that command or file keeps failing or changing, then re-prompt with what it's missing. | `history` |
+| `tool-churn` | In 5 minutes, 8 or more tool calls in one session, at least 90% of them on the same one or two targets | Look at those calls (the finding filters the Overview timeline to them). If the agent is going in circles, interrupt and redirect it. | `sync` |
+| `stalled` | An unfinished turn has had no agent activity for 15 minutes: a long-running tool, a permission prompt, or a stuck agent. A finished turn going quiet never fires; after 3 hours the turn counts as abandoned. | Go to the agent: answer a permission prompt or question, or stop it if it's stuck. | `clock` |
+| `token-budget` | A session, or today's total for this workspace, crosses a budget you set (none by default) | Start a fresh session, or open the session's turn tree to see where the tokens went. | `dashboard` |
+| `verbal-hedge` | Two or more replies in one session hedge or self-correct ("I think", "let me try again", "my mistake") within 10 minutes. Informational, and a warning only alongside repeated or failing tool activity. Needs `snagboat.captureContent` (on by default). | Skim the agent's recent replies. If it's also repeating or failing actions, step in with more context. | `comment-discussion` |
 
 When a finding is a false alarm for you, raise its threshold ([settings](docs/settings.md#heuristic-thresholds)), or mute it. Default thresholds come from replaying real sessions; `npm run replay:heuristics` replays yours, and the Suggestions tab compares them with your history. Your own rules run alongside, as JSON (see [docs/heuristics.md](docs/heuristics.md#rules)).
 
-With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself shows `$(warning)`. Details: [docs/heuristics.md](docs/heuristics.md).
+The icons are VS Code's built-in [codicons](https://microsoft.github.io/vscode-codicons/dist/codicon.html), named here: the status bar shows the icon of the most important active finding. With none it shows `pulse`. A `warning` icon is about Snagboat itself, not your agent: something like a port it couldn't listen on, or a rule that doesn't validate. Hover the status bar for the message, or run **Snagboat: Show Token/Event Breakdown** to print it in the Snagboat output with any rule problems. A port warning usually means another window already has the port ([known limitations](#known-limitations)); a rule problem goes away when you fix or remove that entry in `snagboat.rules` or `snagboat.toolCategories`. Details: [docs/heuristics.md](docs/heuristics.md).
 
 **Notifications** are off by default. Set `snagboat.nudges.notify` to `warnings` (or `all`) to be told when a finding appears, with buttons to show it in its session, explain it, acknowledge it, or mute it. There's at most one per turn, never a modal dialog, and `snagboat.nudges.quiet` keeps any heuristic out of them. With notifications on, `runaway-turn` and `context-pressure` also warn early, at 80% of their thresholds (`earlyWarning`), while there's still time to act: "Heading for a runaway turn: 80 of 100 model calls". `snagboat.nudges.advisor` adds the advisor's one-line suggestion under the finding in the status bar tooltip.
 
