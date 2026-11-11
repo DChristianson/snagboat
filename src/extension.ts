@@ -1076,6 +1076,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     {
       onEvents: (events) => events.forEach(handleEvent),
       onFindings: applyCoreFindings,
+      // Useful, Acknowledge or Mute from the advisor UI: this window keeps the finding's episode, so it records them.
+      onRespond: (r) => {
+        if (r.response === 'useful') findings.markUseful(r.heuristicId);
+        else if (r.response === 'acknowledge') findings.acknowledge(r.heuristicId);
+        else {
+          findings.setMuted(r.heuristicId, true);
+          void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
+        }
+      },
       onLost: () => {
         coreFindingsLive = false;
         fromCore = new Set();

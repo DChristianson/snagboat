@@ -103,7 +103,11 @@ It names heuristics, rules, models, and session ids, never prompts, paths, or co
 
 ## The advisor UI (preview)
 
-With the per-user store on, the core service serves a page in your browser: run `snagboat open` in a project, or **Snagboat: Open Advisor UI** in VS Code. It shows each advisor's measures for the last 7, 14 or 30 days against the period before, with a line for each day, how many notifications each has used this hour, and the findings active now, for any workspace the core records (pick it at the top). Sessions, Explore and responding to findings come to it next; until then they stay in VS Code's Snagboat view.
+With the per-user store on, the core service serves a page in your browser: run `snagboat open` in a project, or **Snagboat: Open Advisor UI** in VS Code. Pick any workspace the core records at the top.
+
+Each advisor has a card: its goal in plain words (its `persona.md`'s `status`), how many notifications it has used this hour, and a brief: a one-line summary of where its goal stands, what it's watching most closely, and what it has to surface. That's its live finding (marked notified, or held back when it's over its hourly limit), with **Useful**, **Acknowledge** and **Mute**; or a measure going the wrong way with no finding yet; or nothing new. Navigator's card also shows what's ahead when the workspace uses Beads: what's in progress, the next ready issue, what's blocked and on what, and how many closed this week (read with `bd --readonly`; without Beads the line is left out). **Measures and detail** opens an advisor's own page: each measure for the last 7, 14 or 30 days against the period before, with a line for each day, the first one charted by week over 8 weeks, the rules it speaks for, and its voice. Findings from heuristics no advisor speaks for are listed below the cards.
+
+Responding in the browser needs the workspace open in a VS Code window, which keeps the finding's episode and records your response, as if you'd clicked it there. Adding an advisor from the page (the **+**), Sessions and Explore come next; until then use VS Code's Snagboat view, and add an advisor by writing its `persona.md`.
 
 The page lives at `http://127.0.0.1:<port>/ui/` and only ever talks to the core. Each link opens it once, within 2 minutes: the link carries a one-time code, which the page swaps for a read-only key kept in that browser tab, and the code can't be used again. The key reads every workspace and changes nothing; it ends after 12 hours unused or when the core stops. Open the page again with a new link after that. In a remote VS Code window (dev container, SSH, Codespaces), **Snagboat: Open Advisor UI** opens it through VS Code's forwarded port.
 
@@ -120,12 +124,13 @@ An advisor is one measurement goal plus the rules, and the voice, that serve it.
 
 They need no model. `snagboat advisors` prints each one's measures for the last 7 days against the 7 before (`--days`, `--json`, `--all`, `--store user`), the weekly review has an **Advisors** section, and the core answers `GET /advisors`. The measures come from the event log and its outcomes (tests going green, how you met findings, and, with the per-user store on, commits kept, lines surviving and milestones), so a measure with nothing to go on yet says so.
 
-Each advisor is a `persona.md` in `~/.snagboat/advisors/<id>/`: front matter for the goal, the text below it for the voice. The front matter is a small part of YAML: `key: value` lines, `[a, b]` and `- item` lists, one level of indented keys, `{ k: v }` maps and `#` comments. A file with front matter replaces the built-in advisor of that `id`, or adds one:
+Each advisor is a `persona.md` in `~/.snagboat/advisors/<id>/`: front matter for the goal (`status` is the goal in plain words, shown on its card), the text below it for the voice. The front matter is a small part of YAML: `key: value` lines, `[a, b]` and `- item` lists, one level of indented keys, `{ k: v }` maps and `#` comments. A file with front matter replaces the built-in advisor of that `id`, or adds one:
 
 ```markdown
 ---
 id: purser
 goal: token-cost-down
+status: Keeping token cost down
 measures: [tokens_per_milestone, tokens_per_accepted_change, cache_hit_rate]
 reads: [events, findings, outcomes]
 may_change: [rules]          # proposes rule changes; never edits code

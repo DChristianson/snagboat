@@ -21,11 +21,20 @@ import { FindingsService, WorkspaceFindings } from './findings';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
 import { loadAdvisorGoals } from '../../advisor/goals';
-import { AdvisorReport, advisorReports, eventsIn, periods } from '../../advisor/report';
+import { AdvisorReport, advisorReports, buckets, eventsIn, periods } from '../../advisor/report';
+import { advisorBrief } from '../../advisor/brief';
+import { beadsAhead } from '../../advisor/ahead';
 import { HEURISTICS_INTERVAL_MS } from '../../heuristics/engine';
 
 const STREAM_BATCH = 500;
 const STREAM_PING_MS = 15_000;
+/** A response to a finding made in the advisor UI, for the windows that keep its episode. */
+export interface FindingResponseMessage {
+  workspace: string;
+  heuristicId: string;
+  response: 'useful' | 'acknowledge' | 'mute';
+}
+
 /** What this core offers beyond 3c-2's endpoints, so a client can tell an older core apart. */
 const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
 
@@ -56,13 +65,17 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              workspaces no longer claimed (a window holding its folder)
  *   GET  /findings[?workspace=w] the token's workspaces' findings and early warnings now (3c-3d);
  *                              a workspace token's stream also carries them ("findings" messages)
- *   GET  /advisors[?workspace=w&days=n]  each advisor's goal and measures, this period against
+ *   GET  /advisors[?workspace=w&days=n&series=1&weeks=n]  each advisor's goal and measures (and, for one
+ *                              workspace, its card's brief), this period against
  *                              the one before (RFC step 4c)
  *   GET  /workspaces           the workspaces the token reads, most recently active first
  *   POST /ui-links             admin: [{ workspace, allowHost }] -> a one-time code (2 minutes) and the advisor UI
  *                              address that uses it (http://127.0.0.1:<port>/ui/#<code>)
  *   POST /ui-session           no token: { code } -> a reader token (every workspace, read only), once
  *   GET  /ui/...               the advisor UI's files (RFC step 5a), no token; the page exchanges its code
+ *   POST /findings/respond     { workspace, heuristicId, response }: Useful/Acknowledge/Mute from the
+ *                              advisor UI, passed to the workspace's windows ("respond" stream messages);
+ *                              the one write a reader key may make
  *   POST /retention            applies the token's workspaces' retention now (a window whose
  *                              retention settings changed) -> { changed: <days> }
  *
@@ -129,6 +142,8 @@ const READER_IDLE_MS = 12 * 60 * 60_000;
 const MAX_READERS = 20;
 /** The longest daily series GET /advisors draws. */
 const MAX_SERIES_DAYS = 31;
+/** The longest weekly series (an advisor's chart). */
+const MAX_SERIES_WEEKS = 12;
 
 const MAX_BODY = 16 * 1024 * 1024;
 const DEFAULT_IDLE_MS = 30 * 60_000;
@@ -209,6 +224,8 @@ export class CoreService {
   private readonly uiDir = findUiDir();
   /** Folder -> the .code-workspace workspace it's part of, per token that registered them. */
   private readonly tokenFolders = new Map<string, Map<string, string>>();
+  /** Windows following each workspace, told of responses to its findings made in the browser. */
+  private readonly responders = new Map<string, Set<(r: FindingResponseMessage) => void>>();
   /** Ends each open event stream with "stopping"; resolves when it has closed. */
   private readonly stoppingStreams = new Set<() => Promise<void>>();
   private collector?: ClaudeCollector;
@@ -457,7 +474,8 @@ export class CoreService {
       if (route === 'POST /events') return send(200, await this.postEvents(scope, await this.readBody(req)));
       if (route === 'GET /workspaces') return send(200, this.workspaces(scope));
       if (route === 'POST /ui-links') return send(200, this.uiLink(scope, await this.readBody(req).catch(() => ({}))));
-      if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days'), url.searchParams.get('series') === '1'));
+      if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days'), url.searchParams.get('series') === '1', url.searchParams.get('weeks')));
+      if (route === 'POST /findings/respond') return send(200, this.respond(scope, await this.readBody(req, 4096)));
       if (route === 'GET /findings') return send(200, await this.currentFindings(scope, url.searchParams.get('workspace')));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days')));
       if (req.method === 'GET' && url.pathname.startsWith('/sessions/')) return send(200, await this.session(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length))));
@@ -575,7 +593,17 @@ export class CoreService {
       : this.followFindings(scope.workspaces, (result) => {
           if (!res.destroyed && visible(result.workspace)) res.write(`event: findings\ndata: ${JSON.stringify(result)}\n\n`);
         });
+    // A window (a workspace token) also hears responses to its findings made in the advisor UI.
+    const respond = (r: FindingResponseMessage) => {
+      if (!res.destroyed) res.write(`event: respond\ndata: ${JSON.stringify(r)}\n\n`);
+    };
+    const responding = readsAll(scope) ? [] : scope.workspaces;
+    for (const w of responding) {
+      if (!this.responders.has(w)) this.responders.set(w, new Set());
+      this.responders.get(w)!.add(respond);
+    }
     res.on('close', () => {
+      for (const w of responding) this.responders.get(w)?.delete(respond);
       this.stoppingStreams.delete(sayStopping);
       stopFindings?.();
       stop();
@@ -628,7 +656,9 @@ export class CoreService {
    * GET /advisors: each advisor's goal and measures over the token's workspaces (or the one named), the last
    * `days` (default 7) against the days before (RFC step 4c). The admin token names a workspace, or reads all.
    */
-  private async advisors(scope: Scope, workspace: string | null, daysParam: string | null, series = false): Promise<{ days: number; workspaces: string[]; advisors: AdvisorReport[]; problems: string[] }> {
+  private async advisors(scope: Scope, workspace: string | null, daysParam: string | null, series = false, weeksParam: string | null = null): Promise<{ days: number; workspaces: string[]; advisors: AdvisorReport[]; problems: string[] }> {
+    const weeks = weeksParam === null ? undefined : Number(weeksParam);
+    if (weeks !== undefined && (!Number.isInteger(weeks) || weeks < 2 || weeks > MAX_SERIES_WEEKS)) throw new HttpError(400, `weeks must be a whole number from 2 to ${MAX_SERIES_WEEKS}`);
     const days = daysParam === null ? 7 : Number(daysParam);
     if (!Number.isInteger(days) || days <= 0 || days > 366) throw new HttpError(400, 'days must be a whole number from 1 to 366');
     if (workspace !== null && !sees(scope, workspace)) throw new HttpError(400, `this token can't read ${workspace}`);
@@ -638,7 +668,37 @@ export class CoreService {
     const logs = stores.map((s) => new EventLog(s.dir));
     const now = new Date();
     const currentEvents = await eventsIn(logs, current);
-    return { days, workspaces: stores.map((s) => s.workspace), advisors: advisorReports(advisors, currentEvents, await eventsIn(logs, previous), { now, ...(series && days <= MAX_SERIES_DAYS ? { seriesDays: days } : {}) }), problems };
+    // A series per measure: by week for an advisor's chart (?weeks=), else by day for the cards' sparklines (?series=1).
+    let seriesWindows;
+    if (weeks !== undefined) seriesWindows = buckets(await eventsIn(logs, { from: new Date(now.getTime() - weeks * 7 * 86_400_000).toISOString(), to: new Date(now.getTime() + 1).toISOString() }), now, weeks, 7);
+    else if (series && days <= MAX_SERIES_DAYS) seriesWindows = buckets(currentEvents, now, days, 1);
+    const reports = advisorReports(advisors, currentEvents, await eventsIn(logs, previous), { now, ...(seriesWindows ? { series: seriesWindows } : {}) });
+    // One workspace: each card's brief, from its live findings, recent notifications and (Navigator) the work ahead.
+    if (workspace !== null && stores.length === 1) {
+      const live = (await this.findings.current(workspace)).findings;
+      const notified = new Set(currentEvents.filter((e) => e.kind === 'outcome' && e.outcome?.type === 'notified' && Date.parse(e.ts) > now.getTime() - 2 * 3_600_000).map((e) => e.outcome!.heuristicId!));
+      const ahead = stores[0].folder && reports.some((r) => r.id === 'navigator') ? await beadsAhead(stores[0].folder, now.getTime()) : undefined;
+      for (const r of reports) r.brief = advisorBrief(r, live, notified, r.id === 'navigator' ? ahead : undefined);
+    }
+    return { days, workspaces: stores.map((s) => s.workspace), advisors: reports, problems };
+  }
+
+  /**
+   * POST /findings/respond { workspace, heuristicId, response }: Useful, Acknowledge or Mute from the
+   * advisor UI, passed to the VS Code windows following the workspace, which keep the finding's episode
+   * and record the outcome. The one write a reader (browser) key may make.
+   */
+  private respond(scope: Scope, body: unknown): { delivered: number } {
+    const b = (body ?? {}) as Partial<FindingResponseMessage>;
+    if (typeof b.workspace !== 'string' || typeof b.heuristicId !== 'string' || !b.heuristicId || !['useful', 'acknowledge', 'mute'].includes(b.response as string)) {
+      throw new HttpError(400, 'body must be { "workspace": "...", "heuristicId": "...", "response": "useful" | "acknowledge" | "mute" }');
+    }
+    if (!sees(scope, b.workspace)) throw new HttpError(400, `this token can't read ${b.workspace}`);
+    const windows = [...(this.responders.get(b.workspace) ?? [])];
+    if (windows.length === 0) throw new HttpError(409, 'no VS Code window has this workspace open to record the response; open it there and try again');
+    const msg: FindingResponseMessage = { workspace: b.workspace, heuristicId: b.heuristicId, response: b.response as FindingResponseMessage['response'] };
+    for (const w of windows) w(msg);
+    return { delivered: windows.length };
   }
 
   /** GET /findings: the token's workspaces' findings now (the admin token names one with ?workspace=). */

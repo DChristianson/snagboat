@@ -6,7 +6,8 @@ import * as path from 'path';
 import { NormalizedEvent } from '@snagboat/schema';
 import { runCli } from '../../cli/main';
 import { coreRequest, readCoreFile } from '../../core/service/coreFile';
-import { CoreService } from '../../core/service/server';
+import { CoreService, FindingResponseMessage } from '../../core/service/server';
+import { CoreClient } from '../../core/service/client';
 import { StoreWriter } from '../../core/service/storeWriter';
 
 // The advisor UI served by the core (RFC step 5a): its files and their policy, the host check,
@@ -129,6 +130,40 @@ async function main() {
     assert.strictEqual(plain.advisors[0].measures.find((m) => m.id === 'cache_hit_rate')!.series, undefined, 'only when asked');
     const long = (await coreRequest(core.port, info.token, 'GET', `/advisors?workspace=${encodeURIComponent(a)}&days=90&series=1`)).body as typeof body;
     assert.strictEqual(long.advisors[0].measures.find((m) => m.id === 'cache_hit_rate')!.series, undefined, 'no series past 31 days');
+  });
+
+  test("cards' briefs and status lines, an advisor's weekly series, and responses that reach the workspace's window", async () => {
+    const q = `workspace=${encodeURIComponent(a)}`;
+    const one = (await coreRequest(core.port, info.token, 'GET', `/advisors?${q}`)).body as { advisors: Array<{ id: string; status: string; brief?: { summary: string; surface: { kind: string } } }> };
+    assert.strictEqual(one.advisors[0].status, 'Keeping token cost down');
+    assert.ok(one.advisors.every((x) => x.brief && x.brief.summary && x.brief.surface.kind), 'a brief for each, with one workspace');
+    const all = (await coreRequest(core.port, info.token, 'GET', '/advisors')).body as typeof one;
+    assert.ok(all.advisors.every((x) => !x.brief), 'none across workspaces');
+    const weekly = (await coreRequest(core.port, info.token, 'GET', `/advisors?${q}&weeks=8`)).body as { advisors: Array<{ measures: Array<{ id: string; series?: unknown[] }> }> };
+    assert.strictEqual(weekly.advisors[0].measures.find((x) => x.id === 'cache_hit_rate')!.series!.length, 8);
+    assert.strictEqual((await coreRequest(core.port, info.token, 'GET', `/advisors?${q}&weeks=20`)).status, 400);
+
+    // A browser key may respond to a finding; the core passes it to the window following the workspace.
+    const link = (await coreRequest(core.port, info.token, 'POST', '/ui-links', {})).body as { code: string };
+    const reader = JSON.parse((await raw(core.port, 'POST', '/ui-session', { Host: host }, JSON.stringify({ code: link.code }))).text).token as string;
+    const body = { workspace: a, heuristicId: 'stalled', response: 'useful' };
+    assert.strictEqual((await coreRequest(core.port, reader, 'POST', '/findings/respond', body)).status, 409, 'no window has it open');
+    const heard: FindingResponseMessage[] = [];
+    const window = await CoreClient.connect({ home, cliPath: '/nowhere', workspace: a, ensure: async () => readCoreFile(home)! });
+    let replayed = false;
+    window.follow({ onEvents: () => undefined, onReplayed: () => (replayed = true), onRespond: (r) => heard.push(r) }, new Date().toISOString());
+    for (let i = 0; i < 100 && !replayed; i++) await new Promise((r) => setTimeout(r, 20));
+    try {
+      const res = await coreRequest(core.port, reader, 'POST', '/findings/respond', body);
+      assert.deepStrictEqual([res.status, res.body], [200, { delivered: 1 }]);
+      for (let i = 0; i < 50 && heard.length === 0; i++) await new Promise((r) => setTimeout(r, 20));
+      assert.deepStrictEqual(heard, [body]);
+      assert.strictEqual((await coreRequest(core.port, reader, 'POST', '/findings/respond', { ...body, response: 'delete' })).status, 400);
+      assert.strictEqual((await coreRequest(core.port, reader, 'POST', '/findings/respond', { ...body, workspace: b })).status, 409, "b has no window; a's doesn't hear it");
+      assert.strictEqual(heard.length, 1);
+    } finally {
+      window.close();
+    }
   });
 
   test('snagboat open prints a one-time link for the workspace containing this folder', async () => {

@@ -17,12 +17,11 @@
     </div>
     <nav class="navgroup" aria-label="This workspace">
       <div class="eyebrow">This workspace</div>
-      <a class="nav on" href="#" aria-current="page">Advisors <span class="count" id="count-advisors"></span></a>
-      <span class="nav soon" title="Coming with the next step">Findings <span class="count" id="count-findings"></span></span>
+      <a class="nav on" href="#" id="nav-advisors" aria-current="page">Advisors <span class="count" id="count-advisors"></span></a>
       <span class="nav soon" title="Coming with the next step">Sessions</span>
       <span class="nav soon" title="Coming with the next step">Explore</span>
     </nav>
-    <p class="side-note small muted">Sessions, Explore and responding to findings come next. Until then, use VS Code's Snagboat view.</p>
+    <p class="side-note small muted">Sessions and Explore come next. Until then, use VS Code's Snagboat view.</p>
   </aside>
   <main class="main" id="main">
     <div class="bar">
@@ -39,14 +38,48 @@
       <div class="right"><span class="status" id="status">Connecting…</span></div>
     </div>
     <div id="message" class="message" hidden></div>
-    <section aria-labelledby="advisors-h">
+
+    <section id="view-advisors" aria-labelledby="advisors-h">
       <h1 id="advisors-h" class="sr-only">Advisors</h1>
       <div class="advisors" id="advisors"></div>
+      <section class="strip" id="others" hidden aria-labelledby="others-h">
+        <h2 id="others-h">Other findings <span class="muted small">· from heuristics no advisor speaks for</span></h2>
+        <div id="other-findings"></div>
+      </section>
     </section>
-    <section class="strip" aria-labelledby="findings-h">
-      <h2 id="findings-h">Findings now <span class="muted small" id="findings-note"></span></h2>
-      <div id="findings"></div>
+
+    <section id="view-advisor" hidden aria-labelledby="advisor-h">
+      <a class="back small" href="#" id="back">← All advisors</a>
+      <div class="detail-head">
+        <span class="glyph" id="detail-glyph"></span>
+        <div class="who">
+          <h1 id="advisor-h"></h1>
+          <span id="detail-status"></span>
+          <span class="mono small muted" id="detail-meta"></span>
+        </div>
+      </div>
+      <div class="detail">
+        <div class="panel">
+          <h2 id="chart-h"></h2>
+          <div class="chart" id="chart"></div>
+          <p class="small muted" id="chart-note"></p>
+        </div>
+        <div class="panel">
+          <h2>Speaks for</h2>
+          <dl class="kv" id="speaks"></dl>
+          <p class="voice" id="voice"></p>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Measures <span class="muted small" id="measures-note"></span></h2>
+        <div class="measures" id="detail-measures"></div>
+      </div>
+      <div class="panel">
+        <h2>Proposed changes</h2>
+        <p class="small muted">An advisor proposes rule changes, replayed over your history first, once it has a model to ask. That comes with a later step; until then, Discover in VS Code's Suggestions tab proposes rules.</p>
+      </div>
     </section>
+
     <p class="small muted" id="problems" hidden></p>
   </main>
 </div>

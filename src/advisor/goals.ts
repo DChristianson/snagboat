@@ -12,6 +12,7 @@ import * as path from 'path';
  *   id: purser
  *   name: Purser
  *   goal: token-cost-down
+ *   status: Keeping token cost down
  *   measures: [tokens_per_milestone, tokens_per_accepted_change, cache_hit_rate]
  *   reads: [events, findings, outcomes]
  *   may_change: [rules]
@@ -36,6 +37,8 @@ export interface AdvisorGoal {
   name: string;
   /** What it works toward, e.g. token-cost-down. */
   goal: string;
+  /** Its goal in plain words, for its card: "Keeping token cost down". */
+  status: string;
   /** Measure ids (measures.ts), in the order to show them. */
   measures: string[];
   reads: string[];
@@ -187,6 +190,7 @@ export function parseAdvisor(text: string, source: string, fallbackId?: string):
       id,
       name: typeof data.name === 'string' && data.name ? data.name : id[0].toUpperCase() + id.slice(1),
       goal: data.goal,
+      status: typeof data.status === 'string' && data.status ? data.status : data.goal.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase()),
       measures: strings(data.measures),
       reads: strings(data.reads),
       mayChange: strings(data.may_change),
@@ -206,6 +210,7 @@ export const DEFAULT_PERSONAS: Record<string, string> = {
 id: purser
 name: Purser
 goal: token-cost-down
+status: Keeping token cost down
 measures: [tokens_per_milestone, tokens_per_accepted_change, cache_hit_rate]
 reads: [events, findings, outcomes]
 may_change: [rules]
@@ -220,6 +225,7 @@ You watch what this project spends on tokens, and whether it buys finished work.
 id: navigator
 name: Navigator
 goal: clock-time-not-wasted
+status: Keeping the work on course and on pace
 measures: [milestones_per_session, minutes_per_milestone, minutes_to_green, stall_minutes]
 reads: [events, findings, outcomes]
 may_change: [rules]
@@ -234,6 +240,7 @@ You watch where the clock goes: how long work takes to reach a passing test and 
 id: bosun
 name: Bosun
 goal: unsafe-tool-use-limited
+status: Keeping risky commands rare
 measures: [risky_commands, risky_commands_per_session, approvals_per_session]
 reads: [events, findings]
 may_change: [rules]
@@ -248,6 +255,7 @@ You watch what the agents do to the machine and the repository: destructive dele
 id: lookout
 name: Lookout
 goal: user-not-overly-distracted
+status: Keeping interruptions worth your time
 measures: [notifications_per_hour, dismiss_rate, useful_share]
 reads: [findings, outcomes]
 may_change: [rules]

@@ -95,3 +95,51 @@ select { font: inherit; font-size: 12px; color: var(--sv-input-ink, var(--sv-ink
 .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--sv-rule); color: var(--sv-ink-muted); white-space: nowrap; }
 .chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--cue, var(--sv-ink-muted)); display: block; }
 .empty { font-size: 13px; color: var(--sv-ink-muted); padding: 6px 0; }
+
+/* The brief on each card (the design pass as revised): summary, Ahead, Watching, To surface. */
+.adv { cursor: default; }
+.who .status-line { font-size: 12px; color: var(--sv-ink-muted); }
+.brief { display: grid; gap: 6px; font-size: 12px; padding: 8px 10px; border-radius: 6px; background: color-mix(in srgb, var(--cue) 7%, var(--sv-surface)); }
+.brief .sum { margin: 0; font-size: 12.5px; color: var(--sv-ink); }
+.brief dl { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 4px 8px; margin: 0; }
+.brief dt { color: var(--sv-ink-muted); font-size: 11px; padding-top: 1px; }
+.brief dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.surf { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 0 6px; border-radius: 3px; margin-right: 6px; vertical-align: 1px; }
+.surf.notified, .surf.active, .surf.suggest { background: color-mix(in srgb, var(--sv-error) 18%, transparent); color: var(--sv-error); }
+.surf.held { background: color-mix(in srgb, var(--sv-warn) 20%, transparent); color: var(--sv-warn); }
+.surf.none, .surf.source { background: var(--sv-button-bg, var(--sv-panel)); color: var(--sv-ink-muted); }
+.acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
+.btn { font: inherit; font-size: 12px; border: 1px solid transparent; background: var(--sv-button-bg); color: var(--sv-button-ink); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+.btn:hover { background: var(--sv-button-hover); }
+.btn.ghost { background: transparent; border-color: var(--sv-rule); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.done { font-size: 11px; color: var(--sv-ok); }
+.err { font-size: 11px; color: var(--sv-error); }
+.adv-foot a { color: var(--sv-link); text-decoration: none; }
+.adv-foot a:hover { text-decoration: underline; }
+.adv-add { width: 44px; height: 44px; border-radius: 8px; border: 1px dashed var(--sv-ink-muted); background: transparent; color: var(--sv-ink-muted); font: 22px/1 var(--sv-font); display: grid; place-items: center; align-self: start; cursor: not-allowed; }
+
+/* An advisor's own page. */
+.back { color: var(--sv-link); text-decoration: none; }
+.detail-head { display: flex; gap: 12px; align-items: center; }
+.detail-head h1 { font-size: 18px; }
+.detail-head .glyph { width: 38px; height: 38px; }
+.detail-head .who span:nth-child(2) { font-size: 13px; }
+#view-advisor { display: grid; gap: 14px; }
+#view-advisor:not([hidden]) { display: grid; }
+.detail { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 760px) { .detail { grid-template-columns: minmax(0, 1fr); } }
+.panel { border: 1px solid var(--sv-rule); border-radius: 8px; padding: 12px 14px; display: grid; gap: 10px; align-content: start; background: var(--sv-surface); }
+.panel h2 { font-size: 13px; }
+.panel p { margin: 0; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .grid { stroke: var(--sv-rule); stroke-width: 1; }
+.chart .tick { fill: var(--sv-ink-muted); font-size: 10px; }
+.chart .area { fill: var(--cue); fill-opacity: 0.12; }
+.chart .line { fill: none; stroke: var(--cue); stroke-width: 2; stroke-linejoin: round; }
+.chart .dot { fill: var(--cue); }
+.chart .end { fill: var(--sv-ink); font-size: 11px; font-weight: 600; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; margin: 0; }
+.kv dt { color: var(--sv-ink-muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.voice { font-size: 12px; font-style: italic; border-left: 2px solid var(--cue); padding-left: 10px; white-space: pre-line; }

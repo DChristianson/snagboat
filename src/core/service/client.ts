@@ -3,6 +3,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { NormalizedEvent } from '@snagboat/schema';
 import type { WorkspaceFindings } from './findings';
+import type { FindingResponseMessage } from './server';
 import { workspaceKey } from '../userStore';
 import { claimWorkspace, releaseClaim } from './claims';
 import { CoreInfo, coreRequest } from './coreFile';
@@ -46,6 +47,8 @@ export interface StreamHandlers {
   onReplayed?: () => void;
   /** The workspace's findings and early warnings, worked out by the core: the current ones on (re)connect, then each change (3c-3d). */
   onFindings?: (result: WorkspaceFindings) => void;
+  /** Useful, Acknowledge or Mute on one of this workspace's findings, from the advisor UI (5a). */
+  onRespond?: (r: FindingResponseMessage) => void;
   /** The stream ended (the core went away or is restarting); events and findings stop until it's back. */
   onLost?: () => void;
 }
@@ -164,6 +167,14 @@ export class CoreClient {
     if (data.length === 0) return; // a comment (connected, ping)
     if (event === 'stopping') {
       this.coreStopped = true;
+      return;
+    }
+    if (event === 'respond') {
+      try {
+        handlers.onRespond?.(JSON.parse(data.join('\n')) as FindingResponseMessage);
+      } catch (err) {
+        this.opts.log?.(`a response from the core couldn't be read: ${err instanceof Error ? err.message : String(err)}`);
+      }
       return;
     }
     if (event === 'findings') {
