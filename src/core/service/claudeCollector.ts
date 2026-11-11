@@ -12,7 +12,7 @@ import { keepCheckpointEntry } from '../paths';
  * Claude Code transcripts for every project on the machine, read by the core
  * (3c-3b): each folder under ~/.claude/projects is one project, tailed with the
  * same TranscriptTailer a VS Code window uses, with its own checkpoint in
- * data/checkpoints-core/ (separate from any window's, so the two never fight
+ * data/core/checkpoints/ (separate from any window's, so the two never fight
  * over read positions; the same events read twice share their eventIds).
  *
  * A transcript folder is named after the folder the session started in, with

@@ -23,6 +23,7 @@ commands:
   stores              list the event stores on this machine
   sessions            list sessions in the current workspace's store
   session <id>        one session's summary
+  findings            the current workspace's findings and early warnings, from the running core
   config              the settings that apply to the current folder, and where each comes from
   serve               run the core service in the foreground (Ctrl-C stops it)
   core start          start the core in the background, unless it's running
@@ -40,7 +41,8 @@ options:
   --cwd <dir>         treat dir as the current folder
   --store <kind>      vscode (VS Code's storage, the default) or user (the per-user store)
   --port <n>          serve: listen on this port instead of a free one
-  --no-collect        serve, core start: don't read Claude Code transcripts (only accept events and hooks)
+  --no-collect        serve, core start: don't read Claude Code transcripts or Copilot CLI sessions
+                      (only accept events and hooks)
   --idle-minutes <n>  serve, core start: stop after n minutes with no requests (default 30; 0 never)
   --dry-run           migrate: count what would be copied, and write nothing
   --verify <file>     migrate: don't copy; check the per-user store against a baseline saved
@@ -217,6 +219,42 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       await core.stopped;
       process.off('SIGINT', stop);
       process.off('SIGTERM', stop);
+      return 0;
+    }
+    case 'findings': {
+      // Worked out by the core (3c-3d), for the per-user store's workspace containing the folder.
+      const home = userHome();
+      const info = await findCore(home);
+      if (!info) {
+        io.err('the core isn\'t running; start it with `snagboat core start` (or open the folder in VS Code with snagboat.storage.perUserStore on)\n');
+        return 1;
+      }
+      const stores = selectStores(findUserStores(), cwd, parsed.all).filter((st) => st.workspace);
+      if (stores.length === 0) {
+        io.err(noStoreMessage(cwd, parsed.all, 0) + '\n');
+        return 1;
+      }
+      const results: Array<{ workspace: string; findings: Array<{ heuristicId: string; severity: string; summary: string }>; progress: Array<{ heuristicId: string; share: number; summary: string }>; problems: string[] }> = [];
+      for (const st of stores) {
+        const res = await coreRequest(info.port, info.token, 'GET', `/findings?workspace=${encodeURIComponent(st.workspace!)}`, undefined, 30_000);
+        if (res.status !== 200) {
+          io.err(`the core answered ${res.status} for ${st.workspace}: ${JSON.stringify(res.body)}\n`);
+          return 1;
+        }
+        results.push(...(res.body as typeof results));
+      }
+      print(results, () =>
+        results
+          .map((r) => {
+            const lines = [
+              ...r.findings.map((x) => `  ${x.severity.padEnd(4)}  ${x.heuristicId}: ${x.summary}`),
+              ...r.progress.map((p) => `  near  ${p.heuristicId}: ${p.summary} (${Math.round(p.share * 100)}%)`),
+              ...r.problems.map((p) => `  rule problem: ${p}`),
+            ];
+            return `${r.workspace}\n${lines.length ? lines.join('\n') : '  nothing found'}\n`;
+          })
+          .join('')
+      );
       return 0;
     }
     case 'core': {

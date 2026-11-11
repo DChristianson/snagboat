@@ -51,9 +51,10 @@ import { ClaudeCodeAdapter } from './adapters/claude-code';
 import { removeHooksConfigured } from './adapters/claude-code/hooksConfig';
 import { CopilotAdapter } from './adapters/copilot';
 import { FindingsRegistry } from './heuristics/findingsRegistry';
-import { HeuristicsEngine } from './heuristics/engine';
+import { EVENT_STORE_MAX_EVENTS, EVENT_STORE_WINDOW_MS, HEURISTICS_INTERVAL_MS as POLL_INTERVAL_MS, HeuristicsEngine } from './heuristics/engine';
 import { builtInHeuristics, heuristicSettings, heuristicSettingsSection, settingsRuleSource } from './heuristics/index';
-import { Finding, Heuristic } from './heuristics/types';
+import { Finding, Heuristic, Progress } from './heuristics/types';
+import type { WorkspaceFindings } from './core/service/findings';
 import { buildRuleSet } from './heuristics/rule';
 import { ruleHeuristic } from './heuristics/ruleHeuristic';
 import { RuleStore } from './heuristics/ruleStore';
@@ -62,7 +63,6 @@ import { runDiscovery } from './discovery/discover';
 import { SuggestionsController } from './ui/suggestionsController';
 import { exportRules, importRules } from './ui/ruleTransfer';
 
-const POLL_INTERVAL_MS = 30_000;
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
 const MUTED_HEURISTICS_KEY = 'snagboat.mutedHeuristics';
 // Global: saved rules are shared by every workspace, so a dismissed suggestion stays dismissed everywhere.
@@ -78,11 +78,6 @@ const HEADLINE_BACKOFF_MS = 30 * 60_000;
 const REVIEW_TACTICS_SESSIONS = 2;
 const REVIEW_TACTICS_TURNS = 20;
 
-// Generous placeholder sizing, comfortably covering every planned heuristic's
-// short window (minutes) without yet reading heuristic settings -- revisited
-// once those settings exist and can drive this properly.
-const EVENT_STORE_WINDOW_MS = 24 * 60 * 60 * 1000;
-const EVENT_STORE_MAX_EVENTS = 5000;
 
 function retentionPolicy(): RetentionPolicy {
   const config = vscode.workspace.getConfiguration('snagboat.retention');
@@ -238,16 +233,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   /** The advisor's line for a finding in the tooltip, while that finding lasts. */
   const advice = new Map<string, { line: string; model: string }>();
   let showNudge: (nudge: Nudge) => void = () => undefined;
+  // As a client of the core (3c-3d), the core works out findings and early warnings; this window applies them.
+  // Until the core's first findings arrive, and whenever its stream is down, this window evaluates them itself,
+  // so they neither wait on the core nor freeze while it's gone.
+  let coreProgress: Progress[] = [];
+  let fromCore = new Set<string>();
+  let coreFindingsLive = false;
+  const applyCoreFindings = (result: WorkspaceFindings) => {
+    coreFindingsLive = true;
+    const byId = new Map<string, Finding[]>();
+    for (const f of result.findings) byId.set(f.heuristicId, [...(byId.get(f.heuristicId) ?? []), f]);
+    // Also clears what this window found itself while the core was away.
+    for (const id of new Set([...fromCore, ...heuristics.map((h) => h.id), ...byId.keys()])) findings.report(id, byId.get(id) ?? []);
+    fromCore = new Set(byId.keys());
+    coreProgress = result.progress;
+    runHeuristics();
+    refresh();
+  };
   const runHeuristics = (kind?: NormalizedEventKind) => {
     const now = new Date().toISOString();
-    const results = kind ? engine.tickFor(kind, now) : engine.tick(now);
-    for (const [id, list] of results) findings.report(id, list);
+    if (!core || !coreFindingsLive) {
+      const results = kind ? engine.tickFor(kind, now) : engine.tick(now);
+      for (const [id, list] of results) findings.report(id, list);
+    }
     const settings = nudgeSettings();
     if (settings.notify === 'off') return;
     const active = new Map<string, Finding[]>();
     for (const f of findings.list()) active.set(f.heuristicId, [...(active.get(f.heuristicId) ?? []), f]);
     for (const id of [...advice.keys()]) if (!active.has(id)) advice.delete(id);
-    for (const nudge of nudger.update(active, engine.progress(now), settings)) showNudge(nudge);
+    for (const nudge of nudger.update(active, core && coreFindingsLive ? coreProgress : engine.progress(now), settings)) showNudge(nudge);
   };
 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -283,6 +297,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     loadRules();
     runHeuristics();
     refresh();
+    // The core reads the same rules (config.json, already synced, and rules.json); have it evaluate now.
+    void core?.findings();
   };
   const suggestions = new SuggestionsController({
     loadEvents: loadDiscoveryEvents,
@@ -511,6 +527,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       if (e.affectsConfiguration('snagboat.retention')) runRetention();
       if (e.affectsConfiguration('snagboat.captureContent')) detailPanel.scheduleUpdate();
       if (e.affectsConfiguration('snagboat.rules') || e.affectsConfiguration('snagboat.toolCategories')) rulesChanged();
+      // The core reads heuristics' thresholds from config.json (synced already); have it evaluate now.
+      else if (core && (e.affectsConfiguration('snagboat.heuristics') || e.affectsConfiguration('snagboat.tokenBudget'))) void core.findings();
     })
   );
 
@@ -946,7 +964,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     },
   });
   // Following the core starts once everything that handles its events is in place.
-  core?.follow({ onEvents: (events) => events.forEach(handleEvent) }, readAt);
+  core?.follow(
+    {
+      onEvents: (events) => events.forEach(handleEvent),
+      onFindings: applyCoreFindings,
+      onLost: () => {
+        coreFindingsLive = false;
+        fromCore = new Set();
+        runHeuristics();
+        refresh();
+      },
+    },
+    readAt
+  );
   // Last, so the claim on the per-user store's folder outlasts the writes made while shutting down.
   context.subscriptions.push({ dispose: () => storage.release?.() });
 

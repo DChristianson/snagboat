@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as path from 'path';
 import { NormalizedEvent } from '@snagboat/schema';
+import type { WorkspaceFindings } from './findings';
 import { workspaceKey } from '../userStore';
 import { claimWorkspace, releaseClaim } from './claims';
 import { CoreInfo, coreRequest } from './coreFile';
@@ -43,10 +44,14 @@ export interface StreamHandlers {
   onEvents: (events: NormalizedEvent[]) => void;
   /** After the replay of changed day files that follows each (re)connect. */
   onReplayed?: () => void;
+  /** The workspace's findings and early warnings, worked out by the core: the current ones on (re)connect, then each change (3c-3d). */
+  onFindings?: (result: WorkspaceFindings) => void;
+  /** The stream ended (the core went away or is restarting); events and findings stop until it's back. */
+  onLost?: () => void;
 }
 
 /** What a core must offer (GET /health "features") for a client to use it. */
-const REQUIRED_FEATURES = ['events-stream', 'flush', 'retention'];
+const REQUIRED_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
 const RETRY_MS = [500, 1_000, 2_000, 5_000, 10_000, 30_000];
 /** How long a hold waits for the core to finish the writes it started. */
 const FLUSH_TIMEOUT_MS = 60_000;
@@ -161,6 +166,14 @@ export class CoreClient {
       this.coreStopped = true;
       return;
     }
+    if (event === 'findings') {
+      try {
+        handlers.onFindings?.(JSON.parse(data.join('\n')) as WorkspaceFindings);
+      } catch (err) {
+        this.opts.log?.(`findings from the core couldn't be read: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return;
+    }
     if (event === 'replayed') {
       this.failures = 0;
       this.coreStopped = false;
@@ -181,6 +194,11 @@ export class CoreClient {
     if (this.closed || req !== this.request) return;
     req.destroy();
     this.request = undefined;
+    try {
+      this.handlers?.onLost?.();
+    } catch {
+      // the handler's failure is its own
+    }
     this.retryLater(why, unauthorized);
   }
 
@@ -278,6 +296,16 @@ export class CoreClient {
       throw new Error(`the core didn't confirm its writes were done: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (res.status !== 200) throw new Error(`the core answered ${res.status} to a flush`);
+  }
+
+  /** Asks the core to evaluate the workspace now (its rules or settings changed); a change arrives on the stream. */
+  async findings(): Promise<WorkspaceFindings[]> {
+    try {
+      const res = await this.request401('GET', '/findings', undefined, 30_000);
+      return res.status === 200 ? (res.body as WorkspaceFindings[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   /** Applies the workspace's retention now (its settings changed); how many days changed, 0 if no core answers. */

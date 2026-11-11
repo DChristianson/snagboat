@@ -121,7 +121,7 @@ Adapters own all agent-specific parsing and emit one normalized event shape ([sc
 - If the core can't start, or an older core without the client endpoints is running, the window collects and writes its own folder in `~/.snagboat/data`, and claims it so the core leaves it alone.
 - `snagboat core stop` stops the core for good: open windows wait for another front door to start one. Any other exit, and a window starts a new core.
 
-Heuristics, findings, nudges, the advisor and the UI run in each window in both modes, over the events it has. Moving them into the core is the next step ([architecture RFC](design/architecture-rfc.md)).
+With the core, it also runs the heuristics for each workspace a window follows (built-ins, `rules.json` and the workspace's settings rules and thresholds) and sends the window its findings and early warnings on the same feed; `GET /findings` and `snagboat findings` answer anyone else. The window shows them (status bar, notifications) and evaluates them itself only while the core is away. The advisor and the UI run in each window in both modes; the window still builds the heuristics too, for replay, discovery and effectiveness ([architecture RFC](design/architecture-rfc.md)).
 
 The core's modules, in [src/core/service](../src/core/service/):
 
@@ -129,7 +129,8 @@ The core's modules, in [src/core/service](../src/core/service/):
 | --- | --- |
 | `server.ts` | The HTTP server: tokens (the admin token in `core.json` reads every workspace and mints workspace tokens), events in and out, sessions, the live feed, hooks, flush, retention, shutdown, and the idle exit (30 minutes with no request or open feed) |
 | `storeWriter.ts` | Writes each workspace's events once, through the same `EventSink` a window uses, and runs each workspace's retention; spools events for a claimed workspace until the claim is gone |
-| `client.ts` | `CoreClient`, a window's connection: follows the live feed and reconnects, posts or spools events, holds the folder, asks for retention |
+| `client.ts` | `CoreClient`, a window's connection: follows the live feed and reconnects, posts or spools events, holds the folder, asks for retention and findings |
+| `findings.ts` | Runs the heuristics for each followed workspace, with its own rules and thresholds, and reports changes to its findings and early warnings |
 | `claudeCollector.ts` | Tails every project folder under `~/.claude/projects` with the window's `TranscriptTailer` |
 | `copilotCollector.ts` | Reads every Copilot CLI session under `~/.copilot/session-state` and files it by the folder it started in |
 | `workspaces.ts` | Which workspace a project belongs to (the nearest known workspace folder, else its repository, else the folder itself), and whether to record it at all |
