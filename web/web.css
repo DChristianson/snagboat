@@ -1,4 +1,4 @@
-/* The web demo's own styles. detail.css draws the explorer exactly as in the
+/* The web demo's own styles. viz.css draws the explorer exactly as in the
    webview, reading the visualizations' --sv-* tokens; theme.css, loaded
    first, gives them light and dark values from the browser's color scheme,
    so this page maps nothing. This file sets the page's color scheme, for

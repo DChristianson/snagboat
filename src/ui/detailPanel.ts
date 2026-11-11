@@ -263,8 +263,9 @@ export class DetailPanel implements vscode.Disposable {
       .map((file) => webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, ...file.split('/'))))
       .map((uri) => `<script nonce="${nonce}" src="${uri}"></script>`)
       .join('\n');
-    // The visualizations' own tokens, then their mapping to VS Code's theme, then the page.
-    const styles = ['theme.css', 'vscodeTheme.css', 'detail.css']
+    // The visualizations' own tokens, then their mapping to VS Code's theme, then
+    // their styles, then the page.
+    const styles = ['theme.css', 'vscodeTheme.css', 'viz.css', 'detail.css']
       .map((file) => webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, file)))
       .map((uri) => `<link rel="stylesheet" href="${uri}">`)
       .join('\n');

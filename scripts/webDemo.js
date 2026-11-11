@@ -24,7 +24,7 @@ const copies = [
   ['media/vizkit.js', 'vizkit.js'],
   ['media/explore.js', 'explore.js'],
   ['media/theme.css', 'theme.css'],
-  ['media/detail.css', 'detail.css'],
+  ['media/viz.css', 'viz.css'],
   ['web/web.css', 'web.css'],
 ];
 const viz = fs

@@ -3,7 +3,7 @@
    after theme.css, and only by the webview; the web page has no such file.
    Each token reads one VS Code variable and no fallback: when a theme leaves
    a variable unset, the token is unset too and the rule's own fallback in
-   detail.css applies, as before the tokens existed.
+   viz.css or detail.css applies, as before the tokens existed.
 
    The chart palettes have a light and a dark set. They switch on VS Code's
    theme class, not on prefers-color-scheme, since the two can differ; the
