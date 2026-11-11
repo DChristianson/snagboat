@@ -150,7 +150,8 @@ async function main() {
       window.kill();
       await waitFor(() => claimedBy(dir) === undefined);
       await waitFor(async () => (await new EventLog(dir).readAll()).length === 2);
-      assert.deepStrictEqual(fs.readdirSync(spoolDir(home)), [], 'spool emptied');
+      // The spool file is removed just after its events are written, so wait for that too.
+      await waitFor(() => fs.readdirSync(spoolDir(home)).length === 0);
     } finally {
       window.kill();
       await core.stop();
@@ -169,7 +170,7 @@ async function main() {
     const core = await start(home);
     try {
       await waitFor(async () => (await new EventLog(workspaceStoreDir(home, '/w/left')).readAll()).length === 1);
-      assert.deepStrictEqual(fs.readdirSync(spoolDir(home)), []);
+      await waitFor(() => fs.readdirSync(spoolDir(home)).length === 0);
     } finally {
       await core.stop();
     }
