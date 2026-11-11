@@ -101,6 +101,18 @@ Off by default. With `snagboat.nudges.notify` set to `warnings` or `all`, a find
 
 It names heuristics, rules, models, and session ids, never prompts, paths, or commands. Afterwards, **Ask the Advisor** has a model add three sections to the file, labelled as model output: a summary of the week, how findings were shown with suggested changes, and tactics to try from the two costliest sessions. **Ask Another Advisor** appears when several advisors offer those. `snagboat.advisor.weeklyReview` (off by default) writes the review once a week by itself.
 
+## The per-user store and the core (preview)
+
+By default each window collects its own workspace's sessions and keeps them in VS Code's storage for that workspace. With `snagboat.storage.perUserStore` on (in User settings, then reload), data lives in `~/.snagboat/data`, one folder per workspace, and VS Code starts Snagboat's core service in the background:
+
+- The core records Claude Code and Copilot CLI sessions in **every project on this machine**, open in VS Code or not, and applies retention. `"collect": false` for a project, `"collect.unopened": false`, or `snagboat serve --no-collect` limits it ([settings](settings.md#outside-vs-code-snagboatconfigjson-and-snagboatjson)).
+- Each window shows its own workspace, from the core, and sends it what only the window sees: your edits, and Copilot's OpenTelemetry export. Two windows on one workspace show the same data.
+- Backfill, **Relabel Shell Calls**, **Remove Captured Text** and **Clear Event Log** pause the core's writes to the workspace while they run.
+- Findings, notifications and the advisor work as before, in each window.
+- If the core can't start, the window says so and writes its own folder in `~/.snagboat/data` instead. `snagboat core stop` stops it; open windows then wait until something starts it again.
+
+Turning the setting off goes back to VS Code's storage as it was: turning it on copies data and never moves or deletes it. See the [README](../README.md#command-line-early) for `snagboat core` and `snagboat migrate`, and [PRIVACY.md](../PRIVACY.md) for where everything is stored.
+
 ## Commands
 
 | Command | What it does |

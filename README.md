@@ -120,7 +120,7 @@ The icons are VS Code's built-in [codicons](https://microsoft.github.io/vscode-c
 | GitHub Copilot (editor features) | Copilot's optional OpenTelemetry export to a local receiver | Token usage of inline and next-edit suggestions and other editor-side model calls, kept separate from agent turns |
 | VS Code | File saves | Edits per file, for agent-independent signals |
 
-Each agent has an adapter that turns its logs into one event shape ([docs/schema.md](docs/schema.md)), so heuristics and views never depend on which agent produced an event. Each VS Code window runs its own hook receiver, and the hook script routes each Claude Code project's hooks to the window that has it open. How the parts fit together: [docs/architecture.md](docs/architecture.md#data-flow).
+Each agent has an adapter that turns its logs into one event shape ([docs/schema.md](docs/schema.md)), so heuristics and views never depend on which agent produced an event. By default each VS Code window collects for its own workspace: it runs its own hook receiver, and the hook script routes each Claude Code project's hooks to the window that has it open. With the per-user store preview on, a core service collects for every project and each window is its client ([command line](#command-line-early)). How the parts fit together: [docs/architecture.md](docs/architecture.md#data-flow).
 
 ## Advisor (optional)
 
@@ -164,7 +164,7 @@ By default a command reads only the store of the workspace that contains the cur
 
 ## Privacy
 
-Nothing leaves your machine unless you set up a hosted advisor provider and approve what it receives (see [Advisor](#advisor-optional)), and there is no telemetry on the extension's UI. Events are stored as daily JSONL files in VS Code's per-workspace storage, readable with `jq`, DuckDB, or a notebook. Two things worth knowing. **Snagboat stores your prompts' text** by default, along with agent reply excerpts and session names: common secret formats are redacted first, prompts and replies are kept for 30 days (`snagboat.retention.textDays`), and **Snagboat: Remove Captured Text** deletes them on demand; turn `snagboat.captureContent` off to store no text at all. And for Claude Code's Bash tool, an event's target is the **full shell command**, which can contain secrets. [PRIVACY.md](PRIVACY.md) lists exactly what each source records and every place Snagboat stores anything.
+Nothing leaves your machine unless you set up a hosted advisor provider and approve what it receives (see [Advisor](#advisor-optional)), and there is no telemetry on the extension's UI. Events are stored as daily JSONL files in VS Code's per-workspace storage (or in `~/.snagboat/data` with the per-user store preview), readable with `jq`, DuckDB, or a notebook. Two things worth knowing. **Snagboat stores your prompts' text** by default, along with agent reply excerpts and session names: common secret formats are redacted first, prompts and replies are kept for 30 days (`snagboat.retention.textDays`), and **Snagboat: Remove Captured Text** deletes them on demand; turn `snagboat.captureContent` off to store no text at all. And for Claude Code's Bash tool, an event's target is the **full shell command**, which can contain secrets. [PRIVACY.md](PRIVACY.md) lists exactly what each source records and every place Snagboat stores anything.
 
 ## Why
 
