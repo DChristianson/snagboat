@@ -56,6 +56,13 @@ export interface AdvisorGoal {
 
 type Value = string | number | boolean | Value[] | { [key: string]: Value };
 
+/** A quoted string's text: double quotes unescape \\ \" \n \t as YAML does; single quotes only '' (so regexes go in single quotes). */
+function unquote(t: string): string {
+  if (t.length >= 2 && t.startsWith('"') && t.endsWith('"')) return t.slice(1, -1).replace(/\\(["\\nt])/g, (_m, c: string) => (c === 'n' ? '\n' : c === 't' ? '\t' : c));
+  if (t.length >= 2 && t.startsWith("'") && t.endsWith("'")) return t.slice(1, -1).replace(/''/g, "'");
+  return t;
+}
+
 /** "[a, b]" -> list, "{ k: v }" -> map, numbers and booleans, else the string (quotes removed). */
 function scalar(text: string): Value {
   const t = text.trim();
@@ -70,7 +77,7 @@ function scalar(text: string): Value {
   }
   if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
   if (t === 'true' || t === 'false') return t === 'true';
-  return t.replace(/^(['"])(.*)\1$/, '$2');
+  return unquote(t);
 }
 
 /** Splits on commas outside brackets and quotes. */
@@ -79,8 +86,14 @@ function splitTop(text: string): string[] {
   let depth = 0;
   let quote: string | undefined;
   let cur = '';
-  for (const ch of text) {
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
     if (quote) {
+      if (ch === '\\' && quote === '"') {
+        cur += ch + (text[i + 1] ?? '');
+        i += 1;
+        continue;
+      }
       if (ch === quote) quote = undefined;
     } else if (ch === '"' || ch === "'") quote = ch;
     else if (ch === '[' || ch === '{') depth += 1;
@@ -96,33 +109,60 @@ function splitTop(text: string): string[] {
   return parts;
 }
 
+/** The line without a trailing comment: a # after whitespace, outside quotes (as in YAML). */
+function stripComment(line: string): string {
+  let quote: string | undefined;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === '\\' && quote === '"') i += 1;
+      else if (ch === quote) quote = undefined;
+    } else if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '#' && (i === 0 || /\s/.test(line[i - 1]))) return line.slice(0, i);
+  }
+  return line;
+}
+
+const KEY_LINE = /^(\s*)([A-Za-z_][\w-]*)\s*:(?:\s+(.*)|\s*)$/;
+
 /**
- * The front matter between the first two `---` lines: `key: value` lines, with
- * one level of indented keys under a key with no value. A small YAML subset,
- * enough for persona.md; anything else is reported.
+ * The front matter between the first two `---` lines: `key: value` lines,
+ * one level of indented keys or `- item` lines under a key with no value,
+ * and # comments. A small YAML subset, enough for persona.md; anything else is
+ * reported. Text whose first line inside the `---` pair isn't a key line
+ * isn't front matter (a voice may start with a markdown rule) and is left whole.
  */
 export function parseFrontMatter(text: string): { data?: Record<string, Value>; body: string; problems: string[] } {
-  const m = /^﻿?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+  const m = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
   if (!m) return { body: text, problems: [] };
+  const lines = m[1].split(/\r?\n/).map(stripComment).filter((l) => l.trim());
+  if (lines.length === 0 || !KEY_LINE.test(lines[0]) || /^\s/.test(lines[0])) return { body: text, problems: [] };
   const data: Record<string, Value> = {};
   const problems: string[] = [];
-  let parent: Record<string, Value> | undefined;
-  for (const raw of m[1].split(/\r?\n/)) {
-    const line = raw.replace(/\s+#.*$/, '');
-    if (!line.trim() || line.trim().startsWith('#')) continue;
-    const kv = /^(\s*)([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line);
-    if (!kv) {
-      problems.push(`front matter line not understood: ${raw.trim()}`);
+  /** The last top-level key with no value: indented lines belong to it. */
+  let open: string | undefined;
+  for (const line of lines) {
+    const item = /^\s+-\s+(.*)$/.exec(line);
+    if (item && open !== undefined) {
+      const current = data[open];
+      data[open] = [...(Array.isArray(current) ? current : []), scalar(item[1])];
       continue;
     }
-    const [, indent, key, value] = kv;
-    if (indent && parent) {
-      parent[key] = scalar(value);
+    const kv = KEY_LINE.exec(line);
+    if (!kv) {
+      problems.push(`front matter line not understood: ${line.trim()}`);
+      continue;
+    }
+    const [, indent, key, value = ''] = kv;
+    if (indent) {
+      const parent = open !== undefined ? data[open] : undefined;
+      if (parent && typeof parent === 'object' && !Array.isArray(parent)) parent[key] = scalar(value);
+      else problems.push(`front matter: "${key}" is indented under a key that has a value`);
     } else if (!value.trim()) {
-      parent = {};
-      data[key] = parent;
+      open = key;
+      data[key] = {};
     } else {
-      parent = undefined;
+      open = undefined;
       data[key] = scalar(value);
     }
   }

@@ -37,7 +37,11 @@ const per = (n: number, d: number) => (d > 0 ? n / d : undefined);
 /** Minutes of activity: the gaps of at most 15 minutes between each session's events. */
 function activeMinutes(events: NormalizedEvent[]): number {
   const bySession = new Map<string, number[]>();
-  for (const e of conversation(events)) bySession.set(e.sessionId, [...(bySession.get(e.sessionId) ?? []), Date.parse(e.ts)]);
+  for (const e of conversation(events)) {
+    const times = bySession.get(e.sessionId);
+    if (times) times.push(Date.parse(e.ts));
+    else bySession.set(e.sessionId, [Date.parse(e.ts)]);
+  }
   let ms = 0;
   for (const times of bySession.values()) {
     times.sort((a, b) => a - b);
@@ -54,12 +58,14 @@ function median(xs: number[]): number | undefined {
 
 /** Commands that can do damage that's hard to undo; Bosun's persona.md may add its own. */
 export const RISKY_COMMANDS: Array<{ id: string; pattern: RegExp }> = [
-  { id: 'recursive-force-delete', pattern: /\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r|--recursive\s+--force|--force\s+--recursive)\b/i },
-  { id: 'force-push', pattern: /\bgit\s+push\b[^\n]*(\s--force\b|\s-f\b|\s--force-with-lease\b)/ },
+  // -rf, -fr, -Rf, or the flags apart (-r -f, --recursive --force), before the paths.
+  { id: 'recursive-force-delete', pattern: /\brm\s+(?=(?:-\S+\s+)*?-[a-zA-Z]*[rR])(?=(?:-\S+\s+)*?-[a-zA-Z]*f|(?:-\S+\s+)*?--force)|\brm\s+(?:-\S+\s+)*?--recursive\b(?:\s+-\S+)*?\s+(?:-[a-zA-Z]*f|--force)\b/ },
+  // --force, -f, --force-with-lease, or a +refspec.
+  { id: 'force-push', pattern: /\bgit\s+push\b[^\n;&|]*(\s--force(-with-lease)?\b|\s-f\b|\s\+\S)/ },
   { id: 'hard-reset', pattern: /\bgit\s+reset\s+--hard\b/ },
   { id: 'clean-untracked', pattern: /\bgit\s+clean\s+-[a-z]*f/ },
   { id: 'download-to-shell', pattern: /\b(curl|wget)\b[^|\n]*\|\s*(sudo\s+)?(ba|z)?sh\b/ },
-  { id: 'sudo', pattern: /(^|[;&|]\s*)sudo\s/ },
+  { id: 'sudo', pattern: /(^|[;&|(\n]|\$\()\s*sudo\s/m },
   { id: 'world-writable', pattern: /\bchmod\s+(-R\s+)?(0?777|a\+rwx)\b/ },
   { id: 'drop-database', pattern: /\b(DROP\s+(TABLE|DATABASE)|TRUNCATE\s+TABLE)\b/i },
   { id: 'publish', pattern: /\b(npm|pnpm|yarn)\s+publish\b|\b(cargo|twine|gem)\s+(publish|push|upload)\b/ },
@@ -97,7 +103,13 @@ export const MEASURES: Record<string, MeasureDef> = {
     better: 'lower',
     compute: (ev) => {
       const byTurn = new Map<string, number[]>();
-      for (const e of conversation(ev)) if (e.turnId) byTurn.set(`${e.sessionId}\n${e.turnId}`, [...(byTurn.get(`${e.sessionId}\n${e.turnId}`) ?? []), Date.parse(e.ts)]);
+      for (const e of conversation(ev)) {
+        if (!e.turnId) continue;
+        const key = `${e.sessionId}\n${e.turnId}`;
+        const times = byTurn.get(key);
+        if (times) times.push(Date.parse(e.ts));
+        else byTurn.set(key, [Date.parse(e.ts)]);
+      }
       if (byTurn.size === 0) return undefined;
       let ms = 0;
       for (const times of byTurn.values()) {
