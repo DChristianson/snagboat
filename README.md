@@ -26,7 +26,7 @@ Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md) and [what
 - **Agents:** Claude Code and GitHub Copilot only. Other agents, such as Cursor's or Codex, aren't watched.
 - **VS Code** 1.145 or later.
 - **Platforms:** macOS and Linux. Windows is new and less tried: Claude Code hooks run through Git Bash there, as Claude Code itself requires (see [known limitations](#known-limitations)).
-- **Building from source** needs Node.js 22 or later.
+- **Node.js** 24 or later, to build from source or to run the `snagboat` command line. The extension itself runs on the Node.js that VS Code ships.
 - **Where to get it:** a [GitHub release](https://github.com/DChristianson/snagboat/releases). It's not yet on the Marketplace or Open VSX.
 
 ## Install
