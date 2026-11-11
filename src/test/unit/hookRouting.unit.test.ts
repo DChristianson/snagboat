@@ -130,7 +130,8 @@ async function main() {
 
   test('a route left by a dead window is skipped by the script and pruned on the next activation', async () => {
     const { home, script, projectA } = await setup();
-    const dead = childProcess.spawnSync('sh', ['-c', 'echo $$']).stdout.toString().trim();
+    // A pid the way the script names its files: under Git Bash its Windows pid, not the MSYS $$.
+      const dead = childProcess.spawnSync('sh', ['-c', 'me=$$; [ -r "/proc/$$/winpid" ] && read -r me < "/proc/$$/winpid"; echo $me']).stdout.toString().trim();
     writeRoutes(home, [projectA], { port: 9, token: 'x', pid: Number(dead) });
     assert.strictEqual((await runHook(home, script, projectA, payload(projectA))).status, 0);
     pruneStaleRoutes(home);
@@ -355,7 +356,8 @@ async function main() {
       assert.deepStrictEqual((await storeEvents(home, projectB)).map((e) => e.eventId), ['tool:c1']);
 
       // The window's route left behind by a dead process: the core takes it.
-      const dead = childProcess.spawnSync('sh', ['-c', 'echo $$']).stdout.toString().trim();
+      // A pid the way the script names its files: under Git Bash its Windows pid, not the MSYS $$.
+      const dead = childProcess.spawnSync('sh', ['-c', 'me=$$; [ -r "/proc/$$/winpid" ] && read -r me < "/proc/$$/winpid"; echo $me']).stdout.toString().trim();
       writeRoutes(home, [projectA], { port: 9, token: 'x', pid: Number(dead) });
       await runHook(home, script, projectA, { ...payload(projectA), tool_use_id: 'd1' });
       assert.deepStrictEqual((await storeEvents(home, projectA)).map((e) => e.eventId), ['tool:d1']);
@@ -429,7 +431,8 @@ async function main() {
       if (process.platform !== 'win32') assert.strictEqual(fs.statSync(path.join(home, 'core.route')).mode & 0o777, 0o600);
       assert.strictEqual((await coreRequest(core.port, hookToken, 'GET', '/sessions')).status, 401);
       assert.strictEqual((await coreRequest(core.port, 'wrong', 'POST', '/hook', payload(projectA))).status, 401);
-      const dead = childProcess.spawnSync('sh', ['-c', 'echo $$']).stdout.toString().trim();
+      // A pid the way the script names its files: under Git Bash its Windows pid, not the MSYS $$.
+      const dead = childProcess.spawnSync('sh', ['-c', 'me=$$; [ -r "/proc/$$/winpid" ] && read -r me < "/proc/$$/winpid"; echo $me']).stdout.toString().trim();
       fs.writeFileSync(path.join(home, `.hook-in.${dead}`), '{"partial');
       fs.writeFileSync(path.join(hookSpoolDir(home), `.${dead}.tmp`), '/w\n{"partial');
       await ingestHookSpool(home, async () => undefined);
