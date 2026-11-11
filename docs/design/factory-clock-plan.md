@@ -71,6 +71,7 @@ packages/viz/
   explore.js          carousel and facet filter
   catalog.json        catalog and taxonomy (moved from src/ui/visualizers.ts)
   theme.css           the package's own color tokens, light and dark
+  viz.css             the visualizers' and explorer's styles, on theme.css's tokens
   hosts/web/          index.html, loader, synthetic sessions, example traces
   dist/               prebuilt files for hosts that don't build
 ```
@@ -110,7 +111,7 @@ Each step leaves the web demo working.
 1. **Move the builder.** Put `buildSessionView` and the session index in `packages/schema/session-view`, with no behavior change. This lines up with step 1 of the architecture RFC.
 2. **Split `shared.js`.** Separate the visualization kit (DOM, format, tooltip, replay, force layout) from detail-view helpers that stay in Snagboat.
 3. **Own the theme.** Add `theme.css` with the package's variables, switch the visualizers to them, and map them in the web page and the advisor UI.
-4. **Move the files.** Move `media/viz`, `explore.js`, the catalog, `web/`, `src/web` and the Pages workflow into `packages/viz`. The advisor UI loads them from the package, and the VS Code detail view drops its Explore tab.
+4. **Move the files.** Move `media/viz`, `explore.js`, `viz.css`, the catalog, `web/`, `src/web` and the Pages workflow into `packages/viz`. The advisor UI loads them from the package, and the VS Code detail view drops its Explore tab.
 5. **Give it an identity.** Write its README and contribution guide, document the visualizer contract for outside authors, and publish the gallery as Factory Clock.
 6. **Release `dist/`.** Version the package, commit prebuilt files, and have the core's advisor UI pin a version.
 7. **Move to its own repository** once steps 1 to 6 land.
