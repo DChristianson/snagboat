@@ -149,13 +149,15 @@ Today an advisor is a model with prompts and abilities (`snagboat.advisors`), an
 | Bosun | Unsafe tool use limited | Risky commands; approvals granted per session |
 | Lookout | User not overly distracted | Notifications per hour; dismiss rate; share marked useful |
 
+Built (step 4c): the four as built-in `persona.md` files with front matter, needing no model; a file in `~/.snagboat/advisors/<id>/` replaces or adds one, and a model advisor with the same id uses its body as voice. Their measures come from events and outcomes (cost is counted in tokens; time per milestone is active time; build and test duration is measured as minutes from a failing test to green), shown by `snagboat advisors`, `GET /advisors` and the weekly review ([usage](../usage.md#advisors-and-their-goals)). Not yet: approvals per session (Claude Code's PermissionRequest hook), and notifications per hour with the `notify` limits enforced (next).
+
 An advisor's `persona.md` under this proposal:
 
 ```markdown
 ---
 id: purser
 goal: token-cost-down
-measures: [cost_per_milestone, tokens_per_accepted_change, cache_hit_rate]
+measures: [tokens_per_milestone, tokens_per_accepted_change, cache_hit_rate]
 reads: [events, findings, outcomes]
 may_change: [rules]          # proposes rule changes; never edits code
 notify:

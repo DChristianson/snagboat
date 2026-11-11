@@ -9,6 +9,10 @@ import { effectiveSettings } from '../core/config';
 import { ensureCore, findCore } from '../core/service/lifecycle';
 import { coreRequest, liveCore } from '../core/service/coreFile';
 import * as fs from 'fs';
+import * as path from 'path';
+import { EventLog } from '../core/eventLog';
+import { loadAdvisorGoals } from '../advisor/goals';
+import { advisorReports, eventsIn, periods, reportLines } from '../advisor/report';
 
 /**
  * The snagboat CLI (docs/design/architecture-rfc.md, step 3): read the event
@@ -24,6 +28,7 @@ commands:
   sessions            list sessions in the current workspace's store
   session <id>        one session's summary
   findings            the current workspace's findings and early warnings, from the running core
+  advisors            each advisor's goal, and its measures this week against the week before
   config              the settings that apply to the current folder, and where each comes from
   serve               run the core service in the foreground (Ctrl-C stops it)
   core start          start the core in the background, unless it's running
@@ -37,7 +42,7 @@ commands:
 options:
   --json              print JSON instead of text
   --all               read every workspace's store, not just the one containing the current folder
-  --days <n>          only sessions active in the last n days (sessions)
+  --days <n>          only sessions active in the last n days (sessions); the period measured (advisors, default 7)
   --cwd <dir>         treat dir as the current folder
   --store <kind>      vscode (VS Code's storage, the default) or user (the per-user store)
   --port <n>          serve: listen on this port instead of a free one
@@ -316,6 +321,24 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       const dryRun = parsed.dryRun ?? false;
       const report = await migrate(sources, findGlobalDirs(), home, { dryRun });
       print({ home, dryRun, ...report, skipped: skipped.map((s) => s.dir) }, () => migrationText(home, dryRun, report, skipped));
+      return 0;
+    }
+    case 'advisors': {
+      // Advisors as goals (RFC step 4c): built-in, or persona.md front matter in <snagboat home>/advisors/<id>/.
+      const { advisors, problems } = loadAdvisorGoals(path.join(userHome(), 'advisors'));
+      const available = storesOf(parsed.store);
+      const stores = selectStores(available, cwd, parsed.all);
+      if (stores.length === 0) {
+        io.err(noStoreMessage(cwd, parsed.all, available.filter(unknownWorkspace).length) + '\n');
+        return 1;
+      }
+      const days = parsed.days ?? 7;
+      const { current, previous } = periods(io.now, days);
+      const logs = stores.map((st) => new EventLog(st.dir));
+      const reports = advisorReports(advisors, await eventsIn(logs, current), await eventsIn(logs, previous));
+      print({ days, current, previous, advisors: reports, problems }, () =>
+        [`Last ${days} days (${current.from} to ${current.to}) against the ${days} before:`, '', ...reports.flatMap((r) => [...reportLines(r, days), '']), ...problems.map((p) => `problem: ${p}`)].join('\n') + '\n'
+      );
       return 0;
     }
     case 'sessions': {
