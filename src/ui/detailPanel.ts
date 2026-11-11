@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { DetailState, DetailTab, isDetailMessage, resolveTargetFile } from './detailModel';
 import { SessionController } from './sessionController';
-import { SuggestionsController } from './suggestionsController';
+import { SuggestionsController } from '../discovery/suggestionsController';
 import { Capability, ExplainRequest } from '../vscode/advisor';
 import { ASSET_FILES } from '@snagboat/viz';
 

@@ -1,10 +1,10 @@
 import { buildDigest, DigestPolicy, DigestTurn } from '../advisor/digest';
-import { Probe } from '../discovery/probes';
+import { Probe } from './probes';
 import { categoryDoc, EffectivenessInput, MAX_EXAMPLES_PER_CANDIDATE, MAX_FAMILIES, MAX_PROPOSE_CANDIDATES, MAX_TOOL_NAMES, parseProposals, ProposeInput } from '../advisor/proposeHeuristics';
 import { parseShellSubCategory, ShellSubCategory } from '@snagboat/schema';
 import { NormalizedEvent } from '@snagboat/schema';
-import { Baseline, Candidate, DiscoveryOptions, DiscoveryRun, runDiscovery, Score, ThresholdSuggestion } from '../discovery/discover';
-import { shellCategoryReach } from '../discovery/shellCategories';
+import { Baseline, Candidate, DiscoveryOptions, DiscoveryRun, runDiscovery, Score, ThresholdSuggestion } from './discover';
+import { shellCategoryReach } from './shellCategories';
 import { parseRule, RuleSource, TARGET_MEASURES } from '../heuristics/rule';
 import { Provenance, RuleStore } from '../heuristics/ruleStore';
 

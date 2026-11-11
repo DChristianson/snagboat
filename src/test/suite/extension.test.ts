@@ -159,6 +159,30 @@ suite('Snagboat core plumbing', () => {
     await waitFor(() => project() === undefined, 8000);
   });
 
+  test('a setting changed in config.json outside VS Code (the advisor UI applying a threshold) comes into its settings', async function () {
+    if (!process.env.SNAGBOAT_TEST_PER_USER_STORE) return this.skip();
+    const configFile = path.join(process.env.SNAGBOAT_HOME!, 'config.json');
+    const key = 'heuristics.stalled.maxMinutes';
+    const user = () => vscode.workspace.getConfiguration('snagboat').inspect<number>(key)?.globalValue;
+    const edit = (value: number | undefined) => {
+      const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+      if (value === undefined) delete config.defaults[key];
+      else config.defaults[key] = value;
+      // As the core writes it: a temp file renamed over config.json.
+      fs.writeFileSync(`${configFile}.test.tmp`, JSON.stringify(config, null, 2));
+      fs.renameSync(`${configFile}.test.tmp`, configFile);
+    };
+    try {
+      edit(123);
+      await waitFor(() => user() === 123);
+      // And the window's next sync keeps it rather than undoing it.
+      await waitFor(() => JSON.parse(fs.readFileSync(configFile, 'utf8')).defaults[key] === 123);
+    } finally {
+      await vscode.workspace.getConfiguration('snagboat').update(key, undefined, vscode.ConfigurationTarget.Global);
+    }
+    await waitFor(() => JSON.parse(fs.readFileSync(configFile, 'utf8')).defaults[key] === undefined);
+  });
+
   test('saving a real file triggers the edit-tracker adapter', async () => {
     const before = api.getAggregateSnapshot().localEditCount;
 

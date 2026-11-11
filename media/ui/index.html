@@ -21,6 +21,7 @@
       <a class="side-link on" href="#" id="nav-advisors" aria-current="page">Advisors <span class="count" id="count-advisors"></span></a>
       <a class="side-link" href="#view=sessions" id="nav-sessions">Sessions <span class="count" id="count-sessions"></span></a>
       <a class="side-link" href="#view=explore" id="nav-explore">Explore</a>
+      <a class="side-link" href="#view=suggestions" id="nav-suggestions">Suggestions</a>
     </nav>
   </aside>
   <main class="main" id="main">
@@ -176,6 +177,14 @@
         <h2>Explore this session</h2>
         <div class="acts" id="session-explore"></div>
       </div>
+    </section>
+
+    <section id="view-suggestions" hidden aria-labelledby="suggestions-h">
+      <div class="view-head">
+        <h1 id="suggestions-h">Suggestions</h1>
+        <span class="muted small">Rules discovered in this workspace's history, thresholds against it, and your saved rules. Accepting saves to your rules, shared by every workspace.</span>
+      </div>
+      <div id="suggestions-root" class="panel"></div>
     </section>
 
     <section id="view-explore" hidden aria-label="Explore">

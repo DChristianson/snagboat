@@ -192,11 +192,22 @@ export class FindingsService {
    */
   async forSessions(workspace: string): Promise<{ current: WorkspaceFindings; newReplay: () => FindingReplay }> {
     const current = await this.current(workspace);
+    const { heuristics, settingsFor, contextLimit } = await this.heuristicsFor(workspace, false);
+    return { current, newReplay: () => new FindingReplay(heuristics, settingsFor, contextLimit) };
+  }
+
+  /**
+   * The workspace's heuristics (built-ins and its rules) with its own settings, as last built, for
+   * discovery (step 5c-2) and session replays. Evaluated first unless the caller just did.
+   */
+  async heuristicsFor(workspace: string, evaluate = true): Promise<{ heuristics: Heuristic[]; settingsFor: (id: string) => Record<string, unknown>; contextLimit: (model: string | undefined) => number | undefined }> {
+    if (evaluate) await this.current(workspace);
     const watch = await this.watch(workspace);
-    const heuristics = watch.heuristics ?? builtInHeuristics();
-    const settingsFor = watch.settingsFor ?? (() => ({}));
-    const limit = (model: string | undefined) => (model ? this.contextLimits.get(model)?.limit : undefined);
-    return { current, newReplay: () => new FindingReplay(heuristics, settingsFor, limit) };
+    return {
+      heuristics: watch.heuristics ?? builtInHeuristics(),
+      settingsFor: watch.settingsFor ?? (() => ({})),
+      contextLimit: (model) => (model ? this.contextLimits.get(model)?.limit : undefined),
+    };
   }
 
   /** What the core has learned of each model's context (the timelines' marks). */
