@@ -24,7 +24,7 @@ Each heuristic has a line on [what to try](#findings) when it fires.
 Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md) and [what's not built yet](#not-built-yet)). Free and open source under the [MIT license](LICENSE).
 
 - **Agents:** Claude Code and GitHub Copilot only. Other agents, such as Cursor's or Codex, aren't watched.
-- **VS Code** 1.119 or later.
+- **VS Code** 1.145 or later.
 - **Platforms:** macOS and Linux. Windows is new and less tried: Claude Code hooks run through Git Bash there, as Claude Code itself requires (see [known limitations](#known-limitations)).
 - **Building from source** needs Node.js 22 or later.
 - **Where to get it:** a [GitHub release](https://github.com/DChristianson/snagboat/releases). It's not yet on the Marketplace or Open VSX.
@@ -45,7 +45,7 @@ Download `snagboat-<version>.vsix` from the [latest release](https://github.com/
 code --install-extension snagboat-0.0.2.vsix
 ```
 
-Or build it yourself:
+Or build it yourself (needs Node.js 24 or later):
 
 ```bash
 git clone https://github.com/DChristianson/snagboat.git
@@ -158,7 +158,7 @@ node dist/snagboat.js sessions --all --store user   # read the per-user store
 
 `migrate` is for the per-user store preview (`snagboat.storage.perUserStore`). It copies, never moves or deletes; running it again copies only what's new. To check a migration, save `sessions --all --json` to a file before migrating, then run `migrate --verify <file>`: every session in it must be in the per-user store with the same prompt, tool-call and token counts.
 
-By default a command reads only the store of the workspace that contains the current folder; `--all` is the explicit way to read across workspaces. It finds stores written by VS Code and its forks (Insiders, VSCodium, Cursor, Windsurf), or one store named by `SNAGBOAT_STORE`. It's built by `npm run build`; publishing it as an npm package comes later ([architecture RFC](docs/design/architecture-rfc.md)).
+By default a command reads only the store of the workspace that contains the current folder; `--all` is the explicit way to read across workspaces. It finds stores written by VS Code and its forks (Insiders, VSCodium, Cursor, Windsurf), including their servers in a dev container or over Remote-SSH (`~/.vscode-server` and the like; run the CLI on that side), or one store named by `SNAGBOAT_STORE`. A server's stores don't say which workspace they belong to, so only `--all` reads them, and `migrate` skips them: turn on `snagboat.storage.perUserStore` in that window to copy its store. It's built by `npm run build`; publishing it as an npm package comes later ([architecture RFC](docs/design/architecture-rfc.md)).
 
 ## Privacy
 

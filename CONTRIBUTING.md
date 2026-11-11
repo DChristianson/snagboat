@@ -11,9 +11,9 @@ Thanks for helping out. This guide covers how the code is organized, how to run 
 
 ## Setup
 
-Requires Node.js 22 or later (packaging with `@vscode/vsce` needs it) and VS Code 1.119 or later.
+Requires Node.js 24 or later and VS Code 1.145 or later.
 
-The minimum VS Code version (`engines.vscode`) also pins two dev dependencies, which Dependabot is told not to move on its own: `@types/vscode` must not be newer than that minimum (so code can't use APIs older VS Code lacks), and `@types/node` should match the Node major that version ships (Node 22 for 1.119). Raise all three together, deliberately.
+The minimum VS Code version (`engines.vscode`) also pins two dev dependencies, which Dependabot is told not to move on its own: `@types/vscode` must not be newer than that minimum (so code can't use APIs older VS Code lacks), and `@types/node` should match the Node major that version ships (Node 24 for 1.145). Raise all three together, deliberately.
 
 ```bash
 npm install
@@ -33,7 +33,7 @@ Press F5 in VS Code to launch an Extension Development Host. The **Run Extension
 | `src/heuristics/` | The engine, the findings registry (acknowledge/mute), and one file per heuristic |
 | `src/cli/` | The `snagboat` command line (`dist/snagboat.js`): finds the extension's event stores (`stores.ts`) and reads them, read-only. Runs without VS Code, so it follows the engine's import rule |
 | `src/vscode/` | VS Code-only glue moved out of the engine: the `Host` implementation, the edit tracker, the advisor's pickers and key storage, and the backfill and relabel commands. Engine folders (`core`, `adapters`, `heuristics`, `discovery`, `review`, `nudges`, `advisor`, `backfill`) may not import `vscode`, `src/vscode` or `src/ui` (`engineBoundary.unit.test.ts`) |
-| `src/ui/` | Status bar text, the detail view's panel and model, the session views, and the visualizer catalog (`visualizers.ts`); the page itself is under `media/` (`detail.js`, `sessions.js`, `suggestions.js`, `explore.js`, the visualization kit in `vizkit.js` that the visualizers and the explorer use, the detail view's own helpers in `shared.js`, `detail.css`), with one file per visualizer under `media/viz/` |
+| `src/ui/` | Status bar text, the detail view's panel and model, the session views, and the visualizer catalog (`visualizers.ts`); the page itself is under `media/` (`detail.js`, `sessions.js`, `suggestions.js`, `explore.js`, the visualization kit in `vizkit.js` that the visualizers and the explorer use, the detail view's own helpers in `shared.js`, `detail.css`; colors come from the `--sv-*` tokens in `theme.css`, which `vscodeTheme.css` maps to VS Code's theme in the webview), with one file per visualizer under `media/viz/` |
 | `src/web/`, `web/` | The web demo: the page's code, example sessions, and in-memory session source, bundled for the browser; `web/index.html` and its stylesheet |
 | `src/scripts/transcripts.ts` | Dev tooling for Claude Code transcripts (`verify:transcripts`, fixture redaction) |
 | `scripts/licenses.js` | Generates `THIRD_PARTY_LICENSES.md` from what's actually bundled |

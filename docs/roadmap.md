@@ -12,16 +12,16 @@ No runtime dependencies: the extension uses only Node.js and VS Code built-ins, 
 | Packaging | `@vscode/vsce` | MIT |
 | Types | `@types/vscode` (pinned to the minimum VS Code), `@types/node` (pinned to its Node major) | MIT |
 
-The minimum supported VS Code is 1.119 (Node 22.22), which Copilot's telemetry export needs anyway. [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md) is generated from what's actually bundled, and CI fails if anything bundled appears without being listed. One override in `package.json`: `@azure/msal-node` is forced to `^7.1.1` (fixing GHSA-xcx6-jx8p-x3h5) because `@vscode/vsce`'s `@azure/identity` still asks for `^6`; drop it once `@azure/identity` allows 7. Likely future additions: `ovsx` for publishing to Open VSX (publish-time only), and possibly a SQLite library if log export needs one.
+The minimum supported VS Code is 1.145 (Node 24.22). The `snagboat` CLI needs Node 24 too. [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md) is generated from what's actually bundled, and CI fails if anything bundled appears without being listed. One override in `package.json`: `@azure/msal-node` is forced to `^7.1.1` (fixing GHSA-xcx6-jx8p-x3h5) because `@vscode/vsce`'s `@azure/identity` still asks for `^6`; drop it once `@azure/identity` allows 7. Likely future additions: `ovsx` for publishing to Open VSX (publish-time only), and possibly a SQLite library if log export needs one.
 
 ## CI/CD
 
 In place ([.github/workflows/ci.yml](../.github/workflows/ci.yml)), on pushes to `main` and pull requests:
 
 - on Ubuntu and macOS: `npm ci`, unit tests (`npm run test:unit`, which also type-checks via `tsc` and replays the redacted transcript fixture through every heuristic, pinning what fires), the production bundle, the third-party license check (`npm run licenses -- --check`), and `.vsix` packaging
-- the integration suite (`npm test`) in a real VS Code: latest stable on Ubuntu (under a virtual display) and macOS, plus the minimum supported version (1.119) on Ubuntu
+- the integration suite (`npm test`) in a real VS Code: latest stable on Ubuntu (under a virtual display) and macOS, plus the minimum supported version (1.145) on Ubuntu
 - Dependabot updates for npm and GitHub Actions
-- `main`'s ruleset requires every unit and integration job to pass before a merge (the 1.119 job's name includes the version, so raising the minimum means updating the ruleset)
+- `main`'s ruleset requires every unit and integration job to pass before a merge (the 1.145 job's name includes the version, so raising the minimum means updating the ruleset)
 
 Releases ([.github/workflows/release.yml](../.github/workflows/release.yml)): pushing a `v*` tag that matches `package.json`'s version runs all of the above, then builds the `.vsix` and publishes a GitHub release with it attached.
 
@@ -106,7 +106,7 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
   This overlaps with consolidating how insights are presented (above).
 - **An improvements bot for dependencies (noted 2026-10-30, not started).** Dependabot already opens version bumps for npm and GitHub Actions. A bot would also track changes and upgrades that need a decision or code, not only a version bump:
   - workarounds waiting on upstream, such as the `@azure/msal-node` override (dropped once `@azure/identity` allows 7);
-  - pinned versions that move with Snagboat's minimum VS Code (`@types/vscode`, `@types/node`, and the 1.119 CI job and ruleset);
+  - pinned versions that move with Snagboat's minimum VS Code (`@types/vscode`, `@types/node`, and the 1.145 CI job and ruleset);
   - release notes that change behavior or deprecate something Snagboat uses;
   - possibly the formats Snagboat reads, which are dependencies too: Claude Code's transcripts and hooks, and Copilot's session logs and telemetry.
 

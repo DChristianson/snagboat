@@ -1,0 +1,74 @@
+/* The detail view's mapping of the visualizations' tokens (theme.css) to
+   VS Code's theme variables, so the webview follows the user's theme. Loaded
+   after theme.css, and only by the webview; the web page has no such file.
+   Each token reads one VS Code variable and no fallback: when a theme leaves
+   a variable unset, the token is unset too and the rule's own fallback in
+   detail.css applies, as before the tokens existed.
+
+   The chart palettes have a light and a dark set. They switch on VS Code's
+   theme class, not on prefers-color-scheme, since the two can differ; the
+   values repeat theme.css's, and a unit test keeps them the same. */
+body {
+  --sv-font: var(--vscode-font-family);
+  --sv-font-size: var(--vscode-font-size);
+  --sv-mono: var(--vscode-editor-font-family);
+
+  --sv-surface: var(--vscode-editor-background);
+  --sv-ink: var(--vscode-foreground);
+  --sv-ink-muted: var(--vscode-descriptionForeground);
+  --sv-rule: var(--vscode-editorWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  --sv-panel: var(--vscode-editorWidget-background);
+  --sv-shadow: var(--vscode-widget-shadow);
+  --sv-tip-bg: var(--vscode-editorHoverWidget-background);
+  --sv-tip-ink: var(--vscode-editorHoverWidget-foreground);
+  --sv-tip-border: var(--vscode-editorHoverWidget-border);
+
+  --sv-accent: var(--vscode-focusBorder);
+  --sv-link: var(--vscode-textLink-foreground);
+  --sv-error: var(--vscode-errorForeground);
+  --sv-warn: var(--vscode-editorWarning-foreground, #bf8803);
+  --sv-info: var(--vscode-editorInfo-foreground, #3794ff);
+  --sv-ok: var(--vscode-testing-iconPassed);
+  --sv-hover: var(--vscode-list-hoverBackground);
+  --sv-active-bg: var(--vscode-list-activeSelectionBackground);
+  --sv-active-ink: var(--vscode-list-activeSelectionForeground);
+  --sv-selection: var(--vscode-editor-selectionBackground);
+  --sv-selection-soft: var(--vscode-editor-selectionHighlightBackground);
+  --sv-highlight: var(--vscode-editor-findMatchHighlightBackground);
+
+  --sv-button-bg: var(--vscode-button-secondaryBackground);
+  --sv-button-ink: var(--vscode-button-secondaryForeground);
+  --sv-button-hover: var(--vscode-button-secondaryHoverBackground);
+  --sv-button-border: var(--vscode-button-border);
+  --sv-pressed-bg: var(--vscode-button-background);
+  --sv-pressed-ink: var(--vscode-button-foreground);
+  --sv-pressed-hover: var(--vscode-button-hoverBackground);
+  --sv-toolbar-hover: var(--vscode-toolbar-hoverBackground);
+  --sv-input-bg: var(--vscode-input-background);
+  --sv-input-ink: var(--vscode-input-foreground);
+  --sv-input-border: var(--vscode-input-border);
+
+  --sv-series-1: #2a78d6;
+  --sv-series-2: #eb6834;
+  --sv-series-3: #1baf7a;
+  --sv-turn-0: #cde2fb;
+  --sv-turn-1: #9ec5f4;
+  --sv-cat-1: #eb6834;
+  --sv-cat-2: #1baf7a;
+  --sv-cat-3: #6250d6;
+  --sv-cat-4: #eda100;
+  --sv-cat-5: #e87ba4;
+}
+body.vscode-dark,
+body.vscode-high-contrast {
+  --sv-series-1: #3987e5;
+  --sv-series-2: #d95926;
+  --sv-series-3: #199e70;
+  --sv-turn-0: #256abf;
+  --sv-turn-1: #104281;
+  --sv-cat-1: #d95926;
+  --sv-cat-2: #199e70;
+  --sv-cat-3: #9085e9;
+  --sv-cat-4: #c98500;
+  --sv-cat-5: #d55181;
+}
