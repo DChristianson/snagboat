@@ -1,5 +1,5 @@
 /* The visualizations' own color tokens (docs/design/factory-clock-plan.md,
-   "Theme"). detail.css, the visualizers' styles and the explorer read only
+   "Theme"). viz.css, detail.css, the visualizers and the explorer read only
    these --sv-* variables, never a host's. This file gives each one a light
    and a dark value from prefers-color-scheme, so a plain page (the web demo)
    needs nothing else. The light and dark values are VS Code's default light
@@ -7,7 +7,7 @@
 
    A host that has its own theme maps the tokens after this file, on body:
    the VS Code webview does it in vscodeTheme.css, from VS Code's variables.
-   Hero views keep their own palettes, scoped to the view in detail.css. */
+   Hero views keep their own palettes, scoped to the view in viz.css. */
 :root {
   --sv-font: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, Ubuntu, "Droid Sans", sans-serif;
   --sv-font-size: 13px;

@@ -20,10 +20,9 @@ async function main() {
       return /\.(js|ts|css|html)$/.test(e.name) ? [child] : [];
     });
   // What the web page loads, and so what moves into packages/viz in step 4.
-  // detail.css also holds the detail view's own rules until then.
   const packageFiles = [
     'media/theme.css',
-    'media/detail.css',
+    'media/viz.css',
     'media/vizkit.js',
     'media/explore.js',
     ...filesUnder('media/viz'),
@@ -54,7 +53,7 @@ async function main() {
 
   test('theme.css defines every token the package uses, in light and dark', () => {
     assert.ok(darkCss, 'theme.css has no prefers-color-scheme: dark block');
-    for (const file of [...packageFiles, 'media/vscodeTheme.css']) {
+    for (const file of [...packageFiles, 'media/vscodeTheme.css', 'media/detail.css']) {
       for (const [token] of read(file).matchAll(/--sv-[\w-]+/g)) {
         assert.ok(light.has(token), `${file} uses ${token}, which theme.css does not define`);
       }
@@ -84,15 +83,16 @@ async function main() {
     assert.deepStrictEqual([...vscodeDark.keys()].sort(), [...palette].sort(), 'the dark theme class switches only the palettes');
   });
 
-  test('each host loads theme.css before the page styles', () => {
+  test('each host loads theme.css, then viz.css, before the page styles', () => {
     const panel = read('src/ui/detailPanel.ts');
     const order = panel.match(/\[('theme\.css'[^\]]*)\]/);
     assert.ok(order, 'detailPanel.ts lists no stylesheets');
-    assert.strictEqual(order[1], "'theme.css', 'vscodeTheme.css', 'detail.css'");
+    assert.strictEqual(order[1], "'theme.css', 'vscodeTheme.css', 'viz.css', 'detail.css'");
     const page = read('web/index.html');
     const links = [...page.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map((m) => m[1]);
-    assert.deepStrictEqual(links, ['theme.css', 'detail.css', 'web.css']);
+    assert.deepStrictEqual(links, ['theme.css', 'viz.css', 'web.css']);
     assert.ok(read('scripts/webDemo.js').includes("['media/theme.css', 'theme.css']"), 'webDemo.js does not copy theme.css');
+    assert.ok(read('scripts/webDemo.js').includes("['media/viz.css', 'viz.css']"), 'webDemo.js does not copy viz.css');
   });
 
   let failures = 0;
