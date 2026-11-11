@@ -31,7 +31,7 @@ import { proposeTacticsMessages } from './advisor/proposeTactics';
 import { headlineLine, headlineMessages } from './advisor/summarizeSession';
 import { Headliner, HeadlineEntry } from './advisor/headlines';
 import { positiveNumberOr } from './heuristics/settings';
-import { Nudge, Nudger, NudgeSettings, NotifyLevel } from './nudges/nudger';
+import { AdvisorLimit, Nudge, Nudger, NudgeSettings, NotifyLevel } from './nudges/nudger';
 import { episodeResponse, ResponseEpisode, ResponseLog, ResponseTracker } from './heuristics/responses';
 import { buildReview, isoWeek, renderReview, Review } from './review/review';
 import { advisorSection, summarizeWeekMessages } from './advisor/summarizeWeek';
@@ -230,10 +230,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   };
   loadRules();
   // Live nudges (opt-in): notifications for findings and early warnings, at most one per turn.
+  // The advisors' notify limits (persona.md front matter, RFC step 4c), re-read at most once a minute.
+  let advisorLimits: { at: number; limits: AdvisorLimit[] } | undefined;
+  const limitsNow = (): AdvisorLimit[] => {
+    if (!advisorLimits || Date.now() - advisorLimits.at > 60_000) {
+      const { advisors, problems } = loadAdvisorGoals(path.join(snagboatHome(), 'advisors'));
+      if (problems.length > 0 && !advisorLimits) for (const problem of problems) outputChannel.appendLine(`Advisors: ${problem}`);
+      advisorLimits = { at: Date.now(), limits: advisors.map((a) => ({ advisor: a.id, rules: a.notify.rules, ...(a.notify.maxPerHour !== undefined ? { maxPerHour: a.notify.maxPerHour } : {}) })) };
+    }
+    return advisorLimits.limits;
+  };
   const nudgeSettings = (): NudgeSettings => {
     const config = vscode.workspace.getConfiguration('snagboat.nudges');
     const quiet = config.get<unknown>('quiet', []);
-    return { notify: config.get<NotifyLevel>('notify', 'off'), quiet: Array.isArray(quiet) ? quiet.filter((q): q is string => typeof q === 'string') : [], muted: findings.mutedHeuristics() };
+    return {
+      notify: config.get<NotifyLevel>('notify', 'off'),
+      quiet: Array.isArray(quiet) ? quiet.filter((q): q is string => typeof q === 'string') : [],
+      muted: findings.mutedHeuristics(),
+      limits: limitsNow(),
+    };
   };
   const nudger = new Nudger((refs) => {
     const wanted = new Set(refs);
@@ -682,6 +697,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     }
   };
   showNudge = (nudge: Nudge) => {
+    // Each notification shown is an outcome (Lookout's measures), filed in its session.
+    const wanted = new Set(nudge.eventRefs);
+    const ref = nudge.sessionId ? undefined : eventStore.query().filter((e) => wanted.has(e.eventId)).pop();
+    const notifiedSession = nudge.sessionId ?? ref?.sessionId;
+    if (notifiedSession) {
+      const at = new Date().toISOString();
+      queueMicrotask(() =>
+        bus.publish({
+          eventId: `outcome:notified:${nudge.heuristicId}:${at}`,
+          sessionId: notifiedSession,
+          agent: ref?.agent ?? eventStore.query({ sessionId: notifiedSession }).at(-1)?.agent ?? 'claude-code',
+          ts: at,
+          kind: 'outcome',
+          status: 'unknown',
+          outcome: { type: 'notified', heuristicId: nudge.heuristicId, refs: nudge.eventRefs.slice(0, 20), ...(nudge.advisor ? { advisor: nudge.advisor } : {}) },
+          raw: { adapter: OUTCOMES_ADAPTER, ref: `notified:${nudge.heuristicId}` },
+        })
+      );
+    }
     const text = `Snagboat: ${nudge.summary}${nudge.suggestedAction ? `. ${nudge.suggestedAction}` : ''}`;
     const actions = [...(nudge.sessionId ? ['Show in Session'] : []), ...(nudge.sessionId ? ['Explain'] : []), ...(nudge.early ? [] : ['Useful', 'Acknowledge']), 'Mute'];
     const shown = nudge.severity === 'warn' ? vscode.window.showWarningMessage(text, ...actions) : vscode.window.showInformationMessage(text, ...actions);

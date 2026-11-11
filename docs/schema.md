@@ -42,7 +42,7 @@ interface NormalizedEvent {
   workspace?: string;    // v2: the workspace it was recorded in (see below)
   outcome?: {            // v3, outcome events: what was measured (see below)
     type: 'tests_green' | 'finding_response'
-      | 'commit_kept' | 'commit_reverted' | 'code_survival' | 'milestone';
+      | 'commit_kept' | 'commit_reverted' | 'code_survival' | 'milestone' | 'notified';
     refs?: string[];       // the events it's about
     failures?: number;     // tests_green: failed runs before it passed
     afterMs?: number;      // tests_green: first failure to green
@@ -53,6 +53,7 @@ interface NormalizedEvent {
     linesWritten?: number; // code_survival: lines it added to them
     linesSurviving?: number; // code_survival: still there
     days?: number;         // code_survival: 7 or 30
+    advisor?: string;      // notified: whose notify limit it fell under
   };
   confidence?: number;
   raw: {
@@ -70,6 +71,7 @@ interface NormalizedEvent {
 `outcome` events (version 3) measure how work went; Snagboat works them out, no agent reports them (`raw.adapter` is `snagboat-outcomes`). Each is filed in the session it's about:
 
 - `tests_green`: a tool call in the tests-builds category succeeded after one or more failed in the same session. `refs` names the first failure and the passing run; its id is derived from the passing run's, so reading the same events again adds nothing. Whoever writes the workspace's events works it out: the core, or a window writing its own folder.
+- `notified`: Snagboat showed you a notification for `heuristicId` (a finding or an early warning), with `advisor` when it falls under an advisor's `notify` rules; filed in its session. Lookout's notifications per hour count these.
 - `finding_response`: a finding's episode ended, and `response` says how you met it, strongest first: marked **Useful**, muted, acknowledged, or let it pass. `refs` are the finding's events; filed in the session of the latest one still in the window's recent events.
 
 - Git outcomes, worked out by the core from the project's history (read-only; `outcomes.git`). A session's commit is one made between its first event and 30 minutes after its last that touches a file its agent edited:
