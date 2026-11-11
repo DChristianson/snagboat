@@ -45,7 +45,7 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
 
 Finished work is in the [changelog](../CHANGELOG.md).
 
-- **Architecture refactor (in progress).** Move the engine out of the VS Code extension into one local core that VS Code, the Claude Code CLI and a browser tab share. Steps 1 and 2 are done and step 3 is partly done, on the `refactor` branch. See the [architecture RFC](design/architecture-rfc.md) and [the next steps](design/handoff-3c.md).
+- **Architecture refactor (in progress).** Move the engine out of the VS Code extension into one local core that VS Code, the Claude Code CLI and a browser tab share. Steps 1 and 2 are done and step 3 is partly done, on the `refactor` branch: the core service runs as a preview behind `snagboat.storage.perUserStore`, collecting and writing for every window; heuristics and nudges still run in each window, and moving them into the core is next. See the [architecture RFC](design/architecture-rfc.md) and [the next steps](design/handoff-3c.md).
 - **Model-fit heuristic (planned, not started; enabled by prompt text).** Flags expensive models doing simple work, such as a top-tier model running a one-line `git push` or `npm test`. Signals, per turn:
   - **the ask:** a short prompt that reads as an instruction to run something ("commit and push", "run the tests"), from `promptText`;
   - **the work:** few model calls, little output, and tool calls that are mostly shell, version control, or tests and builds (finer shell categories, once the advisor discovers them, would sharpen this);
@@ -91,7 +91,7 @@ Finished work is in the [changelog](../CHANGELOG.md).
 
   It would open issues or pull requests with what changed and what to do, on a schedule.
 - **Terminal and git signals.** Complete the generic file-system adapter: terminal shell-integration exit codes as `test_run` events, and `git status`/`git diff` polling to tell real edits from no-op saves (rows already in [schema.md](schema.md)).
-- **Cross-workspace token budget.** A global budget across all workspaces, plus a treemap of where tokens go. Needs storage shared between workspaces; today each workspace's storage is isolated. The advisor's all-projects review needs the same storage (see [design/trusted-advisor.md](design/trusted-advisor.md)).
+- **Cross-workspace token budget.** A global budget across all workspaces, plus a treemap of where tokens go. Needs storage shared between workspaces: the per-user store (preview) provides it, but each window still sees only its own workspace. The advisor's all-projects review needs the same storage (see [design/trusted-advisor.md](design/trusted-advisor.md)).
 - **Extension points.** `snagboat.adapters` and `snagboat.heuristics` contribution points so other extensions can add sources and heuristics without forking.
 - **Log export.** A `snagboat.exportLog` command writing CSV or SQLite, with an optional SQLite side index rebuilt from the JSONL log.
 - **Copilot OTel per-window routing.** Copilot still exports every window's telemetry to one fixed port (4318), so the first window to bind it collects all of it. It can't use the per-window routing Claude Code hooks use, since Copilot's exporter takes a single endpoint URL; revisit once live traffic shows whether spans identify the workspace.
