@@ -158,6 +158,12 @@ By default each window collects its own workspace's sessions and keeps them in V
 
 Turning the setting off goes back to VS Code's storage as it was: turning it on copies data and never moves or deletes it. See the [README](../README.md#command-line-early) for `snagboat core` and `snagboat migrate`, and [PRIVACY.md](../PRIVACY.md) for where everything is stored.
 
+## The Claude Code plugin (preview)
+
+The plugin in [plugins/snagboat](../plugins/snagboat/README.md) brings Snagboat into Claude Code without VS Code. Its hooks record your sessions as VS Code's per-project hooks do, and step aside in a project whose `.claude/settings.json` (or your user settings) already has VS Code's Snagboat hook. Its MCP server starts the core when a session starts and gives the agent four read-only tools for the workspace it works in: `snagboat_findings`, `snagboat_sessions`, `snagboat_session` and `snagboat_advisors`. Its slash commands use them: `/snagboat:findings`, `/snagboat:advisors [days]`, `/snagboat:sessions [days]`, `/snagboat:session <id>`, and `/snagboat:open` for the advisor UI. `/snagboat:statusline` adds Snagboat to Claude Code's status line (findings showing, today's tokens, cache rate and milestones) after showing you the change to `~/.claude/settings.json` and asking. A plugin can't set the status line itself.
+
+It needs Node.js 24 or later on your PATH (or in `SNAGBOAT_NODE`): Claude Code doesn't ship Node. The hooks need only `sh` and `curl`. Each release attaches it as `snagboat-claude-plugin-<version>.zip`: start Claude Code with `claude --plugin-dir <that zip>`. From a clone: `npm run build:plugin`, then `claude --plugin-dir plugins/snagboat`.
+
 ## Commands
 
 | Command | What it does |

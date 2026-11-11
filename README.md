@@ -62,6 +62,8 @@ Then reload each open VS Code window (**Developer: Reload Window**). Snagboat ac
 
 Nothing to configure. Snagboat finds the project's transcripts on its own and, on activation, adds two hook entries to the project's `.claude/settings.json` that run `~/.snagboat/bin/snagboat-hook`. The hook entries never block or fail Claude Code, even if Snagboat isn't running. If `.claude/settings.json` is committed in your repo, the change will show up in `git status`; the entry is the same for every user and machine. To remove them, run **Snagboat: Remove Claude Code Hooks from Project...**, which also turns off `snagboat.claudeCode.configureHooks` for the folder so they aren't added back (or delete the entries whose command ends in `# snagboat-hook-receiver`, and turn that setting off yourself).
 
+Without VS Code, the **Claude Code plugin** (preview, in [plugins/snagboat](plugins/snagboat/README.md)) does the same from Claude Code itself: its hooks record your sessions (stepping aside in projects where VS Code's hook already does), and it adds read-only MCP tools and slash commands for findings, sessions and advisors, and a status line. It needs Node.js 24 or later. Each release attaches it as a zip (`claude --plugin-dir snagboat-claude-plugin-<version>.zip`); from a clone, `npm run build:plugin` and `claude --plugin-dir plugins/snagboat`.
+
 ### Copilot setup
 
 Agent mode needs no setup: Snagboat reads its session logs, picking the sessions started inside each window's workspace.
@@ -154,6 +156,8 @@ node dist/snagboat.js config              # the settings that apply here, and wh
 node dist/snagboat.js findings            # this workspace's findings, from the running core
 node dist/snagboat.js advisors            # each advisor's goal and measures, this week against last
 node dist/snagboat.js open                # the advisor UI in your browser (a one-time link)
+node dist/snagboat.js mcp                 # an MCP server with read-only tools (the Claude Code plugin runs it)
+node dist/snagboat.js statusline          # one line for Claude Code's status line
 node dist/snagboat.js migrate --dry-run   # what migrate would copy into ~/.snagboat/data
 node dist/snagboat.js migrate             # copy every store into the per-user store
 node dist/snagboat.js sessions --all --store user   # read the per-user store

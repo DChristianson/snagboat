@@ -1,0 +1,23 @@
+#!/bin/sh
+# Snagboat's Claude Code hooks, from the plugin. Forwards the hook (stdin) with
+# forward.sh, the same forwarder VS Code installs in each project's
+# .claude/settings.json; npm run build:plugin writes it. If this project or
+# your user settings already run that forwarder (VS Code put it there, marked
+# snagboat-hook-receiver), those deliver the hook and this one steps aside, so
+# a hook is never recorded twice; only when that forwarder is installed here,
+# since a settings.json committed from another machine names a path that may
+# not exist on this one. Never fails: a hook must not block Claude Code.
+installed=no
+for b in "${SNAGBOAT_HOME:-$HOME/.snagboat}/bin/snagboat-hook" "$HOME/.snagboat/bin/snagboat-hook"; do
+  [ -f "$b" ] && installed=yes
+done
+[ "$installed" = yes ] && for f in "${CLAUDE_PROJECT_DIR:-.}/.claude/settings.json" "${CLAUDE_PROJECT_DIR:-.}/.claude/settings.local.json" "$HOME/.claude/settings.json"; do
+  if [ -f "$f" ] && grep -q snagboat-hook-receiver "$f" 2>/dev/null; then
+    cat >/dev/null
+    exit 0
+  fi
+done
+here=$(dirname "$0")
+[ -f "$here/forward.sh" ] || { cat >/dev/null; exit 0; }
+sh "$here/forward.sh" 2>/dev/null || true
+exit 0

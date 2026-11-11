@@ -1,0 +1,10 @@
+{
+  "name": "snagboat",
+  "version": "0.0.2",
+  "description": "Snagboat in Claude Code: records your sessions through hooks, and gives you and the agent read-only access to findings, sessions, outcomes and advisors.",
+  "author": { "name": "DChristianson" },
+  "homepage": "https://github.com/DChristianson/snagboat",
+  "repository": "https://github.com/DChristianson/snagboat",
+  "license": "MIT",
+  "keywords": ["observability", "agents", "findings", "tokens"]
+}
