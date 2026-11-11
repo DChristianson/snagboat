@@ -14,6 +14,9 @@ import * as path from 'path';
 import { EventLog } from '../core/eventLog';
 import { loadAdvisorGoals } from '../advisor/goals';
 import { advisorReports, eventsIn, periods, reportLines } from '../advisor/report';
+import { McpReads, serveMcp } from './mcp';
+import { readStdin, statusLine, statusLineDir, Today } from './statusline';
+import { HOOK_SCRIPT } from '../adapters/claude-code/hookRoutes';
 
 /**
  * The snagboat CLI (docs/design/architecture-rfc.md, step 3): read the event
@@ -31,6 +34,11 @@ commands:
   findings            the current workspace's findings and early warnings, from the running core
   advisors            each advisor's goal, and its measures this week against the week before
   open                open the advisor UI in your browser (starts the core if it isn't running)
+  statusline          one line for Claude Code's status line (findings, today's tokens); reads its
+                      JSON on stdin, and never starts the core
+  mcp                 an MCP server over stdio with read-only tools (findings, sessions, session,
+                      advisors) for the workspace containing the current folder; the Claude Code
+                      plugin runs it
   config              the settings that apply to the current folder, and where each comes from
   serve               run the core service in the foreground (Ctrl-C stops it)
   core start          start the core in the background, unless it's running
@@ -256,6 +264,42 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       );
       return 0;
     }
+    case 'mcp': {
+      // The Claude Code plugin's MCP server (RFC step 5d): read-only tools over the core, for the workspace
+      // containing this folder. Starts the core if it isn't running, as `open` does.
+      const home = userHome();
+      // Started now rather than on the first tool call, so a Claude Code session with the plugin has the core
+      // collecting from its start.
+      void ensureCore(home, __filename, { idleMinutes: parsed.idleMinutes }).catch((err) => io.err(`snagboat mcp: the core couldn't start: ${err instanceof Error ? err.message : String(err)}\n`));
+      const reads = async (): Promise<McpReads> => {
+        const info = await ensureCore(home, __filename, { idleMinutes: parsed.idleMinutes });
+        const workspace = selectStores(findUserStores(), cwd, false).find((st) => st.workspace)?.workspace;
+        return { workspace, get: (p) => coreRequest(info.port, info.token, 'GET', p, undefined, 30_000) };
+      };
+      await serveMcp(process.stdin, (line) => io.out(line + '\n'), reads, version);
+      return 0;
+    }
+    case 'statusline': {
+      // Claude Code's status line (RFC step 5d): reads its JSON on stdin; prints one line; never starts the core.
+      const dir = statusLineDir(await readStdin()) ?? cwd;
+      const info = await findCore(userHome());
+      if (!info) {
+        io.out(statusLine('no-core') + '\n');
+        return 0;
+      }
+      const workspace = selectStores(findUserStores(), dir, false).find((st) => st.workspace)?.workspace;
+      if (!workspace) {
+        io.out(statusLine('no-workspace') + '\n');
+        return 0;
+      }
+      const res = await coreRequest(info.port, info.token, 'GET', `/today?workspace=${encodeURIComponent(workspace)}`, undefined, 3_000).catch(() => undefined);
+      io.out((res?.status === 200 ? statusLine(res.body as Today) : statusLine('no-core')) + '\n');
+      return 0;
+    }
+    case 'print-hook-script':
+      // For the Claude Code plugin's build (scripts/buildPlugin.js): the hook forwarder every project runs.
+      io.out(HOOK_SCRIPT);
+      return 0;
     case 'findings': {
       // Worked out by the core (3c-3d), for the per-user store's workspace containing the folder.
       const home = userHome();

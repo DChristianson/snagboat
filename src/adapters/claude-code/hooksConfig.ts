@@ -25,7 +25,7 @@ const HOOK_COMMAND_MARKER = 'snagboat-hook-receiver';
  * PermissionRequest/PermissionDenied: you were asked to approve a tool call, or
  * auto mode denied one (Bosun's approvals per session).
  */
-const HOOK_EVENT_NAMES = ['PostToolUse', 'PostToolUseFailure', 'Stop', 'PermissionRequest', 'PermissionDenied'] as const;
+export const HOOK_EVENT_NAMES = ['PostToolUse', 'PostToolUseFailure', 'Stop', 'PermissionRequest', 'PermissionDenied'] as const;
 
 /**
  * Hooks run in the background ("async": true): Claude Code starts the script
@@ -36,7 +36,7 @@ const HOOK_EVENT_NAMES = ['PostToolUse', 'PostToolUseFailure', 'Stop', 'Permissi
  * Windows without Git Bash, where a failing PermissionRequest hook denies the
  * call), and it never holds up the permission prompt.
  */
-const BACKGROUND_HOOK_EVENTS: ReadonlySet<string> = new Set(['PermissionRequest', 'PermissionDenied']);
+export const BACKGROUND_HOOK_EVENTS: ReadonlySet<string> = new Set(['PermissionRequest', 'PermissionDenied']);
 
 /**
  * The settings.json command for our hooks: runs the routing script at a stable

@@ -1,0 +1,16 @@
+#!/bin/sh
+# Keeps ~/.snagboat/bin/snagboat pointing at this version of the plugin, so the
+# status line (and you, in a terminal) can run the Snagboat CLI from a path
+# that doesn't change when the plugin updates. Rewrites it only when it
+# differs. Never fails.
+cat >/dev/null
+home="${SNAGBOAT_HOME:-$HOME/.snagboat}"
+mkdir -p "$home/bin" 2>/dev/null || exit 0
+want="#!/bin/sh
+# Written by the Snagboat Claude Code plugin at session start; points at its current version.
+exec sh \"${CLAUDE_PLUGIN_ROOT}/bin/snagboat\" \"\$@\""
+shim="$home/bin/snagboat"
+if [ "$(cat "$shim" 2>/dev/null)" != "$want" ]; then
+  printf '%s\n' "$want" > "$shim.$$" && chmod 755 "$shim.$$" && mv -f "$shim.$$" "$shim"
+fi
+exit 0

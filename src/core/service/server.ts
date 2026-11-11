@@ -16,6 +16,7 @@ import { projectDirHeader } from '../../adapters/claude-code/hooksReceiver';
 import { isProcessAlive } from '../processes';
 import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
 import { EventLog } from '../eventLog';
+import { TodayAggregate } from '../aggregate';
 import { FindingsService, WorkspaceFindings } from './findings';
 import { FindingState, Response } from './responses';
 import { SessionListItem, SessionPage, SessionPages } from './sessionPages';
@@ -81,6 +82,7 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              workspace, its card's brief), this period against
  *                              the one before (RFC step 4c)
  *   GET  /workspaces           the workspaces the token reads, most recently active first
+ *   GET  /today?workspace=w     today's tokens, cache rate and milestones, and how many findings are showing (step 5d)
  *   GET  /advisor-form         the + form's choices: measures, rules an advisor can speak for, templates (step 5c)
  *   POST /advisors             a new advisor from the form: ~/.snagboat/advisors/<id>/persona.md, never
  *                              overwriting one (any token, a reader's included: advisors are yours)
@@ -493,6 +495,7 @@ export class CoreService {
       if (route === 'GET /workspaces') return send(200, this.workspaces(scope));
       if (route === 'POST /ui-links') return send(200, this.uiLink(scope, await this.readBody(req).catch(() => ({}))));
       if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days'), url.searchParams.get('series') === '1', url.searchParams.get('weeks')));
+      if (route === 'GET /today') return send(200, await this.today(scope, url.searchParams.get('workspace')));
       if (route === 'GET /advisor-form') return send(200, await this.advisorForm());
       if (route === 'POST /advisors') return send(201, await this.addAdvisor(await this.readBody(req, 8192)));
       if (route === 'POST /findings/respond') return send(200, await this.respond(scope, await this.readBody(req, 4096)));
@@ -696,6 +699,29 @@ export class CoreService {
       for (const r of reports) r.brief = advisorBrief(r, live, notified, r.id === 'navigator' ? ahead : undefined, findingsNow.responses);
     }
     return { days, workspaces: stores.map((s) => s.workspace), advisors: reports, problems };
+  }
+
+  /**
+   * GET /today?workspace=w: today's tokens, cache rate and milestones in a workspace, and its findings now
+   * (RFC step 5d: the Claude Code status line, which runs often, so this reads only today's day files).
+   */
+  private async today(scope: Scope, workspace: string | null): Promise<{ tokens: number; cacheRate?: number; milestones: number; findings: number; warnings: number }> {
+    if (workspace === null) throw new HttpError(400, 'name the workspace: ?workspace=<workspace>');
+    const store = this.store(scope, workspace);
+    const today = new TodayAggregate();
+    await today.rehydrateFrom(new EventLog(store.dir));
+    const snap = today.snapshot();
+    let cacheRead = 0;
+    let input = 0;
+    for (const a of Object.values(snap.perAgent)) {
+      cacheRead += a.tokens.cacheRead;
+      input += a.tokens.input + a.tokens.cacheRead + a.tokens.cacheCreation;
+    }
+    const now = await this.findings.current(workspace);
+    const shown = now.findings.filter((f) => !now.muted.includes(f.heuristicId) && !now.responses[f.heuristicId]?.acknowledged);
+    const heuristics = new Set(shown.map((f) => f.heuristicId));
+    const warnings = new Set(shown.filter((f) => f.severity === 'warn').map((f) => f.heuristicId));
+    return { tokens: snap.totalTokens, ...(input > 0 ? { cacheRate: (100 * cacheRead) / input } : {}), milestones: today.milestones(), findings: heuristics.size, warnings: warnings.size };
   }
 
   /** Built-in heuristics, saved rules (rules.json) and the user's settings rules: what a new advisor can speak for. */

@@ -17,3 +17,7 @@ out/
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+
+# The Claude Code plugin's built files (npm run build:plugin)
+plugins/snagboat/dist/
+plugins/snagboat/hooks/forward.sh

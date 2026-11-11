@@ -1526,6 +1526,7 @@
   ],
   "scripts": {
     "build": "npm run build:packages && node esbuild.js",
+    "build:plugin": "npm run build && node scripts/buildPlugin.js",
     "build:web": "npm run build:packages && tsc -p tsconfig.web.json && node esbuild.js --web && node packages/viz/scripts/webDemo.js",
     "watch": "npm run build:packages && node esbuild.js --watch",
     "vscode:prepublish": "npm run build",
