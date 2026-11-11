@@ -11,9 +11,9 @@ Thanks for helping out. This guide covers how the code is organized, how to run 
 
 ## Setup
 
-Requires Node.js 22 or later (packaging with `@vscode/vsce` needs it) and VS Code 1.119 or later.
+Requires Node.js 24 or later and VS Code 1.145 or later.
 
-The minimum VS Code version (`engines.vscode`) also pins two dev dependencies, which Dependabot is told not to move on its own: `@types/vscode` must not be newer than that minimum (so code can't use APIs older VS Code lacks), and `@types/node` should match the Node major that version ships (Node 22 for 1.119). Raise all three together, deliberately.
+The minimum VS Code version (`engines.vscode`) also pins two dev dependencies, which Dependabot is told not to move on its own: `@types/vscode` must not be newer than that minimum (so code can't use APIs older VS Code lacks), and `@types/node` should match the Node major that version ships (Node 24 for 1.145). Raise all three together, deliberately.
 
 ```bash
 npm install
