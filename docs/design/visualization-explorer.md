@@ -32,7 +32,7 @@ The two existing views move into the carousel as its first two visualizers, so t
 
 ## The visualizer contract
 
-A visualizer is a plain script in `media/viz/` that registers itself:
+A visualizer is a plain script in `media/viz/` that registers itself. For writing one, as built, see [visualizer-contract.md](visualizer-contract.md).
 
 ```js
 window.snagboatViz.register({
