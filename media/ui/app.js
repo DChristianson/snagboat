@@ -160,15 +160,24 @@
   }
 
   // --- Responding to a finding --------------------------------------------------------------
-  const DONE = { useful: 'Marked useful', acknowledge: 'Acknowledged', mute: 'Muted' };
-  /** Responses made in this tab, so the card says so until the finding clears. */
-  const responded = new Map();
-  function responses(finding) {
-    const key = `${state.workspace}\n${finding.heuristicId}`;
+  /** What the core has for a finding's response, in words; undefined when it's still open. */
+  function stateText(st) {
+    if (!st) return undefined;
+    if (st.muted) return 'Muted';
+    if (st.useful) return 'Marked useful';
+    if (st.acknowledged) return 'Acknowledged';
+    return undefined;
+  }
+  /**
+   * Useful / Acknowledge / Mute for a finding, or what you already chose. The core keeps responses for every
+   * front door (this page, VS Code, the Claude Code plugin), so what's shown is what it has.
+   */
+  function responses(finding, st) {
     const box = el('div', { class: 'acts' });
-    const done = responded.get(key);
+    const done = stateText(st);
     if (done) {
-      box.append(el('span', { class: 'done', text: DONE[done] }));
+      box.append(el('span', { class: 'done', text: done }));
+      if (st.muted) box.append(unmuteButton(finding, box));
       return box;
     }
     const buttons = [
@@ -180,9 +189,8 @@
       buttons[i].addEventListener('click', async () => {
         for (const b of buttons) b.disabled = true;
         try {
-          await api('/findings/respond', { method: 'POST', body: JSON.stringify({ workspace: state.workspace, heuristicId: finding.heuristicId, response }) });
-          responded.set(key, response);
-          box.replaceChildren(el('span', { class: 'done', text: DONE[response] }));
+          const now = await api('/findings/respond', { method: 'POST', body: JSON.stringify({ workspace: state.workspace, heuristicId: finding.heuristicId, response }) });
+          box.replaceWith(responses(finding, now));
         } catch (err) {
           for (const b of buttons) b.disabled = false;
           if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core.');
@@ -196,13 +204,28 @@
     return box;
   }
 
+  function unmuteButton(finding, box) {
+    const b = el('button', { class: 'btn ghost', type: 'button', text: 'Unmute' });
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        const now = await api('/findings/respond', { method: 'POST', body: JSON.stringify({ workspace: state.workspace, heuristicId: finding.heuristicId, response: 'unmute' }) });
+        box.replaceWith(responses(finding, now));
+      } catch (err) {
+        b.disabled = false;
+        if (err instanceof Unauthorized) needLink('This page has lost its connection to the core.');
+      }
+    });
+    return b;
+  }
+
   // --- The advisors view --------------------------------------------------------------------------------
   function surfaceLine(s) {
     const dd = el('dd', {}, [el('span', { class: `surf ${s.kind}`, text: s.label })]);
     if (s.finding) {
       dd.append(el('b', { text: `${s.finding.heuristicId}: ` }), document.createTextNode(s.finding.summary));
       if (s.text) dd.append(document.createTextNode(` ${s.text}`));
-      dd.append(responses(s.finding));
+      dd.append(responses(s.finding, s.state));
     } else if (s.text) dd.append(document.createTextNode(s.text));
     return dd;
   }
@@ -242,12 +265,13 @@
   }
 
   /** One row per heuristic (responses apply to a heuristic, not one finding), its worst finding first. */
-  function findingRow(group) {
+  function findingRow(group, states) {
     const f = group.find((x) => x.severity === 'warn') || group[0];
+    const st = states[f.heuristicId];
     const more = group.length > 1 ? ` (and ${group.length - 1} more)` : '';
     return el('div', { class: 'finding' }, [
       el('span', { class: `sev ${f.severity}` }),
-      el('div', { class: 'what' }, [el('b', { text: `${f.heuristicId}: ${f.summary}${more}` }), f.suggestedAction ? el('span', { text: f.suggestedAction }) : null, responses(f)]),
+      el('div', { class: 'what' }, [el('b', { text: `${f.heuristicId}: ${f.summary}${more}` }), f.suggestedAction ? el('span', { text: f.suggestedAction }) : null, responses(f, st)]),
       el('span'),
     ]);
   }
@@ -266,9 +290,10 @@
     $('count-advisors').textContent = String(data.advisors.length);
     // Findings no advisor speaks for still show, below the cards.
     const claimed = new Set(data.advisors.flatMap((a) => a.notify.rules || []));
-    const others = ((findings[0] && findings[0].findings) || []).filter((f) => !claimed.has(f.heuristicId));
+    const current = findings[0] || { findings: [], responses: {} };
+    const others = (current.findings || []).filter((f) => !claimed.has(f.heuristicId));
     $('others').hidden = others.length === 0;
-    $('other-findings').replaceChildren(...byHeuristic(others).map(findingRow));
+    $('other-findings').replaceChildren(...byHeuristic(others).map((g) => findingRow(g, current.responses || {})));
     showProblems(data.problems);
   }
 
@@ -427,7 +452,6 @@
     if (!fragment().get('days')) setFragment({ days: String(state.days) });
     $('workspace').addEventListener('change', () => {
       state.workspace = $('workspace').value;
-      responded.clear();
       void refresh();
     });
     $('days').addEventListener('change', () => {

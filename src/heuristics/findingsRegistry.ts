@@ -81,6 +81,25 @@ export class FindingsRegistry {
     this.notify();
   }
 
+/**
+   * Takes how you've met the findings from the core, which keeps it for every
+   * front door (a window that's the core's client): acknowledged, useful and
+   * muted, as the core has them.
+   */
+  mirror(states: Record<string, { acknowledged: boolean; useful: boolean; muted: boolean }>, muted: string[]): void {
+    const next = { acknowledged: new Set<string>(), useful: new Set<string>(), muted: new Set(muted) };
+    for (const [id, st] of Object.entries(states)) {
+      if (st.acknowledged) next.acknowledged.add(id);
+      if (st.useful) next.useful.add(id);
+    }
+    const same = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((x) => b.has(x));
+    if (same(next.acknowledged, this.acknowledged) && same(next.useful, this.useful) && same(next.muted, this.muted)) return;
+    this.acknowledged = next.acknowledged;
+    this.useful = next.useful;
+    this.muted = next.muted;
+    this.notify();
+  }
+
   setMuted(heuristicId: string, muted: boolean): void {
     if (this.muted.has(heuristicId) === muted) return;
     if (muted) this.muted.add(heuristicId);

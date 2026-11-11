@@ -207,7 +207,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     recordResponse(episode, refs);
   });
   context.subscriptions.push({ dispose: () => responseLog.appendNow(responses.drain()) });
-  const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []), responses);
+  // As the core's client, the core keeps how you meet findings (episodes, the log, outcomes) for every front door; this window mirrors it.
+  const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []), core ? undefined : responses);
+  /** Useful, Acknowledge, Mute or Unmute from this window: shown at once, and, as the core's client, sent to the core. */
+  const respondTo = (heuristicId: string, response: 'useful' | 'acknowledge' | 'mute' | 'unmute') => {
+    if (response === 'useful') findings.markUseful(heuristicId);
+    else if (response === 'acknowledge') findings.acknowledge(heuristicId);
+    else findings.setMuted(heuristicId, response === 'mute');
+    void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
+    if (core) void core.respond(heuristicId, response);
+  };
   const contextLimitFor = (model: string | undefined) => (model ? contextLimits.get(model)?.limit : undefined);
   let heuristics: Heuristic[] = [];
   let ruleProblems: string[] = [];
@@ -267,13 +276,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   let coreProgress: Progress[] = [];
   let fromCore = new Set<string>();
   let coreFindingsLive = false;
+  let mutesMoved = false;
   const applyCoreFindings = (result: WorkspaceFindings) => {
     coreFindingsLive = true;
+    // The first time: mutes this window had before the core kept them move to the core.
+    if (!mutesMoved && core) {
+      mutesMoved = true;
+      const local = context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []).filter((id) => !result.muted.includes(id));
+      for (const id of local) void core.respond(id, 'mute');
+      result = { ...result, muted: [...result.muted, ...local] };
+    }
     const byId = new Map<string, Finding[]>();
     for (const f of result.findings) byId.set(f.heuristicId, [...(byId.get(f.heuristicId) ?? []), f]);
     // Also clears what this window found itself while the core was away.
     for (const id of new Set([...fromCore, ...heuristics.map((h) => h.id), ...byId.keys()])) findings.report(id, byId.get(id) ?? []);
     fromCore = new Set(byId.keys());
+    findings.mirror(result.responses ?? {}, result.muted ?? []);
+    void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
     coreProgress = result.progress;
     runHeuristics();
     refresh();
@@ -396,12 +415,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       }),
     sessions,
     today: todayKey,
-    acknowledge: (heuristicId) => findings.acknowledge(heuristicId),
-    useful: (heuristicId) => findings.markUseful(heuristicId),
-    setMuted: (heuristicId, muted) => {
-      findings.setMuted(heuristicId, muted);
-      void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
-    },
+    acknowledge: (heuristicId) => respondTo(heuristicId, 'acknowledge'),
+    useful: (heuristicId) => respondTo(heuristicId, 'useful'),
+    setMuted: (heuristicId, muted) => respondTo(heuristicId, muted ? 'mute' : 'unmute'),
   });
   context.subscriptions.push(detailPanel);
 
@@ -724,12 +740,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     void shown.then((choice) => {
       if (choice === 'Show in Session' && nudge.sessionId) detailPanel.show({ sessionId: nudge.sessionId });
       else if (choice === 'Explain' && nudge.sessionId) void advisor.explain({ sessionId: nudge.sessionId, ...(nudge.turnId ? { turnId: nudge.turnId } : {}), ...(nudge.early ? {} : { heuristicId: nudge.heuristicId }) });
-      else if (choice === 'Useful') findings.markUseful(nudge.heuristicId);
-      else if (choice === 'Acknowledge') findings.acknowledge(nudge.heuristicId);
-      else if (choice === 'Mute') {
-        findings.setMuted(nudge.heuristicId, true);
-        void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
-      }
+      else if (choice === 'Useful') respondTo(nudge.heuristicId, 'useful');
+      else if (choice === 'Acknowledge') respondTo(nudge.heuristicId, 'acknowledge');
+      else if (choice === 'Mute') respondTo(nudge.heuristicId, 'mute');
     });
     // The advisor's one line, opt-in, only for findings in one turn, and only quietly: no prompts mid-work.
     if (nudge.early || !nudge.sessionId || !nudge.turnId || !vscode.workspace.getConfiguration('snagboat.nudges').get<boolean>('advisor', false)) return;
@@ -1076,15 +1089,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     {
       onEvents: (events) => events.forEach(handleEvent),
       onFindings: applyCoreFindings,
-      // Useful, Acknowledge or Mute from the advisor UI: this window keeps the finding's episode, so it records them.
-      onRespond: (r) => {
-        if (r.response === 'useful') findings.markUseful(r.heuristicId);
-        else if (r.response === 'acknowledge') findings.acknowledge(r.heuristicId);
-        else {
-          findings.setMuted(r.heuristicId, true);
-          void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
-        }
-      },
       onLost: () => {
         coreFindingsLive = false;
         fromCore = new Set();

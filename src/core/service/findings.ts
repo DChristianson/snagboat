@@ -12,6 +12,9 @@ import { buildRuleSet, RuleSource } from '../../heuristics/rule';
 import { ruleHeuristic } from '../../heuristics/ruleHeuristic';
 import { RuleStore } from '../../heuristics/ruleStore';
 import { Finding, Progress } from '../../heuristics/types';
+import { episodeResponse, ResponseEpisode } from '../../heuristics/responses';
+import { OUTCOMES_ADAPTER } from '../../outcomes/testsGreen';
+import { FindingState, Response, ResponseBook } from './responses';
 
 /**
  * Heuristics in the core (3c-3d): the findings for a workspace, worked out
@@ -20,7 +23,10 @@ import { Finding, Progress } from '../../heuristics/types';
  * delivers them (status bar, notifications); `GET /findings` answers anyone
  * else.
  *
- * A workspace is evaluated while something follows it (a client's stream),
+ * A workspace is evaluated while something follows it (a client's stream) or
+ * while it has activity (events or responses in the last day), whether or not
+ * VS Code has it open; how you meet its findings is kept here too
+ * (responses.ts),
  * after each batch written to it and on a timer (some heuristics, such as
  * "stalled", fire on the absence of events). Each keeps the same recent
  * window of events a window keeps (EventStore), seeded from the last days of
@@ -40,6 +46,9 @@ export interface WorkspaceFindings {
   progress: Progress[];
   /** Rule and tool-category problems in this workspace's rules, if any. */
   problems: string[];
+  /** How you've met them (any front door, through the core): per heuristic with findings now, and every muted one. */
+  responses: Record<string, FindingState>;
+  muted: string[];
   at: string;
 }
 
@@ -57,6 +66,12 @@ interface Watch {
   queue: Promise<unknown>;
   /** An evaluation queued and not yet started: more events wait for it rather than queue another. */
   pending?: Promise<void>;
+  /** How you've met its findings. */
+  book: ResponseBook;
+  /** Its heuristics' ids, as last built (a deleted rule's ended episode records no outcome). */
+  heuristicIds: Set<string>;
+  /** When it last had events or a response: a workspace nothing follows is let go after a day quiet. */
+  lastActivity: number;
 }
 
 export interface FindingsServiceOptions {
@@ -67,7 +82,14 @@ export interface FindingsServiceOptions {
   settingsDir?: (workspace: string) => string | undefined;
   log?: (line: string) => void;
   now?: () => number;
+  /** Writes outcome events (finding_response) for a workspace. */
+  record?: (workspace: string, events: NormalizedEvent[]) => void;
 }
+
+/** A workspace nothing follows is evaluated this long after its last activity. */
+const ACTIVE_FOR_MS = 24 * 60 * 60_000;
+/** A finding that passed unanswered in less time than this isn't recorded as an outcome: it flickered. */
+const MIN_PASSED_EPISODE_MS = 30_000;
 
 export class FindingsService {
   private readonly watches = new Map<string, Watch>();
@@ -97,8 +119,8 @@ export class FindingsService {
     return () => {
       if (stopped) return;
       stopped = true;
+      // Kept while it has activity (tick() lets it go after a quiet day): its response book lives on it.
       watch.followers -= 1;
-      if (watch.followers <= 0 && this.watches.get(workspace) === watch) this.watches.delete(workspace);
     };
   }
 
@@ -108,29 +130,65 @@ export class FindingsService {
    * rules or settings sees the result on its stream.
    */
   async current(workspace: string): Promise<WorkspaceFindings> {
-    const followed = this.watches.get(workspace);
-    if (followed) await this.publish(followed);
-    const watch = followed ?? (await this.seed(workspace));
+    const existed = this.watches.has(workspace);
+    const watch = await this.watch(workspace);
+    if (existed) await this.publish(watch);
     return this.serial(watch, () => this.evaluate(watch));
   }
 
-  /** A batch written to a workspace: re-evaluated if it's followed. */
+  /**
+   * A batch written to a workspace: re-evaluated. A workspace with activity is
+   * evaluated whether or not a window follows it, so its findings, episodes and
+   * your responses carry on without VS Code.
+   */
   ingest(workspace: string, events: NormalizedEvent[]): void {
     for (const e of events) this.contextLimits.observe(e);
     const watch = this.watches.get(workspace);
-    if (!watch) return;
+    if (!watch) {
+      // Seeded from its log, which already holds this batch.
+      void this.watch(workspace)
+        .then((w) => this.publish(w))
+        .catch((err) => this.opts.log?.(`couldn't start evaluating ${workspace}: ${err instanceof Error ? err.message : String(err)}`));
+      return;
+    }
+    watch.lastActivity = this.nowMs();
     for (const e of events) watch.store.ingest(e);
     void this.publish(watch);
   }
 
-  /** Re-evaluates every followed workspace (the core's timer). */
+  /** Re-evaluates every watched workspace (the core's timer); lets go of ones a day quiet that nothing follows. */
   tick(): void {
-    for (const watch of this.watches.values()) void this.publish(watch);
+    const now = this.nowMs();
+    for (const [workspace, watch] of this.watches) {
+      if (watch.followers <= 0 && now - watch.lastActivity > ACTIVE_FOR_MS) {
+        watch.book.close();
+        this.watches.delete(workspace);
+        continue;
+      }
+      void this.publish(watch);
+    }
   }
 
-  /** Saves what it learned of models' context limits. */
+  /** A response to a finding from any front door: kept, and the workspace's findings sent again with it. */
+  async respond(workspace: string, heuristicId: string, response: Response): Promise<FindingState> {
+    const watch = await this.watch(workspace);
+    watch.lastActivity = this.nowMs();
+    // Evaluated first, so the book knows which findings are active now.
+    await this.serial(watch, () => this.evaluate(watch));
+    const state = watch.book.respond(heuristicId, response);
+    watch.last = undefined;
+    await this.publish(watch);
+    return state;
+  }
+
+  /** Writes open episodes and saves what it learned of models' context limits. */
   dispose(): Promise<void> {
+    for (const watch of this.watches.values()) watch.book.close();
     return this.contextLimits.dispose();
+  }
+
+  private nowMs(): number {
+    return (this.opts.now ?? Date.now)();
   }
 
   private async watch(workspace: string): Promise<Watch> {
@@ -157,7 +215,35 @@ export class FindingsService {
         this.contextLimits.observe(e);
       }
     }
-    return { workspace, store, problems: [], followers: 0, queue: Promise.resolve() };
+    const watch = { workspace, store, problems: [], followers: 0, queue: Promise.resolve(), heuristicIds: new Set<string>(), lastActivity: this.nowMs() } as unknown as Watch;
+    watch.book = new ResponseBook(workspaceStoreDir(this.opts.home, workspace), (episode, refs) => this.recordResponse(watch, episode, refs));
+    return watch;
+  }
+
+  /** An ended episode as a finding_response outcome, as a window writing its own folder records it. */
+  private recordResponse(watch: Watch, episode: ResponseEpisode, refs: string[]): void {
+    const endedAt = episode.endedAt;
+    if (!endedAt || !this.opts.record) return;
+    const response = episodeResponse(episode);
+    // A finding that came and went within seconds unanswered says nothing about its use; nor does a rule you deleted.
+    if (response === 'passed' && Date.parse(endedAt) - Date.parse(episode.startedAt) < MIN_PASSED_EPISODE_MS) return;
+    if (!watch.heuristicIds.has(episode.heuristicId)) return;
+    // Filed in the session of the finding's latest event still in reach.
+    const wanted = new Set(refs);
+    const ref = watch.store.query().filter((e) => wanted.has(e.eventId)).pop();
+    if (!ref) return;
+    this.opts.record(watch.workspace, [
+      {
+        eventId: `outcome:finding_response:${episode.heuristicId}:${episode.startedAt}`,
+        sessionId: ref.sessionId,
+        agent: ref.agent,
+        ts: endedAt,
+        kind: 'outcome',
+        status: 'unknown',
+        outcome: { type: 'finding_response', heuristicId: episode.heuristicId, response, refs },
+        raw: { adapter: OUTCOMES_ADAPTER, ref: `finding:${episode.heuristicId}:${episode.startedAt}` },
+      },
+    ]);
   }
 
   private serial<T>(watch: Watch, op: () => Promise<T>): Promise<T> {
@@ -180,7 +266,7 @@ export class FindingsService {
         return;
       }
     // detectedAt moves on every run; a change is in what's found.
-    const key = JSON.stringify([result.findings.map((f) => ({ ...f, detectedAt: undefined })), result.progress, result.problems]);
+    const key = JSON.stringify([result.findings.map((f) => ({ ...f, detectedAt: undefined })), result.progress, result.problems, result.responses, result.muted]);
       if (key === watch.last) return;
       watch.last = key;
       this.opts.onChange(result);
@@ -200,7 +286,8 @@ export class FindingsService {
     await this.rebuild(watch, host);
     const now = this.now();
     const findings = [...watch.engine!.tick(now).values()].flat();
-    return { workspace: watch.workspace, findings, progress: watch.engine!.progress(now), problems: watch.problems, at: now };
+    watch.book.update(findings);
+    return { workspace: watch.workspace, findings, progress: watch.engine!.progress(now), problems: watch.problems, responses: watch.book.states(), muted: watch.book.mutedHeuristics(), at: now };
   }
 
   /** (Re)builds the workspace's heuristics when its rules changed. */
@@ -235,6 +322,7 @@ export class FindingsService {
       setShellSubCategories(ruleSet.categories);
     }
     const heuristics = [...builtInHeuristics(), ...ruleSet.rules.map(ruleHeuristic)];
+    watch.heuristicIds = new Set(heuristics.map((h) => h.id));
     const settingsFor = (id: string) => (id.includes(':') ? {} : host.section(heuristicSettingsSection(id)));
     watch.engine = new HeuristicsEngine(heuristics, watch.store, settingsFor, (model) => (model ? this.contextLimits.get(model)?.limit : undefined));
     watch.built = built;

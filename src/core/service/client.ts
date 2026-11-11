@@ -3,7 +3,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { NormalizedEvent } from '@snagboat/schema';
 import type { WorkspaceFindings } from './findings';
-import type { FindingResponseMessage } from './server';
+import type { FindingState, Response } from './responses';
 import { workspaceKey } from '../userStore';
 import { claimWorkspace, releaseClaim } from './claims';
 import { CoreInfo, coreRequest } from './coreFile';
@@ -47,8 +47,6 @@ export interface StreamHandlers {
   onReplayed?: () => void;
   /** The workspace's findings and early warnings, worked out by the core: the current ones on (re)connect, then each change (3c-3d). */
   onFindings?: (result: WorkspaceFindings) => void;
-  /** Useful, Acknowledge or Mute on one of this workspace's findings, from the advisor UI (5a). */
-  onRespond?: (r: FindingResponseMessage) => void;
   /** The stream ended (the core went away or is restarting); events and findings stop until it's back. */
   onLost?: () => void;
 }
@@ -167,14 +165,6 @@ export class CoreClient {
     if (data.length === 0) return; // a comment (connected, ping)
     if (event === 'stopping') {
       this.coreStopped = true;
-      return;
-    }
-    if (event === 'respond') {
-      try {
-        handlers.onRespond?.(JSON.parse(data.join('\n')) as FindingResponseMessage);
-      } catch (err) {
-        this.opts.log?.(`a response from the core couldn't be read: ${err instanceof Error ? err.message : String(err)}`);
-      }
       return;
     }
     if (event === 'findings') {
@@ -316,6 +306,16 @@ export class CoreClient {
       return res.status === 200 ? (res.body as WorkspaceFindings[]) : [];
     } catch {
       return [];
+    }
+  }
+
+  /** Responds to one of this workspace's findings (useful, acknowledge, mute, unmute); the core keeps it for every front door. */
+  async respond(heuristicId: string, response: Response): Promise<FindingState | undefined> {
+    try {
+      const res = await this.request401('POST', '/findings/respond', { workspace: this.opts.workspace, heuristicId, response });
+      return res.status === 200 ? (res.body as FindingState) : undefined;
+    } catch {
+      return undefined;
     }
   }
 

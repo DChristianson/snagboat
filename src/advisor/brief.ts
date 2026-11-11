@@ -2,6 +2,7 @@ import { Finding } from '../heuristics/types';
 import { Ahead } from './ahead';
 import { MeasureResult } from './measures';
 import { AdvisorReport, formatMeasure } from './report';
+import type { FindingState } from '../core/service/responses';
 
 /**
  * An advisor's brief for its card (RFC step 5a, the design pass as revised):
@@ -20,6 +21,8 @@ export interface Brief {
     label: string;
     text: string;
     finding?: Pick<Finding, 'heuristicId' | 'severity' | 'summary' | 'suggestedAction'>;
+    /** How you've met that finding (kept by the core). */
+    state?: FindingState;
   };
   ahead?: Ahead;
 }
@@ -40,7 +43,7 @@ function phrase(m: MeasureResult): string {
   return `${lower(m.label)} ${dir}${by ? ` ${by}` : ''} to ${value}`;
 }
 
-export function advisorBrief(report: AdvisorReport, findings: Finding[], notifiedRecently: Set<string>, ahead?: Ahead): Brief {
+export function advisorBrief(report: AdvisorReport, findings: Finding[], notifiedRecently: Set<string>, ahead?: Ahead, states: Record<string, FindingState> = {}): Brief {
   const measured = report.measures.filter((m) => m.value !== undefined && !m.note);
   const better = measured.filter((m) => m.trend === 'better');
   const worse = measured.filter((m) => m.trend === 'worse');
@@ -60,16 +63,19 @@ export function advisorBrief(report: AdvisorReport, findings: Finding[], notifie
     watching = `${ahead.firstBlocked.id} "${ahead.firstBlocked.title}" is blocked${on}, so nothing behind it can start${worst ? `; then ${phrase(worst)}` : ''}.`;
   } else if (worst) watching = `${worst.label}: ${phrase(worst).replace(lower(worst.label) + ' ', '')}.`;
 
-  const mine = findings.filter((f) => report.notify.rules.includes(f.heuristicId)).sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'warn' ? -1 : 1));
+  // A muted heuristic's findings aren't surfaced.
+  const mine = findings.filter((f) => report.notify.rules.includes(f.heuristicId) && !states[f.heuristicId]?.muted).sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'warn' ? -1 : 1));
   let surface: Brief['surface'];
   if (mine.length > 0) {
     const f = mine[0];
     const finding = { heuristicId: f.heuristicId, severity: f.severity, summary: f.summary, ...(f.suggestedAction ? { suggestedAction: f.suggestedAction } : {}) };
+    const state = states[f.heuristicId];
     const max = report.notify.maxPerHour;
     const used = report.notify.lastHour ?? 0;
     if (max !== undefined && used >= max && !notifiedRecently.has(f.heuristicId)) surface = { kind: 'held', label: 'Held back', text: `Over its notification limit (${used} of ${max} this hour).`, finding };
     else if (notifiedRecently.has(f.heuristicId)) surface = { kind: 'notified', label: 'Notified', text: '', finding };
     else surface = { kind: 'active', label: 'Active', text: '', finding };
+    if (state) surface.state = state;
   } else if (worst) {
     surface = { kind: 'suggest', label: 'Surface', text: `${worst.label} is going the wrong way with no finding yet.` };
   } else surface = { kind: 'none', label: 'Nothing new', text: '' };

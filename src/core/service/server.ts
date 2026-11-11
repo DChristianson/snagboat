@@ -18,6 +18,7 @@ import { isProcessAlive } from '../processes';
 import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
 import { EventLog } from '../eventLog';
 import { FindingsService, WorkspaceFindings } from './findings';
+import { FindingState, Response } from './responses';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
 import { loadAdvisorGoals } from '../../advisor/goals';
@@ -28,11 +29,11 @@ import { HEURISTICS_INTERVAL_MS } from '../../heuristics/engine';
 
 const STREAM_BATCH = 500;
 const STREAM_PING_MS = 15_000;
-/** A response to a finding made in the advisor UI, for the windows that keep its episode. */
+/** A response to a finding, from any front door (POST /findings/respond). */
 export interface FindingResponseMessage {
   workspace: string;
   heuristicId: string;
-  response: 'useful' | 'acknowledge' | 'mute';
+  response: Response;
 }
 
 /** What this core offers beyond 3c-2's endpoints, so a client can tell an older core apart. */
@@ -73,9 +74,9 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              address that uses it (http://127.0.0.1:<port>/ui/#<code>)
  *   POST /ui-session           no token: { code } -> a reader token (every workspace, read only), once
  *   GET  /ui/...               the advisor UI's files (RFC step 5a), no token; the page exchanges its code
- *   POST /findings/respond     { workspace, heuristicId, response }: Useful/Acknowledge/Mute from the
- *                              advisor UI, passed to the workspace's windows ("respond" stream messages);
- *                              the one write a reader key may make
+ *   POST /findings/respond     { workspace, heuristicId, response }: useful, acknowledge, mute or unmute,
+ *                              kept by the core (responses.ts) for every front door; the one write a reader
+ *                              key may make
  *   POST /retention            applies the token's workspaces' retention now (a window whose
  *                              retention settings changed) -> { changed: <days> }
  *
@@ -224,8 +225,6 @@ export class CoreService {
   private readonly uiDir = findUiDir();
   /** Folder -> the .code-workspace workspace it's part of, per token that registered them. */
   private readonly tokenFolders = new Map<string, Map<string, string>>();
-  /** Windows following each workspace, told of responses to its findings made in the browser. */
-  private readonly responders = new Map<string, Set<(r: FindingResponseMessage) => void>>();
   /** Ends each open event stream with "stopping"; resolves when it has closed. */
   private readonly stoppingStreams = new Set<() => Promise<void>>();
   private collector?: ClaudeCollector;
@@ -253,6 +252,9 @@ export class CoreService {
         return undefined;
       },
       log: (line) => this.log(line),
+      record: (workspace, events) => {
+        this.writer.write(events.map((e) => ({ ...e, workspace }))).catch((err) => this.log(`couldn't record a finding response: ${err instanceof Error ? err.message : String(err)}`));
+      },
     });
     this.writer.onWritten((workspace, events) => this.findings.ingest(workspace, events));
     // Outcomes (RFC step 4): tests going green, worked out from what's written and written back.
@@ -475,7 +477,7 @@ export class CoreService {
       if (route === 'GET /workspaces') return send(200, this.workspaces(scope));
       if (route === 'POST /ui-links') return send(200, this.uiLink(scope, await this.readBody(req).catch(() => ({}))));
       if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days'), url.searchParams.get('series') === '1', url.searchParams.get('weeks')));
-      if (route === 'POST /findings/respond') return send(200, this.respond(scope, await this.readBody(req, 4096)));
+      if (route === 'POST /findings/respond') return send(200, await this.respond(scope, await this.readBody(req, 4096)));
       if (route === 'GET /findings') return send(200, await this.currentFindings(scope, url.searchParams.get('workspace')));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days')));
       if (req.method === 'GET' && url.pathname.startsWith('/sessions/')) return send(200, await this.session(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length))));
@@ -593,17 +595,7 @@ export class CoreService {
       : this.followFindings(scope.workspaces, (result) => {
           if (!res.destroyed && visible(result.workspace)) res.write(`event: findings\ndata: ${JSON.stringify(result)}\n\n`);
         });
-    // A window (a workspace token) also hears responses to its findings made in the advisor UI.
-    const respond = (r: FindingResponseMessage) => {
-      if (!res.destroyed) res.write(`event: respond\ndata: ${JSON.stringify(r)}\n\n`);
-    };
-    const responding = readsAll(scope) ? [] : scope.workspaces;
-    for (const w of responding) {
-      if (!this.responders.has(w)) this.responders.set(w, new Set());
-      this.responders.get(w)!.add(respond);
-    }
     res.on('close', () => {
-      for (const w of responding) this.responders.get(w)?.delete(respond);
       this.stoppingStreams.delete(sayStopping);
       stopFindings?.();
       stop();
@@ -675,30 +667,29 @@ export class CoreService {
     const reports = advisorReports(advisors, currentEvents, await eventsIn(logs, previous), { now, ...(seriesWindows ? { series: seriesWindows } : {}) });
     // One workspace: each card's brief, from its live findings, recent notifications and (Navigator) the work ahead.
     if (workspace !== null && stores.length === 1) {
-      const live = (await this.findings.current(workspace)).findings;
+      const findingsNow = await this.findings.current(workspace);
+      const live = findingsNow.findings;
       const notified = new Set(currentEvents.filter((e) => e.kind === 'outcome' && e.outcome?.type === 'notified' && Date.parse(e.ts) > now.getTime() - 2 * 3_600_000).map((e) => e.outcome!.heuristicId!));
       const ahead = stores[0].folder && reports.some((r) => r.id === 'navigator') ? await beadsAhead(stores[0].folder, now.getTime()) : undefined;
-      for (const r of reports) r.brief = advisorBrief(r, live, notified, r.id === 'navigator' ? ahead : undefined);
+      for (const r of reports) r.brief = advisorBrief(r, live, notified, r.id === 'navigator' ? ahead : undefined, findingsNow.responses);
     }
     return { days, workspaces: stores.map((s) => s.workspace), advisors: reports, problems };
   }
 
   /**
-   * POST /findings/respond { workspace, heuristicId, response }: Useful, Acknowledge or Mute from the
-   * advisor UI, passed to the VS Code windows following the workspace, which keep the finding's episode
-   * and record the outcome. The one write a reader (browser) key may make.
+   * POST /findings/respond { workspace, heuristicId, response }: Useful, Acknowledge, Mute or Unmute, from
+   * any front door (the advisor UI, a VS Code window that's a client, the Claude Code plugin). The core keeps
+   * it (responses.ts), and every stream on the workspace gets its findings again with it. The one write a
+   * reader (browser) key may make.
    */
-  private respond(scope: Scope, body: unknown): { delivered: number } {
+  private async respond(scope: Scope, body: unknown): Promise<{ heuristicId: string } & FindingState> {
     const b = (body ?? {}) as Partial<FindingResponseMessage>;
-    if (typeof b.workspace !== 'string' || typeof b.heuristicId !== 'string' || !b.heuristicId || !['useful', 'acknowledge', 'mute'].includes(b.response as string)) {
-      throw new HttpError(400, 'body must be { "workspace": "...", "heuristicId": "...", "response": "useful" | "acknowledge" | "mute" }');
+    if (typeof b.workspace !== 'string' || typeof b.heuristicId !== 'string' || !b.heuristicId || !['useful', 'acknowledge', 'mute', 'unmute'].includes(b.response as string)) {
+      throw new HttpError(400, 'body must be { "workspace": "...", "heuristicId": "...", "response": "useful" | "acknowledge" | "mute" | "unmute" }');
     }
     if (!sees(scope, b.workspace)) throw new HttpError(400, `this token can't read ${b.workspace}`);
-    const windows = [...(this.responders.get(b.workspace) ?? [])];
-    if (windows.length === 0) throw new HttpError(409, 'no VS Code window has this workspace open to record the response; open it there and try again');
-    const msg: FindingResponseMessage = { workspace: b.workspace, heuristicId: b.heuristicId, response: b.response as FindingResponseMessage['response'] };
-    for (const w of windows) w(msg);
-    return { delivered: windows.length };
+    if (!this.visibleStores(scope).some((s) => s.workspace === b.workspace)) throw new HttpError(404, `no workspace ${b.workspace} recorded`);
+    return { heuristicId: b.heuristicId, ...(await this.findings.respond(b.workspace, b.heuristicId, b.response as Response)) };
   }
 
   /** GET /findings: the token's workspaces' findings now (the admin token names one with ?workspace=). */
