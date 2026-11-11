@@ -18,6 +18,16 @@ At the start of each session the plugin keeps `~/.snagboat/bin/snagboat` pointin
 - **Node.js 24 or later**, as `node` on your PATH or in `SNAGBOAT_NODE`. Claude Code doesn't ship Node, and the MCP tools, slash commands and status line run the Snagboat CLI with it. Without it they say what's missing. The hooks need only `sh` and `curl`.
 - macOS or Linux. On Windows, Claude Code runs hooks through Git Bash, so the hooks work; the MCP server starts with `sh`, which needs Git Bash's `sh` on your PATH. That hasn't been checked on a real Windows machine yet.
 
+## Install
+
+Each [release](https://github.com/DChristianson/snagboat/releases) attaches `snagboat-claude-plugin-<version>.zip`. Download it and start Claude Code with it:
+
+```sh
+claude --plugin-dir snagboat-claude-plugin-0.0.2.zip
+```
+
+A marketplace listing comes later.
+
 ## Try it from this repository
 
 ```sh
@@ -26,7 +36,7 @@ npm run build:plugin            # copies dist/snagboat.js into the plugin and wr
 claude --plugin-dir plugins/snagboat
 ```
 
-Then run `/snagboat:findings` in a project. `claude plugin validate plugins/snagboat` checks the plugin's files.
+Then run `/snagboat:findings` in a project. `claude plugin validate plugins/snagboat` checks the plugin's files, and `npm run package:plugin` builds the release's zip.
 
 ## Privacy
 

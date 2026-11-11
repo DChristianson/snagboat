@@ -1,7 +1,7 @@
 name: Release
 
 # Pushing a tag like v0.0.2 runs the full CI suite, then builds the .vsix and
-# publishes a GitHub release with it attached. The tag must match the
+# the Claude Code plugin's zip, and publishes a GitHub release with both attached. The tag must match the
 # version in package.json.
 on:
   push:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - name: Tag matches package.json version
@@ -38,6 +38,8 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
       - name: Package the extension
         run: npm run package
+      - name: Package the Claude Code plugin
+        run: npm run package:plugin
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,7 +52,8 @@ jobs:
             exit 1
           fi
           printf '\nInstall: download `snagboat-%s.vsix` below, then run `code --install-extension snagboat-%s.vsix` and reload your VS Code windows. Requires VS Code 1.145 or later; macOS and Linux only.\n' "$VERSION" "$VERSION" >> notes.md
-          gh release create "$GITHUB_REF_NAME" "snagboat-${VERSION}.vsix" \
+          printf '\nClaude Code plugin (preview): download `snagboat-claude-plugin-%s.zip` below, then run `claude --plugin-dir snagboat-claude-plugin-%s.zip`. Requires Node.js 24 or later on your PATH.\n' "$VERSION" "$VERSION" >> notes.md
+          gh release create "$GITHUB_REF_NAME" "snagboat-${VERSION}.vsix" "snagboat-claude-plugin-${VERSION}.zip" \
             --title "Snagboat ${VERSION}" \
             --generate-notes \
             --notes-file notes.md
