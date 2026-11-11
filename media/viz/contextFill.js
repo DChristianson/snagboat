@@ -9,7 +9,7 @@
 // point gives its breakdown; clicking selects that call's turn. Sees only
 // its host and ctx: no VS Code.
 (function () {
-  const HUES = 6; // line-0 .. line-5 in detail.css: --series-1, then --cat-1..5
+  const HUES = 6; // line-0 .. line-5 in detail.css: --sv-series-1, then --sv-cat-1..5
   window.snagboatViz.register({
     id: 'context-fill',
     title: 'Context fill',

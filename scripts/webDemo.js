@@ -1,6 +1,6 @@
 // Assembles the web demo under out/web (npm run build:web, after esbuild has
 // written the bundle there): the page's own files from web/, and the scripts
-// and stylesheet the detail webview uses, copied as they are from media/, so
+// and stylesheets the detail webview uses, copied as they are from media/, so
 // the same visualizers run in both places. The visualizer script tags are
 // written into index.html for every file under media/viz/ (the registry
 // first), so a new visualizer needs no edit here. Nothing generated is
@@ -23,6 +23,7 @@ fs.mkdirSync(path.join(out, 'viz'), { recursive: true });
 const copies = [
   ['media/vizkit.js', 'vizkit.js'],
   ['media/explore.js', 'explore.js'],
+  ['media/theme.css', 'theme.css'],
   ['media/detail.css', 'detail.css'],
   ['web/web.css', 'web.css'],
 ];
