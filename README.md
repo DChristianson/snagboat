@@ -4,10 +4,11 @@ Snagboat is a VS Code extension that watches AI coding agents (Claude Code and G
 
 ![The Sessions tab: a Copilot session's turn tree, split by prompt, agent, and tool category, above its context timeline](docs/images/sessions-tab.png)
 
-- **One event log for both agents.** Claude Code and Copilot activity, normalized into daily JSONL you can read with `jq` or DuckDB.
-- **Eight heuristics, tuned on real sessions.** Thresholds come from replaying real transcripts (running recorded sessions back through the heuristics, as if live), and the same replay runs in the unit tests.
-- **Heuristics from your own history.** Discovery proposes rules and thresholds from what's unusual for you, each scored by replay before you accept it.
-- **A privacy-first advisor.** A model explains sessions and findings: local by default, a redacted digest for hosted providers, the payload shown before it's sent, no tools for the model, and an audit log.
+- **Tells you when an agent is in trouble.** Looping on one file or command, churning through tool calls, going quiet, filling its context, or burning tokens past a budget you set: eight heuristics watch for these and flag them in the status bar, each with [what to try](#findings).
+- **Shows where the tokens went.** Each session's turn tree splits its tokens by prompt, agent, and tool category, for Claude Code and Copilot alike.
+- **One event log for both agents.** Their activity is normalized into one daily JSONL format you can also read with `jq` or DuckDB.
+- **Learns what's unusual for you.** Discovery proposes rules and thresholds from your own history, each scored by replaying that history before you accept it.
+- **Explains, privately.** A model you choose explains sessions and findings: local by default; a hosted one gets a redacted digest, which you see before it's first sent, and every request to it is logged.
 
 ## Try it in your browser
 
@@ -26,7 +27,7 @@ Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md) and [what
 - **Agents:** Claude Code and GitHub Copilot only. Other agents, such as Cursor's or Codex, aren't watched.
 - **VS Code** 1.145 or later.
 - **Platforms:** macOS and Linux. Windows is new and less tried: Claude Code hooks run through Git Bash there, as Claude Code itself requires (see [known limitations](#known-limitations)).
-- **Building from source** needs Node.js 22 or later.
+- **Node.js** 24 or later, to build from source or to run the `snagboat` command line. The extension itself runs on the Node.js that VS Code ships.
 - **Where to get it:** a [GitHub release](https://github.com/DChristianson/snagboat/releases). It's not yet on the Marketplace or Open VSX.
 
 ## Install
@@ -171,7 +172,11 @@ I built it for myself. I spend long stretches in agent sessions and wanted to se
 
 **The name.** In the 1800s, [snagboats](https://en.wikipedia.org/wiki/Snagboat) pulled sunken trees, called snags, out of rivers like the Mississippi. You couldn't see a snag from the deck, and snags were the steamboat's deadliest hazard. Henry Shreve built the first snagboat, the *Heliopolis*, in 1829. This Snagboat watches for the hazards you can't see in your agent sessions: loops, churn, a context quietly filling up.
 
-**Build your own.** This is the age of AI. Why download a plugin and live with someone else's choices? Point your agent at this repo, or at an empty one, and build the version with the views and heuristics you actually want. Snagboat is a starting point.
+**Build your own.** This is the age of AI. Why download a plugin and live with someone else's choices? Snagboat is a starting point, MIT licensed, and there are three ways to make it yours:
+
+- **Without code:** raise or lower any heuristic's thresholds ([settings](docs/settings.md#heuristic-thresholds)), and write your own rules as JSON in `snagboat.rules` ([docs/heuristics.md](docs/heuristics.md#rules)).
+- **In a fork:** add a heuristic (one file in `src/heuristics/`), an adapter for another agent (one folder in `src/adapters/`), or a visualizer for the Explore tab (one file in `media/viz/`, plus its entry in `src/ui/visualizers.ts`). [CONTRIBUTING.md](CONTRIBUTING.md) has the layout and the steps for heuristics and adapters; [docs/architecture.md](docs/architecture.md#detail-webview) has the visualizer contract.
+- **From scratch:** point your coding agent at this repo, or at an empty one, and build the version with the views and heuristics you actually want.
 
 ## Development
 
