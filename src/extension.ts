@@ -46,6 +46,7 @@ import { DetailPanel } from './ui/detailPanel';
 import { EditTrackerAdapter } from './vscode/editTracker';
 import { vscodeHost } from './vscode/host';
 import { resolveStorage, watchPerUserStoreSetting } from './vscode/storage';
+import { syncSettingsToConfig } from './vscode/configSync';
 import { ClaudeCodeAdapter } from './adapters/claude-code';
 import { removeHooksConfigured } from './adapters/claude-code/hooksConfig';
 import { CopilotAdapter } from './adapters/copilot';
@@ -121,6 +122,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const storage = await resolveStorage(context);
   const storageDir = storage.storageDir;
   context.subscriptions.push(watchPerUserStoreSetting());
+  // The core and the CLI read settings from ~/.snagboat/config.json; this window keeps it current.
+  if (storage.perUser) context.subscriptions.push(syncSettingsToConfig(context));
 
   const eventLog = new EventLog(storageDir, { workspace: storage.workspace });
   await eventLog.init();

@@ -5,6 +5,7 @@ import { migrate, MigrationReport, MigrationSource } from '../core/migrate';
 import { workspaceOfVsCodeStore } from '../core/userStore';
 import { compareToBaseline, parseBaseline, SessionCounts, verifyText } from './verify';
 import { CoreService } from '../core/service/server';
+import { effectiveSettings } from '../core/config';
 import { ensureCore, findCore } from '../core/service/lifecycle';
 import { coreRequest, liveCore } from '../core/service/coreFile';
 import * as fs from 'fs';
@@ -22,6 +23,7 @@ commands:
   stores              list the event stores on this machine
   sessions            list sessions in the current workspace's store
   session <id>        one session's summary
+  config              the settings that apply to the current folder, and where each comes from
   serve               run the core service in the foreground (Ctrl-C stops it)
   core start          start the core in the background, unless it's running
   core status         whether the core is running, and where
@@ -159,6 +161,19 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
     case 'stores': {
       const stores = process.env.SNAGBOAT_STORE ? findStores() : [...findStores(), ...findUserStores()];
       print(stores, () => (stores.length ? stores.map((s) => `${storeLabel(s)}  ${s.dir}`).join('\n') + '\n' : 'no Snagboat event stores found\n'));
+      return 0;
+    }
+    case 'config': {
+      const settings = effectiveSettings(userHome(), cwd);
+      print(settings, () => {
+        const lines = [`settings for ${cwd}`, `  from ${settings.files.config}${settings.files.projectFolder ? ` (project entry ${settings.files.projectFolder})` : ''}`];
+        if (settings.files.projectFile) lines.push(`  and ${settings.files.projectFile}`);
+        const keys = Object.keys(settings.values).sort();
+        if (keys.length === 0) lines.push('  nothing set: every setting has its built-in default');
+        for (const key of keys) lines.push(`  ${key} = ${JSON.stringify(settings.values[key])}  (${settings.sources[key]})`);
+        for (const problem of settings.problems) lines.push(`  ignored: ${problem}`);
+        return lines.join('\n') + '\n';
+      });
       return 0;
     }
     case 'serve': {

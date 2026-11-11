@@ -111,3 +111,32 @@ An entry in `snagboat.advisors` is a model advisor: `id`, `label`, `baseUrl`, `m
 | `snagboat.nudges.notify` | `"off"` | `warnings` notifies when a warning appears (and for early warnings); `all` for every finding. At most one per turn, never modal; muted heuristics never notify. See [Nudges](heuristics.md#nudges). |
 | `snagboat.nudges.quiet` | `[]` | Heuristic or rule ids that never notify, while still showing in the status bar. |
 | `snagboat.nudges.advisor` | `false` | When a nudge fires, also ask the `propose-nudges` advisor for one line on what to do, shown under the finding in the status bar tooltip as model output. It never prompts while you work: until you've picked a model and approved that advisor's payload through Explain, it doesn't ask. |
+
+## Outside VS Code: `~/.snagboat/config.json` and `.snagboat.json`
+
+With `snagboat.storage.perUserStore` on, the core service and the `snagboat` CLI read Snagboat's settings from files, so they apply without VS Code running. The keys are the settings above without `snagboat.` (`captureContent`, `retention.textDays`, `heuristics.stalled.minutes`). `snagboat config` shows the settings that apply to the current folder and where each comes from.
+
+Layers, lowest first:
+
+| Layer | Where | Who writes it |
+| --- | --- | --- |
+| Built-in defaults | the tables above | |
+| Your defaults | `~/.snagboat/config.json`, `"defaults"` | VS Code copies your User settings here, or you edit it |
+| One project's | `~/.snagboat/config.json`, `"projects"` keyed by folder; the nearest folder containing the project applies | VS Code copies each window's workspace and folder settings here, or you edit it |
+| The project's own | `.snagboat.json` in the project, found from the project folder up to the repository root | Whoever commits it |
+
+```json
+{
+  "version": 1,
+  "defaults": { "captureContent": true, "heuristics.stalled.minutes": 20 },
+  "projects": { "/Users/me/src/client-work": { "captureContent": false, "collect": false } }
+}
+```
+
+VS Code copies only settings someone set, and only Snagboat's own; `storage.*` and the advisor's settings stay in VS Code. A key it doesn't have, such as `collect`, is left as you wrote it. `"collect": false` stops Snagboat recording that project.
+
+**`.snagboat.json` is shared with everyone who clones the project**, so it can set only team settings: heuristic thresholds, token budgets, `rules`, `toolCategories`, discovery and nudges. Privacy settings it can only make more private: turn `captureContent`, `copilot.captureStructure` or `claudeCode.configureHooks` off, shorten retention, or set `"collect": false`. Anything else in it is ignored, and `snagboat config` says why.
+
+```json
+{ "settings": { "heuristics.toolChurn.minCalls": 12, "captureContent": false } }
+```

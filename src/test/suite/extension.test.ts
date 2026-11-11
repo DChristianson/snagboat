@@ -126,6 +126,27 @@ suite('Snagboat core plumbing', () => {
     assert.deepStrictEqual(claims.map((f) => JSON.parse(fs.readFileSync(f, 'utf8')).pid), [process.pid], "the window's claim, with the extension host's pid");
   });
 
+  test("with the per-user store on, the window copies Snagboat's settings into ~/.snagboat/config.json", async function () {
+    if (!process.env.SNAGBOAT_TEST_PER_USER_STORE) return this.skip();
+    const configFile = path.join(process.env.SNAGBOAT_HOME!, 'config.json');
+    const folder = vscode.workspace.workspaceFolders![0].uri.fsPath;
+    const project = () => {
+      try {
+        return (JSON.parse(fs.readFileSync(configFile, 'utf8')).projects ?? {})[folder] as Record<string, unknown> | undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const config = vscode.workspace.getConfiguration('snagboat');
+    await config.update('heuristics.stalled.minutes', 21, vscode.ConfigurationTarget.Workspace);
+    try {
+      await waitFor(() => project()?.['heuristics.stalled.minutes'] === 21);
+    } finally {
+      await config.update('heuristics.stalled.minutes', undefined, vscode.ConfigurationTarget.Workspace);
+    }
+    await waitFor(() => project() === undefined, 8000);
+  });
+
   test('saving a real file triggers the edit-tracker adapter', async () => {
     const before = api.getAggregateSnapshot().localEditCount;
 
