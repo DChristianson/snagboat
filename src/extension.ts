@@ -3,6 +3,9 @@ import * as crypto from 'crypto';
 import * as path from 'path';
 import { EventBus } from './core/eventBus';
 import { OUTCOMES_ADAPTER, TestsGreen } from './outcomes/testsGreen';
+import { loadAdvisorGoals } from './advisor/goals';
+import { snagboatHome } from './core/userStore';
+import { advisorReports, eventsIn, periods } from './advisor/report';
 import { EventLog } from './core/eventLog';
 import { Aggregate, AggregateSnapshot, TodayAggregate } from './core/aggregate';
 import { EventStore, ReadonlyEventStore } from './core/eventStore';
@@ -600,6 +603,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       discovery,
       notifying: nudgeSettings().notify !== 'off',
     });
+    // The advisors' measures (RFC step 4c): this week against the one before, from the same log.
+    const weeks = periods(new Date(to), 7);
+    const goals = loadAdvisorGoals(path.join(snagboatHome(), 'advisors'));
+    for (const problem of goals.problems) outputChannel.appendLine(`Advisors: ${problem}`);
+    review.advisors = advisorReports(goals.advisors, await eventsIn([logged], weeks.current), await eventsIn([logged], weeks.previous));
     const file = reviewFile(isoWeek(to));
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
     await fs.promises.writeFile(file, renderReview(review));

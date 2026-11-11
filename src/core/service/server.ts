@@ -20,6 +20,8 @@ import { EventLog } from '../eventLog';
 import { FindingsService, WorkspaceFindings } from './findings';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
+import { loadAdvisorGoals } from '../../advisor/goals';
+import { AdvisorReport, advisorReports, eventsIn, periods } from '../../advisor/report';
 import { HEURISTICS_INTERVAL_MS } from '../../heuristics/engine';
 
 const STREAM_BATCH = 500;
@@ -54,6 +56,8 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              workspaces no longer claimed (a window holding its folder)
  *   GET  /findings[?workspace=w] the token's workspaces' findings and early warnings now (3c-3d);
  *                              a workspace token's stream also carries them ("findings" messages)
+ *   GET  /advisors[?workspace=w&days=n]  each advisor's goal and measures, this period against
+ *                              the one before (RFC step 4c)
  *   POST /retention            applies the token's workspaces' retention now (a window whose
  *                              retention settings changed) -> { changed: <days> }
  *
@@ -399,6 +403,7 @@ export class CoreService {
         return send(200, { ingested: await this.writer.flush() });
       }
       if (route === 'POST /events') return send(200, await this.postEvents(scope, await this.readBody(req)));
+      if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days')));
       if (route === 'GET /findings') return send(200, await this.currentFindings(scope, url.searchParams.get('workspace')));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days')));
       if (req.method === 'GET' && url.pathname.startsWith('/sessions/')) return send(200, await this.session(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length))));
@@ -562,6 +567,21 @@ export class CoreService {
       this.findingsListeners.delete(send);
       for (const stop of unfollow) stop();
     };
+  }
+
+  /**
+   * GET /advisors: each advisor's goal and measures over the token's workspaces (or the one named), the last
+   * `days` (default 7) against the days before (RFC step 4c). The admin token names a workspace, or reads all.
+   */
+  private async advisors(scope: Scope, workspace: string | null, daysParam: string | null): Promise<{ days: number; workspaces: string[]; advisors: AdvisorReport[]; problems: string[] }> {
+    const days = daysParam === null ? 7 : Number(daysParam);
+    if (!Number.isInteger(days) || days <= 0 || days > 366) throw new HttpError(400, 'days must be a whole number from 1 to 366');
+    if (workspace !== null && !scope.admin && !scope.workspaces.includes(workspace)) throw new HttpError(400, `this token can't read ${workspace}`);
+    const stores = this.visibleStores(scope).filter((s) => workspace === null || s.workspace === workspace);
+    const { advisors, problems } = loadAdvisorGoals(path.join(this.opts.home, 'advisors'));
+    const { current, previous } = periods(new Date(), days);
+    const logs = stores.map((s) => new EventLog(s.dir));
+    return { days, workspaces: stores.map((s) => s.workspace), advisors: advisorReports(advisors, await eventsIn(logs, current), await eventsIn(logs, previous)), problems };
   }
 
   /** GET /findings: the token's workspaces' findings now (the admin token names one with ?workspace=). */

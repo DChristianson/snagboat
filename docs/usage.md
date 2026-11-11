@@ -101,6 +101,38 @@ Off by default. With `snagboat.nudges.notify` set to `warnings` or `all`, a find
 
 It names heuristics, rules, models, and session ids, never prompts, paths, or commands. Afterwards, **Ask the Advisor** has a model add three sections to the file, labelled as model output: a summary of the week, how findings were shown with suggested changes, and tactics to try from the two costliest sessions. **Ask Another Advisor** appears when several advisors offer those. `snagboat.advisor.weeklyReview` (off by default) writes the review once a week by itself.
 
+## Advisors and their goals
+
+An advisor is one measurement goal plus the rules, and the voice, that serve it. Four are built in:
+
+| Advisor | Goal | Measures |
+| --- | --- | --- |
+| Purser | Token cost down | Tokens per milestone; tokens per commit kept; cache hit rate |
+| Navigator | Clock time not wasted | Milestones per session; active minutes per milestone; minutes from a failing test to green; stalled minutes |
+| Bosun | Unsafe tool use limited | Risky commands, in all and per session; approvals per session (not measured yet) |
+| Lookout | You not overly distracted | Notifications per hour (from the next step); findings dismissed; findings marked useful |
+
+They need no model. `snagboat advisors` prints each one's measures for the last 7 days against the 7 before (`--days`, `--json`, `--all`, `--store user`), the weekly review has an **Advisors** section, and the core answers `GET /advisors`. The measures come from the event log and its outcomes (tests going green, how you met findings, and, with the per-user store on, commits kept, lines surviving and milestones), so a measure with nothing to go on yet says so.
+
+Each advisor is a `persona.md` in `~/.snagboat/advisors/<id>/`: front matter for the goal, the text below it for the voice. The front matter is a small part of YAML: `key: value` lines, `[a, b]` and `- item` lists, one level of indented keys, `{ k: v }` maps and `#` comments. A file with front matter replaces the built-in advisor of that `id`, or adds one:
+
+```markdown
+---
+id: purser
+goal: token-cost-down
+measures: [tokens_per_milestone, tokens_per_accepted_change, cache_hit_rate]
+reads: [events, findings, outcomes]
+may_change: [rules]          # proposes rule changes; never edits code
+notify:
+  rules: [token-budget, cache-thrash]
+  max_per_hour: 2
+cue: { icon: coin, color: amber, mood: frugal }
+---
+You watch what this project spends on tokens ...
+```
+
+Measure ids: `tokens_per_milestone`, `tokens_per_accepted_change`, `cache_hit_rate`, `milestones_per_session`, `minutes_per_milestone`, `minutes_to_green`, `stall_minutes`, `risky_commands`, `risky_commands_per_session`, `approvals_per_session`, `notifications_per_hour`, `dismiss_rate`, `useful_share`. Bosun's risky commands are a built-in list of patterns (recursive force deletes, force pushes, hard resets, piping a download into a shell, `sudo`, `chmod 777`, dropping tables, publishing packages, writing to disks); `risky_commands: ['\bterraform\s+destroy\b']` in its front matter adds your own regular expressions (single quotes keep backslashes as written; in double quotes, write `\\` for one). They match the whole command line, so a pattern inside a longer command's text counts too: the measure is approximate. A model advisor (`snagboat.advisors`) with the same `id` uses the text below the front matter as its voice; the front matter is never sent. `notify` limits are applied to notifications from the next step.
+
 ## The per-user store and the core (preview)
 
 By default each window collects its own workspace's sessions and keeps them in VS Code's storage for that workspace. With `snagboat.storage.perUserStore` on (in User settings, then reload), data lives in `~/.snagboat/data`, one folder per workspace, and VS Code starts Snagboat's core service in the background:
