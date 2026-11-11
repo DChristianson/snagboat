@@ -136,13 +136,18 @@ async function main() {
     fs.writeFileSync(path.join(root, 'hooks', 'forward.sh'), `cat > "${got}"\nexit 3\n`);
     const project = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-project-'));
     const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-home-'));
-    const run = () => sh(path.join(root, 'hooks', 'snagboat-hook'), [], { env: { CLAUDE_PROJECT_DIR: project, HOME: fakeHome }, input: '{"hook_event_name":"Stop"}' });
+    const run = () => sh(path.join(root, 'hooks', 'snagboat-hook'), [], { env: { CLAUDE_PROJECT_DIR: project, HOME: fakeHome, SNAGBOAT_HOME: '' }, input: '{"hook_event_name":"Stop"}' });
     let r = run();
     assert.strictEqual(r.status, 0, 'never fails, even when the forwarder does');
     assert.strictEqual(fs.readFileSync(got, 'utf8'), '{"hook_event_name":"Stop"}', 'forwarded with its payload');
     fs.rmSync(got);
     fs.mkdirSync(path.join(project, '.claude'));
     fs.writeFileSync(path.join(project, '.claude', 'settings.json'), '{"hooks":{"Stop":[{"hooks":[{"command":"x # snagboat-hook-receiver"}]}]}}');
+    r = run();
+    assert.strictEqual(fs.readFileSync(got, 'utf8'), '{"hook_event_name":"Stop"}', "a committed VS Code entry whose forwarder isn't installed here does nothing: the plugin still forwards");
+    fs.rmSync(got);
+    fs.mkdirSync(path.join(fakeHome, '.snagboat', 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, '.snagboat', 'bin', 'snagboat-hook'), '#!/bin/sh\n');
     r = run();
     assert.strictEqual(r.status, 0);
     assert.ok(!fs.existsSync(got), "VS Code's project hook delivers it: the plugin's steps aside");
@@ -157,16 +162,33 @@ async function main() {
     // POSIX sh scripts; on Windows, Claude Code runs them in Git Bash (checked on a real machine: snagboat-79f.8).
     if (process.platform === 'win32') return;
     const snagHome = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-shim-'));
-    const r = sh(path.join(plugin, 'hooks', 'session-start'), [], { env: { SNAGBOAT_HOME: snagHome, CLAUDE_PLUGIN_ROOT: '/plugins/snagboat/0.0.2' }, input: '{}' });
-    assert.strictEqual(r.status, 0);
+    // A plugin folder with a forwarder, at a path no shell should run as code.
+    const pluginRoot = path.join(snagHome, `it's "$(touch pwned)" \`x\` $HOME`);
+    fs.mkdirSync(path.join(pluginRoot, 'hooks'), { recursive: true });
+    fs.writeFileSync(path.join(pluginRoot, 'hooks', 'forward.sh'), '# the forwarder\n');
+    fs.copyFileSync(path.join(plugin, 'hooks', 'session-start'), path.join(pluginRoot, 'hooks', 'session-start'));
+    fs.mkdirSync(path.join(pluginRoot, 'bin'));
+    fs.writeFileSync(path.join(pluginRoot, 'bin', 'snagboat'), 'echo "ran with $*"\n');
+    const start = () => sh(path.join(pluginRoot, 'hooks', 'session-start'), [], { env: { SNAGBOAT_HOME: snagHome, CLAUDE_PLUGIN_ROOT: pluginRoot }, input: '{}' });
+    assert.strictEqual(start().status, 0);
     const shim = path.join(snagHome, 'bin', 'snagboat');
-    assert.match(fs.readFileSync(shim, 'utf8'), /exec sh "\/plugins\/snagboat\/0\.0\.2\/bin\/snagboat" "\$@"/);
     assert.ok(fs.statSync(shim).mode & 0o100, 'executable');
+    const ran = spawnSync('sh', [shim, 'statusline', 'a b'], { cwd: snagHome, encoding: 'utf8' });
+    assert.strictEqual(ran.stdout, 'ran with statusline a b\n', 'the shim runs this version of the plugin, whatever its path holds');
+    assert.ok(!fs.existsSync(path.join(snagHome, 'pwned')), 'and runs nothing in it');
+    // The forwarder, installed where a project's committed VS Code hook entry looks for it; never over VS Code's.
+    const forwarder = path.join(snagHome, 'bin', 'snagboat-hook');
+    assert.strictEqual(fs.readFileSync(forwarder, 'utf8'), '# the forwarder\n');
+    fs.writeFileSync(forwarder, "# VS Code's\n");
+    start();
+    assert.strictEqual(fs.readFileSync(forwarder, 'utf8'), "# VS Code's\n");
     const fakeNode = path.join(snagHome, 'node22');
     fs.writeFileSync(fakeNode, '#!/bin/sh\nif [ "$1" = "-p" ]; then echo 22; else echo v22.1.0; fi\n', { mode: 0o755 });
     const old = sh(path.join(plugin, 'bin', 'snagboat'), ['version'], { env: { SNAGBOAT_NODE: fakeNode } });
     assert.strictEqual(old.status, 1);
     assert.match(old.stderr, /needs Node\.js 24 or later; .* is v22\.1\.0/);
+    fs.writeFileSync(fakeNode, '#!/bin/sh\necho odd\n', { mode: 0o755 });
+    assert.strictEqual(sh(path.join(plugin, 'bin', 'snagboat'), ['version'], { env: { SNAGBOAT_NODE: fakeNode } }).status, 1, 'an answer that is no version fails the check');
     const missing = sh(path.join(plugin, 'bin', 'snagboat'), ['version'], { env: { SNAGBOAT_NODE: path.join(snagHome, 'no-such-node') } });
     assert.strictEqual(missing.status, 127);
     assert.match(missing.stderr, /install it/);

@@ -11,7 +11,7 @@ This plugin brings Snagboat into Claude Code without VS Code: it records your se
 | Slash commands | `/snagboat:findings`, `/snagboat:advisors [days]`, `/snagboat:sessions [days]`, `/snagboat:session <id>`, `/snagboat:open` (the advisor UI in your browser), and `/snagboat:statusline` (see below). |
 | Status line | `snagboat statusline` prints the findings showing and today's tokens, cache rate and milestones. A plugin can't set Claude Code's status line, so `/snagboat:statusline` shows you the change to `~/.claude/settings.json` and asks before making it. |
 
-At the start of each session the plugin keeps `~/.snagboat/bin/snagboat` pointing at its own copy of the Snagboat CLI, so the status line, and you in a terminal, can run it from a path that doesn't change when the plugin updates. The `snagboat` command is also on the Bash tool's PATH while the plugin is enabled.
+At the start of each session the plugin keeps `~/.snagboat/bin/snagboat` pointing at its own copy of the Snagboat CLI, so the status line, and you in a terminal, can run it from a path that doesn't change when the plugin updates. If `~/.snagboat/bin/snagboat-hook` (the forwarder VS Code installs) is missing, it puts one there, so a project whose committed `.claude/settings.json` has VS Code's hook entry records sessions on this machine too; the plugin's own hooks step aside only when that forwarder is there. The `snagboat` command is also on the Bash tool's PATH while the plugin is enabled.
 
 ## Requirements
 

@@ -10,7 +10,8 @@ if ! command -v "$node" >/dev/null 2>&1; then
   exit 127
 fi
 major=$("$node" -p 'process.versions.node.split(".")[0]' 2>/dev/null)
-if [ "${major:-0}" -lt 24 ] 2>/dev/null; then
+case "$major" in '' | *[!0-9]*) major=0 ;; esac
+if [ "$major" -lt 24 ]; then
   echo "snagboat: needs Node.js 24 or later; $node is $("$node" --version 2>/dev/null)" >&2
   exit 1
 fi
