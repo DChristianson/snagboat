@@ -8,6 +8,8 @@ import { listUserStores, userDataDir, workspaceInfoOf } from '../userStore';
 import { liveCore, readCoreFile, removeCoreFile, removeCoreRoute, writeCoreFile, writeCoreRoute } from './coreFile';
 import { hookEvent, ingestHookSpool, openHookSpool } from './hooks';
 import { ClaudeCollector, defaultProjectsDir } from './claudeCollector';
+import { CopilotCollector } from './copilotCollector';
+import { isWithinFolders, withRealPaths } from '../paths';
 import { collectedWorkspace, knownWorkspaceFolders } from './workspaces';
 import { CheckpointStore } from '../checkpointStore';
 import { effectiveSettings } from '../config';
@@ -77,10 +79,12 @@ export interface CoreOptions {
   idleMs?: number;
   /** How often to move spooled events of workspaces no longer claimed; default 30 seconds. */
   ingestEveryMs?: number;
-  /** Read Claude Code transcripts for every project (default true; 3c-3b). */
+  /** Read Claude Code transcripts and Copilot CLI sessions for every project (default true; 3c-3b, 3c-3d). */
   collect?: boolean;
   /** Where Claude Code keeps its projects' transcripts; default ~/.claude/projects (SNAGBOAT_CLAUDE_PROJECTS_DIR). */
   claudeProjectsDir?: string;
+  /** ~/.copilot/session-state, or SNAGBOAT_COPILOT_SESSIONS_DIR. */
+  copilotSessionsDir?: string;
   /** How often to apply retention to the workspaces the core owns; default every 6 hours. */
   retentionEveryMs?: number;
   log?: (line: string) => void;
@@ -160,6 +164,7 @@ export class CoreService {
   /** Ends each open event stream with "stopping"; resolves when it has closed. */
   private readonly stoppingStreams = new Set<() => Promise<void>>();
   private collector?: ClaudeCollector;
+  private copilot?: CopilotCollector;
   private readonly settingsCache = new Map<string, { at: number; values: Record<string, unknown> }>();
   private readonly startedAt = new Date().toISOString();
   private lastActivity = Date.now();
@@ -245,6 +250,22 @@ export class CoreService {
         log: (line) => core.log(line),
       });
       await core.collector.start();
+      core.copilot = new CopilotCollector({
+        checkpoints,
+        sessionsDir: opts.copilotSessionsDir,
+        workspaceFor: (cwd) => core.workspaceFor(cwd),
+        captureContent: (cwd) => core.settingsFor(cwd).captureContent !== false,
+        deliver: (events, cwd) => {
+          core.lastActivity = Date.now();
+          // A window writing its folder itself reads the Copilot sessions started inside it: drop those.
+          return core.writer.write(events, (e, claim) => {
+            const folder = workspaceInfoOf(e.workspace!).folder;
+            return !claim.hold && folder && isWithinFolders(cwd, withRealPaths([folder])) ? 'drop' : 'spool';
+          });
+        },
+        log: (line) => core.log(line),
+      });
+      await core.copilot.start();
     }
     const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
     if (idleMs > 0) {
@@ -273,6 +294,7 @@ export class CoreService {
     }
     for (const t of this.timers) clearInterval(t);
     this.collector?.stop();
+    this.copilot?.stop();
     removeCoreRoute(this.opts.home, process.pid);
     removeCoreFile(this.opts.home, process.pid);
     const closed = new Promise<void>((resolve) => this.server.close(() => resolve()));
