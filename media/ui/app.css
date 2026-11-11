@@ -1,4 +1,5 @@
-/* The advisor UI (RFC step 5a). Colors come from theme.css's --sv-* tokens,
+/* The advisor UI (RFC step 5a). Loaded after viz.css (the Factory Clock visualizers' base styles, step 5b),
+   so the page's own rules win where they overlap. Colors come from theme.css's --sv-* tokens,
    which follow the system's light or dark setting; each advisor's cue color
    is set here, light and dark, from persona.md's cue.color names. */
 :root {
@@ -22,7 +23,7 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
-body { margin: 0; background: var(--page); color: var(--sv-ink); font: 14px/1.5 var(--sv-font); }
+body { margin: 0; padding: 0; background: var(--page); color: var(--sv-ink); font: 14px/1.5 var(--sv-font); }
 h1, h2, h3 { margin: 0; line-height: 1.25; text-wrap: balance; }
 h2 { font-size: 14px; font-weight: 650; }
 .small { font-size: 12px; }
@@ -41,11 +42,13 @@ a { color: var(--sv-link); }
 .brand .stroke { fill: none; stroke: currentColor; stroke-width: 1.6; }
 .navgroup { display: grid; gap: 2px; }
 .navgroup .eyebrow { padding: 0 8px 4px; }
-.nav { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border-radius: 5px; font-size: 13px; color: var(--sv-ink); text-decoration: none; }
-.nav.on { background: var(--sv-active-bg); color: var(--sv-active-ink); font-weight: 600; }
-.nav.soon { color: var(--sv-ink-muted); cursor: default; }
-.nav .count { font-size: 11px; color: var(--sv-ink-muted); }
+.side-link { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border-radius: 5px; font-size: 13px; color: var(--sv-ink); text-decoration: none; }
+.side-link.on { background: var(--sv-active-bg); color: var(--sv-active-ink); font-weight: 600; }
+.side-link.soon { color: var(--sv-ink-muted); cursor: default; }
+.side-link .count { font-size: 11px; color: var(--sv-ink-muted); }
 .side-note { padding: 0 8px; margin: 0; }
+/* viz.css spaces a page's sections; this page spaces its views with grid gaps. */
+.main > section, .main > section > section { margin-top: 0; }
 
 .main { padding: 18px max(16px, 2.5vw) 32px; display: grid; gap: 18px; align-content: start; min-width: 0; max-width: 1180px; }
 .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
@@ -85,7 +88,7 @@ select { font: inherit; font-size: 12px; color: var(--sv-input-ink, var(--sv-ink
 .spark circle { fill: var(--cue); }
 .adv-foot { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--sv-ink-muted); }
 
-.strip { display: grid; gap: 8px; }
+.flist { display: grid; gap: 8px; }
 .finding { display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; gap: 10px; align-items: center; border: 1px solid var(--sv-rule); border-radius: 6px; padding: 8px 12px 8px 0; background: var(--sv-surface); }
 .finding .sev { align-self: stretch; border-radius: 6px 0 0 6px; background: var(--sv-info); }
 .finding .sev.warn { background: var(--sv-warn); }
@@ -137,9 +140,38 @@ select { font: inherit; font-size: 12px; color: var(--sv-input-ink, var(--sv-ink
 .chart .tick { fill: var(--sv-ink-muted); font-size: 10px; }
 .chart .area { fill: var(--cue); fill-opacity: 0.12; }
 .chart .line { fill: none; stroke: var(--cue); stroke-width: 2; stroke-linejoin: round; }
-.chart .dot { fill: var(--cue); }
+.chart .pt { fill: var(--cue); }
 .chart .end { fill: var(--sv-ink); font-size: 11px; font-weight: 600; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; margin: 0; }
 .kv dt { color: var(--sv-ink-muted); }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 .voice { font-size: 12px; font-style: italic; border-left: 2px solid var(--cue); padding-left: 10px; white-space: pre-line; }
+
+/* Sessions (step 5b): the list, one session with its outcomes, and Explore. The drawings are the
+   Factory Clock visualizers, styled by viz.css. */
+#view-sessions:not([hidden]), #view-session:not([hidden]) { display: grid; gap: 14px; }
+.view-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+.view-head h1 { font-size: 18px; overflow-wrap: anywhere; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--sv-rule); border-radius: 8px; background: var(--sv-surface); }
+table.sessions { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sessions th { text-align: left; font-size: 11px; font-weight: 600; color: var(--sv-ink-muted); padding: 8px 10px; border-bottom: 1px solid var(--sv-rule); white-space: nowrap; }
+.sessions td { padding: 8px 10px; border-top: 1px solid var(--sv-rule); border-bottom: 0; vertical-align: top; }
+.sessions tbody tr:first-child td { border-top: 0; }
+.sessions tbody tr:hover { background: var(--sv-hover); }
+.sessions td a { color: var(--sv-link); text-decoration: none; font-weight: 600; overflow-wrap: anywhere; }
+.sessions td a:hover { text-decoration: underline; }
+.sessions .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sessions .nowrap { white-space: nowrap; }
+#sessions-more { justify-self: start; }
+.outcomes { display: flex; flex-wrap: wrap; gap: 6px; }
+.oc { font-size: 11px; padding: 1px 8px; border-radius: 4px; border: 1px solid var(--sv-rule); display: inline-flex; gap: 5px; align-items: baseline; white-space: nowrap; color: var(--sv-ink); }
+.oc b { font-weight: 600; }
+.oc.good { border-color: color-mix(in srgb, var(--sv-ok) 55%, var(--sv-rule)); }
+.oc.good b { color: var(--sv-ok); }
+.oc.bad { border-color: color-mix(in srgb, var(--sv-error) 55%, var(--sv-rule)); }
+.oc.bad b { color: var(--sv-error); }
+.panel-head { display: flex; align-items: center; gap: 8px; }
+.panel-head .spacer { flex: 1; }
+.tree-host, .timeline-host { width: 100%; min-width: 0; }
+#session-explore { margin-top: 0; }
+#view-explore { min-width: 0; }

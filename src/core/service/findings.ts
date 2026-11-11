@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { NormalizedEvent, setShellSubCategories } from '@snagboat/schema';
 import { configHost, loadConfig } from '../config';
-import { ContextLimits } from '../contextLimits';
+import { ContextLimits, ModelContextMarks } from '../contextLimits';
 import { EventLog } from '../eventLog';
 import { EventStore } from '../eventStore';
 import { userDataDir, workspaceInfoOf, workspaceStoreDir } from '../userStore';
@@ -11,7 +11,8 @@ import { EVENT_STORE_MAX_EVENTS, EVENT_STORE_WINDOW_MS, HeuristicsEngine } from 
 import { buildRuleSet, RuleSource } from '../../heuristics/rule';
 import { ruleHeuristic } from '../../heuristics/ruleHeuristic';
 import { RuleStore } from '../../heuristics/ruleStore';
-import { Finding, Progress } from '../../heuristics/types';
+import { FindingReplay } from '../../heuristics/replay';
+import { Finding, Heuristic, Progress } from '../../heuristics/types';
 import { episodeResponse, ResponseEpisode } from '../../heuristics/responses';
 import { OUTCOMES_ADAPTER } from '../../outcomes/testsGreen';
 import { FindingState, Response, ResponseBook } from './responses';
@@ -72,6 +73,9 @@ interface Watch {
   heuristicIds: Set<string>;
   /** When it last had events or a response: a workspace nothing follows is let go after a day quiet. */
   lastActivity: number;
+  /** Its heuristics and their settings, as last built, for replaying a session (newReplay). */
+  heuristics?: Heuristic[];
+  settingsFor?: (id: string) => Record<string, unknown>;
 }
 
 export interface FindingsServiceOptions {
@@ -179,6 +183,25 @@ export class FindingsService {
     watch.last = undefined;
     await this.publish(watch);
     return state;
+  }
+
+  /**
+   * For a session page (RFC step 5b): the workspace's findings now, and a
+   * fresh replay of its own heuristics with its own settings to find a
+   * session's past ones, as VS Code's Sessions tab replays them.
+   */
+  async forSessions(workspace: string): Promise<{ current: WorkspaceFindings; newReplay: () => FindingReplay }> {
+    const current = await this.current(workspace);
+    const watch = await this.watch(workspace);
+    const heuristics = watch.heuristics ?? builtInHeuristics();
+    const settingsFor = watch.settingsFor ?? (() => ({}));
+    const limit = (model: string | undefined) => (model ? this.contextLimits.get(model)?.limit : undefined);
+    return { current, newReplay: () => new FindingReplay(heuristics, settingsFor, limit) };
+  }
+
+  /** What the core has learned of each model's context (the timelines' marks). */
+  contextMarks(): Record<string, ModelContextMarks> {
+    return this.contextLimits.all();
   }
 
   /** Writes open episodes and saves what it learned of models' context limits. */
@@ -324,6 +347,8 @@ export class FindingsService {
     const heuristics = [...builtInHeuristics(), ...ruleSet.rules.map(ruleHeuristic)];
     watch.heuristicIds = new Set(heuristics.map((h) => h.id));
     const settingsFor = (id: string) => (id.includes(':') ? {} : host.section(heuristicSettingsSection(id)));
+    watch.heuristics = heuristics;
+    watch.settingsFor = settingsFor;
     watch.engine = new HeuristicsEngine(heuristics, watch.store, settingsFor, (model) => (model ? this.contextLimits.get(model)?.limit : undefined));
     watch.built = built;
     watch.problems = [...problems, ...ruleSet.problems];

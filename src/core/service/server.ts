@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as path from 'path';
 import { NormalizedEvent, SessionSummary } from '@snagboat/schema';
-import { storeSessions } from '../sessionSummaries';
 import { listUserStores, userDataDir, workspaceInfoOf } from '../userStore';
 import { liveCore, readCoreFile, removeCoreFile, removeCoreRoute, writeCoreFile, writeCoreRoute } from './coreFile';
 import { hookEvent, ingestHookSpool, openHookSpool } from './hooks';
@@ -19,6 +18,9 @@ import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
 import { EventLog } from '../eventLog';
 import { FindingsService, WorkspaceFindings } from './findings';
 import { FindingState, Response } from './responses';
+import { SessionListItem, SessionPage, SessionPages } from './sessionPages';
+import { ExplorerState } from '../../ui/explorerModel';
+import { EXPLORE_SESSION_CAP } from '../../ui/visualizers';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
 import { loadAdvisorGoals } from '../../advisor/goals';
@@ -55,8 +57,13 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *   GET  /health               version, pid, start time
  *   POST /tokens               admin: { workspaces: [...] } -> { token }
  *   POST /events               one event or an array; workspace set from the token if missing
- *   GET  /sessions[?days=n]    sessions of the token's workspaces, newest first
+ *   GET  /sessions[?days=n&workspace=w]  sessions of the token's workspaces, newest first,
+ *                              each with its outcome counts
  *   GET  /sessions/:id         one session, by id or unique id prefix
+ *   GET  /sessions/:id/view[?workspace=w]
+ *                              the session as the advisor UI draws it: its view (turns, tool
+ *                              calls, findings) and its outcomes (RFC step 5b)
+ *   GET  /explore?workspace=w&ids=a,b  the Explore tab's state for up to 8 sessions (step 5b)
  *   GET  /events/stream[?changedSince=<iso>]
  *                              server-sent events: each batch written to the token's
  *                              workspaces, as a JSON array per message; with changedSince,
@@ -213,6 +220,7 @@ export class CoreService {
   private readonly server: http.Server;
   private readonly writer: StoreWriter;
   private readonly findings: FindingsService;
+  private readonly sessionPages: SessionPages;
   /** Streams that want findings, told of each change. */
   private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
@@ -257,6 +265,7 @@ export class CoreService {
       },
     });
     this.writer.onWritten((workspace, events) => this.findings.ingest(workspace, events));
+    this.sessionPages = new SessionPages(opts.home, this.findings);
     // Outcomes (RFC step 4): tests going green, worked out from what's written and written back.
     const testsGreen = new TestsGreen();
     this.writer.onWritten((workspace, events) => {
@@ -479,7 +488,11 @@ export class CoreService {
       if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days'), url.searchParams.get('series') === '1', url.searchParams.get('weeks')));
       if (route === 'POST /findings/respond') return send(200, await this.respond(scope, await this.readBody(req, 4096)));
       if (route === 'GET /findings') return send(200, await this.currentFindings(scope, url.searchParams.get('workspace')));
-      if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days')));
+      if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days'), url.searchParams.get('workspace')));
+      if (route === 'GET /explore') return send(200, await this.explore(scope, url.searchParams.get('workspace'), url.searchParams.get('ids')));
+      if (req.method === 'GET' && url.pathname.startsWith('/sessions/') && url.pathname.endsWith('/view')) {
+        return send(200, await this.sessionPage(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length, -'/view'.length)), url.searchParams.get('workspace')));
+      }
       if (req.method === 'GET' && url.pathname.startsWith('/sessions/')) return send(200, await this.session(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length))));
       if (route === 'POST /shutdown') {
         if (!scope.admin) throw new HttpError(403, 'only the admin token can stop the core');
@@ -770,13 +783,13 @@ export class CoreService {
       return;
     }
     const name = pathname === '/ui/' ? 'index.html' : pathname.slice('/ui/'.length);
-    const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
+    const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8' };
     const type = types[path.extname(name)];
-    // Plain names only (no folders, no ..), of the types above; theme.css is the visualizers' shared one.
-    const file = !type || !/^[a-z0-9][a-z0-9.-]*$/i.test(name) || !this.uiDir ? undefined : name === 'theme.css' ? path.join(this.uiDir, '..', 'theme.css') : path.join(this.uiDir, name);
+    const file = type ? uiFile(this.uiDir, name) : undefined;
     let body: Buffer | undefined;
     try {
-      if (file) body = fs.readFileSync(file);
+      if (file === VIZ_INDEX) body = Buffer.from(JSON.stringify(vizScripts(this.uiDir!)));
+      else if (file) body = fs.readFileSync(file);
     } catch {
       body = undefined;
     }
@@ -792,19 +805,20 @@ export class CoreService {
     return stores.filter((s) => sees(scope, s.workspace));
   }
 
-  private async sessions(scope: Scope, daysParam: string | null): Promise<Array<SessionSummary & { workspace: string }>> {
+  private async sessions(scope: Scope, daysParam: string | null, workspace: string | null = null): Promise<Array<SessionListItem & { workspace: string }>> {
     let days: number | undefined;
     if (daysParam !== null) {
       days = Number(daysParam);
       if (!Number.isFinite(days) || days <= 0) throw new HttpError(400, 'days must be a positive number');
     }
-    const all: Array<SessionSummary & { workspace: string }> = [];
-    for (const store of this.visibleStores(scope)) for (const s of await storeSessions(store.dir)) all.push({ ...s, workspace: store.workspace });
+    const stores = workspace === null ? this.visibleStores(scope) : [this.store(scope, workspace)];
+    const all: Array<SessionListItem & { workspace: string }> = [];
+    for (const store of stores) for (const s of await this.sessionPages.list(store.workspace)) all.push({ ...s, workspace: store.workspace });
     const since = days === undefined ? '' : new Date(Date.now() - days * 86_400_000).toISOString();
     return all.filter((s) => s.lastTs >= since).sort((a, b) => b.lastTs.localeCompare(a.lastTs));
   }
 
-  private async session(scope: Scope, id: string): Promise<SessionSummary & { workspace: string }> {
+  private async session(scope: Scope, id: string): Promise<SessionListItem & { workspace: string }> {
     if (!id) throw new HttpError(404, 'session id missing');
     const found = (await this.sessions(scope, null)).filter((s) => s.sessionId === id || s.sessionId.startsWith(id));
     if (found.length === 0) throw new HttpError(404, `no session ${id}`);
@@ -813,6 +827,64 @@ export class CoreService {
     if (found.length > 1) throw new HttpError(409, `${id} matches ${found.length} sessions; give more of the id`);
     return found[0];
   }
+
+  /** GET /sessions/:id/view: one session as its page draws it (step 5b), found by id or unique prefix. */
+  private async sessionPage(scope: Scope, id: string, workspace: string | null): Promise<SessionPage> {
+    let found: { workspace: string; sessionId: string };
+    if (workspace !== null) {
+      this.store(scope, workspace);
+      found = { workspace, sessionId: id };
+    } else found = await this.session(scope, id);
+    const page = await this.sessionPages.page(found.workspace, found.sessionId);
+    if (!page) throw new HttpError(404, `no session ${id} in this workspace`);
+    return page;
+  }
+
+  /** GET /explore?workspace=w&ids=a,b: the Explore tab's sessions (step 5b), at most EXPLORE_SESSION_CAP. */
+  private async explore(scope: Scope, workspace: string | null, idsParam: string | null): Promise<ExplorerState> {
+    if (workspace === null) throw new HttpError(400, 'name the workspace: ?workspace=<workspace>');
+    this.store(scope, workspace);
+    const ids = (idsParam ?? '').split(',').filter(Boolean);
+    if (ids.length > EXPLORE_SESSION_CAP) throw new HttpError(400, `at most ${EXPLORE_SESSION_CAP} sessions at once`);
+    return this.sessionPages.explore(workspace, ids);
+  }
+
+  /** A workspace this token reads that has a store, or 404. */
+  private store(scope: Scope, workspace: string) {
+    if (!sees(scope, workspace)) throw new HttpError(403, `this token can't read ${workspace}`);
+    const store = this.visibleStores(scope).find((s) => s.workspace === workspace);
+    if (!store) throw new HttpError(404, `no store for ${workspace}`);
+    return store;
+  }
+}
+
+/** The name a page asks for the visualizers' scripts by (GET /ui/viz/index.json). */
+const VIZ_INDEX = 'viz/index.json';
+/** Files the advisor UI loads from media/ beside media/ui: the shared theme and the Factory Clock visualizers (step 5b). */
+const MEDIA_FILES = new Set(['theme.css', 'vizkit.js', 'viz.css', 'explore.js']);
+
+/**
+ * The file for a /ui/ name, or undefined: plain names under media/ui (no folders, no ..),
+ * the shared files in MEDIA_FILES, and viz/<name>.js under media/viz.
+ */
+function uiFile(uiDir: string | undefined, name: string): string | undefined {
+  if (!uiDir) return undefined;
+  if (name === VIZ_INDEX) return VIZ_INDEX;
+  const viz = /^viz\/([a-z0-9][a-z0-9-]*\.js)$/i.exec(name);
+  if (viz) return path.join(uiDir, '..', 'viz', viz[1]);
+  if (!/^[a-z0-9][a-z0-9.-]*$/i.test(name)) return undefined;
+  return MEDIA_FILES.has(name) ? path.join(uiDir, '..', name) : path.join(uiDir, name);
+}
+
+/** The visualizers' scripts in the order a page loads them: the registry first. */
+function vizScripts(uiDir: string): string[] {
+  let files: string[] = [];
+  try {
+    files = fs.readdirSync(path.join(uiDir, '..', 'viz')).filter((f) => /^[a-z0-9][a-z0-9-]*\.js$/i.test(f));
+  } catch {
+    return [];
+  }
+  return files.sort((a, b) => (a === 'registry.js' ? -1 : b === 'registry.js' ? 1 : a.localeCompare(b))).map((f) => `viz/${f}`);
 }
 
 /** media/ui, found from wherever the core runs (dist/snagboat.js, or compiled tests under out/). */
