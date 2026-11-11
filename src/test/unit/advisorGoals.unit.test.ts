@@ -6,7 +6,7 @@ import { NormalizedEvent } from '@snagboat/schema';
 import { DEFAULT_PERSONAS, loadAdvisorGoals, parseAdvisor, parseFrontMatter } from '../../advisor/goals';
 import { measure, MEASURES, riskyPatterns } from '../../advisor/measures';
 import { promptFileText } from '../../advisor/prompts';
-import { advisorReports, periods } from '../../advisor/report';
+import { advisorReports, periods, reportLines } from '../../advisor/report';
 import { runCli } from '../../cli/main';
 import { coreRequest, readCoreFile } from '../../core/service/coreFile';
 import { CoreService } from '../../core/service/server';
@@ -62,6 +62,34 @@ async function main() {
     assert.ok(parseAdvisor('---\nid: Bad Id\ngoal: x\n---\n', 'f').problems.length > 0);
   });
 
+  test("front matter as people write it: quotes, comments, escapes, block lists; a voice starting with a rule isn't front matter", () => {
+    const text = [
+      '---',
+      'id: bosun',
+      'goal: "a: b # not a comment"   # a comment',
+      'measures:',
+      '  - risky_commands',
+      '  - risky_commands_per_session',
+      String.raw`risky_commands: ["rm  #x", '\bterraform\s+destroy\b', "\\bkubectl\\s+delete\\b"]`,
+      'notify:',
+      '  rules: []',
+      '---',
+      'Careful.',
+    ].join('\n');
+    const { advisor, problems } = parseAdvisor(text, 'f');
+    assert.deepStrictEqual(problems, []);
+    assert.strictEqual(advisor!.goal, 'a: b # not a comment');
+    assert.deepStrictEqual(advisor!.measures, ['risky_commands', 'risky_commands_per_session']);
+    assert.deepStrictEqual(advisor!.riskyCommands, ['rm  #x', '\\bterraform\\s+destroy\\b', '\\bkubectl\\s+delete\\b'], 'single quotes as written; double quotes unescaped');
+    const { patterns } = riskyPatterns(advisor!.riskyCommands);
+    assert.strictEqual(measure(['risky_commands'], [bash('s', 0, 'kubectl delete pod x')], [], { risky: patterns })[0].value, 1);
+    // A voice that starts with a markdown rule: sent whole, and not an advisor.
+    const voice = '---\nTitle\n---\nBe kind.';
+    assert.strictEqual(promptFileText(voice), voice);
+    assert.deepStrictEqual(parseAdvisor(voice, 'v'), { problems: [] });
+    assert.ok(parseFrontMatter('---\nid: x\ngoal: y\n  stray: z\n---\n').problems.length === 1, 'indented under a key with a value');
+  });
+
   test('the four are built in; a persona.md with front matter replaces or adds one; one without only gives a voice', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-advisors-'));
     assert.deepStrictEqual(loadAdvisorGoals(dir).advisors.map((a) => a.id), ['purser', 'navigator', 'bosun', 'lookout']);
@@ -101,6 +129,7 @@ async function main() {
     assert.strictEqual(values.minutes_to_green, 2, 'median of 2 and 10 (the lower middle)');
     assert.strictEqual(values.stall_minutes, 15);
     assert.strictEqual(values.risky_commands, 3, 'rm -rf, force push, curl | sh; not a plain push or rm -r');
+    for (const c of ['rm -r -f x', 'git push origin +main', 'cd /x\nsudo rm a', 'echo $(sudo cat x)']) assert.strictEqual(measure(['risky_commands'], [bash('s', 0, c)], [], { risky: patterns })[0].value, 1, c);
     assert.strictEqual(values.dismiss_rate, 50);
     assert.strictEqual(values.useful_share, 25);
     assert.match(String(values.approvals_per_session), /not measured yet/);
@@ -109,6 +138,11 @@ async function main() {
     const [cache] = measure(['cache_hit_rate'], events, [call('s0', 0, 100, 0)], { risky: patterns });
     assert.deepStrictEqual([cache.previous, cache.trend], [0, 'better']);
     assert.ok(riskyPatterns(['(unclosed']).problems.length === 1);
+    // The review's form names no file paths and quotes no patterns.
+    const mine = { ...advisorReports([parseAdvisor(DEFAULT_PERSONAS.bosun, '/home/me/.snagboat/advisors/bosun/persona.md').advisor!], events, [])[0], problems: ['risky_commands: not a regular expression: secret-ish('] };
+    const forReview = reportLines(mine, 7, { redact: true }).join('\n');
+    assert.ok(!forReview.includes('/home/me') && !forReview.includes('secret-ish'), forReview);
+    assert.ok(reportLines(mine, 7).join('\n').includes('/home/me'), 'the CLI shows where it came from');
     const custom = riskyPatterns(['\\bterraform\\s+destroy\\b']).patterns;
     assert.strictEqual(measure(['risky_commands'], [bash('s9', 0, 'terraform destroy -auto-approve')], [], { risky: custom })[0].value, 1, 'an advisor adds its own pattern');
   });
@@ -158,7 +192,10 @@ async function main() {
       if (saved.store !== undefined) process.env.SNAGBOAT_STORE = saved.store;
     }
     // periods: the last 7 days, and the 7 before.
-    assert.deepStrictEqual(periods(new Date('2026-11-11T12:00:00Z'), 7), { current: { from: '2026-11-05', to: '2026-11-11' }, previous: { from: '2026-10-29', to: '2026-11-04' } });
+    assert.deepStrictEqual(periods(new Date('2026-11-11T12:00:00Z'), 7), {
+      current: { from: '2026-11-04T12:00:00.000Z', to: '2026-11-11T12:00:00.001Z' },
+      previous: { from: '2026-10-28T12:00:00.000Z', to: '2026-11-04T12:00:00.000Z' },
+    });
     assert.strictEqual(advisorReports([], [], []).length, 0);
   });
 

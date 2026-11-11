@@ -200,7 +200,7 @@ export function renderReview(r: Review): string {
 
   if (r.advisors && r.advisors.length > 0) {
     out.push('## Advisors', '', "Each advisor's measures for these 7 days, against the 7 before. Counts and rates only.", '');
-    for (const a of r.advisors) out.push('```', ...reportLines(a, 7), '```', '');
+    for (const a of r.advisors) out.push('```', ...reportLines(a, 7, { redact: true }), '```', '');
   }
 
   out.push('## Rules', '');

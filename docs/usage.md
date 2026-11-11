@@ -114,7 +114,7 @@ An advisor is one measurement goal plus the rules, and the voice, that serve it.
 
 They need no model. `snagboat advisors` prints each one's measures for the last 7 days against the 7 before (`--days`, `--json`, `--all`, `--store user`), the weekly review has an **Advisors** section, and the core answers `GET /advisors`. The measures come from the event log and its outcomes (tests going green, how you met findings, and, with the per-user store on, commits kept, lines surviving and milestones), so a measure with nothing to go on yet says so.
 
-Each advisor is a `persona.md` in `~/.snagboat/advisors/<id>/`: front matter for the goal, the text below it for the voice. A file with front matter replaces the built-in advisor of that `id`, or adds one:
+Each advisor is a `persona.md` in `~/.snagboat/advisors/<id>/`: front matter for the goal, the text below it for the voice. The front matter is a small part of YAML: `key: value` lines, `[a, b]` and `- item` lists, one level of indented keys, `{ k: v }` maps and `#` comments. A file with front matter replaces the built-in advisor of that `id`, or adds one:
 
 ```markdown
 ---
@@ -131,7 +131,7 @@ cue: { icon: coin, color: amber, mood: frugal }
 You watch what this project spends on tokens ...
 ```
 
-Measure ids: `tokens_per_milestone`, `tokens_per_accepted_change`, `cache_hit_rate`, `milestones_per_session`, `minutes_per_milestone`, `minutes_to_green`, `stall_minutes`, `risky_commands`, `risky_commands_per_session`, `approvals_per_session`, `notifications_per_hour`, `dismiss_rate`, `useful_share`. Bosun's risky commands are a built-in list of patterns (recursive force deletes, force pushes, hard resets, piping a download into a shell, `sudo`, `chmod 777`, dropping tables, publishing packages, writing to disks); `risky_commands: ['\bterraform\s+destroy\b']` in its front matter adds your own regular expressions. They match the whole command line, so a pattern inside a longer command's text counts too: the measure is approximate. A model advisor (`snagboat.advisors`) with the same `id` uses the text below the front matter as its voice; the front matter is never sent. `notify` limits are applied to notifications from the next step.
+Measure ids: `tokens_per_milestone`, `tokens_per_accepted_change`, `cache_hit_rate`, `milestones_per_session`, `minutes_per_milestone`, `minutes_to_green`, `stall_minutes`, `risky_commands`, `risky_commands_per_session`, `approvals_per_session`, `notifications_per_hour`, `dismiss_rate`, `useful_share`. Bosun's risky commands are a built-in list of patterns (recursive force deletes, force pushes, hard resets, piping a download into a shell, `sudo`, `chmod 777`, dropping tables, publishing packages, writing to disks); `risky_commands: ['\bterraform\s+destroy\b']` in its front matter adds your own regular expressions (single quotes keep backslashes as written; in double quotes, write `\\` for one). They match the whole command line, so a pattern inside a longer command's text counts too: the measure is approximate. A model advisor (`snagboat.advisors`) with the same `id` uses the text below the front matter as its voice; the front matter is never sent. `notify` limits are applied to notifications from the next step.
 
 ## The per-user store and the core (preview)
 

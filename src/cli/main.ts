@@ -337,7 +337,7 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       const logs = stores.map((st) => new EventLog(st.dir));
       const reports = advisorReports(advisors, await eventsIn(logs, current), await eventsIn(logs, previous));
       print({ days, current, previous, advisors: reports, problems }, () =>
-        [`Last ${days} days (${current.from} to ${current.to}) against the ${days} before:`, '', ...reports.flatMap((r) => [...reportLines(r, days), '']), ...problems.map((p) => `problem: ${p}`)].join('\n') + '\n'
+        [`Last ${days} days (${current.from.slice(0, 16).replace('T', ' ')} to ${current.to.slice(0, 16).replace('T', ' ')} UTC) against the ${days} before:`, '', ...reports.flatMap((r) => [...reportLines(r, days), '']), ...problems.map((p) => `problem: ${p}`)].join('\n') + '\n'
       );
       return 0;
     }
