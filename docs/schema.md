@@ -77,7 +77,7 @@ interface NormalizedEvent {
   - `commit_kept` or `commit_reverted`, 7 days after it: whether a commit saying "This reverts commit <id>" came within those 7 days.
   - `code_survival`, 7 and 30 days after it: of the lines it added to the session's files, `linesSurviving` are still there at HEAD (`git blame`).
 
-  Each has a fixed id and time, so running again adds nothing. Multi-root workspaces aren't read yet.
+  Each has a fixed id and time, so running again adds nothing. Every commit counts, on any branch: work merged by squash counts as its branch commits and again as the squash commit (decided: count both). Multi-root workspaces aren't read yet.
 
 Outcome events don't count as agent activity: they're left out of totals, the daily chart, session lists and heuristics.
 
