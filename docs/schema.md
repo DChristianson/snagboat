@@ -42,7 +42,7 @@ interface NormalizedEvent {
   workspace?: string;    // v2: the workspace it was recorded in (see below)
   outcome?: {            // v3, outcome events: what was measured (see below)
     type: 'tests_green' | 'finding_response'
-      | 'commit_kept' | 'commit_reverted' | 'code_survival' | 'milestone';
+      | 'commit_kept' | 'commit_reverted' | 'code_survival' | 'milestone' | 'approval';
     refs?: string[];       // the events it's about
     failures?: number;     // tests_green: failed runs before it passed
     afterMs?: number;      // tests_green: first failure to green
@@ -53,6 +53,7 @@ interface NormalizedEvent {
     linesWritten?: number; // code_survival: lines it added to them
     linesSurviving?: number; // code_survival: still there
     days?: number;         // code_survival: 7 or 30
+    decision?: 'asked' | 'denied';  // approval
   };
   confidence?: number;
   raw: {
@@ -67,9 +68,10 @@ interface NormalizedEvent {
 
 `workspace` (version 2) names the workspace an event was recorded in: its folder path, its `.code-workspace` file path, or `(no folder)` for a window with no folder open (a remote window's is its URI, such as `vscode-remote://…`). It's set on every event in the per-user store (`~/.snagboat/data`, `snagboat.storage.perUserStore`), which holds every workspace's events, and absent in a VS Code window's own storage, which holds only that window's. `snagboat migrate` sets it on the events it copies there.
 
-`outcome` events (version 3) measure how work went; Snagboat works them out, no agent reports them (`raw.adapter` is `snagboat-outcomes`). Each is filed in the session it's about:
+`outcome` events (version 3) measure how work went. Snagboat works most of them out from other events (`raw.adapter` is `snagboat-outcomes`); `approval` comes straight from Claude Code's permission hooks (`raw.adapter` is `claude-code`). Each is filed in the session it's about:
 
 - `tests_green`: a tool call in the tests-builds category succeeded after one or more failed in the same session. `refs` names the first failure and the passing run; its id is derived from the passing run's, so reading the same events again adds nothing. Whoever writes the workspace's events works it out: the core, or a window writing its own folder.
+- `approval`: Claude Code asked you to approve a tool call (`PermissionRequest` hook, `decision: 'asked'`), or auto mode denied one (`PermissionDenied`, `decision: 'denied'`). Only `toolName` is kept, never the tool's input or the denial's reason; a denial's `refs` names its tool call (`tool:<tool_use_id>`) and its id is derived from it. Claude Code sends no hook when you deny a prompt yourself, so a prompt's answer isn't recorded: Bosun's approvals per session is prompts less auto mode's denials.
 - `finding_response`: a finding's episode ended, and `response` says how you met it, strongest first: marked **Useful**, muted, acknowledged, or let it pass. `refs` are the finding's events; filed in the session of the latest one still in the window's recent events.
 
 - Git outcomes, worked out by the core from the project's history (read-only; `outcomes.git`). A session's commit is one made between its first event and 30 minutes after its last that touches a file its agent edited:
@@ -92,6 +94,7 @@ Every adapter should document how each raw signal maps into the shared schema.
 | `PostToolUse` and `PostToolUseFailure` hook payloads | Claude Code | `tool_call` | `tool_input.file_path` or `.command` | `success` from `PostToolUse` (`failure` if `tool_response.error`); `failure` from `PostToolUseFailure` (a failed call, or a Bash command exiting non-zero), `unknown` if `is_interrupt` | — | — | Hooks provide structure but not usage. |
 | `tool_use` block, then its `tool_result` | Claude Code JSONL | `tool_call` | `input.file_path` or `.command` | `failure` if the result `is_error`, else `success` | — | — | Built when the result arrives (backfill builds the same from whole transcripts), with id `tool:<tool_use_id>` like the hooks', so a call both report counts once. How projects without Snagboat's hooks get tool calls; a call whose result comes after a restart is lost. |
 | `Stop` hook payload | Claude Code | `turn_stop` with `endsTurn` | — | `unknown` | — | — | Marks the end of a turn. |
+| `PermissionRequest` and `PermissionDenied` hook payloads | Claude Code | `outcome` (`approval`, `decision` `asked` or `denied`) | — | `unknown` | — | — | Only `tool_name` (as `toolName`), and `tool_use_id` (in `refs`, PermissionDenied only); `tool_input` and `reason` are dropped. Registered with `"async": true`, so Claude Code doesn't wait for them and ignores their output: they never decide or delay a permission prompt. |
 | `prompt_id`, `agent_id` on any hook payload | Claude Code | Decorates the hook's event | — | — | — | — | Become `turnId` and `agentId`. Payloads without `prompt_id` (older Claude Code) take the session's current turn from the transcript. |
 | Transcript message with usage block | Claude Code JSONL | `turn_stop` | — | `unknown` | Direct map from `input_tokens`, `output_tokens`, and cache fields, **once per `message.id`** | See next row | Primary token-accounting source. Claude Code writes one line per content block (thinking, text, tool_use), each repeating the whole message's `usage`; consecutive lines sharing a `message.id` are merged into one event. |
 | Transcript message text | Claude Code JSONL | Decorates the owning `turn_stop` event | — | `unknown` | — | `text` content blocks only, truncated to 500 characters, when `snagboat.captureContent` is on | Heuristics mine this captured text later; adapters do not need to invent a separate hedge event. |

@@ -5,6 +5,8 @@ import * as path from 'path';
 interface HookEntry {
   type: 'command';
   command: string;
+  /** Claude Code runs it in the background, without waiting for it and without reading its output. */
+  async?: boolean;
 }
 
 interface HookMatcher {
@@ -18,8 +20,23 @@ interface ClaudeSettings {
 }
 
 const HOOK_COMMAND_MARKER = 'snagboat-hook-receiver';
-/** PostToolUseFailure: Claude Code sends failed tool calls there, not to PostToolUse. */
-const HOOK_EVENT_NAMES = ['PostToolUse', 'PostToolUseFailure', 'Stop'] as const;
+/**
+ * PostToolUseFailure: Claude Code sends failed tool calls there, not to PostToolUse.
+ * PermissionRequest/PermissionDenied: you were asked to approve a tool call, or
+ * auto mode denied one (Bosun's approvals per session).
+ */
+const HOOK_EVENT_NAMES = ['PostToolUse', 'PostToolUseFailure', 'Stop', 'PermissionRequest', 'PermissionDenied'] as const;
+
+/**
+ * Hooks run in the background ("async": true): Claude Code starts the script
+ * and carries on without waiting, and ignores anything it prints or how it
+ * exits. A PermissionRequest hook can allow or deny a request; ours never
+ * prints a decision and always exits 0, which leaves the decision to you, but
+ * running it in the background means it can't decide even by accident (e.g. on
+ * Windows without Git Bash, where a failing PermissionRequest hook denies the
+ * call), and it never holds up the permission prompt.
+ */
+const BACKGROUND_HOOK_EVENTS: ReadonlySet<string> = new Set(['PermissionRequest', 'PermissionDenied']);
 
 /**
  * The settings.json command for our hooks: runs the routing script at a stable
@@ -38,7 +55,7 @@ export function buildHookCommand(scriptPath: string, platform: NodeJS.Platform =
 }
 
 /**
- * Merges PostToolUse/Stop hook entries running our command into the project's
+ * Merges hook entries (HOOK_EVENT_NAMES) running our command into the project's
  * .claude/settings.json without touching any other hooks or settings. Any
  * existing Snagboat entry (found by its marker comment, e.g. the old fixed-port
  * curl command) is rewritten in place to the current command, and duplicates
@@ -56,6 +73,7 @@ export async function ensureHooksConfigured(projectDir: string, command: string)
   let changed = false;
   for (const eventName of HOOK_EVENT_NAMES) {
     const matchers = (settings.hooks[eventName] ??= []);
+    const background = BACKGROUND_HOOK_EVENTS.has(eventName);
     let found = false;
     for (const matcher of matchers) {
       const hooks = matcher.hooks ?? [];
@@ -65,6 +83,10 @@ export async function ensureHooksConfigured(projectDir: string, command: string)
         found = true;
         if (h.command !== command) {
           h.command = command;
+          changed = true;
+        }
+        if (background && h.async !== true) {
+          h.async = true;
           changed = true;
         }
         return true;
@@ -81,7 +103,7 @@ export async function ensureHooksConfigured(projectDir: string, command: string)
       changed = true;
     }
     if (!found) {
-      settings.hooks[eventName]!.push({ matcher: '*', hooks: [{ type: 'command', command }] });
+      settings.hooks[eventName]!.push({ matcher: '*', hooks: [{ type: 'command', command, ...(background ? { async: true } : {}) }] });
       changed = true;
     }
   }

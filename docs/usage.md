@@ -109,7 +109,7 @@ An advisor is one measurement goal plus the rules, and the voice, that serve it.
 | --- | --- | --- |
 | Purser | Token cost down | Tokens per milestone; tokens per commit kept; cache hit rate |
 | Navigator | Clock time not wasted | Milestones per session; active minutes per milestone; minutes from a failing test to green; stalled minutes |
-| Bosun | Unsafe tool use limited | Risky commands, in all and per session; approvals per session (not measured yet) |
+| Bosun | Unsafe tool use limited | Risky commands, in all and per session; approvals per session (Claude Code's permission prompts less auto mode's denials; approximate, since a prompt you deny yourself still counts) |
 | Lookout | You not overly distracted | Notifications per hour (from the next step); findings dismissed; findings marked useful |
 
 They need no model. `snagboat advisors` prints each one's measures for the last 7 days against the 7 before (`--days`, `--json`, `--all`, `--store user`), the weekly review has an **Advisors** section, and the core answers `GET /advisors`. The measures come from the event log and its outcomes (tests going green, how you met findings, and, with the per-user store on, commits kept, lines surviving and milestones), so a measure with nothing to go on yet says so.

@@ -3,6 +3,7 @@ import * as path from 'path';
 import { EventOutcome, NormalizedEvent, NormalizedEventKind, normalizedEventSchema, normalizedEventSchemaV1, normalizedEventSchemaV2, TOOL_CATEGORY_LABELS } from '@snagboat/schema';
 import { sessionEvents } from '../../scripts/replayHeuristics';
 import { syntheticEvents } from '../../web/synthetic';
+import { normalizeHookPayload } from '../../adapters/claude-code/normalize';
 
 // The JSON Schema in @snagboat/schema (normalizedEvent.v3.schema.json) must describe the
 // events Snagboat actually writes. A compile-time check in jsonSchema.ts keeps its field
@@ -46,8 +47,9 @@ async function main() {
     const kinds: Record<NormalizedEventKind, true> = {
       tool_call: true, edit: true, turn_start: true, turn_stop: true, user_prompt: true, compaction: true, session_name: true, outcome: true,
     };
-    const outcomeTypes: Record<EventOutcome['type'], true> = { tests_green: true, finding_response: true, commit_kept: true, commit_reverted: true, code_survival: true, milestone: true };
+    const outcomeTypes: Record<EventOutcome['type'], true> = { tests_green: true, finding_response: true, commit_kept: true, commit_reverted: true, code_survival: true, milestone: true, approval: true };
     const responses: Record<NonNullable<EventOutcome['response']>, true> = { useful: true, muted: true, acknowledged: true, passed: true };
+    const decisions: Record<NonNullable<EventOutcome['decision']>, true> = { asked: true, denied: true };
     const statuses: Record<NormalizedEvent['status'], true> = { success: true, failure: true, unknown: true };
     const triggers: Record<NonNullable<NormalizedEvent['compaction']>['trigger'], true> = { auto: true, manual: true, unknown: true };
     const sorted = (xs: string[]) => [...xs].sort();
@@ -57,8 +59,9 @@ async function main() {
     assert.deepStrictEqual(sorted(props.toolCategory.anyOf[0].enum), sorted(Object.keys(TOOL_CATEGORY_LABELS)));
     assert.deepStrictEqual(sorted(props.outcome.properties.type.enum), sorted(Object.keys(outcomeTypes)));
     assert.deepStrictEqual(sorted(props.outcome.properties.response.enum), sorted(Object.keys(responses)));
+    assert.deepStrictEqual(sorted(props.outcome.properties.decision.enum), sorted(Object.keys(decisions)));
     // The compile-time check covers the event's fields; this covers the outcome's.
-    const outcomeFields: Record<keyof EventOutcome, true> = { type: true, refs: true, failures: true, afterMs: true, heuristicId: true, response: true, commit: true, files: true, linesWritten: true, linesSurviving: true, days: true };
+    const outcomeFields: Record<keyof EventOutcome, true> = { type: true, refs: true, failures: true, afterMs: true, heuristicId: true, response: true, commit: true, files: true, linesWritten: true, linesSurviving: true, days: true, decision: true };
     assert.deepStrictEqual(sorted(Object.keys(props.outcome.properties)), sorted(Object.keys(outcomeFields)));
   });
 
@@ -107,6 +110,14 @@ async function main() {
     assert.ok(validate(v2, green).length > 0, 'version 2 has no outcome');
     assert.ok(validate(schema, { ...green, outcome: { type: 'mood' } }).length > 0);
     assert.ok(validate(schema, { ...green, outcome: { type: 'finding_response', response: 'loved' } }).length > 0);
+    // Approvals, as normalized from Claude Code's permission hooks.
+    for (const payload of [
+      { session_id: 's', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'rm -rf node_modules' } },
+      { session_id: 's', hook_event_name: 'PermissionDenied', tool_name: 'Bash', tool_input: { command: 'rm -rf /tmp/build' }, tool_use_id: 'toolu_1', reason: '[x]' },
+    ]) {
+      assert.deepStrictEqual(validate(schema, JSON.parse(JSON.stringify(normalizeHookPayload(payload)))), [], payload.hook_event_name);
+    }
+    assert.ok(validate(schema, { ...green, outcome: { type: 'approval', decision: 'maybe' } }).length > 0);
     assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in v2.properties)), ['outcome']);
     assert.deepStrictEqual(Object.keys(v2.properties).filter((k) => !(k in props)), []);
     for (const e of syntheticEvents()) assert.deepStrictEqual(validate(v2, JSON.parse(JSON.stringify(e))), [], e.eventId);

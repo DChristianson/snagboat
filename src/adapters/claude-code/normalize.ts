@@ -517,6 +517,25 @@ export function normalizeHookPayload(
     };
   }
 
+  // You were asked to approve a tool call, or auto mode denied one: an approval outcome. Only the
+  // tool's name is kept, never its input. PermissionRequest carries no tool_use_id; PermissionDenied does.
+  if (payload.hook_event_name === 'PermissionRequest' || payload.hook_event_name === 'PermissionDenied') {
+    const decision = payload.hook_event_name === 'PermissionRequest' ? 'asked' : 'denied';
+    const toolName = payload.tool_name ?? 'unknown';
+    return {
+      eventId: payload.tool_use_id ? `outcome:approval:${decision}:${payload.tool_use_id}` : crypto.randomUUID(),
+      sessionId,
+      agent: 'claude-code',
+      ts,
+      kind: 'outcome',
+      status: 'unknown',
+      ...(payload.tool_name ? { toolName: payload.tool_name } : {}),
+      ...attribution,
+      outcome: { type: 'approval', decision, ...(payload.tool_use_id ? { refs: [`tool:${payload.tool_use_id}`] } : {}) },
+      raw: { adapter: 'claude-code', ref: `hook:${payload.hook_event_name}:${toolName}` },
+    };
+  }
+
   if (payload.hook_event_name === 'Stop') {
     return {
       eventId: crypto.randomUUID(),

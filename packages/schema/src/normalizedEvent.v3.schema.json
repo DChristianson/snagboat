@@ -174,7 +174,8 @@
             "commit_kept",
             "commit_reverted",
             "code_survival",
-            "milestone"
+            "milestone",
+            "approval"
           ]
         },
         "refs": {
@@ -214,6 +215,12 @@
         },
         "days": {
           "type": "number"
+        },
+        "decision": {
+          "enum": [
+            "asked",
+            "denied"
+          ]
         }
       }
     },

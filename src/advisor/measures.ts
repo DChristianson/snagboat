@@ -76,6 +76,19 @@ export const RISKY_COMMANDS: Array<{ id: string; pattern: RegExp }> = [
 const isRisky = (e: NormalizedEvent, ctx: MeasureContext) => e.kind === 'tool_call' && isShellTool(e.toolName) && typeof e.target === 'string' && ctx.risky.some((p) => p.test(e.target!));
 const riskyCount = (events: NormalizedEvent[], ctx: MeasureContext) => conversation(events).filter((e) => isRisky(e, ctx)).length;
 
+/**
+ * Permission prompts you said yes to, roughly: prompts (PermissionRequest)
+ * less auto mode's denials (PermissionDenied), at least 0. Approximate: Claude
+ * Code sends no hook when you deny a prompt yourself (or press Escape), so
+ * those still count as granted.
+ */
+function approvalsGranted(events: NormalizedEvent[]): number {
+  const approvals = outcomes(events, 'approval');
+  const asked = approvals.filter((e) => e.outcome?.decision === 'asked').length;
+  const denied = approvals.filter((e) => e.outcome?.decision === 'denied').length;
+  return Math.max(0, asked - denied);
+}
+
 export const MEASURES: Record<string, MeasureDef> = {
   tokens_per_milestone: { label: 'Tokens per milestone', unit: 'tokens', better: 'lower', compute: (ev) => per(tokens(ev), outcomes(ev, 'milestone').length) },
   tokens_per_accepted_change: { label: 'Tokens per commit kept', unit: 'tokens', better: 'lower', compute: (ev) => per(tokens(ev), outcomes(ev, 'commit_kept').length) },
@@ -121,7 +134,7 @@ export const MEASURES: Record<string, MeasureDef> = {
   },
   risky_commands: { label: 'Risky commands', unit: '', better: 'lower', compute: (ev, ctx) => (sessions(ev) > 0 ? riskyCount(ev, ctx) : undefined) },
   risky_commands_per_session: { label: 'Risky commands per session', unit: '', better: 'lower', compute: (ev, ctx) => per(riskyCount(ev, ctx), sessions(ev)) },
-  approvals_per_session: { label: 'Approvals granted per session', unit: '', better: 'lower', compute: () => undefined, notYet: "needs Claude Code's PermissionRequest hook (snagboat-79f.5.5)" },
+  approvals_per_session: { label: 'Approvals granted per session', unit: '', better: 'lower', compute: (ev) => per(approvalsGranted(ev), sessions(ev)) },
   notifications_per_hour: { label: 'Notifications per active hour', unit: '', better: 'lower', compute: () => undefined, notYet: 'notifications are recorded from the next step (4c-2)' },
   dismiss_rate: {
     label: 'Findings dismissed (muted or let pass)',

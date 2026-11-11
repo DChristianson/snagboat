@@ -119,6 +119,9 @@ async function main() {
       outcome('s1', 5, { type: 'tests_green', afterMs: 120_000 }), outcome('s1', 9, { type: 'tests_green', afterMs: 600_000 }),
       outcome('s1', 30, { type: 'finding_response', response: 'useful' }), outcome('s1', 31, { type: 'finding_response', response: 'muted' }),
       outcome('s1', 32, { type: 'finding_response', response: 'passed' }), outcome('s1', 33, { type: 'finding_response', response: 'acknowledged' }),
+      // Permission prompts: three in s1 and one in s2, and one denial by auto mode.
+      outcome('s1', 6, { type: 'approval', decision: 'asked' }), outcome('s1', 7, { type: 'approval', decision: 'asked' }), outcome('s1', 8, { type: 'approval', decision: 'asked' }),
+      outcome('s2', 2, { type: 'approval', decision: 'asked' }), outcome('s1', 10, { type: 'approval', decision: 'denied' }),
     ];
     const { patterns } = riskyPatterns([]);
     const values = Object.fromEntries(measure(Object.keys(MEASURES), events, [], { risky: patterns }).map((m) => [m.id, m.value ?? m.note]));
@@ -132,7 +135,9 @@ async function main() {
     for (const c of ['rm -r -f x', 'git push origin +main', 'cd /x\nsudo rm a', 'echo $(sudo cat x)']) assert.strictEqual(measure(['risky_commands'], [bash('s', 0, c)], [], { risky: patterns })[0].value, 1, c);
     assert.strictEqual(values.dismiss_rate, 50);
     assert.strictEqual(values.useful_share, 25);
-    assert.match(String(values.approvals_per_session), /not measured yet/);
+    assert.strictEqual(values.approvals_per_session, 1.5, 'four prompts less one denial, over two sessions');
+    assert.strictEqual(measure(['approvals_per_session'], [call('s', 0, 1, 0), outcome('s', 1, { type: 'approval', decision: 'denied' })], [], { risky: patterns })[0].value, 0, 'never below 0');
+    assert.strictEqual(measure(['approvals_per_session'], [call('s', 0, 1, 0)], [], { risky: patterns })[0].value, 0, 'a session with no prompts');
     assert.match(String(values.notifications_per_hour), /not measured yet/);
     // Against a period before: the trend follows which way is better.
     const [cache] = measure(['cache_hit_rate'], events, [call('s0', 0, 100, 0)], { risky: patterns });
