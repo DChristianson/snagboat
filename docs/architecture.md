@@ -59,6 +59,54 @@ flowchart LR
 
 Each VS Code window runs one extension host with all of this; two windows on different projects share the home folder and global storage but not workspace storage. Advisors get only what the `Advisor` module builds for one request ([the advisor](#advisor)).
 
+## Data flow
+
+Inside Snagboat, from each source to the views.
+
+```mermaid
+flowchart LR
+  subgraph Sources
+    Transcripts[Claude Code transcripts]
+    Hooks[Claude Code hooks]
+    CopilotCli[Copilot agent session logs]
+    Copilot[Copilot editor telemetry]
+    Saves[VS Code file saves]
+  end
+
+  subgraph Adapters
+    ClaudeAdapter[claude-code]
+    CopilotAdapter[copilot]
+    EditTracker[edit-tracker]
+  end
+
+  subgraph Core
+    EventLog[Daily JSONL event log]
+    Retention[Retention: daily rollups]
+    Store[EventStore: recent events + token totals]
+    Heuristics[Heuristics engine: built-ins + your rules]
+    Discovery[Discovery: rules from your history]
+  end
+
+  subgraph UI
+    Status[Status bar]
+    Detail[Detail view]
+    Advisor[Advisor: a model you choose, local by default]
+  end
+
+  Transcripts --> ClaudeAdapter
+  Hooks -->|snagboat-hook routes to this window| ClaudeAdapter
+  CopilotCli --> CopilotAdapter
+  Copilot --> CopilotAdapter
+  Saves --> EditTracker
+  ClaudeAdapter & CopilotAdapter & EditTracker --> EventLog
+  EventLog --> Retention
+  EventLog --> Store --> Heuristics --> Status & Detail
+  Store --> Discovery --> Detail
+  Detail -->|digests| Advisor
+```
+
+Adapters own all agent-specific parsing and emit one normalized event shape ([schema.md](schema.md)); heuristics and UI never branch on which agent produced an event. Each VS Code window runs its own hook receiver on its own port, and the hook script routes each Claude Code project's hooks to the window that has it open.
+
 ## Adapter contract
 
 ```ts
