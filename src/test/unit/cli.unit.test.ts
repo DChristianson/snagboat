@@ -62,6 +62,62 @@ async function main() {
     assert.ok(userDirs('linux', { XDG_CONFIG_HOME: '/xdg' }, home).some((d) => d.dir === path.join('/xdg', 'Code', 'User')));
   });
 
+  test("VS Code's server folders are listed on every platform, labelled as servers", () => {
+    const home = '/home/u';
+    for (const platform of ['linux', 'darwin', 'win32'] as const) {
+      const dirs = userDirs(platform, {}, home);
+      assert.ok(dirs.some((d) => d.app === 'Code (server)' && d.dir === path.join(home, '.vscode-server', 'data', 'User')), platform);
+      assert.ok(dirs.some((d) => d.app === 'Cursor (server)' && d.dir === path.join(home, '.cursor-server', 'data', 'User')), platform);
+    }
+    assert.ok(userDirs('linux', { VSCODE_AGENT_FOLDER: '/agent' }, home).some((d) => d.app === 'Code (server)' && d.dir === path.join('/agent', 'data', 'User')));
+  });
+
+  test("findStores finds stores under VS Code's server, which writes no workspace.json", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-cli-server-'));
+    const user = path.join(home, '.vscode-server', 'data', 'User');
+    const plain = path.join(user, 'workspaceStorage', 'h-plain', EXTENSION_ID);
+    const remote = path.join(user, 'workspaceStorage', 'h-remote', EXTENSION_ID);
+    writeStore(plain, syntheticEvents().slice(0, 10));
+    writeStore(remote, syntheticEvents().slice(10, 20));
+    fs.writeFileSync(path.join(user, 'workspaceStorage', 'h-remote', 'workspace.json'), JSON.stringify({ folder: 'vscode-remote://dev-container+abc/workspaces/x' }));
+    writeStore(path.join(user, 'globalStorage', EXTENSION_ID), []);
+    const stores = findStores({ platform: 'linux', env: {}, home });
+    assert.strictEqual(stores.length, 3, JSON.stringify(stores));
+    assert.ok(stores.every((s) => s.app === 'Code (server)'));
+    const byDir = new Map(stores.map((s) => [s.dir, s]));
+    assert.deepStrictEqual({ ...byDir.get(plain) }, { kind: 'vscode', dir: plain, app: 'Code (server)', global: false });
+    assert.strictEqual(byDir.get(remote)?.uri, 'vscode-remote://dev-container+abc/workspaces/x');
+    assert.strictEqual(byDir.get(remote)?.folder, undefined);
+    assert.ok(stores.some((s) => s.global));
+    // No local folder to match, so only --all reads them.
+    assert.deepStrictEqual(selectStores(stores, '/workspaces/x', false), []);
+    assert.strictEqual(selectStores(stores, '/workspaces/x', true).length, 3);
+
+    // The CLI says why a cwd found nothing, and lists the stores.
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    delete process.env.XDG_CONFIG_HOME;
+    delete process.env.SNAGBOAT_STORE;
+    delete process.env.VSCODE_AGENT_FOLDER;
+    process.env.SNAGBOAT_HOME = path.join(home, '.snagboat');
+    try {
+      const none = capture();
+      assert.strictEqual(await runCli(['sessions'], { ...none.io, cwd: '/workspaces/x', now: new Date() }, 'test'), 1);
+      assert.ok(none.get().err.includes('1 store with no known workspace'), none.get().err);
+      const listed = capture();
+      assert.strictEqual(await runCli(['stores'], { ...listed.io, cwd: '/', now: new Date() }, 'test'), 0);
+      assert.ok(listed.get().out.includes('Code (server)  (workspace unknown)'), listed.get().out);
+      assert.ok(listed.get().out.includes('Code (server)  vscode-remote://dev-container+abc/workspaces/x'), listed.get().out);
+      const dry = capture();
+      assert.strictEqual(await runCli(['migrate', '--dry-run'], { ...dry.io, cwd: '/', now: new Date() }, 'test'), 0);
+      assert.ok(dry.get().out.includes("VS Code's server doesn't record which workspace"), dry.get().out);
+      assert.ok(dry.get().out.includes('Code (server)  vscode-remote://dev-container+abc/workspaces/x'), dry.get().out);
+      assert.ok(!fs.existsSync(path.join(home, '.snagboat')), 'a dry run writes nothing');
+    } finally {
+      restoreEnv();
+    }
+  });
+
   test('findStores finds workspace and global stores, and reads their folders', () => {
     const { home, outer, inner, outerStore } = fakeHome();
     const stores = findStores({ platform: 'linux', env: {}, home });

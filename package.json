@@ -16,7 +16,8 @@
   },
   "homepage": "https://github.com/DChristianson/snagboat#readme",
   "engines": {
-    "vscode": "^1.119.0"
+    "vscode": "^1.145.0",
+    "node": ">=24"
   },
   "categories": [
     "Visualization",
@@ -166,7 +167,7 @@
           "type": "boolean",
           "default": false,
           "scope": "application",
-          "markdownDescription": "Preview: keep Snagboat's data in one per-user store, `~/.snagboat/data` (one folder per workspace, with saved rules in `~/.snagboat/rules.json`), instead of VS Code's storage for each window. Turning it on copies this window's existing data there; nothing is moved or deleted, so turning it off goes back to the data in VS Code's storage as it was, without what was recorded while it was on. Takes effect when the window reloads."
+          "markdownDescription": "Preview: keep Snagboat's data in one per-user store, `~/.snagboat/data` (one folder per workspace, with saved rules in `~/.snagboat/rules.json`), instead of VS Code's storage for each window. Turning it on copies this window's existing data there; nothing is moved or deleted, so turning it off goes back to the data in VS Code's storage as it was, without what was recorded while it was on. Set it in User settings (it is not offered under Workspace); it applies to every window. Takes effect when the window reloads."
         },
         "snagboat.copilot.captureStructure": {
           "type": "boolean",
@@ -1502,6 +1503,7 @@
     "vscode:prepublish": "npm run build",
     "package": "vsce package --no-dependencies",
     "licenses": "node scripts/licenses.js",
+    "check:readme": "node scripts/readmeCheck.js",
     "compile-tests": "npm run build:schema && tsc -p . --outDir out",
     "verify:transcripts": "npm run compile-tests && node ./out/scripts/transcripts.js verify",
     "replay:heuristics": "npm run compile-tests && node ./out/scripts/replayHeuristics.js",
@@ -1517,8 +1519,8 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
-    "@types/node": "^22.20.5",
-    "@types/vscode": "~1.118.0",
+    "@types/node": "^24.19.2",
+    "@types/vscode": "~1.145.0",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.1.0",
     "esbuild": "^0.28.2",

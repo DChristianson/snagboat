@@ -81,7 +81,7 @@ Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md)). Install
 
 ## Install
 
-Requires VS Code 1.119 or later.
+Requires VS Code 1.145 or later.
 
 Download `snagboat-<version>.vsix` from the [latest release](https://github.com/DChristianson/snagboat/releases/latest), then:
 
@@ -89,7 +89,7 @@ Download `snagboat-<version>.vsix` from the [latest release](https://github.com/
 code --install-extension snagboat-0.0.2.vsix
 ```
 
-Or build it yourself (needs Node.js 22 or later):
+Or build it yourself (needs Node.js 24 or later):
 
 ```bash
 git clone https://github.com/DChristianson/snagboat.git
@@ -191,7 +191,7 @@ node dist/snagboat.js sessions --all --store user   # read the per-user store
 
 `migrate` is for the per-user store preview (`snagboat.storage.perUserStore`). It copies, never moves or deletes; running it again copies only what's new. To check a migration, save `sessions --all --json` to a file before migrating, then run `migrate --verify <file>`: every session in it must be in the per-user store with the same prompt, tool-call and token counts.
 
-By default a command reads only the store of the workspace that contains the current folder; `--all` is the explicit way to read across workspaces. It finds stores written by VS Code and its forks (Insiders, VSCodium, Cursor, Windsurf), or one store named by `SNAGBOAT_STORE`. It's built by `npm run build`; publishing it as an npm package comes later ([architecture RFC](docs/design/architecture-rfc.md)).
+By default a command reads only the store of the workspace that contains the current folder; `--all` is the explicit way to read across workspaces. It finds stores written by VS Code and its forks (Insiders, VSCodium, Cursor, Windsurf), including their servers in a dev container or over Remote-SSH (`~/.vscode-server` and the like; run the CLI on that side), or one store named by `SNAGBOAT_STORE`. A server's stores don't say which workspace they belong to, so only `--all` reads them, and `migrate` skips them: turn on `snagboat.storage.perUserStore` in that window to copy its store. It's built by `npm run build`; publishing it as an npm package comes later ([architecture RFC](docs/design/architecture-rfc.md)).
 
 ## Privacy
 
