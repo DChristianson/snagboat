@@ -59,7 +59,7 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *   GET  /advisors[?workspace=w&days=n]  each advisor's goal and measures, this period against
  *                              the one before (RFC step 4c)
  *   GET  /workspaces           the workspaces the token reads, most recently active first
- *   POST /ui-links             admin: [{ workspace }] -> a one-time code (2 minutes) and the advisor UI
+ *   POST /ui-links             admin: [{ workspace, allowHost }] -> a one-time code (2 minutes) and the advisor UI
  *                              address that uses it (http://127.0.0.1:<port>/ui/#<code>)
  *   POST /ui-session           no token: { code } -> a reader token (every workspace, read only), once
  *   GET  /ui/...               the advisor UI's files (RFC step 5a), no token; the page exchanges its code
@@ -123,6 +123,12 @@ const readsAll = (scope: Scope) => scope.admin || scope.reader === true;
 
 /** How long a one-time UI link's code is good for. */
 const UI_LINK_TTL_MS = 2 * 60_000;
+/** A browser tab's read-only key ends after this long unused. */
+const READER_IDLE_MS = 12 * 60 * 60_000;
+/** At most this many browser keys at once; a new one ends the oldest. */
+const MAX_READERS = 20;
+/** The longest daily series GET /advisors draws. */
+const MAX_SERIES_DAYS = 31;
 
 const MAX_BODY = 16 * 1024 * 1024;
 const DEFAULT_IDLE_MS = 30 * 60_000;
@@ -195,7 +201,10 @@ export class CoreService {
   private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
   /** Reader tokens for browser tabs (POST /ui-session), and the one-time codes that open them. */
-  private readonly readerTokens = new Set<string>();
+  /** Reader tokens and when each was last used: they end after READER_IDLE_MS unused, and the oldest go past MAX_READERS. */
+  private readonly readerTokens = new Map<string, number>();
+  /** Hosts a front door asked the core to accept besides 127.0.0.1 and localhost: VS Code's forwarded address in a remote window. */
+  private readonly extraHosts = new Set<string>();
   private readonly uiCodes = new Map<string, { expires: number; workspace?: string }>();
   private readonly uiDir = findUiDir();
   /** Folder -> the .code-workspace workspace it's part of, per token that registered them. */
@@ -381,16 +390,26 @@ export class CoreService {
     const given = req.headers.authorization?.replace(/^Bearer\s+/i, '') ?? '';
     if (tokenEquals(given, this.token)) return { admin: true };
     for (const [token, workspaces] of this.workspaceTokens) if (tokenEquals(given, token)) return { admin: false, workspaces };
-    for (const token of this.readerTokens) if (tokenEquals(given, token)) return { admin: false, reader: true, workspaces: [] };
+    const now = Date.now();
+    for (const [token, used] of this.readerTokens) {
+      if (now - used > READER_IDLE_MS) {
+        this.readerTokens.delete(token);
+        continue;
+      }
+      if (tokenEquals(given, token)) {
+        this.readerTokens.set(token, now);
+        return { admin: false, reader: true, workspaces: [] };
+      }
+    }
     return undefined;
   }
 
-  private async readBody(req: http.IncomingMessage): Promise<unknown> {
+  private async readBody(req: http.IncomingMessage, max = MAX_BODY): Promise<unknown> {
     const chunks: Buffer[] = [];
     let size = 0;
     for await (const chunk of req) {
       size += (chunk as Buffer).length;
-      if (size > MAX_BODY) throw new HttpError(413, 'request body too large');
+      if (size > max) throw new HttpError(413, 'request body too large');
       chunks.push(chunk as Buffer);
     }
     try {
@@ -414,7 +433,7 @@ export class CoreService {
       if (req.method === 'POST' && req.url === '/hook') return send(200, await this.hook(req));
       // The advisor UI's files, and the exchange of a one-time code for a reader token: no token yet.
       if (req.method === 'GET' && (req.url === '/ui' || req.url?.startsWith('/ui/'))) return this.serveUi(req, res);
-      if (req.method === 'POST' && req.url === '/ui-session') return send(200, this.uiSession(await this.readBody(req)));
+      if (req.method === 'POST' && req.url === '/ui-session') return send(200, this.uiSession(await this.readBody(req, 4096)));
       const scope = this.scopeOf(req);
       if (!scope) {
         req.resume();
@@ -619,7 +638,7 @@ export class CoreService {
     const logs = stores.map((s) => new EventLog(s.dir));
     const now = new Date();
     const currentEvents = await eventsIn(logs, current);
-    return { days, workspaces: stores.map((s) => s.workspace), advisors: advisorReports(advisors, currentEvents, await eventsIn(logs, previous), { now, ...(series ? { seriesDays: days } : {}) }), problems };
+    return { days, workspaces: stores.map((s) => s.workspace), advisors: advisorReports(advisors, currentEvents, await eventsIn(logs, previous), { now, ...(series && days <= MAX_SERIES_DAYS ? { seriesDays: days } : {}) }), problems };
   }
 
   /** GET /findings: the token's workspaces' findings now (the admin token names one with ?workspace=). */
@@ -629,11 +648,16 @@ export class CoreService {
     return Promise.all(list.map((w) => this.findings.current(w)));
   }
 
-/** Whether a Host header names this core: 127.0.0.1, localhost or [::1], on its port. */
+  /**
+   * Whether a Host header names this machine: 127.0.0.1, localhost or [::1], on any port (a
+   * remote VS Code window forwards the core to another port), or a host a front door added with
+   * the admin token (a Codespaces address). What stops DNS rebinding is the name: a page that
+   * points its own name at 127.0.0.1 still sends that name.
+   */
   private hostAllowed(host: string | undefined): boolean {
     if (!host) return false;
-    const m = /^(127\.0\.0\.1|localhost|\[::1\])(?::(\d+))?$/i.exec(host);
-    return !!m && (m[2] === undefined || Number(m[2]) === this.boundPort);
+    if (/^(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/i.test(host)) return true;
+    return this.extraHosts.has(host.toLowerCase());
   }
 
   /** POST /ui-links (admin): a one-time code, good for two minutes, and the address that uses it. */
@@ -644,6 +668,9 @@ export class CoreService {
     const code = crypto.randomBytes(24).toString('base64url');
     // The workspace to show first, kept with the code rather than put in the address.
     const workspace = (body as { workspace?: unknown })?.workspace;
+    // A remote VS Code window's forwarded address for the core (vscode.env.asExternalUri), to accept from now on.
+    const allowHost = (body as { allowHost?: unknown })?.allowHost;
+    if (typeof allowHost === 'string' && /^[a-z0-9.-]+(:\d+)?$/i.test(allowHost)) this.extraHosts.add(allowHost.toLowerCase());
     this.uiCodes.set(code, { expires: now + UI_LINK_TTL_MS, ...(typeof workspace === 'string' && workspace ? { workspace } : {}) });
     // The code rides in the fragment, which a browser never sends to a server or in a Referer. Bare (base64url
     // only), so nothing that opens links (VS Code's openExternal) re-encodes it.
@@ -657,7 +684,8 @@ export class CoreService {
     if (typeof code === 'string') this.uiCodes.delete(code);
     if (link === undefined || link.expires < Date.now()) throw new HttpError(401, 'that link has expired or was already used; open the advisor UI again with snagboat open');
     const token = crypto.randomBytes(32).toString('hex');
-    this.readerTokens.add(token);
+    while (this.readerTokens.size >= MAX_READERS) this.readerTokens.delete(this.readerTokens.keys().next().value!);
+    this.readerTokens.set(token, Date.now());
     return { token, ...(link.workspace ? { workspace: link.workspace } : {}) };
   }
 

@@ -845,12 +845,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         void vscode.window.showWarningMessage('Snagboat: the core service isn\'t answering; reload the window to start it again.');
         return;
       }
-      const res = await coreRequest(info.port, info.token, 'POST', '/ui-links', storage.workspace ? { workspace: storage.workspace } : {});
+      // In a remote window (dev container, SSH, Codespaces) VS Code forwards the core's port, and the browser reaches
+      // it under another address: ask for that address, and have the core accept it.
+      const external = await vscode.env.asExternalUri(vscode.Uri.parse(`http://127.0.0.1:${info.port}/`));
+      const forwarded = external.authority.toLowerCase() !== `127.0.0.1:${info.port}`;
+      const res = await coreRequest(info.port, info.token, 'POST', '/ui-links', { ...(storage.workspace ? { workspace: storage.workspace } : {}), ...(forwarded ? { allowHost: external.authority } : {}) });
       if (res.status !== 200) {
         void vscode.window.showErrorMessage(`Snagboat: the core couldn't open the advisor UI: ${JSON.stringify(res.body)}`);
         return;
       }
-      await vscode.env.openExternal(vscode.Uri.parse((res.body as { url: string }).url));
+      const { code } = res.body as { code: string };
+      await vscode.env.openExternal(external.with({ path: '/ui/', fragment: code }));
     }),
     vscode.commands.registerCommand('snagboat.revealEventLog', async () => {
       // Shows the daily files' folder in the file manager (to load them into the

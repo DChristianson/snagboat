@@ -6,6 +6,22 @@
   'use strict';
 
   const TOKEN_KEY = 'snagboat.ui.token';
+  // The workspace shown, kept in this tab rather than the address, so local paths stay out of history.
+  const WORKSPACE_KEY = 'snagboat.ui.workspace';
+  function remember(key, value) {
+    try {
+      sessionStorage.setItem(key, value);
+    } catch {
+      // no session storage: forgotten on reload
+    }
+  }
+  function recall(key) {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
   const REFRESH_MS = 60_000;
   const $ = (id) => document.getElementById(id);
   const svgNS = 'http://www.w3.org/2000/svg';
@@ -28,7 +44,7 @@
     return e;
   }
 
-  // --- The fragment: #<one-time code> when opened from Snagboat; then #workspace=…&days=… -----------
+  // --- The fragment: #<one-time code> when opened from Snagboat; then #days=… ---------------------
   const CODE = /^#([A-Za-z0-9_-]{20,})$/;
   function fragment() {
     return new URLSearchParams(CODE.test(location.hash) ? '' : location.hash.replace(/^#/, ''));
@@ -62,7 +78,7 @@
     setFragment({}); // the code is used once; don't leave it in the address or history
     const { token: t, workspace } = await api('/ui-session', { method: 'POST', body: JSON.stringify({ code }) });
     token = t;
-    if (workspace) setFragment({ workspace });
+    if (workspace) remember(WORKSPACE_KEY, workspace);
     try {
       sessionStorage.setItem(TOKEN_KEY, t);
     } catch {
@@ -198,7 +214,7 @@
   async function loadWorkspaces() {
     const list = await api('/workspaces');
     const select = $('workspace');
-    const wanted = fragment().get('workspace');
+    const wanted = recall(WORKSPACE_KEY);
     select.replaceChildren(...list.map((w) => el('option', { value: w.workspace, text: w.folder ? w.folder.split(/[\\/]/).filter(Boolean).pop() + ` · ${w.folder}` : w.workspace })));
     if (list.length === 0) {
       showMessage('No workspaces recorded yet', ['The core records a workspace once it has its first events: start an agent session in a project, then reload this page.']);
@@ -223,7 +239,8 @@
     const problems = advisors.problems || [];
     $('problems').hidden = problems.length === 0;
     $('problems').textContent = problems.length ? `Problems in your advisors' persona.md files: ${problems.join('; ')}` : '';
-    setFragment({ workspace: state.workspace, days: String(state.days) });
+    remember(WORKSPACE_KEY, state.workspace);
+    setFragment({ days: String(state.days) });
   }
 
   async function refresh() {

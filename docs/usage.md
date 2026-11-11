@@ -105,7 +105,7 @@ It names heuristics, rules, models, and session ids, never prompts, paths, or co
 
 With the per-user store on, the core service serves a page in your browser: run `snagboat open` in a project, or **Snagboat: Open Advisor UI** in VS Code. It shows each advisor's measures for the last 7, 14 or 30 days against the period before, with a line for each day, how many notifications each has used this hour, and the findings active now, for any workspace the core records (pick it at the top). Sessions, Explore and responding to findings come to it next; until then they stay in VS Code's Snagboat view.
 
-The page lives at `http://127.0.0.1:<port>/ui/` and only ever talks to the core. Each link opens it once, within 2 minutes: the link carries a one-time code, which the page swaps for a read-only key kept in that browser tab, and the code can't be used again. The key reads every workspace and changes nothing; it ends when the core stops. Open the page again with a new link after that.
+The page lives at `http://127.0.0.1:<port>/ui/` and only ever talks to the core. Each link opens it once, within 2 minutes: the link carries a one-time code, which the page swaps for a read-only key kept in that browser tab, and the code can't be used again. The key reads every workspace and changes nothing; it ends after 12 hours unused or when the core stops. Open the page again with a new link after that. In a remote VS Code window (dev container, SSH, Codespaces), **Snagboat: Open Advisor UI** opens it through VS Code's forwarded port.
 
 ## Advisors and their goals
 

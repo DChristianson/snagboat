@@ -248,8 +248,12 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
         return 1;
       }
       const link = res.body as { url: string; expiresAt: string };
-      const opened = !parsed.noOpen && openInBrowser(link.url);
-      print({ ...link, opened }, () => `${opened ? 'Opened' : 'Open'} the advisor UI: ${link.url}\nThe link works once, within 2 minutes.\n`);
+      const opened = !parsed.noOpen && (await openInBrowser(link.url));
+      // The code is printed only when it's needed (--no-open, or no browser), so it doesn't land in a transcript for nothing.
+      const address = link.url.slice(0, link.url.indexOf('#'));
+      print(opened ? { url: address, expiresAt: link.expiresAt, opened } : { ...link, opened }, () =>
+        opened ? `Opened the advisor UI (${address}) in your browser.\n` : `Open the advisor UI: ${link.url}\nThe link works once, within 2 minutes.\n`
+      );
       return 0;
     }
     case 'findings': {
@@ -440,16 +444,20 @@ if (require.main === module) {
   );
 }
 
-/** Opens a URL in the default browser; false if there's no way to. */
-function openInBrowser(url: string): boolean {
-  const [cmd, args] =
-    process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', url]] : ['xdg-open', [url]];
-  try {
-    const child = spawn(cmd, args as string[], { detached: true, stdio: 'ignore', windowsHide: true });
-    child.on('error', () => undefined);
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
+/** Opens a URL in the default browser: true once the opener started, false if there's none (a container without xdg-open). */
+function openInBrowser(url: string): Promise<boolean> {
+  // start's first quoted argument is the window title: an empty one, which Node passes to cmd as "".
+  const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(cmd, args as string[], { detached: true, stdio: 'ignore', windowsHide: true });
+      child.once('spawn', () => {
+        child.unref();
+        resolve(true);
+      });
+      child.once('error', () => resolve(false));
+    } catch {
+      resolve(false);
+    }
+  });
 }

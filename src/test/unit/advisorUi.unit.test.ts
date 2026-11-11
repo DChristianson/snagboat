@@ -59,7 +59,11 @@ async function main() {
   test('only requests addressed to 127.0.0.1 or localhost are answered (no DNS rebinding)', async () => {
     assert.strictEqual((await raw(core.port, 'GET', '/ui/', { Host: 'evil.example' })).status, 421);
     assert.strictEqual((await raw(core.port, 'GET', '/ui/', { Host: `evil.example:${core.port}` })).status, 421);
-    assert.strictEqual((await raw(core.port, 'GET', '/ui/', { Host: `127.0.0.1:${core.port + 1}` })).status, 421, 'another port');
+    assert.strictEqual((await raw(core.port, 'GET', '/ui/', { Host: 'localhost:61234' })).status, 200, 'another port: a remote VS Code window forwards the core');
+    assert.strictEqual((await raw(core.port, 'GET', '/ui/', { Host: 'x.app.github.dev' })).status, 421);
+    await coreRequest(core.port, info.token, 'POST', '/ui-links', { allowHost: 'X.app.github.dev' });
+    assert.strictEqual((await raw(core.port, 'GET', '/ui/', { Host: 'x.app.github.dev' })).status, 200, 'a forwarded address the window registered');
+    assert.strictEqual((await raw(core.port, 'POST', '/ui-session', { Host: host }, JSON.stringify({ code: 'x'.repeat(5000) }))).status, 413, 'no big bodies without a token');
     assert.strictEqual((await raw(core.port, 'GET', '/ui/', { Host: `localhost:${core.port}` })).status, 200);
     assert.strictEqual((await coreRequest(core.port, info.token, 'GET', '/health')).status, 200, 'the CLI and windows still get in');
   });
@@ -101,6 +105,13 @@ async function main() {
     }
     assert.strictEqual((await coreRequest(core.port, reader, 'GET', '/findings')).status, 400, 'names a workspace');
     assert.strictEqual((await coreRequest(core.port, reader, 'GET', `/findings?workspace=${encodeURIComponent(b)}`)).status, 200);
+    // At most 20 browser keys: the oldest ends when a new one starts.
+    const open = async () => {
+      const l = (await coreRequest(core.port, info.token, 'POST', '/ui-links', {})).body as { code: string };
+      return JSON.parse((await raw(core.port, 'POST', '/ui-session', { Host: host }, JSON.stringify({ code: l.code }))).text).token as string;
+    };
+    for (let i = 0; i < 20; i++) await open();
+    assert.strictEqual((await coreRequest(core.port, reader, 'GET', '/workspaces')).status, 401, 'the oldest key ended');
   });
 
   test("the advisors the page shows: a daily series for each measure, and each advisor's notifications this hour", async () => {
@@ -116,6 +127,8 @@ async function main() {
     assert.deepStrictEqual(body.advisors.find((x) => x.id === 'navigator')!.notify.lastHour, 1, 'one of the two notifications was in the last hour');
     const plain = (await coreRequest(core.port, info.token, 'GET', `/advisors?workspace=${encodeURIComponent(a)}`)).body as typeof body;
     assert.strictEqual(plain.advisors[0].measures.find((m) => m.id === 'cache_hit_rate')!.series, undefined, 'only when asked');
+    const long = (await coreRequest(core.port, info.token, 'GET', `/advisors?workspace=${encodeURIComponent(a)}&days=90&series=1`)).body as typeof body;
+    assert.strictEqual(long.advisors[0].measures.find((m) => m.id === 'cache_hit_rate')!.series, undefined, 'no series past 31 days');
   });
 
   test('snagboat open prints a one-time link for the workspace containing this folder', async () => {
