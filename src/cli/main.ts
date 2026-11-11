@@ -109,12 +109,12 @@ function storesOf(kind: Options['store']): Store[] {
 }
 
 function storeLabel(s: Store): string {
-  return `${s.app}  ${s.folder ?? s.workspaceFile ?? s.uri ?? (s.global ? '(no folder)' : '?')}`;
+  return `${s.app}  ${s.folder ?? s.workspaceFile ?? s.uri ?? (s.global ? '(no folder)' : '(workspace unknown)')}`;
 }
 
 function migrationText(home: string, dryRun: boolean, report: MigrationReport, skipped: Store[]): string {
   const lines = [dryRun ? `Dry run: nothing written. Would copy into ${home}:` : `Copied into ${home} (the VS Code stores are unchanged):`];
-  if (report.stores.length === 0) lines.push('  no VS Code stores found');
+  if (report.stores.length === 0 && skipped.length === 0) lines.push('  no VS Code stores found');
   for (const r of report.stores) {
     const what =
       r.status === 'up-to-date'
@@ -122,7 +122,13 @@ function migrationText(home: string, dryRun: boolean, report: MigrationReport, s
         : `${r.events} events in ${r.days} days, ${r.newEvents} ${dryRun ? 'to copy' : 'copied'}; ${r.aggregates} daily aggregates, ${r.checkpoints} checkpoints, ${r.responses} finding responses`;
     lines.push(`  ${r.label}`, `      ${what}`, `      -> ${r.dest}`);
   }
-  for (const s of skipped) lines.push(`  ${storeLabel(s)}`, `      skipped: its workspace.json doesn't say which workspace it belongs to`, `      (${s.dir})`);
+  for (const s of skipped) {
+    // VS Code's server (dev containers, Remote-SSH) writes no workspace.json; the window itself knows its folder.
+    const why = s.app.endsWith('(server)')
+      ? "VS Code's server doesn't record which workspace it belongs to; turn on snagboat.storage.perUserStore in that window to copy it"
+      : "its workspace.json doesn't say which workspace it belongs to";
+    lines.push(`  ${storeLabel(s)}`, `      skipped: ${why}`, `      (${s.dir})`);
+  }
   if (report.globals.length > 0) lines.push('Shared files:');
   for (const g of report.globals) {
     const what = g.status === 'exists' ? 'kept the one already there' : dryRun ? 'would copy' : 'copied';
@@ -131,10 +137,13 @@ function migrationText(home: string, dryRun: boolean, report: MigrationReport, s
   return lines.join('\n') + '\n';
 }
 
-function noStoreMessage(cwd: string, all: boolean): string {
-  return all
-    ? 'no Snagboat event stores found on this machine'
-    : `no Snagboat event store for a workspace containing ${cwd}; use --all to read every workspace, or --cwd <dir>`;
+const unknownWorkspace = (s: Store) => !s.global && !s.folder && !s.workspaceFile && !s.uri;
+
+/** unknown: stores whose workspace isn't known (VS Code's server writes no workspace.json), so no cwd picks them. */
+function noStoreMessage(cwd: string, all: boolean, unknown = 0): string {
+  if (all) return 'no Snagboat event stores found on this machine';
+  const hint = unknown > 0 ? ` (${unknown} store${unknown === 1 ? '' : 's'} with no known workspace, e.g. from VS Code's server, only show with --all)` : '';
+  return `no Snagboat event store for a workspace containing ${cwd}; use --all to read every workspace, or --cwd <dir>${hint}`;
 }
 
 function sessionLine(s: SessionSummary): string {
@@ -246,9 +255,10 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       return 0;
     }
     case 'sessions': {
-      const stores = selectStores(storesOf(parsed.store), cwd, parsed.all);
+      const available = storesOf(parsed.store);
+      const stores = selectStores(available, cwd, parsed.all);
       if (stores.length === 0) {
-        io.err(noStoreMessage(cwd, parsed.all) + '\n');
+        io.err(noStoreMessage(cwd, parsed.all, available.filter(unknownWorkspace).length) + '\n');
         return 1;
       }
       let list = await summaries(stores);
@@ -265,9 +275,10 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
         io.err(`session needs an id\n\n${USAGE}`);
         return 2;
       }
-      const stores = selectStores(storesOf(parsed.store), cwd, parsed.all);
+      const available = storesOf(parsed.store);
+      const stores = selectStores(available, cwd, parsed.all);
       if (stores.length === 0) {
-        io.err(noStoreMessage(cwd, parsed.all) + '\n');
+        io.err(noStoreMessage(cwd, parsed.all, available.filter(unknownWorkspace).length) + '\n');
         return 1;
       }
       const found = (await summaries(stores)).filter((s) => s.sessionId === id || s.sessionId.startsWith(id));

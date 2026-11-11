@@ -13,6 +13,11 @@ import { listUserStores, readWorkspaceJson } from '../core/userStore';
  * with <hash>/workspace.json naming the folder or .code-workspace file. A window
  * with no folder open uses globalStorage/dchristianson.snagboat instead.
  *
+ * The user dir is the desktop app's (~/.config/Code/User and the like) or, in a
+ * dev container or over Remote-SSH, the VS Code server's (~/.vscode-server/data/User),
+ * where the extension runs on the remote side. The server writes no
+ * workspace.json, so its stores don't say which workspace they belong to.
+ *
  * Read-only: nothing here writes to a store (core/migrate.ts copies them).
  */
 
@@ -20,6 +25,15 @@ export const EXTENSION_ID = 'dchristianson.snagboat';
 
 /** VS Code and its forks that install VS Code extensions under the same layout. */
 const APPS = ['Code', 'Code - Insiders', 'VSCodium', 'Cursor', 'Windsurf'];
+
+/** Their remote servers' folders in the home folder (serverDataFolderName in each product.json), with the same layout under data/User. */
+const SERVERS: Array<[app: string, folder: string]> = [
+  ['Code', '.vscode-server'],
+  ['Code - Insiders', '.vscode-server-insiders'],
+  ['VSCodium', '.vscodium-server'],
+  ['Cursor', '.cursor-server'],
+  ['Windsurf', '.windsurf-server'],
+];
 
 export interface Store {
   /** vscode: a VS Code window's storage; user: a workspace's folder in the per-user store (~/.snagboat/data). */
@@ -40,7 +54,12 @@ export interface Store {
   global: boolean;
 }
 
-/** Where each app keeps its User folder on this platform. */
+/**
+ * Where each app keeps its User folder on this platform, then each app's
+ * remote server (labelled e.g. "Code (server)"). The server's folder is in the
+ * home folder on every platform, Windows included (Remote-SSH to a Windows
+ * host); VSCODE_AGENT_FOLDER moves VS Code's.
+ */
 export function userDirs(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env, home = os.homedir()): Array<{ app: string; dir: string }> {
   const base =
     platform === 'darwin'
@@ -48,7 +67,12 @@ export function userDirs(platform: NodeJS.Platform = process.platform, env: Node
       : platform === 'win32'
         ? env.APPDATA ?? path.join(home, 'AppData', 'Roaming')
         : env.XDG_CONFIG_HOME ?? path.join(home, '.config');
-  return APPS.map((app) => ({ app, dir: path.join(base, app, 'User') }));
+  const desktop = APPS.map((app) => ({ app, dir: path.join(base, app, 'User') }));
+  const servers = SERVERS.map(([app, folder]) => ({
+    app: `${app} (server)`,
+    dir: path.join(app === 'Code' && env.VSCODE_AGENT_FOLDER ? env.VSCODE_AGENT_FOLDER : path.join(home, folder), 'data', 'User'),
+  }));
+  return [...desktop, ...servers];
 }
 
 const hasEvents = (dir: string) => fs.existsSync(path.join(dir, 'events'));
