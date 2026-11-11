@@ -38,7 +38,7 @@ async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 5_00
 }
 
 async function start(home: string, extra: Partial<Parameters<typeof CoreService.start>[0]> = {}) {
-  return CoreService.start({ home, version: 'test', idleMs: 0, ingestEveryMs: 50, ...extra });
+  return CoreService.start({ home, version: 'test', idleMs: 0, ingestEveryMs: 50, collect: false, ...extra });
 }
 
 const ev = (i: number, sessionId = 's1'): NormalizedEvent => ({ ...syntheticEvents()[i], sessionId, eventId: `e-${sessionId}-${i}` });
@@ -97,7 +97,7 @@ async function main() {
       const beta = (await mint(['/w/beta'])).token;
 
       const posted = await coreRequest(core.port, alpha, 'POST', '/events', [ev(0, 'a1'), ev(1, 'a1')]);
-      assert.deepStrictEqual(posted, { status: 200, body: { written: 2, duplicates: 0, spooled: 0 } });
+      assert.deepStrictEqual(posted, { status: 200, body: { written: 2, duplicates: 0, spooled: 0, dropped: 0 } });
       assert.strictEqual((await coreRequest(core.port, beta, 'POST', '/events', ev(2, 'b1'))).status, 200);
       const onDisk = await new EventLog(workspaceStoreDir(home, '/w/alpha')).readAll();
       assert.ok(onDisk.length === 2 && onDisk.every((e) => e.workspace === '/w/alpha'), 'tagged with the token workspace');
@@ -126,7 +126,7 @@ async function main() {
       const { token } = (await coreRequest(core.port, core.token, 'POST', '/tokens', { workspaces: ['/w/a'] })).body as { token: string };
       await coreRequest(core.port, token, 'POST', '/events', ev(0));
       const again = await coreRequest(core.port, token, 'POST', '/events', [ev(0), ev(1)]);
-      assert.deepStrictEqual(again.body, { written: 1, duplicates: 1, spooled: 0 });
+      assert.deepStrictEqual(again.body, { written: 1, duplicates: 1, spooled: 0, dropped: 0 });
       assert.strictEqual((await new EventLog(workspaceStoreDir(home, '/w/a')).readAll()).length, 2);
     } finally {
       await core.stop();
@@ -142,7 +142,7 @@ async function main() {
       claimWorkspace(dir, window.pid!);
       assert.strictEqual(claimedBy(dir), window.pid);
       const { token } = (await coreRequest(core.port, core.token, 'POST', '/tokens', { workspaces: ['/w/claimed'] })).body as { token: string };
-      assert.deepStrictEqual((await coreRequest(core.port, token, 'POST', '/events', [ev(0), ev(1)])).body, { written: 0, duplicates: 0, spooled: 2 });
+      assert.deepStrictEqual((await coreRequest(core.port, token, 'POST', '/events', [ev(0), ev(1)])).body, { written: 0, duplicates: 0, spooled: 2, dropped: 0 });
       assert.strictEqual((await new EventLog(dir).readAll()).length, 0, 'nothing written while claimed');
       assert.ok(fs.readdirSync(spoolDir(home)).length === 1);
       if (process.platform !== 'win32') assert.strictEqual(fs.statSync(spoolDir(home)).mode & 0o777, 0o700);
@@ -189,7 +189,10 @@ async function main() {
   test('`snagboat core start` runs one in the background; status and stop find it', async () => {
     const home = tempHome();
     const saved = process.env.SNAGBOAT_HOME;
+    const savedProjects = process.env.SNAGBOAT_CLAUDE_PROJECTS_DIR;
     process.env.SNAGBOAT_HOME = home;
+    // The background core collects transcripts: point it at an empty folder, not this machine's.
+    process.env.SNAGBOAT_CLAUDE_PROJECTS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-no-projects-'));
     const cli = async (args: string[]) => {
       let out = '';
       let err = '';
@@ -220,6 +223,8 @@ async function main() {
       }
       if (saved === undefined) delete process.env.SNAGBOAT_HOME;
       else process.env.SNAGBOAT_HOME = saved;
+      if (savedProjects === undefined) delete process.env.SNAGBOAT_CLAUDE_PROJECTS_DIR;
+      else process.env.SNAGBOAT_CLAUDE_PROJECTS_DIR = savedProjects;
     }
   });
 

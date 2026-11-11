@@ -22,6 +22,7 @@ import { coreRequest } from '../../core/service/coreFile';
 import { hookSpoolDir, ingestHookSpool } from '../../core/service/hooks';
 import { EventLog } from '../../core/eventLog';
 import { workspaceStoreDir } from '../../core/userStore';
+import { saveConfig } from '../../core/config';
 
 // End to end: the real generated sh script, run the way Claude Code runs a
 // hook command, delivering to a real HooksReceiver.
@@ -317,7 +318,7 @@ async function main() {
 
   /** A core in this process, knowing projectA as a workspace (as if a window registered it with a token). */
   async function startCore(home: string, workspaces: string[]) {
-    const core = await CoreService.start({ home, version: 'test', idleMs: 0, ingestEveryMs: 60_000 });
+    const core = await CoreService.start({ home, version: 'test', idleMs: 0, ingestEveryMs: 60_000, collect: false });
     await coreRequest(core.port, core.token, 'POST', '/tokens', { workspaces });
     return core;
   }
@@ -400,13 +401,20 @@ async function main() {
     }
   });
 
-  test("the core doesn't record projects outside every known workspace, and doesn't spool them either", async () => {
+  test('the core records a project no window knows, under its own folder, unless collect.unopened is off', async () => {
     const { home, script, projectA, projectB } = await setup();
     const core = await startCore(home, [projectA]);
     try {
-      await runHook(home, script, projectB, payload(projectB));
-      assert.ok(!fs.existsSync(path.join(home, 'data', 'workspaces')), 'no store created for projectB');
-      assert.deepStrictEqual(fs.readdirSync(hookSpoolDir(home)), []);
+      await runHook(home, script, projectB, { ...payload(projectB), tool_use_id: 'u1' });
+      assert.deepStrictEqual((await storeEvents(home, projectB)).map((e) => [e.eventId, e.workspace]), [['tool:u1', projectB]]);
+      saveConfig(home, { version: 1, defaults: { 'collect.unopened': false }, projects: {} });
+      const other = path.join(path.dirname(projectB), 'c');
+      fs.mkdirSync(other);
+      await runHook(home, script, other, payload(other));
+      assert.ok(!fs.existsSync(workspaceStoreDir(home, other)), 'not recorded with collect.unopened off');
+      await runHook(home, script, projectA, { ...payload(projectA), tool_use_id: 'k1' });
+      assert.deepStrictEqual((await storeEvents(home, projectA)).map((e) => e.eventId), ['tool:k1'], 'a known workspace is still recorded');
+      assert.deepStrictEqual(fs.readdirSync(hookSpoolDir(home)), [], 'nothing spooled');
     } finally {
       await core.stop();
     }

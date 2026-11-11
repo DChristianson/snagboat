@@ -4,12 +4,16 @@ import * as http from 'http';
 import * as path from 'path';
 import { NormalizedEvent, SessionSummary } from '@snagboat/schema';
 import { storeSessions } from '../sessionSummaries';
-import { listUserStores, workspaceInfoOf } from '../userStore';
+import { listUserStores, userDataDir, workspaceInfoOf } from '../userStore';
 import { liveCore, readCoreFile, removeCoreFile, removeCoreRoute, writeCoreFile, writeCoreRoute } from './coreFile';
-import { hookEvent, ingestHookSpool, openHookSpool, workspaceForProject } from './hooks';
+import { hookEvent, ingestHookSpool, openHookSpool } from './hooks';
+import { ClaudeCollector, defaultProjectsDir } from './claudeCollector';
+import { collectedWorkspace, knownWorkspaceFolders } from './workspaces';
+import { CheckpointStore } from '../checkpointStore';
+import { effectiveSettings } from '../config';
 import { projectDirHeader } from '../../adapters/claude-code/hooksReceiver';
 import { isProcessAlive } from '../processes';
-import { StoreWriter } from './storeWriter';
+import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
 
 /**
  * The core service (docs/design/architecture-rfc.md, step 3; handoff 3c-2):
@@ -52,6 +56,12 @@ export interface CoreOptions {
   idleMs?: number;
   /** How often to move spooled events of workspaces no longer claimed; default 30 seconds. */
   ingestEveryMs?: number;
+  /** Read Claude Code transcripts for every project (default true; 3c-3b). */
+  collect?: boolean;
+  /** Where Claude Code keeps its projects' transcripts; default ~/.claude/projects (SNAGBOAT_CLAUDE_PROJECTS_DIR). */
+  claudeProjectsDir?: string;
+  /** How often to apply retention to the workspaces the core owns; default every 6 hours. */
+  retentionEveryMs?: number;
   log?: (line: string) => void;
 }
 
@@ -124,6 +134,8 @@ export class CoreService {
   private readonly server: http.Server;
   private readonly writer: StoreWriter;
   private readonly workspaceTokens = new Map<string, string[]>();
+  private collector?: ClaudeCollector;
+  private readonly settingsCache = new Map<string, { at: number; values: Record<string, unknown> }>();
   private readonly startedAt = new Date().toISOString();
   private lastActivity = Date.now();
   private timers: NodeJS.Timeout[] = [];
@@ -175,8 +187,37 @@ export class CoreService {
         core.log(`spool ingest failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
-    void ingest();
+    // Retention for the workspaces the core owns (no window has them), after the spools are in.
+    const retention = async () => {
+      try {
+        const days = await core.writer.runRetention();
+        if (days > 0) core.log(`retention: rolled up or removed text from ${days} day(s)`);
+      } catch (err) {
+        core.log(`retention failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+    void ingest().then(retention);
     core.timers.push(setInterval(ingest, opts.ingestEveryMs ?? 30_000));
+    core.timers.push(setInterval(retention, opts.retentionEveryMs ?? RETENTION_INTERVAL_MS));
+    if (opts.collect ?? true) {
+      const checkpoints = new CheckpointStore(path.join(userDataDir(opts.home), 'core'));
+      await checkpoints.init();
+      core.collector = new ClaudeCollector({
+        projectsDir: opts.claudeProjectsDir ?? defaultProjectsDir(),
+        checkpoints,
+        workspaceFor: (projectDir) => core.workspaceFor(projectDir),
+        captureContent: (projectDir) => core.settingsFor(projectDir).captureContent !== false,
+        deliver: (events, projectDir) => {
+          // Collecting counts as activity: the core stays up while an agent is working.
+          core.lastActivity = Date.now();
+          // A window that claimed the workspace reads this very transcript folder itself when the
+          // project is its folder: drop. A session started in a subfolder it never reads: keep.
+          return core.writer.write(events, (e) => (workspaceInfoOf(e.workspace!).folder === projectDir ? 'drop' : 'spool'));
+        },
+        log: (line) => core.log(line),
+      });
+      await core.collector.start();
+    }
     const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
     if (idleMs > 0) {
       core.timers.push(
@@ -196,6 +237,7 @@ export class CoreService {
     if (this.stopping) return this.stopped;
     this.stopping = true;
     for (const t of this.timers) clearInterval(t);
+    this.collector?.stop();
     removeCoreRoute(this.opts.home, process.pid);
     removeCoreFile(this.opts.home, process.pid);
     const closed = new Promise<void>((resolve) => this.server.close(() => resolve()));
@@ -266,11 +308,18 @@ export class CoreService {
     }
   }
 
-  /** Workspace folders a hook's project can belong to: those with a folder in the per-user store, and those registered with a token. */
-  private knownFolders(): string[] {
-    const fromStores = listUserStores(this.opts.home).map((s) => s.folder);
-    const fromTokens = [...this.workspaceTokens.values()].flat().map((w) => workspaceInfoOf(w).folder);
-    return [...new Set([...fromStores, ...fromTokens].filter((f): f is string => !!f))];
+  /** A project folder's settings (config.json, .snagboat.json), cached for a few seconds: collectors ask per chunk. */
+  settingsFor(dir: string): Record<string, unknown> {
+    const hit = this.settingsCache.get(dir);
+    if (hit && Date.now() - hit.at < 5_000) return hit.values;
+    const values = effectiveSettings(this.opts.home, dir).values;
+    this.settingsCache.set(dir, { at: Date.now(), values });
+    return values;
+  }
+
+  /** The workspace a project's activity is recorded under, or undefined when it's not recorded (workspaces.ts). */
+  workspaceFor(projectDir: string): string | undefined {
+    return collectedWorkspace(this.opts.home, projectDir, knownWorkspaceFolders(this.opts.home, [...this.workspaceTokens.values()].flat()));
   }
 
   private async hook(req: http.IncomingMessage) {
@@ -287,8 +336,8 @@ export class CoreService {
    * Snagboat records), so the script doesn't spool what would be dropped anyway.
    */
   async deliverHook(projectDir: string, payload: unknown, receivedAt: string) {
-    const workspace = workspaceForProject(projectDir, this.knownFolders());
-    if (!workspace) return { recorded: false, reason: 'no known workspace contains the project' };
+    const workspace = this.workspaceFor(projectDir);
+    if (!workspace) return { recorded: false, reason: "the project's settings say not to record it" };
     const event = hookEvent(payload, receivedAt);
     if (!event) return { recorded: false, reason: 'not a hook Snagboat records' };
     return { recorded: true, ...(await this.writer.write([{ ...event, workspace }])) };

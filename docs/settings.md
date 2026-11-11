@@ -133,7 +133,14 @@ Layers, lowest first:
 }
 ```
 
-VS Code copies only settings someone set, and only Snagboat's own; `storage.*` and the advisor's settings stay in VS Code. A key it doesn't have, such as `collect`, is left as you wrote it. `"collect": false` stops Snagboat recording that project.
+VS Code copies only settings someone set, and only Snagboat's own; `storage.*` and the advisor's settings stay in VS Code. A key it doesn't have, such as `collect`, is left as you wrote it.
+
+Two keys exist only here, for the core service, which records every Claude Code project on the machine while it runs:
+
+| Key | Default | Where | Purpose |
+| --- | --- | --- | --- |
+| `collect` | `true` | defaults, a project entry, or `.snagboat.json` | `false` stops Snagboat recording that project (its transcripts and hooks). |
+| `collect.unopened` | `true` | `config.json` `"defaults"` only | `false` records only projects inside a workspace Snagboat knows: one with a folder in `~/.snagboat/data`, one in `"projects"` here, or one a VS Code window registered. |
 
 **`.snagboat.json` is shared with everyone who clones the project**, so it can set only team settings: heuristic thresholds, token budgets, `rules`, `toolCategories`, discovery and nudges. Privacy settings it can only make more private: turn `captureContent`, `copilot.captureStructure` or `claudeCode.configureHooks` off, shorten retention, or set `"collect": false`. Anything else in it is ignored, and `snagboat config` says why.
 
