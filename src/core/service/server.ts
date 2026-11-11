@@ -51,8 +51,9 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention'];
  *
  * POST /tokens takes { workspaces: [w], folders: [...] } for a saved multi-root workspace
  * (a .code-workspace file): projects in those folders are recorded under w while the token lives.
- * When the core stops, each open stream gets a "stopping" message, so its client doesn't
- * start another core in its place.
+ * When the core is stopped on purpose (POST /shutdown: snagboat core stop), each open stream
+ * gets a "stopping" message, so its client doesn't start another core in its place. Any other
+ * exit (a signal, a crash) says nothing, and clients start a new core.
  *   POST /hook                 hook token (core.route): a Claude Code hook payload, with the
  *                              project dir header the hook script sends
  *   POST /shutdown             admin: stop the core
@@ -261,12 +262,15 @@ export class CoreService {
     return core;
   }
 
-  async stop(): Promise<void> {
+  /** Stops the core. final: stopped on purpose (snagboat core stop), so clients shouldn't start another. */
+  async stop(opts: { final?: boolean } = {}): Promise<void> {
     if (this.stopping) return this.stopped;
     this.stopping = true;
-    // Said and closed before the connections are cut, so each client hears it (and doesn't start another core).
-    const said = [...this.stoppingStreams].map((say) => say());
-    await Promise.race([Promise.all(said), new Promise((r) => setTimeout(r, 1_000).unref())]);
+    if (opts.final) {
+      // Said and closed before the connections are cut, so each client hears it (and doesn't start another core).
+      const said = [...this.stoppingStreams].map((say) => say());
+      await Promise.race([Promise.all(said), new Promise((r) => setTimeout(r, 1_000).unref())]);
+    }
     for (const t of this.timers) clearInterval(t);
     this.collector?.stop();
     removeCoreRoute(this.opts.home, process.pid);
@@ -335,7 +339,7 @@ export class CoreService {
       if (route === 'POST /shutdown') {
         if (!scope.admin) throw new HttpError(403, 'only the admin token can stop the core');
         send(200, { stopping: true });
-        setImmediate(() => void this.stop());
+        setImmediate(() => void this.stop({ final: true }));
         return;
       }
       req.resume();

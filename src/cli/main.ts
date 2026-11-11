@@ -152,9 +152,15 @@ function noStoreMessage(cwd: string, all: boolean, unknown = 0): string {
   return `no Snagboat event store for a workspace containing ${cwd}; use --all to read every workspace, or --cwd <dir>${hint}`;
 }
 
-function sessionLine(s: SessionSummary): string {
+/** A store's workspace, for lines that mix stores: its folder, .code-workspace file or remote URI. */
+function storeWhere(s: Store): string {
+  return s.folder ?? s.workspaceFile ?? s.uri ?? (s.global ? '(no folder)' : '(workspace unknown)');
+}
+
+/** One line per session; with `where`, the workspace it's from follows (when more than one store is listed). */
+function sessionLine(s: SessionSummary, where?: string): string {
   const name = s.name ? ` "${s.name}"` : '';
-  return `${s.lastTs.slice(0, 16).replace('T', ' ')}  ${s.agent.padEnd(11)}  ${String(s.prompts).padStart(3)} prompts  ${String(s.toolCalls).padStart(4)} tools  ${String(s.tokens).padStart(9)} tokens  ${s.sessionId}${name}`;
+  return `${s.lastTs.slice(0, 16).replace('T', ' ')}  ${s.agent.padEnd(11)}  ${String(s.prompts).padStart(3)} prompts  ${String(s.toolCalls).padStart(4)} tools  ${String(s.tokens).padStart(9)} tokens  ${s.sessionId}${name}${where ? `  ${where}` : ''}`;
 }
 
 export async function runCli(argv: string[], io: CliIo, version: string): Promise<number> {
@@ -286,7 +292,9 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
         const since = new Date(io.now.getTime() - parsed.days * 86_400_000).toISOString();
         list = list.filter((s) => s.lastTs >= since);
       }
-      print(list, () => (list.length ? list.map(sessionLine).join('\n') + '\n' : 'no sessions\n'));
+      const where = new Map(stores.map((s) => [s.dir, storeWhere(s)]));
+      const line = (s: (typeof list)[number]) => sessionLine(s, stores.length > 1 ? where.get(s.store) : undefined);
+      print(list, () => (list.length ? list.map(line).join('\n') + '\n' : 'no sessions\n'));
       return 0;
     }
     case 'session': {

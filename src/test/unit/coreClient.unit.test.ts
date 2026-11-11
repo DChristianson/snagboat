@@ -255,7 +255,7 @@ async function main() {
     client.follow({ onEvents: (e) => got.push(...e.map((x) => x.eventId)), onReplayed: () => (replays += 1) }, new Date().toISOString());
     try {
       await waitFor(() => replays === 1);
-      await core.stop();
+      await core.stop({ final: true }); // as POST /shutdown does
       await new Promise((r) => setTimeout(r, 2_500));
       assert.strictEqual(ensured, 1, 'only the first connect asked to start one');
       core = await start(home);
