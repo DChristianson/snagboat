@@ -51,6 +51,30 @@ export function removeCoreFile(home: string, pid: number): void {
   if (readCoreFile(home)?.pid === pid) fs.rmSync(coreFilePath(home), { force: true });
 }
 
+/**
+ * ~/.snagboat/core.route: "<port> <hook token> <pid>", the same format as a
+ * window's route file, so the hook script reads it the same way. The hook
+ * token can only post hooks. Owner-only.
+ */
+export function coreRoutePath(home: string): string {
+  return path.join(home, 'core.route');
+}
+
+export function writeCoreRoute(home: string, port: number, hookToken: string, pid: number): void {
+  const file = coreRoutePath(home);
+  const temp = `${file}.${pid}.tmp`;
+  fs.writeFileSync(temp, `${port} ${hookToken} ${pid}\n`, { mode: 0o600 });
+  fs.renameSync(temp, file);
+}
+
+export function removeCoreRoute(home: string, pid: number): void {
+  try {
+    if (Number(fs.readFileSync(coreRoutePath(home), 'utf8').trim().split(/\s+/)[2]) === pid) fs.rmSync(coreRoutePath(home), { force: true });
+  } catch {
+    // already gone
+  }
+}
+
 export interface CoreResponse {
   status: number;
   body: unknown;

@@ -4,8 +4,10 @@ import * as http from 'http';
 import * as path from 'path';
 import { NormalizedEvent, SessionSummary } from '@snagboat/schema';
 import { storeSessions } from '../sessionSummaries';
-import { listUserStores } from '../userStore';
-import { liveCore, readCoreFile, removeCoreFile, writeCoreFile } from './coreFile';
+import { listUserStores, workspaceInfoOf } from '../userStore';
+import { liveCore, readCoreFile, removeCoreFile, removeCoreRoute, writeCoreFile, writeCoreRoute } from './coreFile';
+import { hookEvent, ingestHookSpool, openHookSpool, workspaceForProject } from './hooks';
+import { projectDirHeader } from '../../adapters/claude-code/hooksReceiver';
 import { isProcessAlive } from '../processes';
 import { StoreWriter } from './storeWriter';
 
@@ -27,6 +29,8 @@ import { StoreWriter } from './storeWriter';
  *   POST /events               one event or an array; workspace set from the token if missing
  *   GET  /sessions[?days=n]    sessions of the token's workspaces, newest first
  *   GET  /sessions/:id         one session, by id or unique id prefix
+ *   POST /hook                 hook token (core.route): a Claude Code hook payload, with the
+ *                              project dir header the hook script sends
  *   POST /shutdown             admin: stop the core
  *
  * It exits after idleMs with no requests (0: never). It doesn't run retention:
@@ -114,6 +118,8 @@ function tokenEquals(a: string, b: string): boolean {
 
 export class CoreService {
   readonly token = crypto.randomBytes(32).toString('hex');
+  /** Published in core.route for the hook script; good only for POST /hook. */
+  readonly hookToken = crypto.randomBytes(32).toString('hex');
   readonly stopped: Promise<void>;
   private readonly server: http.Server;
   private readonly writer: StoreWriter;
@@ -153,13 +159,22 @@ export class CoreService {
     }
     core.boundPort = (core.server.address() as { port: number }).port;
     writeCoreFile(opts.home, { port: core.boundPort, token: core.token, pid: process.pid, version: opts.version, startedAt: core.startedAt });
+    writeCoreRoute(opts.home, core.boundPort, core.hookToken, process.pid);
+    // From now on, hooks that find neither a window nor a running core are kept for the next core.
+    openHookSpool(opts.home);
     core.log(`snagboat core ${opts.version} listening on 127.0.0.1:${core.boundPort} (pid ${process.pid})`);
 
-    const ingest = () =>
-      core.writer
-        .ingestSpool()
-        .then((n) => n > 0 && core.log(`ingested ${n} spooled event(s)`))
-        .catch((err) => core.log(`spool ingest failed: ${err instanceof Error ? err.message : String(err)}`));
+    // Hooks spooled while no core ran, then events spooled for workspaces a window had claimed.
+    const ingest = async () => {
+      try {
+        const hooks = await ingestHookSpool(opts.home, async (projectDir, payload, at) => void (await core.deliverHook(projectDir, payload, at)));
+        if (hooks > 0) core.log(`read ${hooks} spooled hook(s)`);
+        const events = await core.writer.ingestSpool();
+        if (events > 0) core.log(`ingested ${events} spooled event(s)`);
+      } catch (err) {
+        core.log(`spool ingest failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
     void ingest();
     core.timers.push(setInterval(ingest, opts.ingestEveryMs ?? 30_000));
     const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
@@ -181,6 +196,7 @@ export class CoreService {
     if (this.stopping) return this.stopped;
     this.stopping = true;
     for (const t of this.timers) clearInterval(t);
+    removeCoreRoute(this.opts.home, process.pid);
     removeCoreFile(this.opts.home, process.pid);
     const closed = new Promise<void>((resolve) => this.server.close(() => resolve()));
     this.server.closeAllConnections();
@@ -221,6 +237,7 @@ export class CoreService {
       res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
     };
     try {
+      if (req.method === 'POST' && req.url === '/hook') return send(200, await this.hook(req));
       const scope = this.scopeOf(req);
       if (!scope) {
         req.resume();
@@ -247,6 +264,34 @@ export class CoreService {
       this.log(`request failed: ${err instanceof Error ? err.message : String(err)}`);
       send(500, { error: 'internal error' });
     }
+  }
+
+  /** Workspace folders a hook's project can belong to: those with a folder in the per-user store, and those registered with a token. */
+  private knownFolders(): string[] {
+    const fromStores = listUserStores(this.opts.home).map((s) => s.folder);
+    const fromTokens = [...this.workspaceTokens.values()].flat().map((w) => workspaceInfoOf(w).folder);
+    return [...new Set([...fromStores, ...fromTokens].filter((f): f is string => !!f))];
+  }
+
+  private async hook(req: http.IncomingMessage) {
+    const given = req.headers.authorization?.replace(/^Bearer\s+/i, '') ?? '';
+    if (!tokenEquals(given, this.hookToken) && !tokenEquals(given, this.token)) throw new HttpError(401, 'missing or unknown token');
+    const projectDir = projectDirHeader(req.headers['x-snagboat-project-dir'], req.headers['x-snagboat-project-dir-hex']);
+    if (!projectDir) throw new HttpError(400, 'missing X-Snagboat-Project-Dir');
+    return this.deliverHook(projectDir, await this.readBody(req), new Date().toISOString());
+  }
+
+  /**
+   * Records a hook for the workspace containing its project. Answers 200 even
+   * when it records nothing (no known workspace, or a payload that isn't a hook
+   * Snagboat records), so the script doesn't spool what would be dropped anyway.
+   */
+  async deliverHook(projectDir: string, payload: unknown, receivedAt: string) {
+    const workspace = workspaceForProject(projectDir, this.knownFolders());
+    if (!workspace) return { recorded: false, reason: 'no known workspace contains the project' };
+    const event = hookEvent(payload, receivedAt);
+    if (!event) return { recorded: false, reason: 'not a hook Snagboat records' };
+    return { recorded: true, ...(await this.writer.write([{ ...event, workspace }])) };
   }
 
   private mintToken(scope: Scope, body: unknown): { token: string; workspaces: string[] } {
