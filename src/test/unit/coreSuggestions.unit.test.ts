@@ -45,7 +45,7 @@ async function main() {
   test('actions are checked before they reach the controller', () => {
     assert.deepStrictEqual(parseSuggestionAction({ action: 'tweak', id: 'c1', threshold: 3 }), { action: 'tweak', id: 'c1', threshold: 3 });
     assert.deepStrictEqual(parseSuggestionAction({ action: 'removeSaved', section: 'rules', id: 'r' }), { action: 'removeSaved', section: 'rules', id: 'r' });
-    for (const bad of [{ action: 'tweak', id: 'c1', threshold: 'x' }, { action: 'accept' }, { action: 'removeSaved', section: 'files', id: 'r' }, { action: 'askAdvisor' }, { action: 'dismiss', id: 'x'.repeat(201) }, null]) assert.strictEqual(parseSuggestionAction(bad), undefined, JSON.stringify(bad));
+    for (const bad of [{ action: 'tweak', id: 'c1', threshold: 'x' }, { action: 'accept' }, { action: 'removeSaved', section: 'files', id: 'r' }, { action: 'writeFile' }, { action: 'approve', id: '1' }, { action: 'dismiss', id: 'x'.repeat(201) }, null]) assert.strictEqual(parseSuggestionAction(bad), undefined, JSON.stringify(bad));
   });
 
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-suggest-')));
@@ -121,7 +121,7 @@ async function main() {
     const other = ((await coreRequest(core.port, info.token, 'POST', '/tokens', { workspaces: [b] })).body as { token: string }).token;
     assert.strictEqual((await get(other)).status, 403);
     assert.strictEqual((await act({ action: 'clearDismissed' }, other)).status, 403);
-    assert.strictEqual((await act({ action: 'askAdvisor' })).status, 400);
+    assert.strictEqual((await act({ action: 'writeFile' })).status, 400);
     assert.strictEqual((await coreRequest(core.port, info.token, 'GET', '/suggestions')).status, 400);
   });
 

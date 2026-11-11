@@ -770,12 +770,67 @@
     clearDismissed: () => ({ action: 'clearDismissed' }),
     applyThreshold: (m) => ({ action: 'applyThreshold', heuristic: m.heuristic, setting: m.setting }),
     removeSaved: (m) => ({ action: 'removeSaved', section: m.section, id: m.id }),
+    askAdvisor: () => ({ action: 'askAdvisor' }),
+    applyAdvisorThreshold: (m) => ({ action: 'applyAdvisorThreshold', heuristic: m.heuristic, setting: m.setting }),
   };
+  let choosingAdvisor = false;
+  /**
+   * Beside VS Code's view: the core's local advisors (step 5c-2b). A request waiting for your approval shows
+   * its exact payload with Send and Cancel; Ask another advisor lists the others; an error says what failed.
+   */
+  function renderAdvice(view) {
+    const box = $('advice');
+    const core = view.core || { advisors: [] };
+    const parts = [];
+    const send = (body) => void suggestionMessage({ type: '__core', body });
+    if (core.approval) {
+      const a = core.approval;
+      const yes = el('button', { class: 'btn primary', type: 'button', text: 'Send' });
+      const no = el('button', { class: 'btn ghost', type: 'button', text: "Don't send" });
+      yes.addEventListener('click', () => send({ action: 'approve', id: a.id, send: true }));
+      no.addEventListener('click', () => send({ action: 'approve', id: a.id, send: false }));
+      parts.push(
+        el('h2', { text: `Send this to ${a.advisor} (${a.model})?` }),
+        el('p', { class: 'small', text: `Below is exactly what will be sent, to a model on this machine. This is the first request with ${a.advisor}'s current address and sending rules; you won't be asked again until they change, here or in VS Code.` }),
+        el('pre', { class: 'payload', text: a.payload }),
+        el('div', { class: 'acts' }, [yes, no])
+      );
+    } else if (choosingAdvisor) {
+      parts.push(el('h2', { text: 'Ask which advisor?' }));
+      const row = el('div', { class: 'acts' });
+      for (const c of core.advisors) {
+        const b = el('button', { class: 'btn', type: 'button', text: c.model ? `${c.label} (${c.model})` : c.label });
+        b.addEventListener('click', () => {
+          choosingAdvisor = false;
+          send({ action: 'askAdvisor', advisorId: c.id });
+        });
+        row.append(b);
+      }
+      const cancel = el('button', { class: 'btn ghost', type: 'button', text: 'Cancel' });
+      cancel.addEventListener('click', () => {
+        choosingAdvisor = false;
+        renderAdvice(view);
+      });
+      row.append(cancel);
+      parts.push(row);
+    }
+    if (core.error) parts.push(el('p', { class: 'err', text: core.error }));
+    if (!core.advisors.length && view.status === 'ready') {
+      parts.push(el('p', { class: 'small muted', text: 'To have an advisor name these candidates and propose rules here, run a local model (for example Ollama) or add one to snagboat.advisors in your user settings. The advisor UI asks only models on this machine; hosted advisors stay in VS Code.' }));
+    }
+    box.replaceChildren(...parts);
+    box.hidden = parts.length === 0;
+  }
+  let lastSuggestions = null;
   function showSuggestions(view) {
+    lastSuggestions = view;
     window.postMessage({ type: 'suggestions', view }, location.origin);
+    renderAdvice(view);
     clearTimeout(suggestionsPoll);
-    // Discovery runs in the core; look again until it's done.
-    if (view.status === 'running' && route()[0] === 'suggestions') suggestionsPoll = setTimeout(() => void refreshSuggestions(), 1500);
+    // Discovery and advisor requests run in the core; look again until they're done (a request waiting for
+    // your approval is shown, not polled).
+    const busy = view.status === 'running' || (view.advisor && view.advisor.status === 'asking' && !(view.core && view.core.approval));
+    if (busy && route()[0] === 'suggestions') suggestionsPoll = setTimeout(() => void refreshSuggestions(), 1500);
   }
   async function refreshSuggestions() {
     try {
@@ -791,7 +846,12 @@
       location.hash = `#${new URLSearchParams({ session: m.sessionId }).toString()}`;
       return;
     }
-    const make = SUGGESTION_ACTIONS[m.type];
+    if (m.type === 'askAnotherAdvisor') {
+      choosingAdvisor = true;
+      if (lastSuggestions) renderAdvice(lastSuggestions);
+      return;
+    }
+    const make = m.type === '__core' ? () => m.body : SUGGESTION_ACTIONS[m.type];
     if (!make) return;
     try {
       showSuggestions(await api('/suggestions', { method: 'POST', body: JSON.stringify({ workspace: state.workspace, ...make(m) }) }));

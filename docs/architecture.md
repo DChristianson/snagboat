@@ -135,6 +135,7 @@ The core's modules, in [src/core/service](../src/core/service/):
 | `gitOutcomesJob.ts` | Every 6 hours, reads each recorded workspace's git history (read-only) for the commit outcomes now due ([outcomes/gitOutcomes.ts](../src/outcomes/gitOutcomes.ts)) |
 | `findings.ts` | Runs the heuristics for each followed workspace, with its own rules and thresholds, and reports changes to its findings and early warnings |
 | `responses.ts` | `ResponseBook`: how you met a workspace's findings (useful, acknowledged, muted), from any front door; mutes in `finding-state.json` |
+| `advisorModels.ts` | The core's advisor models: local ones only, from your user settings; a request waits for your approval of its payload in the page (`advisor-approvals.json`, shared with VS Code) |
 | `suggestions.ts` | The advisor UI's Suggestions: one `SuggestionsController` per workspace over the core's store and the workspace's heuristics; accepted rules to `rules.json`, thresholds to `config.json`'s defaults, dismissals to `suggestions.json` |
 | `sessionPages.ts` | The advisor UI's sessions: the list with outcome counts, a session's view (built as VS Code's Sessions tab builds it, findings replayed with the workspace's own heuristics) with its outcomes, and Explore's state |
 | `claudeCollector.ts` | Tails every project folder under `~/.claude/projects` with the window's `TranscriptTailer` |

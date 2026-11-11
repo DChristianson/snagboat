@@ -77,7 +77,7 @@
       </div>
       <div class="panel">
         <h2>Proposed changes</h2>
-        <p class="small muted">An advisor proposes rule changes, replayed over your history first, once it has a model to ask. That comes with a later step; until then, Discover in VS Code's Suggestions tab proposes rules.</p>
+        <p class="small muted">Rule changes are proposed on the <a href="#view=suggestions">Suggestions</a> page: discovery from your history, and an advisor model on this machine that names the candidates and proposes rules, replayed over your history before you accept them.</p>
       </div>
     </section>
 
@@ -184,6 +184,7 @@
         <h1 id="suggestions-h">Suggestions</h1>
         <span class="muted small">Rules discovered in this workspace's history, thresholds against it, and your saved rules. Accepting saves to your rules, shared by every workspace.</span>
       </div>
+      <div id="advice" class="panel advice" hidden aria-live="polite"></div>
       <div id="suggestions-root" class="panel"></div>
     </section>
 

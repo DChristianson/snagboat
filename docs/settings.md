@@ -134,7 +134,7 @@ Layers, lowest first:
 }
 ```
 
-VS Code copies only settings someone set, and only Snagboat's own; `storage.*` and the advisor's settings stay in VS Code. A key it doesn't have, such as `collect`, is left as you wrote it.
+VS Code copies only settings someone set, and only Snagboat's own. `storage.*` stays in VS Code, and so do the advisor settings only VS Code uses (`advisor.headlines`, `advisor.weeklyReview`, `advisor.reviewDirectory`, `advisor.modelTiers`, `advisor.auditPayloads`). Which advisors exist (`advisors`, `advisor.providers`) and which one each ability uses (`advisor.defaults`, and the older `*Provider` settings) are copied, so the advisor UI can ask the local ones; the core reads those from your defaults only, never a project's or a `.snagboat.json`, and API keys are never settings. A key VS Code doesn't have, such as `collect`, is left as you wrote it. When something else changes a setting in `config.json` (the advisor UI applying a threshold, or you), VS Code takes it into its own settings.
 
 Two keys exist only here, for the core service, which records every Claude Code and Copilot CLI project on the machine while it runs:
 

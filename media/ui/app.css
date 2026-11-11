@@ -230,3 +230,6 @@ a.btn { text-decoration: none; display: inline-block; }
 #suggestions-root .saved-rule p { margin: 2px 0 6px; }
 #suggestions-root p { margin: 4px 0; }
 #suggestions-root input.threshold { color: var(--sv-input-ink, var(--sv-ink)); background: var(--sv-input-bg, var(--sv-surface)); border: 1px solid var(--sv-input-border, var(--sv-rule)); border-radius: 4px; padding: 2px 6px; }
+.advice { gap: 8px; border-left: 3px solid var(--sv-accent); }
+.advice h2 { font-size: 14px; }
+.advice .payload { margin: 0; max-height: 360px; overflow: auto; font: 11.5px/1.45 var(--sv-mono); background: var(--sv-panel); border: 1px solid var(--sv-rule); border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }

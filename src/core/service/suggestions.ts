@@ -8,7 +8,10 @@ import { heuristicSettingsSection } from '../../heuristics';
 import { RuleSource } from '../../heuristics/rule';
 import { RuleStore } from '../../heuristics/ruleStore';
 import { SuggestionsController, SuggestionsView } from '../../discovery/suggestionsController';
+
 import { FindingsService } from './findings';
+import { CoreAdvisorChoice, CoreAdvisors, PendingApproval } from './advisorModels';
+import { proposeHeuristicsMessages } from '../../advisor/proposeHeuristics';
 
 /**
  * Suggestions in the advisor UI (RFC step 5c-2): discovery over a workspace's history,
@@ -20,7 +23,8 @@ import { FindingsService } from './findings';
  * Writes go where VS Code's go: accepted rules and categories to the saved rules
  * (~/.snagboat/rules.json), a built-in's threshold to your user settings (config.json's
  * defaults, which a VS Code window with the per-user store on takes into its settings),
- * dismissals to suggestions.json. Advisor proposals (a model) come with step 5c-2b.
+ * dismissals to suggestions.json. Advisor proposals (step 5c-2b) ask local models only, after you
+ * approve the exact payload in the page (advisorModels.ts).
  */
 
 export type SuggestionAction =
@@ -31,7 +35,19 @@ export type SuggestionAction =
   | { action: 'dismiss'; id: string }
   | { action: 'clearDismissed' }
   | { action: 'applyThreshold'; heuristic: string; setting: string }
-  | { action: 'removeSaved'; section: 'rules' | 'categories'; id: string };
+  | { action: 'removeSaved'; section: 'rules' | 'categories'; id: string }
+  | { action: 'askAdvisor'; advisorId?: string }
+  | { action: 'applyAdvisorThreshold'; heuristic: string; setting: string }
+  | { action: 'approve'; id: string; send: boolean };
+
+/** What the page shows beside VS Code's Suggestions view: the local advisors, a request waiting for approval, an error. */
+export interface CoreAdvice {
+  advisors: CoreAdvisorChoice[];
+  approval?: PendingApproval;
+  error?: string;
+}
+
+export type CoreSuggestionsView = SuggestionsView & { core: CoreAdvice };
 
 /** The action a request names, checked; undefined when it isn't one. */
 export function parseSuggestionAction(body: unknown): SuggestionAction | undefined {
@@ -51,8 +67,21 @@ export function parseSuggestionAction(body: unknown): SuggestionAction | undefin
       return str('heuristic') && str('setting') ? { action: 'applyThreshold', heuristic: b.heuristic as string, setting: b.setting as string } : undefined;
     case 'removeSaved':
       return (b.section === 'rules' || b.section === 'categories') && str('id') ? { action: 'removeSaved', section: b.section, id: b.id as string } : undefined;
+    case 'askAdvisor':
+      return b.advisorId === undefined ? { action: 'askAdvisor' } : str('advisorId') ? { action: 'askAdvisor', advisorId: b.advisorId as string } : undefined;
+    case 'applyAdvisorThreshold':
+      return str('heuristic') && str('setting') ? { action: 'applyAdvisorThreshold', heuristic: b.heuristic as string, setting: b.setting as string } : undefined;
+    case 'approve':
+      return str('id') && typeof b.send === 'boolean' ? { action: 'approve', id: b.id as string, send: b.send } : undefined;
     default:
       return undefined;
+  }
+}
+
+/** An approval for a request that's no longer waiting (answered elsewhere, or timed out). */
+export class NotWaiting extends Error {
+  constructor() {
+    super('that request is no longer waiting for approval');
   }
 }
 
@@ -60,29 +89,42 @@ interface Entry {
   controller: SuggestionsController;
   store: RuleStore;
   names: Map<string, string>;
+  /** The last advisor request's failure, shown until the next one. */
+  error?: string;
 }
 
 export class SuggestionsService {
   private readonly entries = new Map<string, Entry>();
 
+  private readonly advisors: CoreAdvisors;
+
   constructor(
     private readonly home: string,
     private readonly findings: FindingsService,
-    private readonly log: (line: string) => void = () => undefined
-  ) {}
-
-  /** The Suggestions view for a workspace; discovery runs on the first ask, then on Discover again. */
-  async view(workspace: string): Promise<SuggestionsView> {
-    const entry = await this.entry(workspace);
-    const view = entry.controller.view();
-    if (view.status === 'idle') {
-      void entry.controller.discover().catch((err) => this.log(`discovery failed for ${workspace}: ${err instanceof Error ? err.message : String(err)}`));
-      return entry.controller.view();
-    }
-    return view;
+    private readonly log: (line: string) => void = () => undefined,
+    advisors?: CoreAdvisors
+  ) {
+    this.advisors = advisors ?? new CoreAdvisors(home, undefined, log);
   }
 
-  async act(workspace: string, a: SuggestionAction): Promise<SuggestionsView> {
+  /** The Suggestions view for a workspace; discovery runs on the first ask, then on Discover again. */
+  async view(workspace: string): Promise<CoreSuggestionsView> {
+    const entry = await this.entry(workspace);
+    if (entry.controller.view().status === 'idle') {
+      void entry.controller.discover().catch((err) => this.log(`discovery failed for ${workspace}: ${err instanceof Error ? err.message : String(err)}`));
+    }
+    return this.withAdvice(entry);
+  }
+
+  private withAdvice(entry: Entry): CoreSuggestionsView {
+    const approval = this.advisors.pendingApproval();
+    return {
+      ...entry.controller.view(),
+      core: { advisors: this.advisors.choices('propose-heuristics'), ...(approval ? { approval } : {}), ...(entry.error ? { error: entry.error } : {}) },
+    };
+  }
+
+  async act(workspace: string, a: SuggestionAction): Promise<CoreSuggestionsView> {
     const entry = await this.entry(workspace);
     const c = entry.controller;
     switch (a.action) {
@@ -110,8 +152,22 @@ export class SuggestionsService {
       case 'removeSaved':
         await c.removeSaved(a.section, a.id);
         break;
+      case 'askAdvisor':
+        // Runs on: the request may wait for your approval, which a later POST gives (approve).
+        entry.error = undefined;
+        void c.askAdvisor(a.advisorId).catch((err) => (entry.error = err instanceof Error ? err.message : String(err)));
+        // The controller marks itself asking after a step of its own; let it, so the view returned says so and
+        // the page keeps looking until the request waits for approval or is answered.
+        await new Promise((r) => setImmediate(r));
+        break;
+      case 'applyAdvisorThreshold':
+        await c.applyAdvisorThreshold(a.heuristic, a.setting);
+        break;
+      case 'approve':
+        if (!this.advisors.decide(a.id, a.send)) throw new NotWaiting();
+        break;
     }
-    return c.view();
+    return this.withAdvice(entry);
   }
 
   private folderOf(workspace: string): string {
@@ -158,6 +214,20 @@ export class SuggestionsService {
           saveConfig(this.home, { ...config, defaults: { ...config.defaults, [key]: value } });
           await this.findings.current(workspace).catch(() => undefined);
         },
+        // Local advisors only (decided for 5c-2b); the request waits for your approval the first time.
+        propose: async (build, advisorId) => {
+          let asked;
+          try {
+            asked = await this.advisors.ask('propose-heuristics', async ({ policy, prompts }) => proposeHeuristicsMessages(build(policy), prompts), { advisorId });
+          } catch (err) {
+            const e = this.entries.get(workspace);
+            if (e) e.error = err instanceof Error ? err.message : String(err);
+            return undefined;
+          }
+          if (!asked) return undefined;
+          return { text: asked.completion.text, provider: asked.advisor.label, model: asked.advisor.model };
+        },
+        advisorCount: () => this.advisors.offering('propose-heuristics').length,
         dismissed: () => readDismissed(this.home),
         setDismissed: async (ids) => writeDismissed(this.home, ids),
         sessionName: (id) => names.get(id),

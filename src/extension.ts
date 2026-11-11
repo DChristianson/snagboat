@@ -23,7 +23,7 @@ import { buildDigest, digestForReading, DigestPolicy } from './advisor/digest';
 import { PromptLayers } from './advisor/prompts';
 import { ChatMessage } from './advisor/providers';
 import { sessionDigestInput } from './advisor/source';
-import { Advisor, Capability } from './vscode/advisor';
+import { Advisor, APPROVED_KEY, Capability } from './vscode/advisor';
 import { CAPABILITY_LABELS } from './advisor/advisors';
 import { AuditLog } from './advisor/audit';
 import { EffectivenessInput, proposeHeuristicsMessages } from './advisor/proposeHeuristics';
@@ -50,6 +50,7 @@ import { buildBreakdownLines, formatCount } from './ui/format';
 import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
 import { DetailPanel } from './ui/detailPanel';
 import { readDismissed, writeDismissed } from './core/suggestionsState';
+import { readApprovals, writeApprovals } from './core/advisorApprovals';
 import { FindingsView } from './ui/findingsView';
 import { EditTrackerAdapter } from './vscode/editTracker';
 import { vscodeHost } from './vscode/host';
@@ -79,6 +80,8 @@ const MUTED_HEURISTICS_KEY = 'snagboat.mutedHeuristics';
 const DISMISSED_SUGGESTIONS_KEY = 'snagboat.dismissedSuggestions';
 /** Set once this machine's dismissals were added to ~/.snagboat/suggestions.json (per-user store). */
 const DISMISSED_MOVED_KEY = 'snagboat.dismissedSuggestionsShared';
+/** Set once this machine's advisor payload approvals were added to ~/.snagboat/advisor-approvals.json (per-user store). */
+const APPROVALS_MOVED_KEY = 'snagboat.advisorApprovalsShared';
 const RESPONDING_SINCE_KEY = 'snagboat.respondingSince';
 const HEADLINES_KEY = 'snagboat.headlines';
 /** Headlines are asked for sessions that ended within this many days. */
@@ -409,7 +412,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   };
   const audit = new AuditLog(storage.sharedDir);
   void audit.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
-  const advisor = new Advisor({ secrets: context.secrets, globalState: context.globalState, audit, output: outputChannel, digestInput });
+  // With the per-user store on, payload approvals are shared with the core's advisor UI; this machine's join them once.
+  if (storage.perUser && !context.globalState.get<boolean>(APPROVALS_MOVED_KEY)) {
+    try {
+      writeApprovals(snagboatHome(), { ...context.globalState.get<Record<string, string>>(APPROVED_KEY, {}), ...readApprovals(snagboatHome()) });
+      void context.globalState.update(APPROVALS_MOVED_KEY, true);
+    } catch (err) {
+      outputChannel.appendLine(`Advisor: couldn't share payload approvals: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  const advisor = new Advisor({ secrets: context.secrets, globalState: context.globalState, ...(storage.perUser ? { approvals: { get: () => readApprovals(snagboatHome()), set: (a: Record<string, string>) => writeApprovals(snagboatHome(), a) } } : {}), audit, output: outputChannel, digestInput });
 
   /**
    * Opens the advisor UI (RFC step 5a) in the browser with a one-time link, optionally at a session or view
