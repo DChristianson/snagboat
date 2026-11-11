@@ -93,7 +93,7 @@ Use Beads for this plan's work items now, while nothing depends on it.
 | RFC | 3c-2 Core service and core.json | 3c-1 |
 | RFC | 3c-3 Extension as a client | 3c-2 |
 | RFC | Engines: VS Code 1.145, Node 24 | none |
-| RFC | 4 Outcomes and personas (outcome capture, persona front matter, four default personas) | 3c-3 |
+| RFC | 4 Outcomes and advisors (outcome capture, `persona.md` front matter, four default advisors) | 3c-3 |
 | RFC | 5 Claude Code plugin and advisor UI (compact VS Code findings panel; full UI in a browser) | 3c-2 |
 | RFC | 6 Experiments tracker (SQLite and Beads) and Gas City pack; revisit sources (HypAware, Beads events journal) | 4 |
 | RFC | Verify hooks with Claude Code on a real Windows machine | none |
