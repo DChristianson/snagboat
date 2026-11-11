@@ -230,14 +230,21 @@ async function main() {
     }
   });
 
-  test('a core from an older Snagboat (no live feed) is refused, not waited on', async () => {
-    const server = http.createServer((_req, res) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, version: '0.0.1' })));
+  test('a core from an older Snagboat (no live feed, or no findings) is refused, not waited on', async () => {
+    let features: string[] | undefined;
+    const server = http.createServer((_req, res) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, version: '0.0.1', features })));
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
     const port = (server.address() as { port: number }).port;
     try {
       const { home, a } = machine();
       await assert.rejects(
         CoreClient.connect({ home, cliPath: '/nowhere', workspace: a, ensure: async () => ({ port, token: 't', pid: 1, version: '0.0.1', startedAt: '' }) }),
+        /older than this extension/
+      );
+      // A core from before findings moved into it (3c-3c's features only).
+      features = ['events-stream', 'flush', 'retention'];
+      await assert.rejects(
+        CoreClient.connect({ home, cliPath: '/nowhere', workspace: a, ensure: async () => ({ port, token: 't', pid: 1, version: '0.0.2', startedAt: '' }) }),
         /older than this extension/
       );
     } finally {
@@ -252,10 +259,12 @@ async function main() {
     const client = await CoreClient.connect({ home, cliPath: '/nowhere', workspace: a, ensure: () => ((ensured += 1), running(home)()) });
     let replays = 0;
     const got: string[] = [];
-    client.follow({ onEvents: (e) => got.push(...e.map((x) => x.eventId)), onReplayed: () => (replays += 1) }, new Date().toISOString());
+    let lost = 0;
+    client.follow({ onEvents: (e) => got.push(...e.map((x) => x.eventId)), onReplayed: () => (replays += 1), onLost: () => (lost += 1) }, new Date().toISOString());
     try {
       await waitFor(() => replays === 1);
       await core.stop({ final: true }); // as POST /shutdown does
+      await waitFor(() => lost === 1); // the window evaluates its findings itself meanwhile
       await new Promise((r) => setTimeout(r, 2_500));
       assert.strictEqual(ensured, 1, 'only the first connect asked to start one');
       core = await start(home);

@@ -46,10 +46,12 @@ export interface StreamHandlers {
   onReplayed?: () => void;
   /** The workspace's findings and early warnings, worked out by the core: the current ones on (re)connect, then each change (3c-3d). */
   onFindings?: (result: WorkspaceFindings) => void;
+  /** The stream ended (the core went away or is restarting); events and findings stop until it's back. */
+  onLost?: () => void;
 }
 
 /** What a core must offer (GET /health "features") for a client to use it. */
-const REQUIRED_FEATURES = ['events-stream', 'flush', 'retention'];
+const REQUIRED_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
 const RETRY_MS = [500, 1_000, 2_000, 5_000, 10_000, 30_000];
 /** How long a hold waits for the core to finish the writes it started. */
 const FLUSH_TIMEOUT_MS = 60_000;
@@ -192,6 +194,11 @@ export class CoreClient {
     if (this.closed || req !== this.request) return;
     req.destroy();
     this.request = undefined;
+    try {
+      this.handlers?.onLost?.();
+    } catch {
+      // the handler's failure is its own
+    }
     this.retryLater(why, unauthorized);
   }
 

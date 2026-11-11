@@ -23,7 +23,7 @@ import { HEURISTICS_INTERVAL_MS } from '../../heuristics/engine';
 const STREAM_BATCH = 500;
 const STREAM_PING_MS = 15_000;
 /** What this core offers beyond 3c-2's endpoints, so a client can tell an older core apart. */
-const CORE_FEATURES = ['events-stream', 'flush', 'retention'];
+const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
 
 /**
  * The core service (docs/design/architecture-rfc.md, step 3; handoff 3c-2):
@@ -190,6 +190,11 @@ export class CoreService {
       home: opts.home,
       onChange: (result) => {
         for (const listener of this.findingsListeners) listener(result);
+      },
+      // A .code-workspace window registered its folders with its token; its settings are its first folder's.
+      settingsDir: (workspace) => {
+        for (const folders of this.tokenFolders.values()) for (const [folder, w] of folders) if (w === workspace) return folder;
+        return undefined;
       },
       log: (line) => this.log(line),
     });

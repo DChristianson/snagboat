@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { NormalizedEvent, setShellSubCategories } from '@snagboat/schema';
-import { configHost } from '../config';
+import { configHost, loadConfig } from '../config';
 import { ContextLimits } from '../contextLimits';
 import { EventLog } from '../eventLog';
 import { EventStore } from '../eventStore';
@@ -28,9 +28,10 @@ import { Finding, Progress } from '../../heuristics/types';
  * ~/.snagboat/rules.json and its settings' "rules", with its own settings
  * (config.json, .snagboat.json); they're rebuilt when those change.
  *
- * Tool categories ("toolCategories") classify shell calls process-wide, so
- * the core uses the user's (rules.json and config.json "defaults"), not a
- * project's own.
+ * Tool categories ("toolCategories") label shell calls process-wide, as the
+ * collectors normalize every project's events, so the core uses only the
+ * user's (rules.json and config.json "defaults"), never a project's own, and
+ * sets them only when those change.
  */
 
 export interface WorkspaceFindings {
@@ -54,12 +55,16 @@ interface Watch {
   followers: number;
   /** Evaluations of this workspace, one at a time. */
   queue: Promise<unknown>;
+  /** An evaluation queued and not yet started: more events wait for it rather than queue another. */
+  pending?: Promise<void>;
 }
 
 export interface FindingsServiceOptions {
   home: string;
   /** Told when a followed workspace's findings or early warnings change. */
   onChange: (result: WorkspaceFindings) => void;
+  /** The folder whose settings a workspace uses; a .code-workspace file's first folder, which its window registered. */
+  settingsDir?: (workspace: string) => string | undefined;
   log?: (line: string) => void;
   now?: () => number;
 }
@@ -68,6 +73,8 @@ export class FindingsService {
   private readonly watches = new Map<string, Watch>();
   private readonly contextLimits: ContextLimits;
   private loaded?: Promise<void>;
+  /** The user-level tool categories last set process-wide. */
+  private categories?: string;
 
   constructor(private readonly opts: FindingsServiceOptions) {
     this.contextLimits = new ContextLimits(userDataDir(opts.home));
@@ -91,7 +98,7 @@ export class FindingsService {
       if (stopped) return;
       stopped = true;
       watch.followers -= 1;
-      if (watch.followers <= 0) this.watches.delete(workspace);
+      if (watch.followers <= 0 && this.watches.get(workspace) === watch) this.watches.delete(workspace);
     };
   }
 
@@ -159,9 +166,12 @@ export class FindingsService {
     return run;
   }
 
-  /** Evaluates and tells onChange if something changed. Never rejects. */
+  /** Evaluates and tells onChange if something changed; at most one waits per workspace. Never rejects. */
   private publish(watch: Watch): Promise<void> {
-    return this.serial(watch, async () => {
+    if (watch.pending) return watch.pending;
+    watch.pending = this.serial(watch, async () => {
+      // From here on, new events need another evaluation.
+      watch.pending = undefined;
       let result: WorkspaceFindings;
       try {
         result = await this.evaluate(watch);
@@ -175,6 +185,7 @@ export class FindingsService {
       watch.last = key;
       this.opts.onChange(result);
     });
+    return watch.pending;
   }
 
   /** The workspace's last result, evaluated now (sent to a stream when it opens). */
@@ -184,7 +195,7 @@ export class FindingsService {
   }
 
   private async evaluate(watch: Watch): Promise<WorkspaceFindings> {
-    const folder = workspaceInfoOf(watch.workspace).folder ?? watch.workspace;
+    const folder = workspaceInfoOf(watch.workspace).folder ?? this.opts.settingsDir?.(watch.workspace) ?? watch.workspace;
     const host = configHost(this.opts.home, folder);
     await this.rebuild(watch, host);
     const now = this.now();
@@ -205,7 +216,9 @@ export class FindingsService {
       const value = host.get<unknown>('snagboat', key, []);
       return Array.isArray(value) ? value : [];
     };
-    const settingsSource: RuleSource = { origin: 'settings', rules: list('rules'), categories: list('toolCategories') };
+    // Rules are the workspace's own; tool categories only ever the user's (config.json "defaults").
+    const userCategories = loadConfig(this.opts.home).config.defaults.toolCategories;
+    const settingsSource: RuleSource = { origin: 'settings', rules: list('rules'), categories: Array.isArray(userCategories) ? userCategories : [] };
     const built = JSON.stringify([mtime, settingsSource]);
     if (watch.engine && built === watch.built) return;
     const store = new RuleStore(this.opts.home);
@@ -216,7 +229,11 @@ export class FindingsService {
       problems.push(`saved rules couldn't be read and are off until the file is fixed: ${err instanceof Error ? err.message : String(err)}`);
     }
     const ruleSet = buildRuleSet([store.source(), settingsSource]);
-    setShellSubCategories(ruleSet.categories);
+    const categories = JSON.stringify(ruleSet.categories);
+    if (categories !== this.categories) {
+      this.categories = categories;
+      setShellSubCategories(ruleSet.categories);
+    }
     const heuristics = [...builtInHeuristics(), ...ruleSet.rules.map(ruleHeuristic)];
     const settingsFor = (id: string) => (id.includes(':') ? {} : host.section(heuristicSettingsSection(id)));
     watch.engine = new HeuristicsEngine(heuristics, watch.store, settingsFor, (model) => (model ? this.contextLimits.get(model)?.limit : undefined));

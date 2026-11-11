@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { NormalizedEvent } from '@snagboat/schema';
+import { classifyCommand, NormalizedEvent } from '@snagboat/schema';
 import { saveConfig } from '../../core/config';
 import { runCli } from '../../cli/main';
 import { CoreClient } from '../../core/service/client';
@@ -142,6 +142,23 @@ async function main() {
     } finally {
       if (saved === undefined) delete process.env.SNAGBOAT_HOME;
       else process.env.SNAGBOAT_HOME = saved;
+    }
+  });
+
+  test("a project's own tool categories never become the core's: only the user's label shell calls", async () => {
+    const { home, a } = machine();
+    const mine = { id: 'user:shell/package-install', parent: 'shell', label: 'Package installs', match: ['npm install'] };
+    const theirs = { id: 'user:shell/network', parent: 'shell', label: 'Network', match: ['curl'] };
+    saveConfig(home, { version: 1, defaults: { toolCategories: [mine] }, projects: { [a]: { toolCategories: [theirs] } } });
+    const core = await start(home);
+    try {
+      const info = readCoreFile(home)!;
+      assert.strictEqual((await coreRequest(info.port, info.token, 'GET', `/findings?workspace=${encodeURIComponent(a)}`)).status, 200);
+      // The collectors label every project's shell calls with the categories set process-wide.
+      assert.strictEqual(classifyCommand('npm install x'), 'user:shell/package-install', "the user's");
+      assert.strictEqual(classifyCommand('curl x'), 'shell', "not project a's");
+    } finally {
+      await core.stop();
     }
   });
 

@@ -234,12 +234,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const advice = new Map<string, { line: string; model: string }>();
   let showNudge: (nudge: Nudge) => void = () => undefined;
   // As a client of the core (3c-3d), the core works out findings and early warnings; this window applies them.
+  // Until the core's first findings arrive, and whenever its stream is down, this window evaluates them itself,
+  // so they neither wait on the core nor freeze while it's gone.
   let coreProgress: Progress[] = [];
   let fromCore = new Set<string>();
+  let coreFindingsLive = false;
   const applyCoreFindings = (result: WorkspaceFindings) => {
+    coreFindingsLive = true;
     const byId = new Map<string, Finding[]>();
     for (const f of result.findings) byId.set(f.heuristicId, [...(byId.get(f.heuristicId) ?? []), f]);
-    for (const id of new Set([...fromCore, ...byId.keys()])) findings.report(id, byId.get(id) ?? []);
+    // Also clears what this window found itself while the core was away.
+    for (const id of new Set([...fromCore, ...heuristics.map((h) => h.id), ...byId.keys()])) findings.report(id, byId.get(id) ?? []);
     fromCore = new Set(byId.keys());
     coreProgress = result.progress;
     runHeuristics();
@@ -247,7 +252,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   };
   const runHeuristics = (kind?: NormalizedEventKind) => {
     const now = new Date().toISOString();
-    if (!core) {
+    if (!core || !coreFindingsLive) {
       const results = kind ? engine.tickFor(kind, now) : engine.tick(now);
       for (const [id, list] of results) findings.report(id, list);
     }
@@ -256,7 +261,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     const active = new Map<string, Finding[]>();
     for (const f of findings.list()) active.set(f.heuristicId, [...(active.get(f.heuristicId) ?? []), f]);
     for (const id of [...advice.keys()]) if (!active.has(id)) advice.delete(id);
-    for (const nudge of nudger.update(active, core ? coreProgress : engine.progress(now), settings)) showNudge(nudge);
+    for (const nudge of nudger.update(active, core && coreFindingsLive ? coreProgress : engine.progress(now), settings)) showNudge(nudge);
   };
 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -959,7 +964,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     },
   });
   // Following the core starts once everything that handles its events is in place.
-  core?.follow({ onEvents: (events) => events.forEach(handleEvent), onFindings: applyCoreFindings }, readAt);
+  core?.follow(
+    {
+      onEvents: (events) => events.forEach(handleEvent),
+      onFindings: applyCoreFindings,
+      onLost: () => {
+        coreFindingsLive = false;
+        fromCore = new Set();
+        runHeuristics();
+        refresh();
+      },
+    },
+    readAt
+  );
   // Last, so the claim on the per-user store's folder outlasts the writes made while shutting down.
   context.subscriptions.push({ dispose: () => storage.release?.() });
 
