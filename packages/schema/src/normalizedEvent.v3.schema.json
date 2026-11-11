@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DChristianson/snagboat/schema/normalized-event/v3",
+  "title": "NormalizedEvent",
+  "description": "One line of Snagboat's daily event log (docs/schema.md). Version 3 adds the outcome kind and the outcome field, for outcome signals Snagboat works out; version 2 added workspace. Every version 1 and 2 event is a valid version 3 event. It matches the NormalizedEvent type in types.ts; a unit test and a compile-time check keep them in step.",
+  "type": "object",
+  "required": [
+    "eventId",
+    "sessionId",
+    "agent",
+    "ts",
+    "kind",
+    "status",
+    "raw"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": {
+      "type": "string"
+    },
+    "sessionId": {
+      "type": "string"
+    },
+    "agent": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "claude-code",
+            "copilot",
+            "generic-fs"
+          ]
+        },
+        {
+          "pattern": "^custom:"
+        }
+      ]
+    },
+    "ts": {
+      "type": "string",
+      "description": "ISO 8601 timestamp."
+    },
+    "kind": {
+      "enum": [
+        "tool_call",
+        "edit",
+        "turn_start",
+        "turn_stop",
+        "user_prompt",
+        "compaction",
+        "session_name",
+        "outcome"
+      ]
+    },
+    "target": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "success",
+        "failure",
+        "unknown"
+      ]
+    },
+    "model": {
+      "type": "string"
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "type": "number"
+        },
+        "output": {
+          "type": "number"
+        },
+        "cacheRead": {
+          "type": "number"
+        },
+        "cacheCreation": {
+          "type": "number"
+        }
+      }
+    },
+    "textExcerpt": {
+      "type": "string"
+    },
+    "promptText": {
+      "type": "string"
+    },
+    "sessionName": {
+      "type": "string"
+    },
+    "turnId": {
+      "type": "string"
+    },
+    "agentId": {
+      "type": "string"
+    },
+    "toolName": {
+      "type": "string"
+    },
+    "toolCategory": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "file-read",
+            "file-edit",
+            "search",
+            "script",
+            "tests-builds",
+            "version-control",
+            "shell",
+            "web",
+            "mcp",
+            "subagent",
+            "other"
+          ]
+        },
+        {
+          "pattern": "^[^:]*:shell/"
+        }
+      ]
+    },
+    "channel": {
+      "const": "inline"
+    },
+    "endsTurn": {
+      "const": true
+    },
+    "contextLimit": {
+      "type": "number"
+    },
+    "compaction": {
+      "type": "object",
+      "required": [
+        "trigger"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "trigger": {
+          "enum": [
+            "auto",
+            "manual",
+            "unknown"
+          ]
+        },
+        "preTokens": {
+          "type": "number"
+        },
+        "postTokens": {
+          "type": "number"
+        }
+      }
+    },
+    "workspace": {
+      "type": "string",
+      "description": "The workspace the event was recorded in: its folder path, its .code-workspace file path, or \"(no folder)\"."
+    },
+    "outcome": {
+      "description": "outcome events (version 3): what was measured.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "tests_green",
+            "finding_response"
+          ]
+        },
+        "refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "failures": {
+          "type": "number"
+        },
+        "afterMs": {
+          "type": "number"
+        },
+        "heuristicId": {
+          "type": "string"
+        },
+        "response": {
+          "enum": [
+            "useful",
+            "muted",
+            "acknowledged",
+            "passed"
+          ]
+        }
+      }
+    },
+    "raw": {
+      "type": "object",
+      "required": [
+        "adapter",
+        "ref"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "event": {}
+      }
+    }
+  }
+}

@@ -223,7 +223,7 @@ With `snagboat.nudges.notify` set to `warnings` or `all` (it's `off` by default)
 - **One per episode.** A heuristic notifies when it starts reporting, not again until it has cleared. An episode already under way when notifications are turned on stays quiet.
 - **One per turn.** Whatever fires, a session's turn gets at most one nudge, early warnings included. Findings that aren't tied to one turn (`token-budget`'s daily total) are limited by episode only.
 - **Never** for a muted heuristic or one listed in `snagboat.nudges.quiet`, and never a modal dialog. The design also asks for no nudges while you type a prompt; Snagboat can't see the agent's input box, so that one isn't done.
-- **Buttons:** Show in Session, Explain (the advisor, asking first as Explain always does), Acknowledge, Mute.
+- **Buttons:** Show in Session, Explain (the advisor, asking first as Explain always does), Useful, Acknowledge, Mute.
 
 **Early warnings** come from heuristics that can say how close they are (`progress` on the `Heuristic` interface), where acting early saves something real. `runaway-turn` reports at `earlyWarning` of its call thresholds, since tokens are still being spent. `context-pressure` reports at `earlyWarning` of its percentage, since a compaction is coming. Both default to `0.8`, and `0` turns them off. Rules opt in with `earlyWarning`. An early warning notifies as info, once per heuristic and turn, and not while that heuristic is already firing.
 

@@ -13,13 +13,43 @@ export type NormalizedEventKind =
   /** The conversation's context was compacted. */
   | 'compaction'
   /** The session's name (a generated title, or one you set) changed; see sessionName. */
-  | 'session_name';
+  | 'session_name'
+  /**
+   * Something that measures how the work went, worked out by Snagboat rather than
+   * reported by an agent (schema v3): see outcome. Not agent activity: it neither
+   * counts toward totals nor keeps a session or a heuristic's window alive.
+   */
+  | 'outcome';
 
 export interface EventTokens {
   input?: number;
   output?: number;
   cacheRead?: number;
   cacheCreation?: number;
+}
+
+/** What an outcome event measures (schema v3). */
+export type OutcomeType =
+  /** A test or build tool call succeeded after failing in the same session. */
+  | 'tests_green'
+  /** A finding's episode ended; response says how you met it. */
+  | 'finding_response';
+
+/** How you met a finding: marked it useful, muted it, acknowledged it, or let it pass. */
+export type FindingResponse = 'useful' | 'muted' | 'acknowledged' | 'passed';
+
+export interface EventOutcome {
+  type: OutcomeType;
+  /** The events it's about: for tests_green the first failing and the passing run; for finding_response the finding's events. */
+  refs?: string[];
+  /** tests_green: failed runs before it went green. */
+  failures?: number;
+  /** tests_green: milliseconds from the first failure to green. */
+  afterMs?: number;
+  /** finding_response: the heuristic or rule. */
+  heuristicId?: string;
+  /** finding_response. */
+  response?: FindingResponse;
 }
 
 export interface NormalizedEvent {
@@ -75,6 +105,8 @@ export interface NormalizedEvent {
    * absent in a VS Code window's own storage, which holds only that window's.
    */
   workspace?: string;
+  /** outcome events (schema v3): what was measured. */
+  outcome?: EventOutcome;
   raw: {
     adapter: string;
     ref: string;

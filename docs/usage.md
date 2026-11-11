@@ -13,7 +13,7 @@ Open it from the status bar, or with **Snagboat: Open Detail View**. It has four
 ### Overview
 
 - today's totals;
-- active findings, each of which you can **acknowledge** (hidden from the status bar until that problem clears) or **mute** (hidden for this workspace until unmuted), or use to filter the timeline to the events behind it;
+- active findings, each of which you can mark **useful** (it helped; also hides it like acknowledging), **acknowledge** (hidden from the status bar until that problem clears) or **mute** (hidden for this workspace until unmuted), or use to filter the timeline to the events behind it;
 - a per-day token chart by agent over 7, 30, or 90 days, with a table view;
 - a filterable timeline of the last 24 hours, where file targets open the file, prompts and reply excerpts can be expanded, and sessions show their names.
 
@@ -88,7 +88,7 @@ Accept, adjust a threshold (the replay updates as you type), or dismiss each one
 
 ## Notifications
 
-Off by default. With `snagboat.nudges.notify` set to `warnings` or `all`, a finding notifies when it appears, with buttons to show it in its session, explain it, acknowledge it, or mute it. There's at most one per turn, never a modal dialog, and `runaway-turn` and `context-pressure` warn early, at 80% of their thresholds. Details: [heuristics.md](heuristics.md#nudges).
+Off by default. With `snagboat.nudges.notify` set to `warnings` or `all`, a finding notifies when it appears, with buttons to show it in its session, explain it, mark it useful, acknowledge it, or mute it. There's at most one per turn, never a modal dialog, and `runaway-turn` and `context-pressure` warn early, at 80% of their thresholds. Details: [heuristics.md](heuristics.md#nudges).
 
 ## Reviews
 

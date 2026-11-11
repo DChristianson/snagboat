@@ -178,6 +178,8 @@ You watch what this project spends on tokens ...
 | Finding usefulness | Responses to findings: useful, dismissed, muted |
 | Milestones completed | Closed tasks: Beads issues where present, else a commit with passing tests |
 
+Outcomes are `outcome` events in the event log (schema version 3), so they get retention, the live feed and the CLI like any event, and they don't count as agent activity. Built: tests going green, and finding usefulness, with a **Useful** response beside acknowledge and mute ("dismissed" is a finding that passed without one). Next: commits kept or reverted and code survival, read from git (read-only, for files sessions edited, on unless `outcomes.git` is off), and milestones from commits made after the session's tests last passed; a Beads adapter later.
+
 ## Storage and experiments
 
 Keep the repo's existing rule: daily JSONL is the source of truth, and SQLite is a side index rebuilt from it when missing or corrupt. That refines the review's suggestion of SQLite as the live store, and it keeps backups, `jq` and DuckDB working as they do today.

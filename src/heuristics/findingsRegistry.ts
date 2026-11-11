@@ -62,6 +62,17 @@ export class FindingsRegistry {
     this.notify();
   }
 
+  /** Says a heuristic's current findings were useful; also acknowledges them. No-op if nothing is active. */
+  markUseful(heuristicId: string): void {
+    if (!this.byHeuristic.has(heuristicId)) return;
+    this.responses?.useful(heuristicId);
+    if (!this.acknowledged.has(heuristicId)) {
+      this.acknowledged.add(heuristicId);
+      this.responses?.acknowledged(heuristicId);
+    }
+    this.notify();
+  }
+
   setMuted(heuristicId: string, muted: boolean): void {
     if (this.muted.has(heuristicId) === muted) return;
     if (muted) this.muted.add(heuristicId);

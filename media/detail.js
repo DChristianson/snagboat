@@ -208,6 +208,12 @@
                   },
                 }),
               !f.acknowledged &&
+                el('button', {
+                  text: 'Useful',
+                  title: 'This finding helped; also hides it from the status bar until it clears',
+                  onclick: () => vscode.postMessage({ type: 'useful', heuristicId: f.heuristicId }),
+                }),
+              !f.acknowledged &&
                 el('button', { text: 'Acknowledge', onclick: () => vscode.postMessage({ type: 'acknowledge', heuristicId: f.heuristicId }) }),
               el('button', {
                 text: `Mute ${f.heuristicId}`,

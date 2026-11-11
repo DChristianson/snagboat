@@ -60,6 +60,7 @@ export interface DetailState {
 export type DetailMessage =
   | { type: 'ready' }
   | { type: 'acknowledge'; heuristicId: string }
+  | { type: 'useful'; heuristicId: string }
   | { type: 'setMuted'; heuristicId: string; muted: boolean }
   | { type: 'openFile'; target: string }
   | { type: 'tab'; tab: DetailTab }
@@ -92,6 +93,7 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
     case 'ready':
       return true;
     case 'acknowledge':
+    case 'useful':
       return typeof m.heuristicId === 'string';
     case 'setMuted':
       return typeof m.heuristicId === 'string' && typeof m.muted === 'boolean';
