@@ -79,6 +79,83 @@ async function main() {
     await assert.rejects(run.score([]), /stopped/);
   });
 
+  // snagboat-79f.6.10: a worker that sits idle is stopped, and the next request brings it back.
+  const idleData = (): DiscoveryData => ({ builtIns: builtInHeuristics().map((h) => h.id), rules: [parseRule(READ_RULE).value!], settings: {}, contextLimits: {} });
+  const waitFor = async (what: string, ok: () => boolean, ms = 5_000) => {
+    const until = Date.now() + ms;
+    while (!ok()) {
+      assert.ok(Date.now() < until, `never ${what}`);
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  };
+
+  test("an idle worker is stopped after the interval; the next tweak and score bring it back with the same answers", async () => {
+    const events = history(4);
+    const data = idleData();
+    const local = runDiscovery(events, discoveryOptionsOf(data));
+    const lines: string[] = [];
+    const run = await discoverOffThread(events, data, { idleMs: 100, log: (l) => lines.push(l) });
+    try {
+      assert.ok(run.workerRunning);
+      await waitFor('stopped', () => !run.workerRunning);
+      assert.ok(lines.some((l) => /idle/.test(l)), lines.join('\n'));
+      const candidate = local.result.candidates[0];
+      assert.ok(candidate, 'four copies have a candidate to tweak');
+      const t = candidate.threshold * 2;
+      assert.deepStrictEqual(await run.tweak(candidate.rule.id, t), local.tweak(candidate.rule.id, t));
+      assert.ok(run.workerRunning);
+      assert.strictEqual(run.restarts, 1);
+      const rules = [parseRule(READ_RULE).value!];
+      assert.deepStrictEqual(await run.score(rules), local.score(rules));
+      assert.strictEqual(run.restarts, 1, 'the worker brought back serves the next request too');
+      assert.deepStrictEqual(run.result, local.result);
+      await waitFor('stopped again', () => !run.workerRunning);
+    } finally {
+      run.dispose();
+    }
+  });
+
+  test('requests in flight are never cut off by the idle timer, however short', async () => {
+    const events = history(12);
+    const data = idleData();
+    const local = runDiscovery(events, discoveryOptionsOf(data));
+    const run = await discoverOffThread(events, data, { idleMs: 1 });
+    try {
+      const rules = [parseRule(READ_RULE).value!, parseRule({ ...READ_RULE, id: 'test:some-reads', when: { measure: 'value', gte: 1 } }).value!];
+      const expected = local.score(rules);
+      for (let round = 0; round < 3; round++) {
+        await waitFor('stopped', () => !run.workerRunning);
+        // Several at once while it comes back (each longer than the interval), then one more as they land.
+        const answers = await Promise.all([run.score(rules), run.score(rules), run.score(rules)]);
+        for (const a of answers) assert.deepStrictEqual(a, expected);
+        assert.deepStrictEqual(await run.score(rules), expected);
+      }
+      assert.ok(run.restarts >= 3, `brought back ${run.restarts} times`);
+    } finally {
+      run.dispose();
+    }
+  });
+
+  test('a run let go while its worker comes back says so, and leaves no worker', async () => {
+    const run = await discoverOffThread(history(4), idleData(), { idleMs: 20 });
+    await waitFor('stopped', () => !run.workerRunning);
+    const asked = run.score([]);
+    run.dispose();
+    await assert.rejects(asked, /stopped/);
+    assert.strictEqual(run.workerRunning, false);
+    await assert.rejects(run.score([]), /stopped/);
+  });
+
+  test('without an interval the worker stays up', async () => {
+    const run = await discoverOffThread(history(1), { builtIns: [], rules: [], settings: {}, contextLimits: {} });
+    try {
+      await new Promise((r) => setTimeout(r, 100));
+      assert.ok(run.workerRunning);
+    } finally {
+      run.dispose();
+    }
+  });
+
   test('the core answers /health promptly while discovery runs on a long history', async () => {
     const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-worker-')));
     const w = path.join(home, 'w');

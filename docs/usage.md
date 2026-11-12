@@ -156,7 +156,7 @@ By default each window collects its own workspace's sessions and keeps them in V
 - The core works out each workspace's findings, with that workspace's rules and thresholds, so every window on it shows the same ones; notifications and the advisor work as before. `snagboat findings` prints them from a terminal.
 - If the core can't start, the window says so and writes its own folder in `~/.snagboat/data` instead. `snagboat core stop` stops it; open windows then wait until something starts it again.
 
-Turning the setting off goes back to VS Code's storage as it was: turning it on copies data and never moves or deletes it. See the [README](../README.md#command-line-early) for `snagboat core` and `snagboat migrate`, and [PRIVACY.md](../PRIVACY.md) for where everything is stored.
+Turning the setting off goes back to VS Code's storage as it was: turning it on copies data and never moves or deletes it. See the [README](../README.md#command-line) for `snagboat core` and `snagboat migrate`, and [PRIVACY.md](../PRIVACY.md) for where everything is stored.
 
 ## The Claude Code plugin (preview)
 
