@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { AdapterContext, NormalizedEvent } from '@snagboat/schema';
-import { TranscriptTailer } from '../../adapters/claude-code/transcriptTail';
+import { TranscriptGuard, TranscriptTailer } from '../../adapters/claude-code/transcriptTail';
 import { readCheckpointState, CheckpointStateV2 } from '../../adapters/claude-code/checkpointState';
 import { sanitizeCwd } from '../../adapters/claude-code/workspace';
 import { CheckpointStore } from '../checkpointStore';
@@ -36,23 +36,37 @@ export interface ClaudeCollectorOptions {
   deliver: (events: NormalizedEvent[], projectDir: string) => Promise<unknown>;
   log?: (line: string) => void;
   discoveryIntervalMs?: number;
+  /**
+   * For a projects folder that can't be trusted (a dev container's,
+   * core/containerTranscripts.ts): every folder and transcript is checked and
+   * opened through this, and the lines read are capped.
+   */
+  guard?: TranscriptGuard;
+  /** Maps the cwd a transcript folder's lines report to the project it's filed under (default: itself). */
+  projectFor?: (cwd: string) => string;
+  /** Prefix of each project's checkpoint id; default "claude-code-". */
+  checkpointPrefix?: string;
 }
 
 export function defaultProjectsDir(): string {
   return process.env.SNAGBOAT_CLAUDE_PROJECTS_DIR ?? path.join(os.homedir(), '.claude', 'projects');
 }
 
-/** The folder a transcript folder belongs to: a cwd from its lines whose sanitized name is the folder's; else the first cwd seen. */
-export function projectDirOf(transcriptsDir: string): string | undefined {
+/**
+ * The folder a transcript folder belongs to: a cwd from its lines whose sanitized name is the folder's; else the first cwd seen.
+ * open: how to open a transcript (TranscriptGuard.open for an untrusted folder; undefined refuses it).
+ */
+export function projectDirOf(transcriptsDir: string, open?: (file: string) => number | undefined): string | undefined {
   const name = path.basename(transcriptsDir);
   let first: string | undefined;
   let files: string[];
   try {
+    const stat = open ? fs.lstatSync : fs.statSync;
     files = fs
       .readdirSync(transcriptsDir)
       .filter((f) => f.endsWith('.jsonl'))
       .map((f) => path.join(transcriptsDir, f))
-      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+      .sort((a, b) => stat(b).mtimeMs - stat(a).mtimeMs);
   } catch {
     return undefined;
   }
@@ -60,10 +74,15 @@ export function projectDirOf(transcriptsDir: string): string | undefined {
     let text: string;
     try {
       // The first 64 KB is plenty: cwd appears within the first few lines.
-      const fd = fs.openSync(file, 'r');
+      const fd = open ? open(file) : fs.openSync(file, 'r');
+      if (fd === undefined) continue;
       const buffer = Buffer.alloc(64 * 1024);
-      const read = fs.readSync(fd, buffer, 0, buffer.length, 0);
-      fs.closeSync(fd);
+      let read: number;
+      try {
+        read = fs.readSync(fd, buffer, 0, buffer.length, 0);
+      } finally {
+        fs.closeSync(fd);
+      }
       text = buffer.subarray(0, read).toString('utf8');
     } catch {
       continue;
@@ -114,6 +133,8 @@ export class ClaudeCollector {
   }
 
   private async discover(): Promise<void> {
+    const guard = this.opts.guard;
+    if (guard && !guard.isDir(this.opts.projectsDir)) return;
     let names: string[];
     try {
       names = fs.readdirSync(this.opts.projectsDir);
@@ -124,13 +145,18 @@ export class ClaudeCollector {
       if (this.stopped) return;
       const transcriptsDir = path.join(this.opts.projectsDir, name);
       if (this.projects.has(transcriptsDir)) continue;
-      try {
-        if (!fs.statSync(transcriptsDir).isDirectory()) continue;
-      } catch {
-        continue;
+      if (guard) {
+        if (!guard.isDir(transcriptsDir)) continue;
+      } else {
+        try {
+          if (!fs.statSync(transcriptsDir).isDirectory()) continue;
+        } catch {
+          continue;
+        }
       }
-      const projectDir = projectDirOf(transcriptsDir);
-      if (!projectDir) continue;
+      const cwd = projectDirOf(transcriptsDir, guard && ((file) => guard.open(file)));
+      if (!cwd) continue;
+      const projectDir = this.opts.projectFor ? this.opts.projectFor(cwd) : cwd;
       try {
         await this.startProject(transcriptsDir, projectDir);
       } catch (err) {
@@ -140,7 +166,7 @@ export class ClaudeCollector {
   }
 
   private async startProject(transcriptsDir: string, projectDir: string): Promise<void> {
-    const checkpointId = `claude-code-${path.basename(transcriptsDir)}`;
+    const checkpointId = `${this.opts.checkpointPrefix ?? 'claude-code-'}${path.basename(transcriptsDir)}`;
     const checkpoint = await this.opts.checkpoints.read(checkpointId);
     const { offsets, seen, turns } = readCheckpointState(checkpoint?.state, keepCheckpointEntry(transcriptsDir));
     const pending: NormalizedEvent[] = [];
@@ -172,7 +198,7 @@ export class ClaudeCollector {
       const state: CheckpointStateV2 = { version: 2, offsets: Object.fromEntries(offsets), recentMessageIds: seen.snapshot(), lastTurnByFile: turns.snapshot() };
       void ctx.writeCheckpoint({ updatedAt: new Date().toISOString(), state: { ...state } });
     };
-    const tailer = new TranscriptTailer(ctx, transcriptsDir, offsets, seen, persist, undefined, { turns });
+    const tailer = new TranscriptTailer(ctx, transcriptsDir, offsets, seen, persist, undefined, { turns, guard: this.opts.guard });
     this.projects.set(transcriptsDir, { projectDir, tailer });
     tailer.start();
   }

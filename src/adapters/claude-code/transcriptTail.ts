@@ -24,13 +24,27 @@ export const SUBAGENT_DISCOVERY_INTERVAL_MS = 60_000;
  */
 export const SUBAGENT_ACTIVE_WINDOW_MS = 48 * 60 * 60 * 1000;
 
+/**
+ * For transcripts in a folder that can't be trusted (a dev container's, which
+ * agents with their permissions off can write): what may be read, and how.
+ */
+export interface TranscriptGuard {
+  /** Whether dir is a real directory reached without symlinks; says why not itself. */
+  isDir(dir: string): boolean;
+  /** Opens a transcript without following symlinks: its descriptor, or undefined when refused or gone. */
+  open(file: string): number | undefined;
+  /** The longest line read; longer ones are skipped. */
+  maxLineBytes: number;
+  onSkippedLine?(file: string): void;
+}
+
 /** Newest modification time among a folder's .jsonl files, or 0 if none. */
-function newestJsonlMtime(dir: string): number {
+function newestJsonlMtime(dir: string, stat: (p: string) => fs.Stats = fs.statSync): number {
   let newest = 0;
   try {
     for (const name of fs.readdirSync(dir)) {
       if (!name.endsWith('.jsonl')) continue;
-      newest = Math.max(newest, fs.statSync(path.join(dir, name)).mtimeMs);
+      newest = Math.max(newest, stat(path.join(dir, name)).mtimeMs);
     }
   } catch {
     // folder vanished mid-scan
@@ -55,7 +69,7 @@ export class TranscriptTailer {
     private readonly seen: SeenMessages,
     private readonly persistCheckpoint: () => void,
     private readonly folderCheckIntervalMs = FOLDER_CHECK_INTERVAL_MS,
-    private readonly subagentOpts: { discoveryIntervalMs?: number; activeWindowMs?: number; rescanIntervalMs?: number; turns?: TurnTracker } = {}
+    private readonly subagentOpts: { discoveryIntervalMs?: number; activeWindowMs?: number; rescanIntervalMs?: number; turns?: TurnTracker; guard?: TranscriptGuard } = {}
   ) {
     this.turns = subagentOpts.turns ?? new TurnTracker();
   }
@@ -104,9 +118,11 @@ export class TranscriptTailer {
    * Subagent transcripts live at <transcripts>/<session>/subagents/*.jsonl,
    * one file per subagent run. Watches recently active folders; reads any
    * other folder once (its offsets make later reads no-ops) without keeping
-   * a watcher on it.
+   * a watcher on it. With a guard, only a session's own folder (beside its
+   * <session>.jsonl) is looked in, and neither it nor subagents/ may be a symlink.
    */
   private discoverSubagents(dir: string): void {
+    const guard = this.subagentOpts.guard;
     let sessions: string[];
     try {
       sessions = fs.readdirSync(dir);
@@ -117,7 +133,17 @@ export class TranscriptTailer {
     for (const session of sessions) {
       const subDir = path.join(dir, session, 'subagents');
       if (!fs.existsSync(subDir)) continue;
-      const newest = newestJsonlMtime(subDir);
+      if (guard) {
+        // Anything else there (memory/, say) isn't a transcript.
+        let main: fs.Stats | undefined;
+        try {
+          main = fs.lstatSync(path.join(dir, `${session}.jsonl`));
+        } catch {
+          // no transcript of its own
+        }
+        if (!main?.isFile() || !guard.isDir(path.join(dir, session)) || !guard.isDir(subDir)) continue;
+      }
+      const newest = newestJsonlMtime(subDir, guard ? fs.lstatSync : fs.statSync);
       const active = newest >= activeSince;
       const watching = this.subagentTailers.get(subDir);
       if (active && !watching) {
@@ -172,6 +198,9 @@ export class TranscriptTailer {
           err ? `failed reading ${path.basename(filePath)}: ${err instanceof Error ? err.message : String(err)}` : undefined
         ),
       onWatchError: (err) => this.ctx.reportHealth('transcriptWatcher', `transcript watcher error: ${err.message}`),
+      ...(this.subagentOpts.guard
+        ? { open: (file: string) => this.subagentOpts.guard!.open(file), maxLineBytes: this.subagentOpts.guard.maxLineBytes, onSkippedLine: (file: string) => this.subagentOpts.guard!.onSkippedLine?.(file) }
+        : {}),
     });
   }
 }

@@ -10,7 +10,7 @@ import { ClaudeCollector, defaultProjectsDir } from './claudeCollector';
 import { CopilotCollector } from './copilotCollector';
 import { isWithinFolders, withRealPaths } from '../paths';
 import { collectedWorkspace, knownWorkspaceFolders } from './workspaces';
-import { RelayIngest } from './relayIngest';
+import { ContainerCollectors } from './containerCollectors';
 import { CheckpointStore } from '../checkpointStore';
 import { effectiveSettings, loadConfig } from '../config';
 import { projectDirHeader } from '../../adapters/claude-code/hooksReceiver';
@@ -252,8 +252,8 @@ export class CoreService {
   private readonly stoppingStreams = new Set<() => Promise<void>>();
   private collector?: ClaudeCollector;
   private copilot?: CopilotCollector;
-  /** Dev container relays: the outboxes of the folders in config.json's relay.allow (relayIngest.ts). */
-  private relay?: RelayIngest;
+  /** Dev container transcripts: <folder>/.snagboat/claude-projects for each folder in config.json's containers.allow (containerCollectors.ts). */
+  private containers?: ContainerCollectors;
   private readonly settingsCache = new Map<string, { at: number; values: Record<string, unknown> }>();
   private readonly startedAt = new Date().toISOString();
   private lastActivity = Date.now();
@@ -322,23 +322,13 @@ export class CoreService {
     openHookSpool(opts.home);
     core.log(`snagboat core ${opts.version} listening on 127.0.0.1:${core.boundPort} (pid ${process.pid})`);
 
-    if (opts.collect ?? true) {
-      core.relay = new RelayIngest({
-        home: opts.home,
-        writer: core.writer,
-        workspaceFor: (projectDir) => core.workspaceFor(projectDir),
-        captureContent: (projectDir) => core.settingsFor(projectDir).captureContent !== false,
-        log: (line) => core.log(line),
-      });
-    }
-    // Hooks spooled while no core ran, events relayed from dev containers, then events spooled for workspaces a window had claimed.
+    // Hooks spooled while no core ran, then events spooled for workspaces a window had claimed.
+    // Each tick also picks up changes to containers.allow (dev containers' transcripts).
     const ingest = async () => {
       try {
         const hooks = await ingestHookSpool(opts.home, async (projectDir, payload, at) => void (await core.deliverHook(projectDir, payload, at)));
         if (hooks > 0) core.log(`read ${hooks} spooled hook(s)`);
-        const relayed = (await core.relay?.ingest()) ?? [];
-        // Relayed events count as activity, as collected ones do: the core stays up while an agent in a container works.
-        if (relayed.some((r) => r.files > 0)) core.lastActivity = Date.now();
+        await core.containers?.refresh();
         const events = await core.writer.ingestSpool();
         if (events > 0) core.log(`ingested ${events} spooled event(s)`);
       } catch (err) {
@@ -378,6 +368,22 @@ export class CoreService {
         log: (line) => core.log(line),
       });
       await core.collector.start();
+      // Dev containers' transcripts, for the folders allowed in config.json (containerTranscripts.ts).
+      core.containers = new ContainerCollectors({
+        home: opts.home,
+        checkpoints,
+        hostProjectsDir: opts.claudeProjectsDir ?? defaultProjectsDir(),
+        workspaceFor: (projectDir) => core.workspaceFor(projectDir),
+        captureContent: (projectDir) => core.settingsFor(projectDir).captureContent !== false,
+        deliver: (events) => {
+          // Collected events count as activity, as the host's do: the core stays up while an agent in a container works.
+          core.lastActivity = Date.now();
+          // No window reads a container's transcripts itself, so nothing is dropped for a claim: spooled for the window.
+          return core.writer.write(events);
+        },
+        log: (line) => core.log(line),
+      });
+      await core.containers.refresh();
       core.copilot = new CopilotCollector({
         checkpoints,
         sessionsDir: opts.copilotSessionsDir,
@@ -429,6 +435,7 @@ export class CoreService {
     }
     for (const t of this.timers) clearInterval(t);
     this.collector?.stop();
+    this.containers?.stop();
     this.copilot?.stop();
     this.suggestions.dispose();
     await this.findings.dispose().catch(() => undefined);
