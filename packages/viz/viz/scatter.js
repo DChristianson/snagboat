@@ -19,7 +19,7 @@
     for (let p = lo; p <= hi; p++) ticks.push(Math.pow(10, p));
     return { lo, hi, ticks, at: (v) => (Math.log10(v) - lo) / (hi - lo) };
   }
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'scatter',
     title: 'Scatter plot',
     tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'], language: ['standard'] },

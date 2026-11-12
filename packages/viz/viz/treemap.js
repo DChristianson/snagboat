@@ -59,7 +59,7 @@
     return out;
   }
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'treemap',
     title: 'Treemap',
     tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy'], language: ['standard'] },

@@ -12,7 +12,7 @@
     ['Subagents', (t) => t.subagents.size, 'fmt'],
     ['Length', (t) => (t.to - t.from) / 1000, 'secondsText'],
   ];
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'parallel-coords',
     title: 'Parallel coordinates',
     tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'time'], language: ['standard'] },

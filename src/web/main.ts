@@ -1,6 +1,6 @@
-import { CATALOG, TAXONOMY, validateCatalog } from '@snagboat/viz';
-import { EventSet, parseJsonl, syntheticEvents, syntheticSessionIds } from '@snagboat/viz/web';
-import { startPage } from '@snagboat/viz/web/page';
+import { CATALOG, TAXONOMY, validateCatalog } from 'factory-clock';
+import { EventSet, parseJsonl, syntheticEvents, syntheticSessionIds } from 'factory-clock/web';
+import { startPage } from 'factory-clock/web/page';
 import { replayFindings } from './findings';
 
 /**

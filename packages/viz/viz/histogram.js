@@ -6,7 +6,7 @@
 // instance. Sees only its host and ctx: no VS Code.
 (function () {
   const BINS = 20;
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'histogram',
     title: 'Histogram',
     tags: { category: ['quantitative'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity'], language: ['standard'] },

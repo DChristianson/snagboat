@@ -1,27 +1,23 @@
 # The visualizer contract
 
-Status: describes the code as of 2026-11-11, written for step 5 of the [Factory Clock plan](factory-clock-plan.md#steps). The package is `packages/viz` ([README](../../packages/viz/README.md), [contribution guide](../../packages/viz/CONTRIBUTING.md)); this page stays in `docs/design` until the package moves to its own repository (step 7). Where the code and this page disagree, the code wins; say so in an issue.
+Status: describes the code as of 2026-11-12, written for step 5 of the [Factory Clock plan](factory-clock-plan.md#steps). The package is `packages/viz` ([README](../../packages/viz/README.md), [contribution guide](../../packages/viz/CONTRIBUTING.md)); this page stays in `docs/design` until the package moves to its own repository (step 8). Where the code and this page disagree, the code wins; say so in an issue.
 
-Since 2026-11-12 the web page is the only host ([decision](factory-clock-plan.md#decision-2026-11-12)). The advisor UI and the VS Code detail view no longer load the package. They draw sessions with Snagboat's own copy of the turn tree and the context timeline (`media/drawings/`), and Explore is gone from both.
+Factory Clock is web only. Its one host is the web page ([decision](factory-clock-plan.md#decision-2026-11-12)). Snagboat draws its own session pages with its own copy of the turn tree and the context timeline.
 
 This page is for someone writing a new visualizer. The design behind it is in [visualization-explorer.md](visualization-explorer.md#the-visualizer-contract).
 
 ## What a visualizer is
 
-One plain browser script in `packages/viz/viz/`. No modules, no build step, no dependencies. It registers itself with the registry and draws one or more sessions into a DOM element it is given. It sees only that element, a `ctx` object of helpers, and the sessions. It doesn't know which page it runs in: the web page on GitHub Pages, the Explore and session pages of Snagboat's advisor UI, or the VS Code detail view's Explore and Sessions tabs.
+One plain browser script in `packages/viz/viz/`. No modules, no build step, no dependencies. It registers itself with the registry and draws one or more sessions into a DOM element it is given. It sees only that element, a `ctx` object of helpers, and the sessions. It doesn't know which page it runs in.
 
-Every host loads `vizkit.js` (sets `window.snagboatVizKit`) first, then `viz/registry.js` (sets `window.snagboatViz`), then the visualizers, then `explore.js`. The order of the visualizers, and what loads between them, differs by host:
-
-| Host | Order |
-| --- | --- |
-| Web page | `vizkit.js`, `viz/registry.js`, every file in `viz/` in name order (written by `packages/viz/scripts/webDemo.js`), `explore.js`, then the page's bundle |
+The web page loads `vizkit.js` (sets `window.factoryClockKit`) first, then `viz/registry.js` (sets `window.factoryClock`), then every file in `viz/` in name order (written by `packages/viz/scripts/webDemo.js`), then `explore.js`, then the page's bundle.
 
 So a visualizer can rely on the registry existing when its script runs, and on nothing else being ready yet. Do the work in `mount`, not at load time.
 
 ## Registering
 
 ```js
-window.snagboatViz.register({ id, title, tags, mount(host, ctx) })
+window.factoryClock.register({ id, title, tags, mount(host, ctx) })
 ```
 
 | Field | Type | Notes |
@@ -48,13 +44,13 @@ mount(host, ctx) -> { update(sessions, selection, options), resize(), destroy(),
 | `update(sessions, selection, options)` | Right after `mount`; whenever the loaded sessions change, including live updates; after any visualizer calls `ctx.select` | Redraw. It runs often, so it must be safe to repeat. Never call `ctx.select` from inside it. |
 | `resize()` | After the window resizes (debounced 150 ms) and when the tab is shown | Redraw at the new width. Most views pass their draw function. |
 | `destroy()` | When the slide leaves the mounted window, the filters hide it, or the sessions change | Stop timers and clocks, call `ctx.hideTip()`, empty `host`. |
-| `setActive(active)` | Optional. The carousel calls it with `true` for the current slide and `false` for its mounted neighbors and while the tab is hidden | Start or stop animation. A host may never call it (the Sessions tab doesn't), so a view must draw correctly without it. |
+| `setActive(active)` | Optional. The carousel calls it with `true` for the current slide and `false` for its mounted neighbors and while the tab is hidden | Start or stop animation. A host may never call it, so a view must draw correctly without it. |
 
 The arguments to `update`:
 
 - `sessions`: `SessionView[]`, never empty from the explorer. See [The data](#the-data).
 - `selection`: `{ sessionId?, turnId?, range?: [fromMs, toMs], focusId? }` or `null`. Shared across every slide. Use the fields you can show; ignore the rest. `focusId` is a turn tree node id; only the tree sets it.
-- `options`: `{}` from the explorer. The Sessions tab passes `{ expanded }` to the two views it mounts.
+- `options`: `{}` from the explorer.
 
 How the explorer mounts you:
 
@@ -65,15 +61,15 @@ How the explorer mounts you:
 
 ## ctx
 
-`ctx` is every helper in `window.snagboatVizKit` (`packages/viz/vizkit.js`), plus four fields from the host. Each host builds it the same way:
+`ctx` is every helper in `window.factoryClockKit` (`packages/viz/vizkit.js`), plus four fields from the host. The web page builds it this way:
 
 ```js
-const kit = window.snagboatVizKit;
+const kit = window.factoryClockKit;
 const ctx = { ...kit, tooltip, ...kit.tipFor(tooltip) };    // the page
 // the explorer then mounts each visualizer with { ...ctx, select }
 ```
 
-Until 2026-11-12, Snagboat's Sessions tab and the advisor UI's session page mounted `turn-tree` and `context-timeline` themselves, with their own `select`; they now use their own copies. Read the comments in `vizkit.js` for details; this is the list, in the groups below, of every name `vizkit.js` exports.
+Read the comments in `vizkit.js` for details; this is the list, in the groups below, of every name `vizkit.js` exports.
 
 **From the host**
 
@@ -150,17 +146,17 @@ The explorer loads at most 8 sessions (`EXPLORE_SESSION_CAP`), and each carries 
 
 ## Styling
 
-- **Colors come from `--sv-*` tokens** in [`packages/viz/theme.css`](../../packages/viz/theme.css). It gives each a light and a dark value from `prefers-color-scheme`, and a host can remap them. The main ones: `--sv-surface`, `--sv-ink`, `--sv-ink-muted`, `--sv-rule`, `--sv-accent`, `--sv-warn`, `--sv-info`, `--sv-error`, `--sv-ok`, `--sv-hover`, `--sv-selection`, `--sv-series-1` to `-3`, `--sv-cat-1` to `-5`, `--sv-turn-0` and `-1`. Never use a host's variables, such as `--vscode-*`, or a host's theme classes; a unit test fails if you do.
+- **Colors come from `--fc-*` tokens** in [`packages/viz/theme.css`](../../packages/viz/theme.css). It gives each a light and a dark value from `prefers-color-scheme`, and a host can remap them. The main ones: `--fc-surface`, `--fc-ink`, `--fc-ink-muted`, `--fc-rule`, `--fc-accent`, `--fc-warn`, `--fc-info`, `--fc-error`, `--fc-ok`, `--fc-hover`, `--fc-selection`, `--fc-series-1` to `-3`, `--fc-cat-1` to `-5`, `--fc-turn-0` and `-1`. Never use a host's variables, such as `--vscode-*`, or a host's theme classes; a unit test fails if you do.
 - **Shared classes** do most of the work: `viz-chart` on the SVG, `grid`, `axis-label`, `row-label`, `hit` (a transparent hover target), `line-0` to `line-5` (from `sessionClass`), `muted`, `small`, `controls`, `legend`, `key`, `swatch`.
-- **Your own rules** go in the package's stylesheet (`packages/viz/viz.css`), scoped under a class on your root element. A new color goes into `theme.css` as a token with a light and a dark value, and into `media/vscodeTheme.css`, the webview's mapping; the theme test checks both. Never a literal in a rule that applies in both themes.
-- **No inline styles in markup.** Both pages' Content-Security-Policy allow styles only from the page's own files, so `style` attributes and `<style>` elements are dropped. Setting a property from script (`node.style.height = ...`, `node.style.setProperty('--x', ...)`) works. SVG presentation attributes (`fill-opacity`, `stroke-width`) work too.
+- **Your own rules** go in the package's stylesheet (`packages/viz/viz.css`), scoped under a class on your root element. A new color goes into `theme.css` as a token with a light and a dark value The theme test checks it. Never a literal in a rule that applies in both themes.
+- **No inline styles in markup.** The page's Content-Security-Policy allows styles only from the page's own files, so `style` attributes and `<style>` elements are dropped. Setting a property from script (`node.style.height = ...`, `node.style.setProperty('--x', ...)`) works. SVG presentation attributes (`fill-opacity`, `stroke-width`) work too.
 - **Hero views** (`language` other than `standard`) draw their own ground and palette in both themes, with their colors in variables scoped to the view. Everything else uses the theme.
-- **Fonts** are system stacks: `--sv-font`, `--sv-mono`. No font files load.
+- **Fonts** are system stacks: `--fc-font`, `--fc-mono`. No font files load.
 
 ## Constraints
 
-- **No network.** The web page's policy is `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'`. No `fetch`, no XHR, no remote images or fonts. The webview's is stricter (scripts by nonce only). The advisor UI's allows `connect-src 'self'`, for the page's own calls to the core; a visualizer still makes none.
-- **No globals** beyond `window.snagboatViz` to register. Everything else comes through `ctx`. Don't read `window.snagboatVizKit` directly, and don't touch the page outside `host` (the tooltip is reached through `showTip`).
+- **No network.** The web page's policy is `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'`. No `fetch`, no XHR, no remote images or fonts.
+- **No globals** beyond `window.factoryClock` to register. Everything else comes through `ctx`. Don't read `window.factoryClockKit` directly, and don't touch the page outside `host` (the tooltip is reached through `showTip`).
 - **The host owns saved state.** Keep a view's state in the instance. The explorer saves only the shared selection and the replay settings.
 - **Any size.** Work at any slide width and down to a 320 px slide height. Use `viewBox` and the host's width.
 - **Performance.** Aggregate or cap marks; put each limit in a named constant at the top of the file and say it in the view's note. Animate only through the replay clock, and only while active. Try the view on the longest session you have, not only the demo data.
@@ -192,8 +188,8 @@ If the catalog and the registry disagree, the puck says so ("Catalog mismatch") 
 ## Tests to add or update
 
 - `src/test/unit/explorer.unit.test.ts`: "the catalog conforms to the taxonomy" runs `validateCatalog` and lists every catalog id in order. Add your id to that list. If you add a hero view, update the hero list in the next test too.
-- `src/test/unit/themeBoundary.unit.test.ts`: scans every file in `packages/viz/viz/` for `--vscode-*` names and for `--sv-*` tokens `theme.css` doesn't define. Nothing to add; it must pass.
-- If your view adds logic worth testing on its own, load the file in Node the way `heroShared.unit.test.ts` loads `vizkit.js` (a `vm` sandbox with a bare `window`), over the synthetic sessions from `packages/viz/src/web/synthetic.ts` (`@snagboat/viz/web`). Never use real traces in unit tests.
+- `src/test/unit/themeBoundary.unit.test.ts`: scans every file in `packages/viz/viz/` for `--vscode-*` names and for `--fc-*` tokens `theme.css` doesn't define. Nothing to add; it must pass.
+- If your view adds logic worth testing on its own, load the file in Node the way `heroShared.unit.test.ts` loads `vizkit.js` (a `vm` sandbox with a bare `window`), over the synthetic sessions from `packages/viz/src/web/synthetic.ts` (`factory-clock/web`). Never use real traces in unit tests.
 
 Run `npm run test:unit`.
 
@@ -205,7 +201,7 @@ Run `npm run test:unit`.
 // Calls per session: one bar per loaded session, as tall as its model calls.
 // Clicking a bar selects that session. Sees only its host and ctx.
 (function () {
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'calls-per-session',
     title: 'Calls per session',
     tags: { category: ['quantitative'], purpose: ['informative'], level: ['project'], dimension: ['quantity'], language: ['standard'] },
@@ -269,12 +265,12 @@ For a short real one, read `packages/viz/viz/bubble.js` or `histogram.js`. For a
 This part is for someone putting the explorer on a new page, not for a visualizer author. A host loads the files in the order above, plus `theme.css` then `viz.css` (and its own stylesheet after them), and gives the page a tooltip element. Then:
 
 ```js
-const kit = window.snagboatVizKit;
+const kit = window.factoryClockKit;
 const ctx = { ...kit, tooltip, ...kit.tipFor(tooltip) };
-const tab = window.snagboatExplore.mount(root, source, ctx);   // -> { shown(), destroy() }
+const tab = window.factoryClockExplore.mount(root, source, ctx);   // -> { shown(), destroy() }
 ```
 
-`window.snagboatExplore.shown()` and `hidden()` tell the mounted explorer its tab was shown or hidden; hidden stops every slide (`setActive(false)`). `source` is a plain object, documented at the top of `packages/viz/explore.js`:
+`window.factoryClockExplore.shown()` and `hidden()` tell the mounted explorer its tab was shown or hidden; hidden stops every slide (`setActive(false)`). `source` is a plain object, documented at the top of `packages/viz/explore.js`:
 
 | Member | What it does |
 | --- | --- |
@@ -287,18 +283,16 @@ const tab = window.snagboatExplore.mount(root, source, ctx);   // -> { shown(), 
 | `onExplorer(cb)` | Register `cb(state)`, called on each load with an `ExplorerState` or `null`. `ExplorerState` is in `packages/viz/src/explorerModel.ts`. |
 | `openSessionId()` | The session open elsewhere on the page, or `null`. Pre-checked the first time. |
 
-The saved state is `{ picked, current, filters, replay, collapsed, corner, selection }`; the host stores it however it likes. The three sources today are `packages/viz/src/web/` (in memory, the web page), `media/ui/app.js` (the core's HTTP API, the advisor UI) and `media/exploreSource.js` (messages to the extension, VS Code).
+The saved state is `{ picked, current, filters, replay, collapsed, corner, selection }`; the host stores it however it likes. The one source today is `packages/viz/src/web/`, which holds the web page's sessions in memory.
 
 ## Gaps before outside authors
 
-Things an outside author can't do today without changing Snagboat, or that the contract leaves loose:
+Things an outside author can't do today without changing Factory Clock, or that the contract leaves loose:
 
-- **The catalog is TypeScript.** Title, description and tags live in `packages/viz/src/catalog.ts`, so a new visualizer means editing and compiling the package, which Snagboat builds. Step 4 of the plan moved it into the package as TypeScript; a `catalog.json` is still open.
+- **The catalog is TypeScript.** Title, description and tags live in `packages/viz/src/catalog.ts`, so a new visualizer means editing and compiling the package. Step 4 of the plan moved it into the package as TypeScript; a `catalog.json` is still open.
 - **Tags are written twice.** `register` takes `title` and `tags` that nothing reads, and nothing checks they match the catalog. The explorer design's example also passes `description` to `register`, which is ignored.
 - **The catalog test lists every id.** Adding a view means editing `explorer.unit.test.ts`. No unit test checks that each catalog entry has a registered script, or the reverse; only the puck's runtime note does.
 - **No per-view stylesheet.** The CSP rules out inline styles, so a view's CSS goes in the shared stylesheet. The shared classes (`viz-chart`, `line-N`, `hit`, ...) aren't documented outside the CSS.
 - **`ctx` is the whole kit, unversioned.** About fifty helpers, some for one view (`termsOf`, `drift`). Any rename breaks outside views, and there's no list of which helpers are stable.
 - **`SessionView` isn't in schema.md.** It's documented only by comments in `sessionModel.ts`, whose header still says it's built in the extension for the webview.
-- **Hosts differ.** The explorer passes `{}` as options and calls `setActive`; the Sessions tab passes `{ expanded }`, never calls `setActive`, and its `select` reads only `turnId` and `focusId`.
 - **No view state survives a remount.** A slide two away is destroyed, and its controls reset. There's no way to save a view's own settings.
-- **The globals carry the old name.** `snagboatViz` and `snagboatVizKit` will likely be renamed for Factory Clock, which outside views would have to follow.

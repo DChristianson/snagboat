@@ -7,7 +7,7 @@ import { NormalizedEvent } from '@snagboat/schema';
 import { parseArgs, runCli } from '../../cli/main';
 import { EXTENSION_ID, findStores, isInside, selectStores, Store, userDirs } from '../../cli/stores';
 import { workspaceOfVsCodeStore, workspaceStoreDir, WORKSPACE_MARKER } from '../../core/userStore';
-import { syntheticEvents } from '@snagboat/viz/web';
+import { syntheticEvents } from 'factory-clock/web';
 import { StoreWriter } from '../../core/service/storeWriter';
 
 function writeStore(dir: string, events: NormalizedEvent[]): void {

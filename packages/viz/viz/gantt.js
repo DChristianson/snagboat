@@ -14,7 +14,7 @@
   const MIN_BAR = 3; // px; a turn with a single event still shows
   const FOLD = 3; // px; ticks closer than this fold into one
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'gantt',
     title: 'Gantt and waterfall',
     tags: { category: ['temporal'], purpose: ['informative'], level: ['session'], dimension: ['time', 'actor', 'hierarchy'], language: ['standard'] },

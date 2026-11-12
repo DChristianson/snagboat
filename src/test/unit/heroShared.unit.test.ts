@@ -3,8 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vm from 'vm';
 import { SessionView } from '@snagboat/schema';
-import { EventSet } from '@snagboat/viz/web';
-import { syntheticEvents, syntheticSessionIds } from '@snagboat/viz/web';
+import { EventSet } from 'factory-clock/web';
+import { syntheticEvents, syntheticSessionIds } from 'factory-clock/web';
 import { replayFindings } from '../../web/findings';
 
 /**
@@ -92,7 +92,7 @@ function frames() {
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
   const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
-  const shared = loadMedia('packages/viz/vizkit.js').snagboatVizKit as Shared;
+  const shared = loadMedia('packages/viz/vizkit.js').factoryClockKit as Shared;
   const set = new EventSet(syntheticEvents(), replayFindings);
   const views = set.explorerState(syntheticSessionIds()).sessions;
   const one = [views[0]];

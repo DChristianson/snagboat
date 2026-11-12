@@ -16,7 +16,7 @@
   const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'week-picture',
     title: 'Week in one picture',
     tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['project'], dimension: ['time', 'quantity'], language: ['standard'] },

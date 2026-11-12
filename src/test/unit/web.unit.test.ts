@@ -1,10 +1,10 @@
 import * as assert from 'assert';
 import { NormalizedEvent } from '@snagboat/schema';
-import { EventSet } from '@snagboat/viz/web';
-import { isNormalizedEvent, parseJsonl } from '@snagboat/viz/web';
-import { buildMarks } from '@snagboat/viz/web';
-import { SYNTHETIC_DAY, syntheticEvents, syntheticSessionIds } from '@snagboat/viz/web';
-import { readDemoTraces } from '@snagboat/viz/web';
+import { EventSet } from 'factory-clock/web';
+import { isNormalizedEvent, parseJsonl } from 'factory-clock/web';
+import { buildMarks } from 'factory-clock/web';
+import { SYNTHETIC_DAY, syntheticEvents, syntheticSessionIds } from 'factory-clock/web';
+import { readDemoTraces } from 'factory-clock/web';
 import { replayFindings } from '../../web/findings';
 import { buildTraceSet, flagText, reviewReport, scrubText, slimEvent, textLines, traceScript } from '../../scripts/demoTraces';
 import * as vm from 'vm';
@@ -176,7 +176,7 @@ async function main() {
     const set = buildTraceSet(syntheticEvents(), syntheticSessionIds().slice(0, 2), '/nowhere');
     const sandbox = { window: {} as Record<string, unknown> };
     vm.runInNewContext(traceScript(set), sandbox);
-    const read = readDemoTraces(JSON.parse(JSON.stringify(sandbox.window.snagboatDemoTraces)));
+    const read = readDemoTraces(JSON.parse(JSON.stringify(sandbox.window.factoryClockDemoTraces)));
     assert.ok(read);
     assert.deepStrictEqual(read.picked, set.picked);
     assert.deepStrictEqual(read.events, set.events);

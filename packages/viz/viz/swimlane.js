@@ -12,7 +12,7 @@
   const LABEL = 118;
   const HEAD = 22;
   const CAP = 400;
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'swimlane',
     title: 'Swimlane',
     tags: { category: ['conversational', 'actor'], purpose: ['informative', 'expressive'], level: ['session'], dimension: ['communication', 'actor'], language: ['standard'] },

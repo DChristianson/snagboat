@@ -114,7 +114,7 @@ export function traceScript(set: DemoTraceSet): string {
   return [
     '// The web demo’s example traces: real Snagboat sessions, slimmed by `npm run demo:traces` (src/scripts/demoTraces.ts).',
     '// Every prompt, reply excerpt, and session name in here was read by a person before it was committed.',
-    'window.snagboatDemoTraces = {',
+    'window.factoryClockDemoTraces = {',
     `  picked: ${JSON.stringify(set.picked)},`,
     '  events: [',
     ...set.events.map((e) => `    ${JSON.stringify(e)},`),

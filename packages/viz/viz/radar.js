@@ -15,7 +15,7 @@
     ['Subagents', (r) => r.s.subagents],
     ['Findings', (r) => r.findings],
   ];
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'radar',
     title: 'Radar',
     tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'actor'], language: ['standard'] },

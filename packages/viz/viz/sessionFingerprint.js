@@ -40,7 +40,7 @@
   };
   let charts = 0;
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'session-fingerprint',
     title: 'Session Fingerprint',
     tags: { category: ['dependency', 'temporal'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['time', 'hierarchy', 'dependency', 'quantity'], language: ['risograph'] },

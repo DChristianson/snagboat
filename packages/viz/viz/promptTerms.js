@@ -13,7 +13,7 @@
   const LABEL_CHARS = 24;
   const ITERATIONS = 240;
   // Words are counted the same way Conversation Landscape counts them (vizkit.js).
-  const { termsOf: tokenize, foldPlural: singular } = window.snagboatVizKit;
+  const { termsOf: tokenize, foldPlural: singular } = window.factoryClockKit;
 
   /** The graph for these sessions: prompts with their terms, the top terms with counts, the strongest edges. */
   function analyze(views) {
@@ -154,7 +154,7 @@
     return nodes;
   }
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'prompt-terms',
     title: 'Prompt terms',
     tags: { category: ['semantic'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['content'], language: ['standard'] },

@@ -10,7 +10,7 @@ import { compareToBaseline } from '../../cli/verify';
 import { EventLog } from '../../core/eventLog';
 import { markerFile, migrate, MigrationSource } from '../../core/migrate';
 import { listUserStores, readWorkspaceJson, workspaceKey, workspaceOfVsCodeStore, workspaceStoreDir } from '../../core/userStore';
-import { syntheticEvents } from '@snagboat/viz/web';
+import { syntheticEvents } from 'factory-clock/web';
 
 // The copy-only migration to the per-user store (docs/design/handoff-3c.md, step 3c-1),
 // over fixture VS Code stores laid out as VS Code lays them out on this platform.

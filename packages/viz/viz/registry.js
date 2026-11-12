@@ -4,9 +4,9 @@
 // convenience for reading the file, the catalog wins. Loaded before the
 // visualizers, after vizkit.js. No VS Code here.
 //
-//   window.snagboatViz.register({ id, title, tags, mount(host, ctx) })
-//   window.snagboatViz.get(id) -> the definition, or undefined
-//   window.snagboatViz.ids()   -> registered ids, in registration order
+//   window.factoryClock.register({ id, title, tags, mount(host, ctx) })
+//   window.factoryClock.get(id) -> the definition, or undefined
+//   window.factoryClock.ids()   -> registered ids, in registration order
 //
 // mount(host, ctx) builds its DOM once under host and returns
 //   { update(sessions, selection, options), resize(), destroy(), setActive?(active) }
@@ -21,9 +21,9 @@
 //              hideTip() over it, and select(selection) to announce a selection
 (function () {
   const defs = new Map();
-  window.snagboatViz = {
+  window.factoryClock = {
     register(def) {
-      if (!def || typeof def.id !== 'string' || typeof def.mount !== 'function') throw new Error('snagboatViz.register: an id and a mount function are required');
+      if (!def || typeof def.id !== 'string' || typeof def.mount !== 'function') throw new Error('factoryClock.register: an id and a mount function are required');
       defs.set(def.id, def);
     },
     get(id) {

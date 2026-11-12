@@ -35,7 +35,7 @@
     ['summaries', 'Summaries'],
   ];
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'terminal-board',
     title: 'Terminal Board',
     tags: { category: ['conversational', 'state'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['communication', 'actor', 'content'], language: ['split-flap'] },

@@ -7,7 +7,7 @@
 // as one row. Clicking a turn announces { sessionId, turnId }. Sees only its
 // host and ctx: no VS Code.
 (function () {
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'session-strips',
     title: 'Session strips',
     tags: { category: ['temporal', 'state'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time'], language: ['standard'] },

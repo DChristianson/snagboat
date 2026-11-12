@@ -10,7 +10,7 @@
 // zoomAll() and zoomTo(range | null) on the instance drive the zoom from
 // outside. Sees only its host and ctx: no VS Code.
 (function () {
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'context-timeline',
     title: 'Context timeline',
     tags: { category: ['temporal', 'quantitative', 'state'], purpose: ['informative'], level: ['session'], dimension: ['time', 'quantity'], language: ['standard'] },

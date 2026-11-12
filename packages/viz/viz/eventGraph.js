@@ -19,7 +19,7 @@
   const RANK = { prompt: 0, compaction: 1, call: 2, tool: 3 };
   let charts = 0; // marker ids must be unique across stacked charts
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'event-graph',
     title: 'Event graph',
     tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'], language: ['standard'] },

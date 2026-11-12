@@ -4,7 +4,7 @@
 // bound to an element, the small session helpers, the distribution and slide
 // layout helpers, the replay clock and its bar, and the force layout. Nothing
 // here knows about VS Code or the detail view, so the web demo loads this file
-// as-is. Loaded first. Sets window.snagboatVizKit.
+// as-is. Loaded first. Sets window.factoryClockKit.
 (function () {
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -806,5 +806,5 @@
     return { dx: Math.sin((2 * Math.PI * t) / px + (h & 7)) * amplitude, dy: Math.cos((2 * Math.PI * t) / py + ((h >>> 3) & 7)) * amplitude };
   }
 
-  window.snagboatVizKit = { el, svg, compact, fmt, niceMax, clip, formatTime, tipFor, ms, short, duration, agentName, modelShort, fit, findNode, pathTo, callTokens, sessionName, secondsText, turnStats, METRICS, metricValues, quantile, density, niceAxis, heatScale, arcPath, modeButtons, vizPanel, interact, legendKey, sessionClass, svgText, REPLAY_SPEEDS, REPLAY_CHOICES, getReplayPrefs, setReplayPrefs, onReplayPrefs, speedText, replayEvents, countUpTo, createReplay, replayBar, hashId, forceLayout, drift, termsOf, foldPlural, fitHeight, fitter };
+  window.factoryClockKit = { el, svg, compact, fmt, niceMax, clip, formatTime, tipFor, ms, short, duration, agentName, modelShort, fit, findNode, pathTo, callTokens, sessionName, secondsText, turnStats, METRICS, metricValues, quantile, density, niceAxis, heatScale, arcPath, modeButtons, vizPanel, interact, legendKey, sessionClass, svgText, REPLAY_SPEEDS, REPLAY_CHOICES, getReplayPrefs, setReplayPrefs, onReplayPrefs, speedText, replayEvents, countUpTo, createReplay, replayBar, hashId, forceLayout, drift, termsOf, foldPlural, fitHeight, fitter };
 })();
