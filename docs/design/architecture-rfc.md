@@ -4,7 +4,7 @@ Status: proposed, 2026-11-08; being built on the `refactor` branch. Steps 1 and 
 
 ## Summary
 
-This RFC proposes moving Snagboat's engine out of the VS Code extension into one local core that every tool shares: VS Code, the Claude Code CLI, Gas City and a browser tab. The visualizations move into their own package. The split is cheap: 96 of the repo's 107 source files already have no VS Code import.
+This RFC proposes moving Snagboat's engine out of the VS Code extension into one local core that every tool shares: VS Code, the Claude Code CLI and a browser tab. The visualizations move into their own package. The split is cheap: 96 of the repo's 107 source files already have no VS Code import.
 
 The decision asked for:
 
@@ -21,7 +21,7 @@ The companion review, *Review: ChatGPT's Snagboat Ecosystem Proposal*, explains 
 | Change | Status |
 | --- | --- |
 | Minimum VS Code raised from 1.119 to 1.145, and Node.js from 22 to 24 (for building and for the `snagboat` CLI) | Built |
-| Windows supported: Claude Code hooks run through Git Bash, as Claude Code itself requires there | Built; passes unit tests on Windows in CI, not yet tried with Claude Code on a real Windows machine |
+| Supported platforms are macOS and Linux. Windows is not supported (decided November 12, 2026): there is no Windows machine to test on | Decided. The Git Bash hook routing from step 3a stays, and the Windows unit-test job still runs in CI but doesn't block a merge |
 | A `snagboat` command line that reads the event logs without VS Code | Built |
 | Data moves from VS Code's per-workspace storage to `~/.snagboat/data`, one folder per workspace. Turning it on copies existing data and never moves or deletes it; `snagboat migrate` copies every store | Built as a preview, off by default: `snagboat.storage.perUserStore` |
 | A core service per user (`snagboat serve`, `snagboat core start`), found through `~/.snagboat/core.json`. Claude Code hooks for a project with no VS Code window open go to it | Built as a preview. With `snagboat.storage.perUserStore` on, VS Code starts it and each window is its client (step 3c-3c). The core reads Claude Code and Copilot CLI sessions for every project; Copilot's OpenTelemetry export still goes to a window, which sends it to the core (its spans don't name a workspace). The core runs the heuristics for the workspaces windows follow (step 3c-3d); windows deliver the notifications and status bar |
@@ -33,10 +33,9 @@ The companion review, *Review: ChatGPT's Snagboat Ecosystem Proposal*, explains 
 ## Terms
 
 - **Core:** the part of Snagboat that owns the data: collectors, event log, heuristics, advisor. It runs as one local process per user.
-- **Front door:** a thin client of the core (the VS Code extension, a Claude Code plugin, a Gas City pack, a browser tab). It sends events in and shows what the core returns.
+- **Front door:** a thin client of the core (the VS Code extension, a Claude Code plugin, a browser tab). It sends events in and shows what the core returns.
 - **Beads:** an issue tracker that lives in the repo and is driven from its CLI, `bd`. Its issues are called beads, and one can block another; Snagboat's own work items are tracked in it.
 - **Dolt:** the version-controlled database Beads stores its issues in. Its history is what gives a Beads experiment its audit trail.
-- **Gas City:** a system that runs Claude Code or Codex workers and tracks their work as beads. A Gas City pack would put Snagboat's hooks on every worker.
 - **HypAware:** an outside tool ([hyparam/hypaware](https://github.com/hyparam/hypaware)) that Snagboat plans to ask for insights about a workspace, as an advisor, and perhaps to read events from.
 - **Metergraph:** an outside tool that Snagboat would connect to rather than replace. This RFC doesn't describe it further.
 
@@ -44,8 +43,8 @@ The companion review, *Review: ChatGPT's Snagboat Ecosystem Proposal*, explains 
 
 **Goals**
 
-- The same sessions, findings and advisors from VS Code, the Claude Code CLI, Gas City and a browser.
-- macOS first, without shutting out Linux or Windows. When this RFC was written, the POSIX hook script blocked Windows; step 3a runs it through Git Bash there.
+- The same sessions, findings and advisors from VS Code, the Claude Code CLI and a browser.
+- macOS and Linux. Windows is not supported (decided November 12, 2026). Step 3a runs the hook script through Git Bash there, so it may work, but it is untested.
 - Everything stays local. The advisor UI is served from your machine; sharing means exporting a redacted report.
 - Each advisor stands for one of your project's measurement goals: cost, clock time, safety or focus.
 - Experiments become tracked, auditable work with a clear decision.
@@ -57,7 +56,8 @@ The companion review, *Review: ChatGPT's Snagboat Ecosystem Proposal*, explains 
 - A hosted service or team cloud.
 - Rewriting the heuristics, adapters or advisor abilities; they move, mostly unchanged.
 - Replacing HypAware or Metergraph; Snagboat connects to them.
-- Making Gas City or Beads a requirement.
+- Making Beads a requirement.
+- A Gas City pack. Dropped, decided November 12, 2026.
 
 ## Architecture
 
@@ -66,7 +66,6 @@ flowchart LR
   subgraph Doors["Front doors"]
     VS["VS Code extension<br>status bar, findings panel"]
     CC["Claude Code plugin<br>hooks, MCP, commands"]
-    GC["Gas City pack<br>hooks on every worker"]
     BR["Browser tab<br>snagboat open"]
   end
   subgraph Core["Snagboat core, on your machine"]
@@ -74,12 +73,12 @@ flowchart LR
     LOG["Event log and index<br>daily JSONL, SQLite side index"]
     HEU["Heuristics and rules<br>deterministic notifications"]
     PER["Advisors<br>Purser, Navigator, Bosun, Lookout"]
-    EXP["Experiment tracker<br>SQLite tables or Beads"]
+    EXP["Experiments<br>design not settled"]
     API["Local API and advisor UI<br>127.0.0.1 only, token in core.json"]
   end
   SCH["schema package<br>types, JSON Schema"]
   VIZ["Factory Clock<br>static site"]
-  VS & CC & GC & BR <--> API
+  VS & CC & BR <--> API
   SCH --> Core
   SCH --> VIZ
 ```
@@ -194,11 +193,11 @@ Keep the repo's existing rule: daily JSONL is the source of truth, and SQLite is
 | Settings | `~/.snagboat/config.json`; a project's `.snagboat.json` | Copied from VS Code's settings when they change; a project file may set team settings, and privacy settings only to be more private. Built, with the per-user store on |
 | Advisors | `~/.snagboat/advisors/<id>/persona.md` | Already there; local only, versioned by content hash |
 | Audit log and API keys | `~/.snagboat/data/advisor-audit.jsonl`; OS keychain | The audit log moved with the per-user store. Keys leave VS Code SecretStorage so the CLI can use them; not built yet |
-| Experiments | Tracker interface: built-in SQLite tables, or a Beads adapter | Beads stores the steps and decision; results stay in Snagboat |
+| Experiments | Not settled | Design first (decided November 12, 2026) |
 
 A migration copies each workspace's existing event log into the per-user store, tagging the workspace, and leaves the originals in place. Running it again copies only what's new (`snagboat migrate`, with `--dry-run` and `--verify`).
 
-**Experiments.** An experiment is a chain of steps: baseline, replay, evaluate, decide. Every experiment belongs to the advisor whose goal it serves, so an advisor's history of experiments is its progress record. With the Beads adapter, each step is a bead that becomes ready only when the one before it closes, and Dolt history keeps the audit trail. The experiment record names the advisor version (a hash of its `persona.md`, stored with a copy of the file) and the data version (the days and index build it used), so a replay can be repeated. Experiment beads live in a Beads store with no remote, because they point at your session data. A long experiment is an epic; its sub-experiments are child beads, and a reworded experiment is a new bead linked to the old one with a discovered-from edge. Snagboat keeps each experiment's state and results itself, because Beads can garbage-collect closed beads after a retention window.
+**Experiments.** Decided November 12, 2026: keep experiments as simple as possible, and design how they work before building them. The working assumption is that advisors may do multi-turn work about their goals, tracked as beads, which keep a record of your conversations with them about those goals. Most of the infrastructure for that isn't built yet. The rest of this paragraph is the original proposal, kept as history. An experiment is a chain of steps: baseline, replay, evaluate, decide. Every experiment belongs to the advisor whose goal it serves, so an advisor's history of experiments is its progress record. With the Beads adapter, each step is a bead that becomes ready only when the one before it closes, and Dolt history keeps the audit trail. The experiment record names the advisor version (a hash of its `persona.md`, stored with a copy of the file) and the data version (the days and index build it used), so a replay can be repeated. Experiment beads live in a Beads store with no remote, because they point at your session data. A long experiment is an epic; its sub-experiments are child beads, and a reworded experiment is a new bead linked to the old one with a discovered-from edge. Snagboat keeps each experiment's state and results itself, because Beads can garbage-collect closed beads after a retention window.
 
 ## Front doors
 
@@ -206,12 +205,11 @@ Each front door is thin: it finds or starts the core, sends events in, and prese
 
 | Front door | What it adds | Platforms |
 | --- | --- | --- |
-| VS Code extension | Status bar, native notifications, a compact findings panel that opens the full advisor UI in a browser, the edit tracker | macOS, Linux, Windows |
-| Claude Code plugin | Hooks that run `snagboat hook`; an MCP server for asking about sessions and findings; slash commands such as `/snagboat findings`; a status-line command | macOS, Linux, Windows |
-| Gas City pack | The same Claude Code or Codex hooks on every worker; milestone signals from closed beads | macOS, Linux; Windows through WSL |
+| VS Code extension | Status bar, native notifications, a compact findings panel that opens the full advisor UI in a browser, the edit tracker | macOS, Linux |
+| Claude Code plugin | Hooks that run `snagboat hook`; an MCP server for asking about sessions and findings; slash commands such as `/snagboat findings`; a status-line command | macOS, Linux |
 | Browser | `snagboat open` serves the advisor UI at a localhost address | Any |
 
-**Hooks on Windows.** The hook entry runs a POSIX `sh` and `curl` script, and it stays that way. This RFC first proposed a Node script, but Node isn't reliably on `PATH` where hooks run, and the hook runs after every tool call, where `sh` and `curl` start in about 12 ms against about 60 ms for Node. On Windows, Claude Code runs hook commands through Git Bash, which has `sh` and `curl`, so the same script works there (step 3a). Hook entries are written through the Claude Code plugin instead of editing each project's `.claude/settings.json`, with the current behavior kept as a fallback.
+**Hooks on Windows.** The hook entry runs a POSIX `sh` and `curl` script, and it stays that way. This RFC first proposed a Node script, but Node isn't reliably on `PATH` where hooks run, and the hook runs after every tool call, where `sh` and `curl` start in about 12 ms against about 60 ms for Node. On Windows, Claude Code runs hook commands through Git Bash, which has `sh` and `curl`, so the same script works there (step 3a). Decided November 12, 2026: Windows is not supported, since there is no Windows machine to test on. The Git Bash routing stays, untested. Hook entries are written through the Claude Code plugin instead of editing each project's `.claude/settings.json`, with the current behavior kept as a fallback.
 
 **Core lifecycle.** The first front door that needs the core starts it: a VS Code window with `snagboat.storage.perUserStore` on (step 3c-3c), or by hand with `snagboat serve` or `snagboat core start`. An open window keeps it running (its event stream counts as activity). It exits after an idle period with no requests (30 minutes by default). A stale `core.json` (its process gone) is replaced on the next start. If neither a window nor the core takes a hook, the hook script saves it in a spool folder, `~/.snagboat/data/spool/hooks/`, that the core reads on startup. The core creates that folder, so hooks are kept only once a core has run.
 
@@ -225,25 +223,25 @@ One npm package, `snagboat`, holds the CLI and the core; every front door instal
 | --- | --- | --- |
 | VS Code | From the Marketplace or Open VSX, with the core bundled inside the extension | VS Code 1.145 or later |
 | Claude Code | A plugin from a marketplace in the Snagboat repository; its hooks and MCP server run `npx snagboat`, which fetches the package on first use | Claude Code |
-| CLI and Gas City | `npm install -g snagboat`, then `snagboat init` to check hooks and storage | Node 24 or later |
+| CLI | `npm install -g snagboat`, then `snagboat init` to check hooks and storage | Node 24 or later |
 
 Whichever front door starts the core first writes `core.json`, and the rest attach to it. If two versions are installed, the newer core wins and older clients warn. A Homebrew tap can come later.
 
 ## Migration plan
 
-Seven steps, each shippable on its own. Steps 1 and 2 move code without changing behavior; the existing unit tests, transcript replay and CI on Ubuntu and macOS (and Windows, from step 3a) are the safety net throughout. Steps 1 and 2 are done; step 3 is in progress, as broken down in [handoff-3c.md](handoff-3c.md).
+Seven steps, each shippable on its own. Steps 1 and 2 move code without changing behavior; the existing unit tests, transcript replay and CI on Ubuntu and macOS are the safety net throughout. CI also runs the unit tests on Windows, from step 3a, without blocking a merge. Steps 1 and 2 are done; step 3 is in progress, as broken down in [handoff-3c.md](handoff-3c.md).
 
 1. **Monorepo and schema.** Switch to npm workspaces with `packages/schema`, `packages/core`, `packages/vscode` and `packages/viz`. Move `src/core/types.ts` into `schema` and generate its JSON Schema.
 2. **Core as a library.** Move core, adapters, heuristics, discovery, review, nudges, advisor and backfill into `packages/core`, replacing the 11 VS Code imports with small interfaces the extension implements. The extension still runs everything in-process.
-3. **Core service and CLI.** Add the `snagboat` CLI, the local service and `core.json`. Run the POSIX hook script through Git Bash on Windows, migrate storage to `~/.snagboat/data`, and add Windows to CI. The extension becomes a client. (All built, the client and the core's heuristics as a preview behind `snagboat.storage.perUserStore`. Windows still deliver nudges, as planned: notifications are VS Code's to show.)
+3. **Core service and CLI.** Add the `snagboat` CLI, the local service and `core.json`. Run the POSIX hook script through Git Bash on Windows, migrate storage to `~/.snagboat/data`, and add Windows to CI. (Windows was later dropped as a supported platform, decided November 12, 2026. The Windows CI job stays, non-blocking.) The extension becomes a client. (All built, the client and the core's heuristics as a preview behind `snagboat.storage.perUserStore`. Windows still deliver nudges, as planned: notifications are VS Code's to show.)
 4. **Outcomes and advisors.** Capture the outcome signals, add front matter to `persona.md`, and ship the four default advisors.
 5. **Claude Code plugin and advisor UI.** Package hooks, the MCP server, slash commands and the status line as a plugin. Serve the full advisor UI from the core in a browser tab; the VS Code webview shows a compact findings panel that links to it. Decided (design pass, [mockup](https://claude.ai/code/artifact/946107be-f901-4ce5-8cfc-fc767d045326)): a one-time link opens a read-only browser session on every workspace; plain scripts, no framework; the plugin bundles the CLI; Sessions, Explore and Suggestions move from VS Code to the browser. Revised in the design pass: advisor cards hold a brief (status line, summary, watching, what to surface, with responses) rather than measures, which move to each advisor's page; Navigator shows what's ahead from Beads, with the session's plan (the agent's todo list) as the fallback (built); a + adds an advisor. In order: 5a the core serves the UI and the advisors screen (built: `snagboat open`, **Snagboat: Open Advisor UI**, cards with briefs and responses, advisor pages); 5b sessions and Explore (built: session list with outcomes, a session's page, Explore over the core; the visualizers load from `media/` until Factory Clock step 4 moves them); 5c the VS Code compact panel and adding an advisor from the browser (built: the findings panel in Snagboat's sidebar, Sessions and Explore open in the browser with the per-user store on, the + form; Suggestions moves in 5c-2: 5c-2a built, discovery, thresholds and saved rules in the browser over the core, with dismissals shared and VS Code taking settings changed in config.json; 5c-2b advisor proposals (built), decided November 11, 2026: the core asks local models only, with no API keys, hosted advisors staying in VS Code, and the payload is approved in the page, kept by the core); 5d the plugin (built: `plugins/snagboat`, with its hooks, a read-only MCP server `snagboat mcp`, slash commands and `snagboat statusline`; it needs Node 24 on PATH, since Claude Code's native install ships no Node, which revises "runs it with the Node that Claude Code ships with" in the decision above; decided November 11, 2026: Node 24 on PATH for now, and each release attaches the plugin as a zip, loaded with `claude --plugin-dir`; a marketplace listing later).
-6. **Experiments and Gas City.** Add the experiment tracker with its SQLite and Beads implementations, then a Gas City pack once its hook points are confirmed.
+6. **Experiments.** Design not settled. Decided November 12, 2026: keep it as simple as possible and design how experiments work before writing code. Advisors may need multi-turn work about their goals, tracked as beads, to keep a record of your conversations with them. Most of that infrastructure isn't built yet. The Gas City pack once planned here is dropped.
 7. **Visualization package.** Runs in parallel from step 1, following the visualization plan.
 
 ## Decisions
 
-- **Gas City hook points.** Which Gas City and Beads signals should Snagboat read? Worker activity already comes from the Claude Code and Codex hooks. For milestones, Beads offers its events journal (`bd events tail --follow`, or the event stream from `bd serve`), OpenTelemetry issue counts by status, and `bd provenance` to bind a bead to a session transcript or commit. Decided: revisit when we consider sources, alongside HypAware.
+- **Gas City hook points.** Dropped (decided November 12, 2026). There will be no Gas City pack. Which Beads signals Snagboat reads, such as its events journal or `bd provenance`, is still to be revisited when we consider sources, alongside HypAware.
 - **`node:sqlite`**** stability.** Snagboat targets the latest stable VS Code, 1.145, which ships Node 24.22.0; the CLI and core service require Node 24 too. The minimum was raised from VS Code 1.119 and Node 22 to match. Confirm `node:sqlite` runs on Node 24 without an experimental flag or warning before relying on it. JSONL stays the source of truth either way. Decided: start with SQLite. DuckDB remains the upgrade path for analysis, and Dolt is used only through Beads for experiments.
 - **Per-window state.** Mutes live in VS Code `workspaceState` today. Each window also keeps its own event log in workspace storage. Decided: after step 3 every window shares one store, and the core keeps them apart by default: a window's token is scoped to its workspace, and it sees only that workspace's events, findings and mutes. Cross-workspace views, such as weekly reviews in the advisor UI, are a separate, explicit scope.
 - **Plugin versus settings edits.** Should the Claude Code plugin fully replace writing hook entries into `.claude/settings.json`, or should both stay? Decided: both for now. Claude Code's VS Code extension runs the same engine and reads the same settings files and transcript folder, so settings-file hooks already work there today. Test that plugin-installed hooks fire in the extension, then drop the settings-file fallback.
@@ -254,5 +252,4 @@ Seven steps, each shippable on its own. Steps 1 and 2 move code without changing
 - [Snagboat repository](https://github.com/DChristianson/snagboat), including `docs/architecture.md`, `docs/schema.md`, `docs/roadmap.md` and `docs/design/trusted-advisor.md`
 - [Beads FAQ](https://beads.gascity.com/reference/faq.md)
 - [Beads observability](https://beads.gascity.com/reference/observability) and [events journal](https://beads.gascity.com/reference/events-journal)
-- [Ry Walker: Gas City research notes](https://rywalker.com/research/gas-city)
 - [HypAware on GitHub](https://github.com/hyparam/hypaware)

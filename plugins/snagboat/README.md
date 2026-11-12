@@ -16,7 +16,7 @@ At the start of each session the plugin keeps `~/.snagboat/bin/snagboat` pointin
 ## Requirements
 
 - **Node.js 24 or later**, as `node` on your PATH or in `SNAGBOAT_NODE`. Claude Code doesn't ship Node, and the MCP tools, slash commands and status line run the Snagboat CLI with it. Without it they say what's missing. The hooks need only `sh` and `curl`.
-- macOS or Linux. On Windows, Claude Code runs hooks through Git Bash, so the hooks work; the MCP server starts with `sh`, which needs Git Bash's `sh` on your PATH. That hasn't been checked on a real Windows machine yet.
+- macOS or Linux. Windows is not supported. It may work through Git Bash, with Git Bash's `sh` on your PATH, but it is untested.
 
 ## Install
 
