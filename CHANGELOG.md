@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Dev container relays (host side):** the core records events a dev container relays through `<folder>/.snagboat/relay/` for folders you allow with `snagboat relay allow` (`relay.allow` in `~/.snagboat/config.json`); `snagboat relay status` shows each one. See [cli.md](https://github.com/DChristianson/snagboat/blob/main/docs/cli.md#dev-container-relays).
+- **Dev containers:** the core reads the Claude Code transcripts a dev container keeps in `<folder>/.snagboat/claude-projects/` (its `~/.claude/projects`, bind-mounted there) for folders you allow with `snagboat containers allow` (`containers.allow` in `~/.snagboat/config.json`); `snagboat containers status` shows each one. See [cli.md](https://github.com/DChristianson/snagboat/blob/main/docs/cli.md#dev-containers).
 
 ## 0.0.3
 

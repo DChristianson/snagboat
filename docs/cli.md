@@ -26,17 +26,17 @@ node dist/snagboat.js sessions --all --store user   # read the per-user store
 
 With `snagboat.storage.perUserStore` on, VS Code starts the core and each window becomes its client. The core collects and writes, and a window shows its own workspace from it ([handoff](design/handoff-3c.md)).
 
-## Dev container relays
+## Dev containers
 
-Claude Code sessions inside a dev container don't reach the core on your machine: the container keeps its own `~/.claude`. A core inside the container can relay them instead, through `.snagboat/relay/` in the bind-mounted project folder, and the core here records them for folders you allow:
+Claude Code sessions inside a dev container don't reach the core on your machine: the container keeps its own `~/.claude`. If the container bind-mounts its `~/.claude/projects` to `.snagboat/claude-projects/` in the project folder, the core here reads those transcripts too, for folders you allow:
 
 ```sh
-snagboat relay allow [folder]   # read folder's relay (default: the current folder, as its real path)
-snagboat relay deny [folder]    # stop reading it
-snagboat relay status           # each allowed folder: relay.json's root and host, files waiting, the last ingest
+snagboat containers allow [folder]   # read folder's .snagboat/claude-projects (default: the current folder, as its real path)
+snagboat containers deny [folder]    # stop reading it
+snagboat containers status           # each allowed folder: whether claude-projects is there, its project folders and session files, when it was last read
 ```
 
-`allow` and `deny` change `relay.allow` in `~/.snagboat/config.json` and print what they changed. The allow list lives only there, never in the project ([settings](settings.md#dev-container-relays-relayallow)). The core reads each allowed folder's outbox every 30 seconds while it runs (not with `--no-collect`), and deletes each file once its events are recorded.
+`allow` and `deny` change `containers.allow` in `~/.snagboat/config.json` and print what they changed. The allow list lives only there, never in the project ([settings](settings.md#dev-containers-containersallow)). A running core picks up the change on its next ingest tick (every 30 seconds) and reads the folder while it runs (not with `--no-collect`). `status --json` prints the same as JSON.
 
 ## Migrating to the per-user store
 
