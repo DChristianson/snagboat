@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.0.3
 
 - **Requirements:** VS Code 1.145 or later (was 1.119), and Node 24 for the `snagboat` CLI.
 - **Platforms:** macOS and Linux are supported. Windows is not supported. Claude Code hooks may work there through Git Bash, but that is untested.
@@ -18,7 +18,7 @@
 - **Ask the advisor** also sees how your current heuristics and rules did (episodes, acknowledged, expired, muted) and the built-in thresholds against your history, and can propose retiring a rule or changing a threshold; each is a click to act on in the Suggestions tab, and nothing changes by itself.
 - **Snagboat: Relabel Shell Calls** gives past shell calls the shell categories in use; Snagboat offers it whenever they change.
 - **Snagboat: Export Rules...** and **Snagboat: Import Rules...** move saved rules between machines; imports are replayed over your history before you pick them. See [heuristics.md](https://github.com/DChristianson/snagboat/blob/main/docs/heuristics.md#rules).
-- **Factory Clock**: a web page on GitHub Pages (<https://dchristianson.github.io/factory-clock/>) with a carousel of 32 views of your sessions, five hero views among them (Living Network, Session Fingerprint, Conversation Landscape, Terminal Board, and Factory Clock). It runs over example sessions, or over your own daily files, read in the browser and sent nowhere. **Snagboat: Reveal Event Log Folder** shows the folder those files are in. See [PRIVACY.md](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#factory-clock). For visualizer authors, the page's globals are now `factoryClock`, `factoryClockKit` and `factoryClockExplore` (were `snagboatViz`, `snagboatVizKit` and `snagboatExplore`), and its color tokens are `--fc-*` (were `--sv-*`).
+- **Factory Clock**: a web page on GitHub Pages (<https://dchristianson.github.io/factory-clock/>) with a carousel of 32 views of your sessions, five hero views among them (Living Network, Session Fingerprint, Conversation Landscape, Terminal Board, and Factory Clock). It runs over example sessions, or over your own daily files, read in the browser and sent nowhere. **Snagboat: Reveal Event Log Folder** shows the folder those files are in. See [PRIVACY.md](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#factory-clock).
 - **Explore removed:** the Explore tab in the detail view and in the advisor UI was removed from Snagboat before release. It lives on as Factory Clock's web page. Snagboat keeps its own copy of the two drawings its Sessions tab uses, the turn tree and the context timeline.
 - **Factory Clock moved to its own repository**, <https://github.com/DChristianson/factory-clock>, with its web page at <https://dchristianson.github.io/factory-clock/>. The old page address, <https://dchristianson.github.io/snagboat/>, redirects there. Snagboat's repository no longer holds or builds it.
 - **Privacy:** the extension no longer exposes its event store, findings, and sessions to other extensions; that API now exists only in test runs.
