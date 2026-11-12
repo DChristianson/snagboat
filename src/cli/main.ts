@@ -5,7 +5,9 @@ import { migrate, MigrationReport, MigrationSource } from '../core/migrate';
 import { workspaceOfVsCodeStore } from '../core/userStore';
 import { compareToBaseline, parseBaseline, SessionCounts, verifyText } from './verify';
 import { CoreService } from '../core/service/server';
-import { effectiveSettings } from '../core/config';
+import { effectiveSettings, loadConfig, relayAllowed, saveConfig, withRelayFolder } from '../core/config';
+import { listOutbox, readRelayInfo, readRelayStatus, RelayFolderStatus } from '../core/service/relayIngest';
+import { relayOutboxDir } from '../core/relay';
 import { ensureCore, findCore } from '../core/service/lifecycle';
 import { coreRequest, liveCore } from '../core/service/coreFile';
 import * as fs from 'fs';
@@ -21,8 +23,9 @@ import { HOOK_SCRIPT } from '../adapters/claude-code/hookRoutes';
 /**
  * The snagboat CLI (docs/design/architecture-rfc.md, step 3): read the event
  * logs the VS Code extension writes, from a terminal or an agent, without VS
- * Code running. Every command prints JSON with --json. Only `migrate` writes,
- * and only to the per-user store: it copies, never moves or deletes.
+ * Code running. Every command prints JSON with --json. Only `migrate` and
+ * `relay allow|deny` write: migrate only to the per-user store (it copies,
+ * never moves or deletes), relay only its list in ~/.snagboat/config.json.
  */
 
 const USAGE = `usage: snagboat <command> [options]
@@ -40,6 +43,11 @@ commands:
                       advisors) for the workspace containing the current folder; the Claude Code
                       plugin runs it
   config              the settings that apply to the current folder, and where each comes from
+  relay allow [dir]   let the core record what a dev container relays through dir's
+                      .snagboat/relay folder (dir defaults to the current folder); writes
+                      relay.allow in ~/.snagboat/config.json
+  relay deny [dir]    stop reading dir's relay folder
+  relay status        the allowed folders, and what's waiting in each one's relay folder
   serve               run the core service in the foreground (Ctrl-C stops it)
   core start          start the core in the background, unless it's running
   core status         whether the core is running, and where
@@ -215,6 +223,8 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       });
       return 0;
     }
+    case 'relay':
+      return relayCommand(rest, cwd, io, print);
     case 'serve': {
       const home = userHome();
       let core: CoreService;
@@ -472,6 +482,75 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       io.err(`unknown command ${command}\n\n${USAGE}`);
       return 2;
   }
+}
+
+/** snagboat relay allow|deny [folder], snagboat relay status (dev container relays, core/relay.ts). */
+async function relayCommand(rest: string[], cwd: string, io: CliIo, print: (value: unknown, text: () => string) => void): Promise<number> {
+  const home = userHome();
+  const file = path.join(home, 'config.json');
+  const [sub, given] = rest;
+  if (sub === 'allow' || sub === 'deny') {
+    const resolved = path.resolve(cwd, given ?? '.');
+    let folder: string;
+    try {
+      folder = fs.realpathSync(resolved);
+      if (!fs.statSync(folder).isDirectory()) throw new Error('not a directory');
+    } catch {
+      if (sub === 'allow') {
+        io.err(`${resolved} isn't a folder\n`);
+        return 1;
+      }
+      folder = resolved; // denying a folder that's gone
+    }
+    const { config, problems } = loadConfig(home);
+    // A config.json that isn't JSON would be replaced by the write: leave it for you to fix.
+    const broken = problems.find((p) => p.includes("isn't valid JSON"));
+    if (broken) {
+      io.err(`${broken}\nFix it, then run this again.\n`);
+      return 1;
+    }
+    const before = relayAllowed(config);
+    let next = config;
+    if (sub === 'allow') next = withRelayFolder(config, folder, true);
+    else for (const f of new Set([folder, resolved])) next = withRelayFolder(next, f, false);
+    const after = relayAllowed(next);
+    const changed = JSON.stringify(before) !== JSON.stringify(after);
+    if (changed) saveConfig(home, next);
+    print({ changed, folder, allow: after, config: file }, () => {
+      if (!changed) return sub === 'allow' ? `${folder} is already allowed to relay (${file}); nothing changed\n` : `${folder} wasn't allowed to relay; nothing changed\n`;
+      return sub === 'allow'
+        ? `Changed ${file}: added ${folder} to relay.allow.\nThe core records the events a dev container leaves in ${relayOutboxDir(folder)} on its next ingest (every 30 seconds while it runs).\n`
+        : `Changed ${file}: removed ${folder} from relay.allow. The core no longer reads its relay folder.\n`;
+    });
+    return 0;
+  }
+  if (sub === 'status') {
+    const status = readRelayStatus(home);
+    const folders: Array<{ folder: string; relay: { root: string; host: string } | null; problem?: string; pending: number; lastIngest: RelayFolderStatus | null }> = [];
+    for (const folder of relayAllowed(loadConfig(home).config)) {
+      const info = await readRelayInfo(folder);
+      const outbox = await listOutbox(folder);
+      const relay = 'problem' in info ? null : { root: info.root, host: info.host };
+      const problem = 'problem' in info ? (info.missing ? undefined : info.problem) : Array.isArray(outbox) || outbox.missing ? undefined : outbox.problem;
+      folders.push({ folder, relay, problem, pending: Array.isArray(outbox) ? outbox.length : 0, lastIngest: status[folder] ?? null });
+    }
+    print({ config: file, folders }, () => {
+      if (folders.length === 0) return 'No folders are allowed to relay; `snagboat relay allow [folder]` allows one.\n';
+      const lines: string[] = [];
+      for (const f of folders) {
+        lines.push(f.folder);
+        lines.push(f.relay ? `  relay.json   root ${f.relay.root}, host ${f.relay.host || '(none)'}` : '  relay.json   not there: no dev container has relayed here yet');
+        if (f.problem) lines.push(`  problem      ${f.problem}`);
+        lines.push(`  pending      ${f.pending} outbox file(s)`);
+        const last = f.lastIngest;
+        lines.push(`  last ingest  ${last ? `${last.lastIngestAt}: ${last.events} event(s) from ${last.files} file(s), ${last.written} new` : 'never'}`);
+      }
+      return lines.join('\n') + '\n';
+    });
+    return 0;
+  }
+  io.err(`relay needs allow, deny or status\n\n${USAGE}`);
+  return 2;
 }
 
 // Bundled as dist/snagboat.js (esbuild.js); VERSION is injected there.

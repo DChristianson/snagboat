@@ -10,6 +10,7 @@ import { ClaudeCollector, defaultProjectsDir } from './claudeCollector';
 import { CopilotCollector } from './copilotCollector';
 import { isWithinFolders, withRealPaths } from '../paths';
 import { collectedWorkspace, knownWorkspaceFolders } from './workspaces';
+import { RelayIngest } from './relayIngest';
 import { CheckpointStore } from '../checkpointStore';
 import { effectiveSettings, loadConfig } from '../config';
 import { projectDirHeader } from '../../adapters/claude-code/hooksReceiver';
@@ -251,6 +252,8 @@ export class CoreService {
   private readonly stoppingStreams = new Set<() => Promise<void>>();
   private collector?: ClaudeCollector;
   private copilot?: CopilotCollector;
+  /** Dev container relays: the outboxes of the folders in config.json's relay.allow (relayIngest.ts). */
+  private relay?: RelayIngest;
   private readonly settingsCache = new Map<string, { at: number; values: Record<string, unknown> }>();
   private readonly startedAt = new Date().toISOString();
   private lastActivity = Date.now();
@@ -319,11 +322,23 @@ export class CoreService {
     openHookSpool(opts.home);
     core.log(`snagboat core ${opts.version} listening on 127.0.0.1:${core.boundPort} (pid ${process.pid})`);
 
-    // Hooks spooled while no core ran, then events spooled for workspaces a window had claimed.
+    if (opts.collect ?? true) {
+      core.relay = new RelayIngest({
+        home: opts.home,
+        writer: core.writer,
+        workspaceFor: (projectDir) => core.workspaceFor(projectDir),
+        captureContent: (projectDir) => core.settingsFor(projectDir).captureContent !== false,
+        log: (line) => core.log(line),
+      });
+    }
+    // Hooks spooled while no core ran, events relayed from dev containers, then events spooled for workspaces a window had claimed.
     const ingest = async () => {
       try {
         const hooks = await ingestHookSpool(opts.home, async (projectDir, payload, at) => void (await core.deliverHook(projectDir, payload, at)));
         if (hooks > 0) core.log(`read ${hooks} spooled hook(s)`);
+        const relayed = (await core.relay?.ingest()) ?? [];
+        // Relayed events count as activity, as collected ones do: the core stays up while an agent in a container works.
+        if (relayed.some((r) => r.files > 0)) core.lastActivity = Date.now();
         const events = await core.writer.ingestSpool();
         if (events > 0) core.log(`ingested ${events} spooled event(s)`);
       } catch (err) {

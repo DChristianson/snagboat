@@ -26,6 +26,17 @@ export interface SnagboatConfig {
   version: 1;
   defaults: Record<string, unknown>;
   projects: Record<string, Record<string, unknown>>;
+  /**
+   * Dev container relays (core/relay.ts): host folders whose .snagboat/relay/outbox the core
+   * ingests. Only ever read from here, never from a project's .snagboat.json or VS Code's
+   * settings, which a container can write. Not a setting: VS Code neither copies nor removes it.
+   */
+  relay?: RelayConfig;
+}
+
+export interface RelayConfig {
+  /** Absolute host folders. */
+  allow: string[];
 }
 
 export const CONFIG_FILE = 'config.json';
@@ -93,7 +104,17 @@ export function loadConfig(home: string): { config: SnagboatConfig; problems: st
     const raw = JSON.parse(text) as Record<string, unknown>;
     const projects: Record<string, Record<string, unknown>> = {};
     if (isObject(raw.projects)) for (const [folder, settings] of Object.entries(raw.projects)) if (isObject(settings)) projects[folder] = settings;
-    return { config: { version: 1, defaults: isObject(raw.defaults) ? raw.defaults : {}, projects }, problems: [] };
+    const config: SnagboatConfig = { version: 1, defaults: isObject(raw.defaults) ? raw.defaults : {}, projects };
+    const problems: string[] = [];
+    if (raw.relay !== undefined) {
+      const allow = isObject(raw.relay) ? raw.relay.allow : undefined;
+      if (Array.isArray(allow)) {
+        const folders = allow.filter((f): f is string => typeof f === 'string' && path.isAbsolute(f));
+        if (folders.length < allow.length) problems.push(`${configPath(home)}: relay.allow entries that aren't absolute folders are ignored`);
+        config.relay = { allow: [...new Set(folders)] };
+      } else problems.push(`${configPath(home)}: relay is ignored; it should be {"allow": ["/absolute/folder", ...]}`);
+    }
+    return { config, problems };
   } catch (err) {
     return { config: empty, problems: [`${configPath(home)} isn't valid JSON, so it's ignored: ${err instanceof Error ? err.message : String(err)}`] };
   }
@@ -106,6 +127,19 @@ export function saveConfig(home: string, config: SnagboatConfig): void {
   const temp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(temp, JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
   fs.renameSync(temp, file);
+}
+
+/** The host folders allowed to relay events from a dev container (config.json's relay.allow). */
+export function relayAllowed(config: SnagboatConfig): string[] {
+  return config.relay?.allow ?? [];
+}
+
+/** config with folder added to (allowed) or removed from relay.allow; the list is dropped when empty. */
+export function withRelayFolder(config: SnagboatConfig, folder: string, allowed: boolean): SnagboatConfig {
+  const current = relayAllowed(config);
+  const allow = allowed ? (current.includes(folder) ? current : [...current, folder]) : current.filter((f) => f !== folder);
+  const { relay: _relay, ...rest } = config;
+  return allow.length > 0 ? { ...rest, relay: { ...config.relay, allow } } : rest;
 }
 
 function isInside(dir: string, folder: string): boolean {
@@ -285,6 +319,7 @@ export function withVsCodeSettings(
     return out;
   };
   const result: SnagboatConfig = { version: 1, defaults: replace(config.defaults, user), projects: { ...config.projects } };
+  if (config.relay) result.relay = config.relay;
   for (const [folder, settings] of Object.entries(projects)) {
     const entry = replace(config.projects[folder] ?? {}, settings);
     if (Object.keys(entry).length > 0) result.projects[folder] = entry;
