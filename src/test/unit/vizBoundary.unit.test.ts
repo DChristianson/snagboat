@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// packages/viz is @snagboat/viz, Factory Clock (docs/design/factory-clock-plan.md, step 4):
+// packages/viz is Factory Clock, the npm workspace factory-clock (docs/design/factory-clock-plan.md):
 // the visualizers, the explorer, their theme and styles, the catalog, and the web page.
 // Its TypeScript may import only itself and @snagboat/schema, so it can leave Snagboat;
 // a host plugs in what it adds (Snagboat's web build passes its heuristics' findings). And Snagboat
@@ -58,7 +58,7 @@ async function main() {
     const skip = ['web', 'scripts', 'test'].map((d) => path.join(root, 'src', d) + path.sep);
     const files = [...under(path.join(root, 'src'), /\.ts$/).filter((f) => !skip.some((s) => f.startsWith(s))), ...under(path.join(root, 'media'), /\.(js|css|html)$/)];
     assert.ok(files.length > 50, 'found the sources');
-    const banned = /@snagboat\/viz|packages\/viz|snagboatViz|snagboatVizKit|snagboatExplore|vizkit\.js|viz\.css|explore\.js|viz\/index\.json|ASSET_FILES|EXPLORE_SESSION_CAP|buildExplorerState/;
+    const banned = /['"]factory-clock(?:\/[\w/]*)?['"]|packages\/viz|factoryClock|vizkit\.js|viz\.css|explore\.js|viz\/index\.json|ASSET_FILES|EXPLORE_SESSION_CAP|buildExplorerState/;
     // Comments may say where a copy came from; code may not reach for it.
     const code = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*\/\/.*$/gm, '');
     for (const file of files) {

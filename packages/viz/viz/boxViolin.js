@@ -6,7 +6,7 @@
 // in the instance. Sees only its host and ctx: no VS Code.
 (function () {
   const ROW = 64;
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'box-violin',
     title: 'Box and violin',
     tags: { category: ['quantitative'], purpose: ['informative'], level: ['project'], dimension: ['quantity'], language: ['standard'] },

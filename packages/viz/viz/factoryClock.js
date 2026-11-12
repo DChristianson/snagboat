@@ -34,7 +34,7 @@
   ];
   let charts = 0;
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'factory-clock',
     title: 'Factory Clock',
     tags: { category: ['temporal'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['time', 'actor', 'hierarchy'], language: ['horology'] },

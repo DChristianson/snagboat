@@ -25,7 +25,7 @@
     return `M${-r * 0.8},${-r} L${r},0 L${-r * 0.8},${r} z`; // tool: a triangle pointing right
   }
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'actor-graph',
     title: 'Actor graph',
     tags: { category: ['actor'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'], language: ['standard'] },

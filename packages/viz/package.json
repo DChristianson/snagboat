@@ -1,5 +1,5 @@
 {
-  "name": "@snagboat/viz",
+  "name": "factory-clock",
   "version": "0.1.0",
   "private": true,
   "description": "Factory Clock: the visualizers, the explorer, their theme and styles, the visualizer catalog, and the web page that hosts them.",

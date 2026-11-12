@@ -38,7 +38,7 @@
     return { x: u * u * a.x + 2 * u * t * c.x + t * t * b.x, y: u * u * a.y + 2 * u * t * c.y + t * t * b.y };
   }
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'living-network',
     title: 'Living Network',
     tags: { category: ['actor', 'temporal'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['actor', 'communication', 'time'], language: ['cinematic'] },

@@ -95,7 +95,7 @@ packages/viz/
 **Contracts it changes.**
 
 - **Input.** `SessionView` comes from `@snagboat/schema`, so a schema version bump is the only way the input can change.
-- **Theme.** `theme.css` defines the package's own variables, such as `--sv-ink` and `--sv-accent`. Both hosts map them from `prefers-color-scheme`. Hero views keep their own palettes, as their design notes say.
+- **Theme.** `theme.css` defines the package's own variables, such as `--fc-ink` and `--fc-accent`. Both hosts map them from `prefers-color-scheme`. Hero views keep their own palettes, as their design notes say.
 - **Catalog.** The catalog and taxonomy move into the package as data, and its unit test moves with them.
 
 ## Dependencies, build and hosting
@@ -153,9 +153,26 @@ Each step leaves the web demo working.
    - `media/theme.css` with Snagboat's own `--sb-*` tokens, `media/base.css` (the page base from `viz.css`), and `media/drawings/drawings.css` (the two drawings' styles from `viz.css`). The webview maps the tokens to VS Code's in `vscodeTheme.css`; the advisor UI uses `theme.css` as is.
    - Explore is gone from the detail view, the advisor UI, the core (`GET /explore`, `SessionPages.explore`) and `SessionController`. The core no longer serves the package's files, and the VSIX no longer ships them.
    - A unit test (`vizBoundary.unit.test.ts`) keeps Snagboat's extension, core and pages from importing or loading the package. The web page's entry in `src/web` and the demo trace script in `src/scripts` still use it, as do some unit tests for their synthetic sessions; they move with Factory Clock.
-7. **Rename internals to Factory Clock's own names.** The npm name (`@snagboat/viz`) and the globals (`snagboatViz`, `snagboatVizKit`, `snagboatExplore`) become Factory Clock's own.
+7. **Rename internals to Factory Clock's own names — done (2026-11-12).** The npm name (`@snagboat/viz`) and the globals (`snagboatViz`, `snagboatVizKit`, `snagboatExplore`) become Factory Clock's own.
+
+   **As built.** Names only; no behavior changed:
+
+   | Was | Now |
+   | --- | --- |
+   | `@snagboat/viz`, `@snagboat/viz/web`, `@snagboat/viz/web/page` | `factory-clock`, `factory-clock/web`, `factory-clock/web/page` |
+   | `window.snagboatViz` (the registry) | `window.factoryClock` |
+   | `window.snagboatVizKit` (the kit) | `window.factoryClockKit` |
+   | `window.snagboatExplore` (the explorer) | `window.factoryClockExplore` |
+   | `window.snagboatDemoTraces` (written by `npm run demo:traces`) | `window.factoryClockDemoTraces` |
+   | `--sv-*` color tokens in `theme.css` | `--fc-*` |
+   | The Factory Clock hero view's own `--fc-*` variables in `viz.css` | `--clock-*`, to make room for the tokens |
+   | The page's `localStorage` key `snagboat.explore` | `factoryClock.explore` |
+
+   The folder stays `packages/viz`, and the root scripts keep their names (`build:viz`, `build:web`), so `pages.yml` is unchanged. The package's docs and [the visualizer contract](visualizer-contract.md) now describe one host, the web page. Snagboat's own copy keeps its own names (`snagboatDrawings`, `snagboatKit`, `--sb-*`).
+
+   The web page still gets its findings from Snagboat. Its bundle entry (`src/web/main.ts`, built by `esbuild.js` into `out/web/snagboat-web.js`) passes `replayFindings`, which replays Snagboat's heuristics over the loaded events. Step 9 replaces that with findings Snagboat exports.
 8. **Move to its own repository**, with the web page, its workflow and its tests. Factory Clock is web only.
-9. **Plan how Snagboat exports findings and plans** for Factory Clock to load, beside the daily event files it loads today.
+9. **Plan how Snagboat exports findings and plans** for Factory Clock to load, beside the daily event files it loads today. Until then the page's findings come from Snagboat's bundle entry (step 7).
 
 ## Open questions
 

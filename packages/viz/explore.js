@@ -6,9 +6,9 @@
 // object, so the web demo mounts the same file over a source of its own.
 // Plain DOM; all data is written with textContent, never innerHTML.
 //
-//   window.snagboatExplore.mount(root, source, ctx) -> { shown(), destroy() }
-//   window.snagboatExplore.shown()  forwards to the mounted tab (for the page's tab switch)
-//   window.snagboatExplore.hidden() the tab was hidden: every slide stops (setActive(false))
+//   window.factoryClockExplore.mount(root, source, ctx) -> { shown(), destroy() }
+//   window.factoryClockExplore.shown()  forwards to the mounted tab (for the page's tab switch)
+//   window.factoryClockExplore.hidden() the tab was hidden: every slide stops (setActive(false))
 //
 // source, a plain object:
 //   listSessions()       ask for every session, newest start first; answered through onSessions
@@ -38,7 +38,7 @@
   let mounted = null;
 
   function mount(root, source, ctx) {
-    const viz = window.snagboatViz;
+    const viz = window.factoryClock;
     const { el, compact, fmt, clip, short, duration, agentName, modelShort, ms } = ctx;
     const saved = source.getState() || {};
     const st = {
@@ -618,7 +618,7 @@
     return tab;
   }
 
-  window.snagboatExplore = {
+  window.factoryClockExplore = {
     mount,
     shown() {
       if (mounted) mounted.shown();

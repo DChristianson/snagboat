@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Two theme boundaries. Factory Clock (packages/viz) styles itself with its own --sv-* tokens from
+// Two theme boundaries. Factory Clock (packages/viz) styles itself with its own --fc-* tokens from
 // packages/viz/theme.css, so it can leave Snagboat. Snagboat's pages and its two session drawings
 // style themselves with Snagboat's own --sb-* tokens from media/theme.css (its own copy since
 // 2026-11-12, docs/design/factory-clock-plan.md). Only the webview's mapping,
@@ -48,7 +48,7 @@ async function main() {
     const [lightCss, darkCss] = stripComments(read(file)).split('@media (prefers-color-scheme: dark)');
     return { light: decls(prefix, lightCss), dark: decls(prefix, darkCss ?? ''), hasDark: darkCss !== undefined };
   };
-  const pkg = themeOf('packages/viz/theme.css', '--sv-');
+  const pkg = themeOf('packages/viz/theme.css', '--fc-');
   const own = themeOf('media/theme.css', '--sb-');
   const vscodeCss = stripComments(read('media/vscodeTheme.css'));
   const [vscodeBodyCss, vscodeDarkCss] = vscodeCss.split('body.vscode-dark');
@@ -79,13 +79,13 @@ async function main() {
   };
 
   test('packages/viz/theme.css defines every token the package uses, in light and dark', () => {
-    definesAll('packages/viz/theme.css', pkg, '--sv-', packageFiles);
+    definesAll('packages/viz/theme.css', pkg, '--fc-', packageFiles);
   });
 
   test("media/theme.css defines every token Snagboat's pages use, in light and dark, and none uses Factory Clock's", () => {
     const files = [...snagboatFiles, 'media/vscodeTheme.css'];
     definesAll('media/theme.css', own, '--sb-', files);
-    for (const file of files) assert.ok(!read(file).includes('--sv-'), `${file} uses a Factory Clock --sv-* token`);
+    for (const file of files) assert.ok(!read(file).includes('--fc-'), `${file} uses a Factory Clock --fc-* token`);
   });
 
   test('the webview maps every token, and only it reads VS Code variables', () => {

@@ -2,7 +2,7 @@
 
 Factory Clock is a set of visualizations for coding-agent sessions. It reads the event logs that [Snagboat](../../README.md) records from Claude Code and GitHub Copilot, and draws each session 32 ways: timelines, trees, graphs, distributions, and five "hero" views with a look of their own. A carousel, the explorer, moves through them, and a small panel called the puck filters them by tags.
 
-It lives in the Snagboat repository as the npm workspace `@snagboat/viz`. The plan to make it a package of its own is in [factory-clock-plan.md](../../docs/design/factory-clock-plan.md).
+It lives in the Snagboat repository as the npm workspace `factory-clock`. The plan to make it a package of its own is in [factory-clock-plan.md](../../docs/design/factory-clock-plan.md).
 
 Try it: <https://dchristianson.github.io/snagboat/> runs it over example sessions, or over your own event log files.
 
@@ -41,15 +41,19 @@ The build is [`scripts/webDemo.js`](scripts/webDemo.js). It copies the package's
 
 ## Where it runs
 
-The same files run unchanged in three hosts:
+Factory Clock is web only. Its one host is the web page, built as above. It replays example sessions or files you load; nothing is live.
 
-| Host | How it loads the files |
-| --- | --- |
-| The web page on GitHub Pages | `out/web/`, built as above. Replay only, over example sessions or files you load. |
-| Snagboat's advisor UI | The core service serves the package's files under `/ui/` on `127.0.0.1`. Its Explore and session pages use them. Opened with `snagboat open`. |
-| Snagboat's VS Code detail view | The webview loads them from the package folder. The Sessions tab always uses the turn tree and context timeline. The Explore tab is there unless the per-user store preview (`snagboat.storage.perUserStore`) is on; then Sessions and Explore open in the advisor UI instead. |
+The page's script tags set three globals, in this order:
 
-The visualizers don't know which host they run in. Each host gives the explorer a source object that lists and loads sessions, and the explorer hands the visualizers the sessions.
+| Global | Set by | What it is |
+| --- | --- | --- |
+| `window.factoryClockKit` | `vizkit.js` | The helpers each visualizer gets as `ctx` |
+| `window.factoryClock` | `viz/registry.js` | The registry the visualizers call `register` on |
+| `window.factoryClockExplore` | `explore.js` | The explorer, mounted by the page with a source object that lists and loads sessions |
+
+The visualizers don't know which page they run in. The explorer hands them the sessions.
+
+For now the page's bundle entry is Snagboat's (`src/web/main.ts` at the repository root). It starts the page and passes in the findings of Snagboat's heuristics, replayed over the loaded events. A findings export from Snagboat will replace it (step 9 of [the plan](../../docs/design/factory-clock-plan.md#steps)).
 
 ## Input
 
@@ -62,7 +66,7 @@ Text fields (prompts, reply excerpts, session names) are present only when Snagb
 ## Rules the package keeps
 
 - **No runtime dependencies.** Each visualizer is one plain browser script: no modules, no framework, no charting library, no build step. They draw with SVG and the DOM. Fonts are system stacks; no font files load.
-- **Its own theme.** Colors come from `--sv-*` tokens in [`theme.css`](theme.css), with a light and a dark value from `prefers-color-scheme`. A host can remap them: the VS Code webview maps them to VS Code's theme in `media/vscodeTheme.css`. No package file may read a host's variables, such as `--vscode-*` (`themeBoundary.unit.test.ts` checks). Hero views keep their own palettes, scoped to the view in [`viz.css`](viz.css).
+- **Its own theme.** Colors come from `--fc-*` tokens in [`theme.css`](theme.css), with a light and a dark value from `prefers-color-scheme`. A host can remap them. No package file may read a host's variables, such as `--vscode-*` (`themeBoundary.unit.test.ts` checks). Hero views keep their own palettes, scoped to the view in [`viz.css`](viz.css).
 - **Only its own imports.** The TypeScript here imports only itself and `@snagboat/schema` (`vizBoundary.unit.test.ts` checks).
 - **Text through `textContent`.** Prompt and reply text is never written as HTML.
 
@@ -81,7 +85,7 @@ Files you load are read in the browser with `FileReader` and kept in the page's 
 | `explore.js` | The explorer: session picker, carousel, and puck |
 | `theme.css`, `viz.css` | The color tokens, and the visualizers' and explorer's styles |
 | `src/catalog.ts` | The catalog and the tag taxonomy |
-| `src/explorerModel.ts` | The explorer's state, shared with hosts |
+| `src/explorerModel.ts` | The explorer's state, as the web page builds it |
 | `src/web/` | The web page's code: example sessions, the JSONL reader, an in-memory session source |
 | `hosts/web/` | The web page's `index.html` and stylesheet |
 | `scripts/webDemo.js` | Assembles the web page in `out/web/` |

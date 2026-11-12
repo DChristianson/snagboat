@@ -9,7 +9,7 @@
 (function () {
   const MAX_SUBAGENTS = 8;
   const CELL = 34;
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'adjacency-matrix',
     title: 'Adjacency matrix',
     tags: { category: ['actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['actor', 'communication', 'quantity'], language: ['standard'] },

@@ -7,7 +7,7 @@
 (function () {
   const STEP = 44;
   const LIFT = 70; // a ridge's height; more than STEP, so ridges overlap
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'ridgeline',
     title: 'Ridgeline',
     tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity'], language: ['standard'] },

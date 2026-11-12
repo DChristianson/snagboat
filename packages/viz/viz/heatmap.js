@@ -14,7 +14,7 @@
   const STEPS = 5;
   const pad2 = (n) => String(n).padStart(2, '0');
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'heatmap',
     title: 'Heatmap',
     tags: { category: ['quantitative', 'temporal'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'], language: ['standard'] },

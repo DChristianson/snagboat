@@ -10,7 +10,7 @@
   const pad2 = (n) => String(n).padStart(2, '0');
   const dayKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'calendar-heatmap',
     title: 'Calendar heatmap',
     tags: { category: ['temporal', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'], language: ['standard'] },

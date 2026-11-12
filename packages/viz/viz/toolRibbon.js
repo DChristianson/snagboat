@@ -17,7 +17,7 @@
   const MIN_HEIGHT = 240;
   const PX_PER_STEP = 5;
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'tool-ribbon',
     title: 'Tool-call ribbon',
     tags: { category: ['dependency', 'conversational'], purpose: ['expressive', 'informative'], level: ['session'], dimension: ['dependency', 'communication'], language: ['standard'] },

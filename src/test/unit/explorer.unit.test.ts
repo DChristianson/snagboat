@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { SessionView } from '@snagboat/schema';
-import { buildExplorerState, CATALOG, TAXONOMY, validateCatalog, VisualizerEntry } from '@snagboat/viz';
+import { buildExplorerState, CATALOG, TAXONOMY, validateCatalog, VisualizerEntry } from 'factory-clock';
 
 // Factory Clock's catalog and explorer state (packages/viz). Snagboat no longer has Explore; these
 // tests stay with the package until it moves to its own repository.

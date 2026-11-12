@@ -1,6 +1,6 @@
 /* The visualizations' own color tokens (docs/design/factory-clock-plan.md,
    "Theme"). viz.css, detail.css, the visualizers and the explorer read only
-   these --sv-* variables, never a host's. This file gives each one a light
+   these --fc-* variables, never a host's. This file gives each one a light
    and a dark value from prefers-color-scheme, so a plain page (the web demo)
    needs nothing else. The light and dark values are VS Code's default light
    and dark themes, so the page looks as the webview does.
@@ -9,114 +9,114 @@
    the VS Code webview does it in vscodeTheme.css, from VS Code's variables.
    Hero views keep their own palettes, scoped to the view in viz.css. */
 :root {
-  --sv-font: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, Ubuntu, "Droid Sans", sans-serif;
-  --sv-font-size: 13px;
-  --sv-mono: ui-monospace, Menlo, Consolas, monospace;
+  --fc-font: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, Ubuntu, "Droid Sans", sans-serif;
+  --fc-font-size: 13px;
+  --fc-mono: ui-monospace, Menlo, Consolas, monospace;
 
   /* Ground, text and lines. */
-  --sv-surface: #ffffff;
-  --sv-ink: #3b3b3b;
-  --sv-ink-muted: #717171;
-  --sv-rule: #c8c8c8;
-  --sv-panel: #f8f8f8;
-  --sv-shadow: rgba(0, 0, 0, 0.16);
-  --sv-tip-bg: #f8f8f8;
-  --sv-tip-ink: #3b3b3b;
-  --sv-tip-border: #c8c8c8;
+  --fc-surface: #ffffff;
+  --fc-ink: #3b3b3b;
+  --fc-ink-muted: #717171;
+  --fc-rule: #c8c8c8;
+  --fc-panel: #f8f8f8;
+  --fc-shadow: rgba(0, 0, 0, 0.16);
+  --fc-tip-bg: #f8f8f8;
+  --fc-tip-ink: #3b3b3b;
+  --fc-tip-border: #c8c8c8;
 
   /* Focus, links and states. */
-  --sv-accent: #005fb8;
-  --sv-link: #005fb8;
-  --sv-error: #f85149;
-  --sv-warn: #bf8803;
-  --sv-info: #1a85ff;
-  --sv-ok: #388a34;
-  --sv-hover: #f2f2f2;
-  --sv-active-bg: #e8e8e8;
-  --sv-active-ink: #000000;
-  --sv-selection: #add6ff;
-  --sv-selection-soft: rgba(173, 214, 255, 0.3);
-  --sv-highlight: rgba(234, 92, 0, 0.33);
+  --fc-accent: #005fb8;
+  --fc-link: #005fb8;
+  --fc-error: #f85149;
+  --fc-warn: #bf8803;
+  --fc-info: #1a85ff;
+  --fc-ok: #388a34;
+  --fc-hover: #f2f2f2;
+  --fc-active-bg: #e8e8e8;
+  --fc-active-ink: #000000;
+  --fc-selection: #add6ff;
+  --fc-selection-soft: rgba(173, 214, 255, 0.3);
+  --fc-highlight: rgba(234, 92, 0, 0.33);
 
   /* Controls: plain buttons, pressed buttons and tags, inputs. */
-  --sv-button-bg: #e5e5e5;
-  --sv-button-ink: #3b3b3b;
-  --sv-button-hover: #cccccc;
-  --sv-button-border: rgba(0, 0, 0, 0.05);
-  --sv-pressed-bg: #005fb8;
-  --sv-pressed-ink: #ffffff;
-  --sv-pressed-hover: #0258a8;
-  --sv-toolbar-hover: rgba(184, 184, 184, 0.31);
-  --sv-input-bg: #ffffff;
-  --sv-input-ink: #3b3b3b;
-  --sv-input-border: #cecece;
+  --fc-button-bg: #e5e5e5;
+  --fc-button-ink: #3b3b3b;
+  --fc-button-hover: #cccccc;
+  --fc-button-border: rgba(0, 0, 0, 0.05);
+  --fc-pressed-bg: #005fb8;
+  --fc-pressed-ink: #ffffff;
+  --fc-pressed-hover: #0258a8;
+  --fc-toolbar-hover: rgba(184, 184, 184, 0.31);
+  --fc-input-bg: #ffffff;
+  --fc-input-ink: #3b3b3b;
+  --fc-input-border: #cecece;
 
   /* Chart series slots: the reference palette's first three categorical hues,
      validated against VS Code's default light (#ffffff) and dark (#1e1e1e)
      editor surfaces. Slot 3 is below 3:1 on light, so the chart always ships
      with its table view. */
-  --sv-series-1: #2a78d6;
-  --sv-series-2: #eb6834;
-  --sv-series-3: #1baf7a;
+  --fc-series-1: #2a78d6;
+  --fc-series-2: #eb6834;
+  --fc-series-3: #1baf7a;
   /* Turn tree: two alternating turn shades (blue ramp 100/200; 500/650 dark),
      picked to keep >= 3.4:1 against the default theme text, and the five
      category groups (reference palette slots 2, 3, 7, 4, 5, in that order,
      validated as neighbors and next-but-one neighbors in both themes). */
-  --sv-turn-0: #cde2fb;
-  --sv-turn-1: #9ec5f4;
-  --sv-cat-1: #eb6834;
-  --sv-cat-2: #1baf7a;
-  --sv-cat-3: #6250d6;
-  --sv-cat-4: #eda100;
-  --sv-cat-5: #e87ba4;
+  --fc-turn-0: #cde2fb;
+  --fc-turn-1: #9ec5f4;
+  --fc-cat-1: #eb6834;
+  --fc-cat-2: #1baf7a;
+  --fc-cat-3: #6250d6;
+  --fc-cat-4: #eda100;
+  --fc-cat-5: #e87ba4;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --sv-surface: #1f1f1f;
-    --sv-ink: #cccccc;
-    --sv-ink-muted: #9d9d9d;
-    --sv-rule: #313131;
-    --sv-panel: #202020;
-    --sv-shadow: rgba(0, 0, 0, 0.36);
-    --sv-tip-bg: #202020;
-    --sv-tip-ink: #cccccc;
-    --sv-tip-border: #454545;
+    --fc-surface: #1f1f1f;
+    --fc-ink: #cccccc;
+    --fc-ink-muted: #9d9d9d;
+    --fc-rule: #313131;
+    --fc-panel: #202020;
+    --fc-shadow: rgba(0, 0, 0, 0.36);
+    --fc-tip-bg: #202020;
+    --fc-tip-ink: #cccccc;
+    --fc-tip-border: #454545;
 
-    --sv-accent: #0078d4;
-    --sv-link: #4daafc;
-    --sv-error: #f88070;
-    --sv-warn: #cca700;
-    --sv-info: #3794ff;
-    --sv-ok: #73c991;
-    --sv-hover: #2a2d2e;
-    --sv-active-bg: #04395e;
-    --sv-active-ink: #ffffff;
-    --sv-selection: #264f78;
-    --sv-selection-soft: rgba(173, 214, 255, 0.15);
-    --sv-highlight: rgba(234, 92, 0, 0.33);
+    --fc-accent: #0078d4;
+    --fc-link: #4daafc;
+    --fc-error: #f88070;
+    --fc-warn: #cca700;
+    --fc-info: #3794ff;
+    --fc-ok: #73c991;
+    --fc-hover: #2a2d2e;
+    --fc-active-bg: #04395e;
+    --fc-active-ink: #ffffff;
+    --fc-selection: #264f78;
+    --fc-selection-soft: rgba(173, 214, 255, 0.15);
+    --fc-highlight: rgba(234, 92, 0, 0.33);
 
-    --sv-button-bg: #313131;
-    --sv-button-ink: #cccccc;
-    --sv-button-hover: #3c3c3c;
-    --sv-button-border: rgba(255, 255, 255, 0.07);
-    --sv-pressed-bg: #0078d4;
-    --sv-pressed-ink: #ffffff;
-    --sv-pressed-hover: #026ec1;
-    --sv-toolbar-hover: rgba(90, 93, 94, 0.31);
-    --sv-input-bg: #313131;
-    --sv-input-ink: #cccccc;
-    --sv-input-border: #3c3c3c;
+    --fc-button-bg: #313131;
+    --fc-button-ink: #cccccc;
+    --fc-button-hover: #3c3c3c;
+    --fc-button-border: rgba(255, 255, 255, 0.07);
+    --fc-pressed-bg: #0078d4;
+    --fc-pressed-ink: #ffffff;
+    --fc-pressed-hover: #026ec1;
+    --fc-toolbar-hover: rgba(90, 93, 94, 0.31);
+    --fc-input-bg: #313131;
+    --fc-input-ink: #cccccc;
+    --fc-input-border: #3c3c3c;
 
-    --sv-series-1: #3987e5;
-    --sv-series-2: #d95926;
-    --sv-series-3: #199e70;
-    --sv-turn-0: #256abf;
-    --sv-turn-1: #104281;
-    --sv-cat-1: #d95926;
-    --sv-cat-2: #199e70;
-    --sv-cat-3: #9085e9;
-    --sv-cat-4: #c98500;
-    --sv-cat-5: #d55181;
+    --fc-series-1: #3987e5;
+    --fc-series-2: #d95926;
+    --fc-series-3: #199e70;
+    --fc-turn-0: #256abf;
+    --fc-turn-1: #104281;
+    --fc-cat-1: #d95926;
+    --fc-cat-2: #199e70;
+    --fc-cat-3: #9085e9;
+    --fc-cat-4: #c98500;
+    --fc-cat-5: #d55181;
   }
 }

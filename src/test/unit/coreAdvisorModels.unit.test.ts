@@ -8,7 +8,7 @@ import { saveConfig } from '../../core/config';
 import { coreRequest, readCoreFile } from '../../core/service/coreFile';
 import { CoreService } from '../../core/service/server';
 import { StoreWriter } from '../../core/service/storeWriter';
-import { syntheticEvents } from '@snagboat/viz/web';
+import { syntheticEvents } from 'factory-clock/web';
 
 // Advisor proposals in the advisor UI (RFC step 5c-2b): the core asks only local models, from your user
 // settings; the first request waits for you to approve its exact payload in the page; approvals are

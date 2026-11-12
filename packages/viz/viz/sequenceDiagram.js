@@ -24,7 +24,7 @@
 
   const RANK = { prompt: 0, compaction: 1, delegate: 2, call: 3, tool: 4 };
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'sequence-diagram',
     title: 'Sequence diagram',
     tags: { category: ['conversational', 'actor'], purpose: ['informative'], level: ['session'], dimension: ['communication', 'actor', 'time'], language: ['standard'] },

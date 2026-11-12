@@ -8,7 +8,7 @@
   const NODE_W = 12;
   const NODE_GAP = 14;
   const HEIGHT = 340;
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'sankey',
     title: 'Sankey',
     tags: { category: ['actor', 'quantitative'], purpose: ['expressive', 'informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'], language: ['standard'] },

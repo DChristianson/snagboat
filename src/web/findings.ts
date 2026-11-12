@@ -4,7 +4,7 @@ import { FindingReplay } from '../heuristics/replay';
 
 /**
  * Snagboat's findings for the web page's sessions (the FindingsFor that
- * @snagboat/viz/web's EventSet takes): a fresh replay of the built-in
+ * factory-clock/web's EventSet takes): a fresh replay of the built-in
  * heuristics with their default settings over one session's events, as
  * SessionController.explore does, as ended episodes, since nothing is live.
  */

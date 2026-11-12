@@ -8,7 +8,7 @@
 (function () {
   const MAX_SIZE = 560;
   const MIN_ANGLE = 0.004; // radians; thinner arcs can't be seen or hovered
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'sunburst',
     title: 'Sunburst',
     tags: { category: ['quantitative'], purpose: ['expressive'], level: ['session', 'project'], dimension: ['quantity', 'hierarchy', 'actor'], language: ['standard'] },

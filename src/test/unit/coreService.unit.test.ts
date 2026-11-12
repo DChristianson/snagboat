@@ -11,7 +11,7 @@ import { coreFilePath, coreRequest, readCoreFile, writeCoreFile } from '../../co
 import { CoreRunningError, CoreService } from '../../core/service/server';
 import { spoolDir } from '../../core/service/storeWriter';
 import { workspaceStoreDir } from '../../core/userStore';
-import { syntheticEvents } from '@snagboat/viz/web';
+import { syntheticEvents } from 'factory-clock/web';
 
 // The core service (docs/design/handoff-3c.md, 3c-2a): core.json, tokens and their
 // workspace scopes, writing events, the claim a VS Code window holds on its

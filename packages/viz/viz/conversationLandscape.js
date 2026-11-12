@@ -37,7 +37,7 @@
     delegation: 'Delegation: only who handed work to whom pulls dots together (you to the agent, the agent to its subagents, each actor to the tools it called, weakly).',
   };
 
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'conversation-landscape',
     title: 'Conversation Landscape',
     tags: { category: ['semantic', 'conversational', 'actor'], purpose: ['expressive'], level: ['session'], dimension: ['content', 'actor', 'communication'], language: ['edgeless'] },

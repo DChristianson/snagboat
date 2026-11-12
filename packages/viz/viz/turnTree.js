@@ -6,7 +6,7 @@
 // tab's breadcrumb). Several sessions draw as a forest under a root
 // "sessions" node, widths by tokens. Sees only its host and ctx: no VS Code.
 (function () {
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'turn-tree',
     title: 'Turn tree',
     tags: { category: ['quantitative', 'actor'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor', 'hierarchy'], language: ['standard'] },

@@ -9,8 +9,8 @@
 // point gives its breakdown; clicking selects that call's turn. Sees only
 // its host and ctx: no VS Code.
 (function () {
-  const HUES = 6; // line-0 .. line-5 in viz.css: --sv-series-1, then --sv-cat-1..5
-  window.snagboatViz.register({
+  const HUES = 6; // line-0 .. line-5 in viz.css: --fc-series-1, then --fc-cat-1..5
+  window.factoryClock.register({
     id: 'context-fill',
     title: 'Context fill',
     tags: { category: ['state', 'quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['time', 'quantity'], language: ['standard'] },

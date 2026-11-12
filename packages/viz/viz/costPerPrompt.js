@@ -8,7 +8,7 @@
 // stacking mode lives in the instance, not in saved state. Sees only its
 // host and ctx: no VS Code.
 (function () {
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'cost-per-prompt',
     title: 'Cost per prompt',
     tags: { category: ['quantitative', 'conversational'], purpose: ['informative'], level: ['session', 'project'], dimension: ['quantity', 'actor'], language: ['standard'] },

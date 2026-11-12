@@ -16,7 +16,7 @@ import { syntheticEvents, syntheticSessionIds } from './synthetic';
  */
 
 /** The explorer's saved state, under one key. */
-const STATE_KEY = 'snagboat.explore';
+const STATE_KEY = 'factoryClock.explore';
 
 /** The source object packages/viz/explore.js expects (see its header). */
 interface ExploreSource {
@@ -37,10 +37,10 @@ interface ExploreTab {
 
 /** What the page's plain scripts (vizkit.js, explore.js) put on window. */
 interface PageGlobals {
-  snagboatVizKit: Record<string, unknown> & { tipFor(tooltip: HTMLElement): { showTip: (evt: MouseEvent, rows: unknown[]) => void; hideTip: () => void } };
-  snagboatExplore: { mount(root: HTMLElement, source: ExploreSource, ctx: Record<string, unknown>): ExploreTab };
+  factoryClockKit: Record<string, unknown> & { tipFor(tooltip: HTMLElement): { showTip: (evt: MouseEvent, rows: unknown[]) => void; hideTip: () => void } };
+  factoryClockExplore: { mount(root: HTMLElement, source: ExploreSource, ctx: Record<string, unknown>): ExploreTab };
   /** Set by demo-traces.js (hosts/web/demo/traces.js, from npm run demo:traces) when the page was built with it. */
-  snagboatDemoTraces?: { picked?: unknown; events?: unknown };
+  factoryClockDemoTraces?: { picked?: unknown; events?: unknown };
 }
 
 const TRACES_NOTE = 'Example traces: real sessions from building Snagboat and another project, with paths and command lines removed; the prompts and replies are as they were written. Load your own files below to explore yours.';
@@ -98,7 +98,7 @@ export function startPage(findingsFor?: FindingsFor): void {
   const globals = window as unknown as PageGlobals;
   const byId = <T extends HTMLElement>(id: string): T => {
     const node = document.getElementById(id);
-    if (!node) throw new Error(`snagboat web: #${id} is missing from the page`);
+    if (!node) throw new Error(`factory clock: #${id} is missing from the page`);
     return node as T;
   };
   const root = byId('explore-root');
@@ -108,10 +108,10 @@ export function startPage(findingsFor?: FindingsFor): void {
   const dataNote = byId('data-note');
   const examplesBtn = byId<HTMLButtonElement>('examples');
   const tracesBtn = byId<HTMLButtonElement>('traces');
-  const traces = readDemoTraces(globals.snagboatDemoTraces);
+  const traces = readDemoTraces(globals.factoryClockDemoTraces);
   const examplesNote = byId('examples-note');
 
-  const kit = globals.snagboatVizKit;
+  const kit = globals.factoryClockKit;
   const ctx = { ...kit, tooltip, ...kit.tipFor(tooltip) };
   let tab: ExploreTab | null = null;
 
@@ -125,7 +125,7 @@ export function startPage(findingsFor?: FindingsFor): void {
     const stored = readState().picked;
     const kept = Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string' && !!data.index.get(id)) : [];
     writeState({ ...readState(), picked: kept.length ? kept : defaultPick });
-    tab = globals.snagboatExplore.mount(root, sourceOver(data), ctx);
+    tab = globals.factoryClockExplore.mount(root, sourceOver(data), ctx);
     tab.shown();
   }
 

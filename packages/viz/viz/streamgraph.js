@@ -7,7 +7,7 @@
 // only its host and ctx: no VS Code.
 (function () {
   const BINS = 60;
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'streamgraph',
     title: 'Streamgraph',
     tags: { category: ['temporal', 'quantitative'], purpose: ['expressive'], level: ['session'], dimension: ['time', 'quantity', 'actor'], language: ['standard'] },

@@ -5,7 +5,7 @@
 // announces its session. Sees only its host and ctx: no VS Code.
 (function () {
   const MAX_R = 42;
-  window.snagboatViz.register({
+  window.factoryClock.register({
     id: 'bubble',
     title: 'Bubble chart',
     tags: { category: ['quantitative'], purpose: ['expressive', 'informative'], level: ['project'], dimension: ['quantity', 'time'], language: ['standard'] },
