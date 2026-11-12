@@ -46,8 +46,8 @@ async function main() {
     await log1.init();
     log1.append(makeEvent({ eventId: 'a' }));
     log1.append(makeEvent({ eventId: 'b' }));
-    // append() queues an async write; give it a tick to flush before reading back.
-    await new Promise((r) => setTimeout(r, 50));
+    // append() queues an async write; wait for the queue to reach disk before reading back.
+    await log1.flush();
 
     const log2 = new EventLog(dir);
     const events = await log2.readAll();
