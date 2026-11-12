@@ -169,7 +169,7 @@ async function main() {
     fs.copyFileSync(path.join(plugin, 'hooks', 'session-start'), path.join(pluginRoot, 'hooks', 'session-start'));
     fs.mkdirSync(path.join(pluginRoot, 'bin'));
     fs.writeFileSync(path.join(pluginRoot, 'bin', 'snagboat'), 'echo "ran with $*"\n');
-    const start = () => sh(path.join(pluginRoot, 'hooks', 'session-start'), [], { env: { SNAGBOAT_HOME: snagHome, CLAUDE_PLUGIN_ROOT: pluginRoot }, input: '{}' });
+    const start = () => sh(path.join(pluginRoot, 'hooks', 'session-start'), [], { env: { SNAGBOAT_HOME: snagHome, CLAUDE_PLUGIN_ROOT: pluginRoot, SNAGBOAT_RELAY_ROOT: '' }, input: '{}' });
     assert.strictEqual(start().status, 0);
     const shim = path.join(snagHome, 'bin', 'snagboat');
     assert.ok(fs.statSync(shim).mode & 0o100, 'executable');
@@ -195,6 +195,38 @@ async function main() {
     if (fs.existsSync(path.join(plugin, 'dist', 'snagboat.js'))) {
       assert.match(execFileSync('sh', [path.join(plugin, 'bin', 'snagboat'), 'version'], { encoding: 'utf8', env: { ...process.env, SNAGBOAT_NODE: process.execPath } }), /^snagboat /, 'a built plugin runs its CLI');
     }
+  });
+
+  test('in a dev container (SNAGBOAT_RELAY_ROOT), session start starts the core in the background unless one runs', async () => {
+    if (process.platform === 'win32') return;
+    const snagHome = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-relay-start-'));
+    const pluginRoot = path.join(snagHome, `it's "$(touch pwned)" \`x\``);
+    fs.mkdirSync(path.join(pluginRoot, 'hooks'), { recursive: true });
+    fs.copyFileSync(path.join(plugin, 'hooks', 'session-start'), path.join(pluginRoot, 'hooks', 'session-start'));
+    fs.mkdirSync(path.join(pluginRoot, 'bin'));
+    const ran = path.join(snagHome, 'ran');
+    // A CLI that takes its time, as ensureCore does: session start must not wait for it.
+    fs.writeFileSync(path.join(pluginRoot, 'bin', 'snagboat'), `sleep 1; echo "$* relay=$SNAGBOAT_RELAY_ROOT" >> '${ran}'\n`);
+    const start = (relay: string) => {
+      const began = Date.now();
+      const result = sh(path.join(pluginRoot, 'hooks', 'session-start'), [], { env: { SNAGBOAT_HOME: snagHome, CLAUDE_PLUGIN_ROOT: pluginRoot, SNAGBOAT_RELAY_ROOT: relay }, input: '{}' });
+      assert.strictEqual(result.status, 0);
+      assert.ok(Date.now() - began < 900, 'returns without waiting for the core');
+    };
+    const ranLines = () => (fs.existsSync(ran) ? fs.readFileSync(ran, 'utf8').trim().split('\n') : []);
+    start('');
+    await new Promise((r) => setTimeout(r, 1_500));
+    assert.deepStrictEqual(ranLines(), [], 'not in a dev container: no core started');
+    start('/workspaces/proj');
+    const deadline = Date.now() + 5_000;
+    while (ranLines().length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    assert.deepStrictEqual(ranLines(), ['core start relay=/workspaces/proj']);
+    // A core already running (core.json naming a live process): left alone.
+    fs.writeFileSync(path.join(snagHome, 'core.json'), JSON.stringify({ port: 1, token: 't', pid: process.pid, version: 'test', startedAt: '' }, null, 2) + '\n');
+    start('/workspaces/proj');
+    await new Promise((r) => setTimeout(r, 1_500));
+    assert.strictEqual(ranLines().length, 1, 'no second core');
+    assert.ok(!fs.existsSync(path.join(snagHome, 'pwned')), 'and the plugin path runs nothing');
   });
 
   let failures = 0;

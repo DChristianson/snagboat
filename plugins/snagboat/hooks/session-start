@@ -7,6 +7,9 @@
 #    so a project's committed VS Code hook entry (which runs that path) works on a
 #    machine with only the plugin. VS Code rewrites it on activation; this never
 #    replaces one that's there.
+# 3. In a dev container (SNAGBOAT_RELAY_ROOT set to the project root), starts the
+#    core in the background unless one is running, so the container's sessions
+#    are relayed to the host's core through the project folder. Never waits for it.
 # Never fails.
 cat >/dev/null
 home="${SNAGBOAT_HOME:-$HOME/.snagboat}"
@@ -23,5 +26,11 @@ fi
 here=$(dirname "$0")
 if [ ! -f "$home/bin/snagboat-hook" ] && [ -f "$here/forward.sh" ]; then
   cp "$here/forward.sh" "$home/bin/snagboat-hook.$$" && chmod 755 "$home/bin/snagboat-hook.$$" && mv -f "$home/bin/snagboat-hook.$$" "$home/bin/snagboat-hook"
+fi
+if [ -n "$SNAGBOAT_RELAY_ROOT" ] && [ -f "$CLAUDE_PLUGIN_ROOT/bin/snagboat" ]; then
+  pid=$(sed -n 's/.*"pid": *\([0-9][0-9]*\).*/\1/p' "$home/core.json" 2>/dev/null | head -n 1)
+  if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+    nohup sh "$CLAUDE_PLUGIN_ROOT/bin/snagboat" core start </dev/null >/dev/null 2>&1 &
+  fi
 fi
 exit 0
