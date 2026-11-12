@@ -129,6 +129,7 @@ The core's modules, in [src/core/service](../src/core/service/):
 | Module | What it does |
 | --- | --- |
 | `server.ts` | The HTTP server: tokens (the admin token in `core.json` reads every workspace and mints workspace tokens), events in and out, sessions, the live feed, hooks, flush, retention, shutdown, and the idle exit (30 minutes with no request or open feed) |
+| `outbox.ts` | Relay mode (`SNAGBOAT_RELAY_ROOT`, a core inside a dev container): prepares `<root>/.snagboat/relay/` (`relay.json`, `.gitignore`) and writes collected events to its `outbox/`, one complete file per batch, in place of the store writer; the folder's names are in [core/relay.ts](../src/core/relay.ts) |
 | `storeWriter.ts` | Writes each workspace's events once, through the same `EventSink` a window uses, and runs each workspace's retention; spools events for a claimed workspace until the claim is gone |
 | `client.ts` | `CoreClient`, a window's connection: follows the live feed and reconnects, posts or spools events, holds the folder, asks for retention and findings |
 | `gitOutcomesJob.ts` | Every 6 hours, reads each recorded workspace's git history (read-only) for the commit outcomes now due ([outcomes/gitOutcomes.ts](../src/outcomes/gitOutcomes.ts)) |

@@ -16,6 +16,8 @@ import * as path from 'path';
  * Both sides import this module; keep it free of anything but path.
  */
 
+/** Set to the project root (absolute, inside the container): the core relays its events instead of recording them. */
+export const RELAY_ROOT_ENV = 'SNAGBOAT_RELAY_ROOT';
 export const RELAY_VERSION = 1;
 /** The relay folder's path inside the project root, one segment each. */
 export const RELAY_SEGMENTS: readonly string[] = ['.snagboat', 'relay'];

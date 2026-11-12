@@ -15,7 +15,8 @@ import { CheckpointStore } from '../checkpointStore';
 import { effectiveSettings, loadConfig } from '../config';
 import { projectDirHeader } from '../../adapters/claude-code/hooksReceiver';
 import { isProcessAlive } from '../processes';
-import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
+import { RETENTION_INTERVAL_MS, StoreWriter, WriteResult } from './storeWriter';
+import { OutboxWriter, prepareRelayFolder, RelayFolder } from './outbox';
 import { EventLog } from '../eventLog';
 import { TodayAggregate } from '../aggregate';
 import { FindingsService, WorkspaceFindings } from './findings';
@@ -110,6 +111,13 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *
  * It exits after idleMs with no requests and no open event stream (0: never).
  * It runs retention for the workspaces no window has claimed (storeWriter.ts).
+ *
+ * Relay mode (relayRoot, SNAGBOAT_RELAY_ROOT; a core inside a dev container, core/relay.ts):
+ * the collectors and hooks run as usual, but their events go to the relay folder's outbox
+ * (outbox.ts) for the host's core, and only for projects inside the root; checkpoints are kept
+ * in the relay folder, which outlives a container rebuild. No findings, retention, git outcomes
+ * or advisor UI: the host computes those. Only GET /health (which names the relay), POST /hook
+ * and POST /shutdown answer.
  */
 
 export class CoreRunningError extends Error {
@@ -141,8 +149,13 @@ export interface CoreOptions {
   copilotSessionsDir?: string;
   /** How often to apply retention to the workspaces the core owns; default every 6 hours. */
   retentionEveryMs?: number;
+  /** Relay mode: the project root (absolute, inside a dev container) whose relay folder gets every event instead of the per-user store. */
+  relayRoot?: string;
   log?: (line: string) => void;
 }
+
+/** What collectors and hooks write through: the per-user store, or the relay's outbox. */
+type EventWrite = (events: NormalizedEvent[], onClaimed: Parameters<StoreWriter['write']>[1]) => Promise<WriteResult>;
 
 /**
  * What a token may do. admin: everything (core.json). A workspace token: read and write its
@@ -233,6 +246,10 @@ export class CoreService {
   readonly stopped: Promise<void>;
   private readonly server: http.Server;
   private readonly writer: StoreWriter;
+  /** Relay mode's folder and outbox (relayRoot). */
+  private readonly relay?: { folder: RelayFolder; outbox: OutboxWriter };
+  /** Where collected events and hooks go: the store, or in relay mode the outbox. */
+  private readonly record: EventWrite;
   private readonly findings: FindingsService;
   private readonly sessionPages: SessionPages;
   private readonly suggestions: SuggestionsService;
@@ -253,7 +270,7 @@ export class CoreService {
   private collector?: ClaudeCollector;
   private copilot?: CopilotCollector;
   /** Dev container relays: the outboxes of the folders in config.json's relay.allow (relayIngest.ts). */
-  private relay?: RelayIngest;
+  private relayIngest?: RelayIngest;
   private readonly settingsCache = new Map<string, { at: number; values: Record<string, unknown> }>();
   private readonly startedAt = new Date().toISOString();
   private lastActivity = Date.now();
@@ -264,8 +281,10 @@ export class CoreService {
   private stopping = false;
   private boundPort = 0;
 
-  private constructor(private readonly opts: CoreOptions) {
+  private constructor(private readonly opts: CoreOptions, relay?: RelayFolder) {
     this.writer = new StoreWriter(opts.home);
+    if (relay) this.relay = { folder: relay, outbox: new OutboxWriter(relay) };
+    this.record = this.relay ? (events) => this.relay!.outbox.write(events) : (events, onClaimed) => this.writer.write(events, onClaimed);
     this.findings = new FindingsService({
       home: opts.home,
       onChange: (result) => {
@@ -303,9 +322,11 @@ export class CoreService {
   static async start(opts: CoreOptions): Promise<CoreService> {
     const running = liveCore(opts.home);
     if (running && running.pid !== process.pid) throw new CoreRunningError(running.port, running.pid);
+    // Before the lock: a relay root that isn't a folder stops the core from starting at all.
+    const relay = opts.relayRoot !== undefined ? prepareRelayFolder(opts.relayRoot) : undefined;
     // One core per home, even when two front doors start one at the same moment: the lock is created exclusively.
     takeLock(opts.home);
-    const core = new CoreService(opts);
+    const core = new CoreService(opts, relay);
     try {
       await new Promise<void>((resolve, reject) => {
         core.server.once('error', reject);
@@ -321,9 +342,11 @@ export class CoreService {
     // From now on, hooks that find neither a window nor a running core are kept for the next core.
     openHookSpool(opts.home);
     core.log(`snagboat core ${opts.version} listening on 127.0.0.1:${core.boundPort} (pid ${process.pid})`);
+    if (relay) core.log(`relaying events for ${relay.root} to ${relay.outbox}`);
 
-    if (opts.collect ?? true) {
-      core.relay = new RelayIngest({
+    // Not in relay mode: a container's core sends its events on rather than taking any in.
+    if ((opts.collect ?? true) && !relay) {
+      core.relayIngest = new RelayIngest({
         home: opts.home,
         writer: core.writer,
         workspaceFor: (projectDir) => core.workspaceFor(projectDir),
@@ -336,7 +359,8 @@ export class CoreService {
       try {
         const hooks = await ingestHookSpool(opts.home, async (projectDir, payload, at) => void (await core.deliverHook(projectDir, payload, at)));
         if (hooks > 0) core.log(`read ${hooks} spooled hook(s)`);
-        const relayed = (await core.relay?.ingest()) ?? [];
+        if (relay) return; // nothing is written to the store, so nothing is spooled for it
+        const relayed = (await core.relayIngest?.ingest()) ?? [];
         // Relayed events count as activity, as collected ones do: the core stays up while an agent in a container works.
         if (relayed.some((r) => r.files > 0)) core.lastActivity = Date.now();
         const events = await core.writer.ingestSpool();
@@ -354,13 +378,20 @@ export class CoreService {
         core.log(`retention failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
-    void ingest().then(retention);
-    core.timers.push(setInterval(ingest, opts.ingestEveryMs ?? 30_000));
-    core.timers.push(setInterval(retention, opts.retentionEveryMs ?? RETENTION_INTERVAL_MS));
-    // Heuristics such as "stalled" fire on the absence of events, so followed workspaces are also evaluated on a timer.
-    core.timers.push(setInterval(() => core.findings.tick(), opts.heuristicsEveryMs ?? HEURISTICS_INTERVAL_MS));
+    if (relay) {
+      // The host's core runs retention and the heuristics on what it ingests.
+      void ingest();
+      core.timers.push(setInterval(ingest, opts.ingestEveryMs ?? 30_000));
+    } else {
+      void ingest().then(retention);
+      core.timers.push(setInterval(ingest, opts.ingestEveryMs ?? 30_000));
+      core.timers.push(setInterval(retention, opts.retentionEveryMs ?? RETENTION_INTERVAL_MS));
+      // Heuristics such as "stalled" fire on the absence of events, so followed workspaces are also evaluated on a timer.
+      core.timers.push(setInterval(() => core.findings.tick(), opts.heuristicsEveryMs ?? HEURISTICS_INTERVAL_MS));
+    }
     if (opts.collect ?? true) {
-      const checkpoints = new CheckpointStore(path.join(userDataDir(opts.home), 'core'));
+      // In relay mode, beside the outbox: ~/.snagboat goes with a container rebuild, ~/.claude (a volume) doesn't.
+      const checkpoints = new CheckpointStore(relay ? relay.dir : path.join(userDataDir(opts.home), 'core'));
       await checkpoints.init();
       core.collector = new ClaudeCollector({
         projectsDir: opts.claudeProjectsDir ?? defaultProjectsDir(),
@@ -373,7 +404,7 @@ export class CoreService {
           // A window that claimed the workspace to write it reads this very transcript folder itself
           // when the project is its folder: drop. A session started in a subfolder it never reads,
           // or a client window holding the folder for a rewrite (it reads no transcripts): keep.
-          return core.writer.write(events, (e, claim) => (!claim.hold && workspaceInfoOf(e.workspace!).folder === projectDir ? 'drop' : 'spool'));
+          return core.record(events, (e, claim) => (!claim.hold && workspaceInfoOf(e.workspace!).folder === projectDir ? 'drop' : 'spool'));
         },
         log: (line) => core.log(line),
       });
@@ -386,7 +417,7 @@ export class CoreService {
         deliver: (events, cwd) => {
           core.lastActivity = Date.now();
           // A window writing its folder itself reads the Copilot sessions started inside it: drop those.
-          return core.writer.write(events, (e, claim) => {
+          return core.record(events, (e, claim) => {
             const folder = workspaceInfoOf(e.workspace!).folder;
             return !claim.hold && folder && isWithinFolders(cwd, withRealPaths([folder])) ? 'drop' : 'spool';
           });
@@ -394,6 +425,8 @@ export class CoreService {
         log: (line) => core.log(line),
       });
       await core.copilot.start();
+    }
+    if ((opts.collect ?? true) && !relay) {
       // Commit outcomes from git (RFC step 4b), for the workspaces it records.
       const gitJob = new GitOutcomesJob(opts.home, core.writer, (line) => core.log(line));
       const runGitJob = () => void gitJob.run().catch((err) => core.log(`git outcomes failed: ${err instanceof Error ? err.message : String(err)}`));
@@ -489,6 +522,8 @@ export class CoreService {
         req.resume();
         return send(421, { error: 'requests must be addressed to 127.0.0.1 or localhost' });
       }
+      const relay = this.relay?.folder;
+      if (relay && req.method === 'GET' && (req.url === '/ui' || req.url?.startsWith('/ui/'))) throw new HttpError(404, 'this core relays its events to the host; open the advisor UI there');
       if (req.method === 'POST' && req.url === '/hook') return send(200, await this.hook(req));
       // The advisor UI's files, and the exchange of a one-time code for a reader token: no token yet.
       if (req.method === 'GET' && (req.url === '/ui' || req.url?.startsWith('/ui/'))) return this.serveUi(req, res);
@@ -500,7 +535,10 @@ export class CoreService {
       }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const route = `${req.method} ${url.pathname}`;
-      if (route === 'GET /health') return send(200, { ok: true, version: this.opts.version, pid: process.pid, startedAt: this.startedAt, features: CORE_FEATURES });
+      if (route === 'GET /health') {
+        return send(200, { ok: true, version: this.opts.version, pid: process.pid, startedAt: this.startedAt, features: relay ? ['relay'] : CORE_FEATURES, ...(relay ? { relay: { root: relay.root, folder: relay.dir } } : {}) });
+      }
+      if (relay && route !== 'POST /shutdown') throw new HttpError(409, `this core relays its events to the host (${relay.dir}); ask the host's core`);
       if (route === 'POST /retention') {
         req.resume();
         if (scope.reader) throw new HttpError(403, 'this token reads; it can\'t run retention');
@@ -556,6 +594,14 @@ export class CoreService {
 
   /** The workspace a project's activity is recorded under, or undefined when it's not recorded (workspaces.ts). */
   workspaceFor(projectDir: string): string | undefined {
+    const relay = this.relay?.folder;
+    if (relay) {
+      // Only what's inside the root: the host maps paths under it, and couldn't map anything else.
+      if (!path.isAbsolute(projectDir) || !isWithinFolders(path.resolve(projectDir), [relay.root])) return undefined;
+      const workspace = collectedWorkspace(this.opts.home, projectDir, knownWorkspaceFolders(this.opts.home));
+      if (!workspace) return undefined;
+      return isWithinFolders(workspace, [relay.root]) ? workspace : relay.root;
+    }
     const aliases = new Map<string, string>();
     for (const folders of this.tokenFolders.values()) for (const [folder, workspace] of folders) aliases.set(folder, workspace);
     return collectedWorkspace(this.opts.home, projectDir, knownWorkspaceFolders(this.opts.home, [...this.workspaceTokens.values()].flat()), aliases);
@@ -579,7 +625,7 @@ export class CoreService {
     if (!workspace) return { recorded: false, reason: "the project's settings say not to record it" };
     const event = hookEvent(payload, receivedAt, this.settingsFor(projectDir).captureContent !== false);
     if (!event) return { recorded: false, reason: 'not a hook Snagboat records' };
-    return { recorded: true, ...(await this.writer.write([{ ...event, workspace }])) };
+    return { recorded: true, ...(await this.record([{ ...event, workspace }], undefined)) };
   }
 
   private mintToken(scope: Scope, body: unknown): { token: string; workspaces: string[] } {

@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Dev container relays (host side):** the core records events a dev container relays through `<folder>/.snagboat/relay/` for folders you allow with `snagboat relay allow` (`relay.allow` in `~/.snagboat/config.json`); `snagboat relay status` shows each one. See [cli.md](https://github.com/DChristianson/snagboat/blob/main/docs/cli.md#dev-container-relays).
+- **Dev containers (container side):** with `SNAGBOAT_RELAY_ROOT` set to the project root, the core inside a container sends what it collects to `<root>/.snagboat/relay/` for the host's core instead of recording it, keeping its checkpoints there; the Claude Code plugin starts that core at session start.
 
 ## 0.0.3
 

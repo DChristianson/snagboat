@@ -7,7 +7,7 @@ import { compareToBaseline, parseBaseline, SessionCounts, verifyText } from './v
 import { CoreService } from '../core/service/server';
 import { effectiveSettings, loadConfig, relayAllowed, saveConfig, withRelayFolder } from '../core/config';
 import { listOutbox, readRelayInfo, readRelayStatus, RelayFolderStatus } from '../core/service/relayIngest';
-import { relayOutboxDir } from '../core/relay';
+import { RELAY_ROOT_ENV, relayOutboxDir } from '../core/relay';
 import { ensureCore, findCore } from '../core/service/lifecycle';
 import { coreRequest, liveCore } from '../core/service/coreFile';
 import * as fs from 'fs';
@@ -50,7 +50,7 @@ commands:
   relay status        the allowed folders, and what's waiting in each one's relay folder
   serve               run the core service in the foreground (Ctrl-C stops it)
   core start          start the core in the background, unless it's running
-  core status         whether the core is running, and where
+  core status         whether the core is running, and where (and where it relays to, in a dev container)
   core stop           stop the core
   migrate             copy every VS Code store into the per-user store (~/.snagboat/data);
                       copies only, leaving the VS Code stores as they are, and a rerun copies
@@ -71,6 +71,11 @@ options:
   --dry-run           migrate: count what would be copied, and write nothing
   --verify <file>     migrate: don't copy; check the per-user store against a baseline saved
                       with \`snagboat sessions --all --json\` before migrating
+
+environment:
+  SNAGBOAT_RELAY_ROOT serve, core start: in a dev container, the project root (absolute); the core
+                      sends what it collects to <root>/.snagboat/relay for the host's core, and
+                      records nothing itself
 `;
 
 export interface CliIo {
@@ -235,6 +240,8 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
           port: parsed.port,
           collect: !parsed.noCollect,
           idleMs: parsed.idleMinutes === undefined ? undefined : parsed.idleMinutes * 60_000,
+          // In a dev container: relay events to the host's core through the project folder (core/relay.ts).
+          relayRoot: process.env[RELAY_ROOT_ENV] || undefined,
           log: (line) => io.err(`${new Date().toISOString()} ${line}\n`),
         });
       } catch (err) {
@@ -351,8 +358,13 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       const sub = rest[0];
       if (sub === 'status') {
         const info = await findCore(home);
-        print(info ? { running: true, port: info.port, pid: info.pid, version: info.version, startedAt: info.startedAt } : { running: false }, () =>
-          info ? `running: pid ${info.pid}, 127.0.0.1:${info.port}, version ${info.version}, since ${info.startedAt}\n` : 'not running\n'
+        const health = info ? await coreRequest(info.port, info.token, 'GET', '/health', undefined, 2_000).catch(() => undefined) : undefined;
+        const relay = (health?.body as { relay?: { root: string; folder: string } } | undefined)?.relay;
+        print(info ? { running: true, port: info.port, pid: info.pid, version: info.version, startedAt: info.startedAt, ...(relay ? { relay } : {}) } : { running: false }, () =>
+          info
+            ? `running: pid ${info.pid}, 127.0.0.1:${info.port}, version ${info.version}, since ${info.startedAt}\n` +
+              (relay ? `relaying: events for ${relay.root} go to ${relay.folder} for the host's core\n` : '')
+            : 'not running\n'
         );
         return info ? 0 : 1;
       }
