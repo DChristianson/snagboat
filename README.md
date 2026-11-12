@@ -37,7 +37,7 @@ Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md) and [what
 
 - **Agents:** Claude Code and GitHub Copilot only. Other agents, such as Cursor's or Codex, aren't watched.
 - **VS Code** 1.145 or later, for the extension.
-- **Platforms:** macOS and Linux. Windows is new and less tried: Claude Code hooks run through Git Bash there, as Claude Code itself requires (see [known limitations](#known-limitations)).
+- **Platforms:** macOS and Linux. Windows is not supported (see [known limitations](#known-limitations)).
 - **Node.js** 24 or later, for the Claude Code plugin, the `snagboat` command line, or building from source. The extension itself runs on the Node.js that VS Code ships.
 - **Where to get it:** a [GitHub release](https://github.com/DChristianson/snagboat/releases). The extension isn't on the Marketplace or Open VSX yet, and the plugin isn't in a Claude Code marketplace yet.
 
@@ -239,7 +239,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 
 - **Copilot editor telemetry is collected by one window.** Copilot in every window exports to the same port, so the first window to claim it records all inline-suggestion usage and the others show a "failed to listen on port" health warning. Copilot agent sessions and Claude Code don't have this problem.
 - **The Copilot receiver doesn't authenticate requests**, so another local process could submit fake Copilot events. Claude Code hooks are token-protected. See [SECURITY.md](SECURITY.md).
-- **Windows is new**: hook routing passes the unit tests on Windows in CI, through Git Bash's `sh` and `curl` as Claude Code runs it, but hasn't been tried with Claude Code on a real Windows machine, and the VS Code integration tests don't run on Windows yet. The Claude Code plugin's tools need Git Bash's `sh` on your PATH there, also untried.
+- **Windows is not supported.** It may work through Git Bash, which Claude Code uses to run hooks there, but it is untested. The unit tests run on Windows in CI, and the VS Code integration tests don't.
 - **VS Code keeps its own data unless the per-user store is on.** By default each VS Code window keeps its workspace's data in VS Code's storage. The command line reads it, but the advisor UI and the Claude Code plugin's commands don't. Turning on `snagboat.storage.perUserStore` (a preview) puts everything in one place; it copies what VS Code already has.
 
 ## Not built yet

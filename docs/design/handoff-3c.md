@@ -17,7 +17,7 @@ All merged into `refactor`:
 | --- | --- | --- |
 | RFC 1 | `@snagboat/schema` workspace package (`packages/schema`): `NormalizedEvent`, its JSON Schema, the session-view builder; npm workspaces | #81 |
 | RFC 2 | Engine is vscode-free; settings and folders come through `src/core/host.ts`; VS Code glue lives in `src/vscode/` | #80 |
-| RFC 3a | Claude Code hooks on Windows through Git Bash; Windows in unit CI | #82 |
+| RFC 3a | Claude Code hooks on Windows through Git Bash; Windows in unit CI (Windows later unsupported, decided 2026-11-12; its CI job no longer blocks) | #82 |
 | RFC 3b | Read-only `snagboat` CLI (`src/cli`, `dist/snagboat.js`) | #84 |
 | Factory Clock 2 | Visualization kit split out of `media/shared.js` into `media/vizkit.js` | #83 |
 
@@ -28,7 +28,7 @@ Things the cloud session decided or found, which the RFC text may not reflect ye
 - **JSONL stays the source of truth**, SQLite a side index (decided: start with SQLite; DuckDB later for analysis; Dolt only through Beads).
 - **Target** VS Code 1.145 and Node 24 (raise `engines` from 1.119 / Node 22 in its own small PR, with CI's minimum-version job).
 - `npm run test:unit` runs `scripts/runUnit.js`: every `out/test/unit/*.unit.test.js`, each in its own process, reporting all failures. New test files are picked up by name.
-- Not yet verified anywhere: Claude Code hooks on a real Windows machine; VS Code integration tests on Windows.
+- Windows is not supported (decided 2026-11-12): there is no Windows machine to test on. The Git Bash routing stays, untested.
 
 ## Before starting 3c
 
@@ -95,8 +95,7 @@ Use Beads for this plan's work items now, while nothing depends on it.
 | RFC | Engines: VS Code 1.145, Node 24 | none |
 | RFC | 4 Outcomes and advisors (outcome capture, `persona.md` front matter, four default advisors) | 3c-3 |
 | RFC | 5 Claude Code plugin and advisor UI (compact VS Code findings panel; full UI in a browser) | 3c-2 |
-| RFC | 6 Experiments tracker (SQLite and Beads) and Gas City pack; revisit sources (HypAware, Beads events journal) | 4 |
-| RFC | Verify hooks with Claude Code on a real Windows machine | none |
+| RFC | 6 Experiments: design first. Keep it simple; the design isn't settled (decided 2026-11-12). Gas City dropped. Revisit sources (HypAware, Beads events journal) | 4 |
 | Factory Clock | 3 Own the theme (`theme.css`) | none |
 | Factory Clock | 4 Move files into `packages/viz`; advisor UI loads them; VS Code drops the Explore tab | 3, RFC 5 |
 | Factory Clock | 5 Identity: README, contract docs, publish as Factory Clock | 4 |

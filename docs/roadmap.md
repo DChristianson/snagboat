@@ -18,10 +18,10 @@ The minimum supported VS Code is 1.145 (Node 24.22). The `snagboat` CLI needs No
 
 In place ([.github/workflows/ci.yml](../.github/workflows/ci.yml)), on pushes to `main` and pull requests:
 
-- on Ubuntu, macOS and Windows (where `sh` and `curl` are Git Bash's, as when Claude Code runs a hook): `npm ci`, unit tests (`npm run test:unit`, which also type-checks via `tsc` and replays the redacted transcript fixture through every heuristic, pinning what fires), the production bundle, the third-party license check (`npm run licenses -- --check`), and `.vsix` packaging
+- on Ubuntu, macOS and Windows: `npm ci`, unit tests (`npm run test:unit`, which also type-checks via `tsc` and replays the redacted transcript fixture through every heuristic, pinning what fires), the production bundle, the third-party license check (`npm run licenses -- --check`), and `.vsix` packaging. The Windows job doesn't block a merge, since Windows is not supported; it runs as a signal, with Git Bash's `sh` and `curl`, as when Claude Code runs a hook
 - the integration suite (`npm test`) in a real VS Code: latest stable on Ubuntu (under a virtual display) and macOS, plus the minimum supported version (1.145) on Ubuntu
 - Dependabot updates for npm and GitHub Actions
-- `main`'s ruleset requires every unit and integration job to pass before a merge (the 1.145 job's name includes the version, so raising the minimum means updating the ruleset)
+- `main`'s ruleset requires every unit and integration job except the Windows one to pass before a merge (the 1.145 job's name includes the version, so raising the minimum means updating the ruleset)
 
 Releases ([.github/workflows/release.yml](../.github/workflows/release.yml)): pushing a `v*` tag that matches `package.json`'s version runs all of the above, then builds the `.vsix` and publishes a GitHub release with it attached.
 
@@ -95,7 +95,6 @@ Finished work is in the [changelog](../CHANGELOG.md).
 - **Extension points.** `snagboat.adapters` and `snagboat.heuristics` contribution points so other extensions can add sources and heuristics without forking.
 - **Log export.** A `snagboat.exportLog` command writing CSV or SQLite, with an optional SQLite side index rebuilt from the JSONL log.
 - **Copilot OTel per-window routing.** Copilot still exports every window's telemetry to one fixed port (4318), so the first window to bind it collects all of it. It can't use the per-window routing Claude Code hooks use, since Copilot's exporter takes a single endpoint URL; revisit once live traffic shows whether spans identify the workspace.
-- **Windows on a real machine.** Claude Code hooks run on Windows through Git Bash and pass the unit tests there in CI, but haven't been tried with Claude Code on a real Windows machine, and the VS Code integration tests don't run on Windows yet.
 
 ## Open questions
 
