@@ -1,6 +1,6 @@
 # Using Snagboat
 
-Where Snagboat shows what it sees, and every command. Settings are in [settings.md](settings.md); what each heuristic looks for is in [heuristics.md](heuristics.md).
+Where Snagboat shows what it sees, and every command. Settings are in [settings.md](settings.md); what each heuristic looks for is in [heuristics.md](heuristics.md). Asking a model is in [advisor-models.md](advisor-models.md), and the `snagboat` command in [cli.md](cli.md).
 
 ## Status bar
 
@@ -25,7 +25,7 @@ The turn tree shows where the session's tokens went: by prompt, then main agent 
 
 The context timeline shows how much context each model call sent, split into cache read, cache creation, and fresh input, with your prompts, compactions, findings, and each model's largest-seen and limit lines. Expand it for output tokens, subagent lanes, and drag-to-zoom.
 
-Findings include earlier ones, found by replaying the session through the heuristics when you open it, as well as active ones. Select a prompt (in the tree or on the timeline) to read what you asked. **Explain session**, **Explain turn** on a selected prompt, and **Explain** on a finding ask the [advisor](../README.md#advisor-optional); **Tactics** asks it whether the models used fit each turn and whether a different way of prompting would have cost less. With `snagboat.advisor.headlines` on, each ended session gets a one-line headline from the advisor under its name in the list.
+Findings include earlier ones, found by replaying the session through the heuristics when you open it, as well as active ones. Select a prompt (in the tree or on the timeline) to read what you asked. **Explain session**, **Explain turn** on a selected prompt, and **Explain** on a finding ask the [advisor](advisor-models.md); **Tactics** asks it whether the models used fit each turn and whether a different way of prompting would have cost less. With `snagboat.advisor.headlines` on, each ended session gets a one-line headline from the advisor under its name in the list.
 
 Findings ("Show in session"), session ids in the Overview timeline, and the daily chart's bars all link into a session, as does **Snagboat: Open Session...**.
 
@@ -114,13 +114,29 @@ By default each window collects its own workspace's sessions and keeps them in V
 - The core works out each workspace's findings, with that workspace's rules and thresholds, so every window on it shows the same ones; notifications and the advisor work as before. `snagboat findings` prints them from a terminal.
 - If the core can't start, the window says so and writes its own folder in `~/.snagboat/data` instead. `snagboat core stop` stops it; open windows then wait until something starts it again.
 
-Turning the setting off goes back to VS Code's storage as it was: turning it on copies data and never moves or deletes it. See the [README](../README.md#command-line) for `snagboat core` and `snagboat migrate`, and [PRIVACY.md](../PRIVACY.md) for where everything is stored.
+Turning the setting off goes back to VS Code's storage as it was: turning it on copies data and never moves or deletes it. See [Command line](cli.md) for `snagboat core` and `snagboat migrate`, and [PRIVACY.md](../PRIVACY.md) for where everything is stored.
 
 ## The Claude Code plugin (preview)
 
 The plugin in [plugins/snagboat](../plugins/snagboat/README.md) brings Snagboat into Claude Code without VS Code. Its hooks record your sessions as VS Code's per-project hooks do, and step aside in a project whose `.claude/settings.json` (or your user settings) already has VS Code's Snagboat hook. Its MCP server starts the core when a session starts and gives the agent four read-only tools for the workspace it works in: `snagboat_findings`, `snagboat_sessions`, `snagboat_session` and `snagboat_advisors`. Its slash commands use them: `/snagboat:findings`, `/snagboat:advisors [days]`, `/snagboat:sessions [days]`, `/snagboat:session <id>`, and `/snagboat:open` for the advisor UI. `/snagboat:statusline` adds Snagboat to Claude Code's status line (findings showing, today's tokens, cache rate and milestones) after showing you the change to `~/.claude/settings.json` and asking. A plugin can't set the status line itself.
 
 It needs Node.js 24 or later on your PATH (or in `SNAGBOAT_NODE`): Claude Code doesn't ship Node. The hooks need only `sh` and `curl`. Each release attaches it as `snagboat-claude-plugin-<version>.zip`: start Claude Code with `claude --plugin-dir <that zip>`. From a clone: `npm run build:plugin`, then `claude --plugin-dir plugins/snagboat`.
+
+## Copilot setup
+
+Agent mode needs no setup: Snagboat reads its session logs, picking the sessions started inside each window's workspace.
+
+To also count the tokens used by Copilot's inline and next-edit suggestions, turn on Copilot's OpenTelemetry export in your VS Code settings. OpenTelemetry is an open standard for telemetry, and OTLP is its protocol. Here Copilot sends it to a receiver Snagboat runs on your machine.
+
+```json
+{
+  "github.copilot.chat.otel.enabled": true,
+  "github.copilot.chat.otel.exporterType": "otlp-http",
+  "github.copilot.chat.otel.otlpEndpoint": "http://127.0.0.1:4318"
+}
+```
+
+The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Code window can listen on it. Copilot in every window exports to the same port, so the first window to claim it records all inline-suggestion usage, and the others show a "failed to listen on port" health warning. In current VS Code, Agent mode runs in VS Code's built-in agent host through the Copilot CLI, which doesn't send this telemetry, so it only covers editor features.
 
 ## Commands
 
