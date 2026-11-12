@@ -49,6 +49,8 @@ async function main() {
   for (const w of [a, b]) fs.mkdirSync(w);
   await new StoreWriter(home).write([
     ev(a, 60 * 24 * 2), ev(a, 30), ev(b, 10),
+    // The agent's todo list, recorded without its text: Navigator's Ahead falls back to it (no .beads here).
+    ev(a, 25, { kind: 'tool_call', tokens: undefined, toolName: 'TodoWrite', toolCategory: 'other', todos: { pending: 2, inProgress: 1, completed: 3 } }),
     ev(a, 20, { kind: 'outcome', tokens: undefined, outcome: { type: 'notified', heuristicId: 'stalled', advisor: 'navigator' } }),
     ev(a, 90, { kind: 'outcome', tokens: undefined, outcome: { type: 'notified', heuristicId: 'stalled', advisor: 'navigator' } }),
   ]);
@@ -136,6 +138,10 @@ async function main() {
     const one = (await coreRequest(core.port, info.token, 'GET', `/advisors?${q}`)).body as { advisors: Array<{ id: string; status: string; brief?: { summary: string; surface: { kind: string } } }> };
     assert.strictEqual(one.advisors[0].status, 'Keeping token cost down');
     assert.ok(one.advisors.every((x) => x.brief && x.brief.summary && x.brief.surface.kind), 'a brief for each, with one workspace');
+    const nav = (one.advisors as Array<{ id: string; brief?: { ahead?: { source: string; completed: number; text: boolean } } }>).find((x) => x.id === 'navigator')!;
+    assert.deepStrictEqual([nav.brief?.ahead?.source, nav.brief?.ahead?.completed, nav.brief?.ahead?.text], ['plan', 3, false], "no Beads: Navigator's Ahead is the session's plan, counts only");
+    const inB = (await coreRequest(core.port, info.token, 'GET', `/advisors?workspace=${encodeURIComponent(b)}`)).body as typeof one;
+    assert.ok(inB.advisors.every((x) => !(x.brief as { ahead?: unknown } | undefined)?.ahead), 'neither Beads nor a plan: no Ahead');
     const all = (await coreRequest(core.port, info.token, 'GET', '/advisors')).body as typeof one;
     assert.ok(all.advisors.every((x) => !x.brief), 'none across workspaces');
     const weekly = (await coreRequest(core.port, info.token, 'GET', `/advisors?${q}&weeks=8`)).body as { advisors: Array<{ measures: Array<{ id: string; series?: unknown[] }> }> };

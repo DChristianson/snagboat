@@ -23,8 +23,9 @@ export function hookSpoolDir(home: string): string {
 }
 
 /** The event a hook payload stands for; undefined if it maps to none, or its session is Copilot's (its own log covers it). */
-export function hookEvent(payload: unknown, receivedAt?: string): NormalizedEvent | undefined {
-  const event = normalizeHookPayload(payload, undefined, receivedAt);
+/** captureContent: whether the project keeps captured text (a TodoWrite call's items). */
+export function hookEvent(payload: unknown, receivedAt?: string, captureContent = false): NormalizedEvent | undefined {
+  const event = normalizeHookPayload(payload, undefined, receivedAt, captureContent);
   if (!event || isCopilotSession(event.sessionId)) return undefined;
   return event;
 }
