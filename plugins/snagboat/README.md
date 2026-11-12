@@ -20,10 +20,10 @@ At the start of each session the plugin keeps `~/.snagboat/bin/snagboat` pointin
 
 ## Install
 
-Each [release](https://github.com/DChristianson/snagboat/releases) attaches `snagboat-claude-plugin-<version>.zip`. Download it and start Claude Code with it:
+Each [release](https://github.com/DChristianson/snagboat/releases) after 0.0.2 attaches `snagboat-claude-plugin-<version>.zip`. Download it and start Claude Code with it:
 
 ```sh
-claude --plugin-dir snagboat-claude-plugin-0.0.2.zip
+claude --plugin-dir snagboat-claude-plugin-<version>.zip
 ```
 
 A marketplace listing comes later.
