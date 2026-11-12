@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Snagboat</title>
 <link rel="stylesheet" href="theme.css">
-<link rel="stylesheet" href="viz.css">
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="drawings/drawings.css">
 <link rel="stylesheet" href="app.css">
 <script src="app.js" defer></script>
 </head>
@@ -20,7 +21,6 @@
       <div class="eyebrow">This workspace</div>
       <a class="side-link on" href="#" id="nav-advisors" aria-current="page">Advisors <span class="count" id="count-advisors"></span></a>
       <a class="side-link" href="#view=sessions" id="nav-sessions">Sessions <span class="count" id="count-sessions"></span></a>
-      <a class="side-link" href="#view=explore" id="nav-explore">Explore</a>
       <a class="side-link" href="#view=suggestions" id="nav-suggestions">Suggestions</a>
     </nav>
   </aside>
@@ -173,10 +173,6 @@
         <h2>Findings in this session</h2>
         <div class="flist" id="session-findings"></div>
       </div>
-      <div class="panel">
-        <h2>Explore this session</h2>
-        <div class="acts" id="session-explore"></div>
-      </div>
     </section>
 
     <section id="view-suggestions" hidden aria-labelledby="suggestions-h">
@@ -186,10 +182,6 @@
       </div>
       <div id="advice" class="panel advice" hidden aria-live="polite"></div>
       <div id="suggestions-root" class="panel"></div>
-    </section>
-
-    <section id="view-explore" hidden aria-label="Explore">
-      <div id="explore-root"></div>
     </section>
 
     <p class="small muted" id="problems" hidden></p>

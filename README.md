@@ -14,16 +14,16 @@ Snagboat watches your AI coding agents (Claude Code and GitHub Copilot Chat) and
 
 | Where | What you get | How to get it |
 | --- | --- | --- |
-| VS Code | The status bar, a findings panel, and a detail view with your sessions, Explore and Suggestions (with the per-user store on, sessions and Explore open in your browser instead); notifications, Explain, and a weekly review | Install the extension from a release ([Install](#install)) |
+| VS Code | The status bar, a findings panel, and a detail view with your sessions and Suggestions (with the per-user store on, sessions open in your browser instead); notifications, Explain, and a weekly review | Install the extension from a release ([Install](#install)) |
 | Claude Code (preview) | Your sessions recorded without VS Code, slash commands such as `/snagboat:findings`, read-only tools the agent can use to read findings and sessions, and a status line | Start Claude Code with the plugin ([Claude Code plugin](#claude-code-plugin-preview)); needs Node.js 24 |
-| Your browser (preview) | The advisor UI: each advisor's goal and live finding, your sessions and what came of them, Explore, Suggestions (with asking a model on this machine, after you approve what it's sent), and adding an advisor | `snagboat open`, `/snagboat:open` in Claude Code, or **Snagboat: Open Advisor UI** in VS Code with the per-user store on; each link works once ([usage](docs/usage.md#the-advisor-ui-preview)) |
+| Your browser (preview) | The advisor UI: each advisor's goal and live finding, your sessions and what came of them, Suggestions (with asking a model on this machine, after you approve what it's sent), and adding an advisor | `snagboat open`, `/snagboat:open` in Claude Code, or **Snagboat: Open Advisor UI** in VS Code with the per-user store on; each link works once ([usage](docs/usage.md#the-advisor-ui-preview)) |
 | Command line | Sessions, findings, advisors' measures and settings, as text or JSON | `snagboat` while the Claude Code plugin is enabled, or `node dist/snagboat.js` from a clone ([Command line](#command-line)); needs Node.js 24 |
 
 If you use VS Code alongside the others, turn on its per-user store preview (`snagboat.storage.perUserStore`), so it shows the same sessions and findings they do ([known limitations](#known-limitations)).
 
 ## Try it in your browser
 
-No install needed: [Factory Clock](https://dchristianson.github.io/snagboat/), Snagboat's set of session visualizations, runs in a web page over example sessions, or over your own event log files, read in the browser and sent nowhere ([PRIVACY.md](PRIVACY.md#the-web-demo)). It is the same set of views as the Explore tab ([packages/viz](packages/viz/README.md)).
+No install needed: [Factory Clock](https://dchristianson.github.io/snagboat/), Snagboat's set of session visualizations, runs in a web page over example sessions, or over your own event log files, read in the browser and sent nowhere ([PRIVACY.md](PRIVACY.md#the-web-demo)). Its code is in [packages/viz](packages/viz/README.md) for now and is moving to its own repository. Snagboat itself no longer has an Explore tab.
 
 ## An example
 
@@ -115,8 +115,7 @@ In VS Code:
 - **Status bar:** today's tokens, agent events, and local edits, plus the most important active finding. Snagboat counts tokens, not dollars: it has no price data. Hover for the breakdown by agent and any health problems with Snagboat itself.
 - **Findings panel** (Snagboat's icon in the activity bar): the findings now, each with its advisor, today's tokens, and links to the advisor UI and the detail view.
 - **Detail view** (click the status bar, or **Snagboat: Open Detail View**): the **Overview** tab has today's totals, active findings, a daily token chart, and a filterable 24-hour timeline. **Acknowledge** a finding to hide it from the status bar until that problem clears; **mute** a heuristic to hide its findings in this workspace until you unmute it.
-- **Sessions tab:** each day's sessions by name. Open one for its turn tree (where the tokens went, by prompt, agent, and tool category), its context timeline, and its findings, past ones included.
-- **Explore tab** (experimental): [Factory Clock](packages/viz/README.md), up to eight sessions through a carousel of 32 visualizers: charts and diagrams (timelines, treemaps, graphs, and more), each drawing the same sessions its own way. A puck, a small panel you can drag to any corner, names the current visualizer and filters the carousel by its tags. With the per-user store preview (`snagboat.storage.perUserStore`) on, Explore and Sessions open in the advisor UI in your browser instead of the detail view. The same views are on the [Factory Clock web page](#try-it-in-your-browser).
+- **Sessions tab:** each day's sessions by name. Open one for its turn tree (where the tokens went, by prompt, agent, and tool category), its context timeline, and its findings, past ones included. With the per-user store preview (`snagboat.storage.perUserStore`) on, sessions open in the advisor UI in your browser instead of the detail view.
 - **Suggestions tab** (**Snagboat: Discover Heuristics**): rules, thresholds, and shell categories proposed from your own history, scored by replay; accept, adjust, or dismiss.
 - **Snagboat: Write Review** writes a weekly Markdown review of this workspace to `~/.snagboat/reviews/`.
 

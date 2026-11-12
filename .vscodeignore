@@ -7,15 +7,6 @@
 # Its discovery worker, which must sit beside it.
 !dist/discoveryWorker.js
 !media/**
-# The Factory Clock package's page files, which the detail webview and the
-# core's advisor UI load from packages/viz at runtime (the visualizers, the
-# kit, the explorer, the theme, and their styles); its TypeScript is bundled
-# into dist/ and its web page is not shipped.
-!packages/viz/viz/**
-!packages/viz/vizkit.js
-!packages/viz/explore.js
-!packages/viz/viz.css
-!packages/viz/theme.css
 !package.json
 !README.md
 !LICENSE

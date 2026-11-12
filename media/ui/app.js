@@ -6,9 +6,9 @@
 // Views: the advisors (a card each, holding its brief and the finding it has
 // to surface, with Useful / Acknowledge / Mute); one advisor's page (its
 // measures, chart, rules and voice), at #advisor=<id>; and from step 5b the
-// sessions (#view=sessions), one session with what came of it
-// (#session=<id>), and Explore (#view=explore), which draw with the Factory
-// Clock visualizers the core serves beside this page.
+// sessions (#view=sessions), and one session with what came of it
+// (#session=<id>), drawn with Snagboat's two session drawings (media/drawings),
+// which the core serves beside this page.
 (function () {
   'use strict';
 
@@ -414,34 +414,33 @@
     $('problems').hidden = !problems || problems.length === 0;
     $('problems').textContent = problems && problems.length ? `Problems in your advisors' persona.md files: ${problems.join('; ')}` : '';
   }
-  const VIEWS = ['advisors', 'advisor', 'add', 'sessions', 'session', 'explore', 'suggestions'];
+  const VIEWS = ['advisors', 'advisor', 'add', 'sessions', 'session', 'suggestions'];
   function showView(name) {
     for (const v of VIEWS) $(`view-${v}`).hidden = v !== name;
     // The nav marks the section you're in: an advisor's page is under Advisors, a session's under Sessions.
     const section = { advisor: 'advisors', add: 'advisors', session: 'sessions' }[name] || name;
-    for (const n of ['advisors', 'sessions', 'explore', 'suggestions']) {
+    for (const n of ['advisors', 'sessions', 'suggestions']) {
       $(`nav-${n}`).classList.toggle('on', n === section);
       if (n === section) $(`nav-${n}`).setAttribute('aria-current', 'page');
       else $(`nav-${n}`).removeAttribute('aria-current');
     }
     // The period applies to advisors' measures only.
     for (const e of document.querySelectorAll('[data-advisors-only]')) e.hidden = name !== 'advisors' && name !== 'advisor';
-    if (name !== 'explore' && exploreTab) window.snagboatExplore.hidden();
     if (name !== 'sessions') state.sessionLimit = SESSIONS_PAGE;
   }
-  /** Which view the address names: #advisor=<id>, #session=<id>, #view=sessions|explore, else the advisors. */
+  /** Which view the address names: #advisor=<id>, #session=<id>, #view=sessions|add|suggestions, else the advisors. */
   function route() {
     const f = fragment();
     if (f.get('advisor')) return ['advisor', f.get('advisor')];
     if (f.get('session')) return ['session', f.get('session')];
-    if (['sessions', 'explore', 'add', 'suggestions'].includes(f.get('view'))) return [f.get('view')];
+    if (['sessions', 'add', 'suggestions'].includes(f.get('view'))) return [f.get('view')];
     return ['advisors'];
   }
 
-  // --- Sessions, one session, and Explore (RFC step 5b) ------------------------------------------------
-  // The Factory Clock visualizers draw a session as VS Code's Sessions and Explore tabs do; the core
-  // serves them beside this page, and they load the first time a session or Explore is shown.
-  let vizLoading = null;
+  // --- Sessions and one session (RFC step 5b) ----------------------------------------------------------
+  // The two session drawings (media/drawings) draw a session as VS Code's Sessions tab does; the core
+  // serves them beside this page, and they load the first time a session is shown.
+  let drawingsLoading = null;
   function loadScript(src) {
     return new Promise((resolve, reject) => {
       const s = el('script', { src });
@@ -450,20 +449,16 @@
       document.body.append(s);
     });
   }
-  function loadViz() {
-    vizLoading ??= (async () => {
-      await loadScript('vizkit.js');
-      const res = await fetch('viz/index.json');
-      const files = res.ok ? await res.json() : [];
-      for (const f of files) await loadScript(f);
-      await loadScript('explore.js');
-      const kit = window.snagboatVizKit;
-      return { ...kit, tooltip: $('tooltip'), ...kit.tipFor($('tooltip')) };
+  function loadDrawings() {
+    drawingsLoading ??= (async () => {
+      for (const f of ['drawings/kit.js', 'drawings/turnTree.js', 'drawings/contextTimeline.js']) await loadScript(f);
+      const kit = window.snagboatKit;
+      return { ...kit, ...kit.tipFor($('tooltip')) };
     })();
-    vizLoading.catch(() => {
-      vizLoading = null;
+    drawingsLoading.catch(() => {
+      drawingsLoading = null;
     });
-    return vizLoading;
+    return drawingsLoading;
   }
 
   const AGENTS = { 'claude-code': 'Claude Code', copilot: 'Copilot', 'copilot-cli': 'Copilot CLI' };
@@ -596,7 +591,7 @@
     sessionUi.timeline.update([v], selection, {});
   }
   async function renderSession(id) {
-    const [ctx, page] = await Promise.all([loadViz(), api(`/sessions/${encodeURIComponent(id)}/view?workspace=${encodeURIComponent(state.workspace)}`)]);
+    const [ctx, page] = await Promise.all([loadDrawings(), api(`/sessions/${encodeURIComponent(id)}/view?workspace=${encodeURIComponent(state.workspace)}`)]);
     // A reply for a session you've since left (or an older refresh) is dropped.
     if (route()[0] !== 'session' || route()[1] !== id) return;
     const v = page.view;
@@ -609,8 +604,8 @@
         drawSession();
       };
       const c = { ...ctx, select };
-      sessionUi.tree = window.snagboatViz.get('turn-tree').mount($('tree-host'), c);
-      sessionUi.timeline = window.snagboatViz.get('context-timeline').mount($('timeline-host'), c);
+      sessionUi.tree = window.snagboatDrawings.turnTree($('tree-host'), c);
+      sessionUi.timeline = window.snagboatDrawings.contextTimeline($('timeline-host'), c);
       $('whole').onclick = () => sessionUi.timeline?.zoomAll();
     }
     if (!sessionUi.view || sessionUi.view.summary.sessionId !== s.sessionId) {
@@ -618,92 +613,11 @@
       sessionUi.selectedTurn = null;
     }
     sessionUi.view = v;
-    state.lastSession = s.sessionId;
     $('session-h').textContent = sessionTitle(s);
     $('session-meta').textContent = [agentLabel(s.agent), ...s.models, lengthText(s.firstTs, s.lastTs), plural(s.prompts, 'prompt'), plural(s.toolCalls, 'tool call'), `${compactNumber(s.tokens)} tokens`, startedText(s.firstTs)].join(' · ');
     $('session-outcomes').replaceChildren(...(page.outcomes.length ? page.outcomes.map(outcomeChip) : [el('span', { class: 'empty', text: 'Nothing recorded yet. Tests going green, commits and what became of them, and how you met its findings show here as they happen; commits kept and code survival take 7 days.' })]));
     drawSession();
     $('session-findings').replaceChildren(...(v.findings.length ? sessionFindingRows(v.findings, page.responses) : [el('p', { class: 'empty', text: 'No findings in this session.' })]));
-    const exploreWith = (vizId, label) => {
-      const b = el('button', { class: 'btn', type: 'button', text: label });
-      b.addEventListener('click', () => {
-        writeExploreState({ ...readExploreState(), picked: [s.sessionId], current: vizId });
-        if (exploreTab) exploreTab.destroy();
-        exploreTab = null;
-        location.hash = '#view=explore';
-      });
-      return b;
-    };
-    $('session-explore').replaceChildren(exploreWith('factory-clock', 'Factory Clock'), exploreWith('living-network', 'Living Network'), exploreWith('gantt', 'Gantt and waterfall'), exploreWith('tool-ribbon', 'Tool-call ribbon'), el('span', { class: 'muted small', text: 'or any of the others in Explore' }));
-  }
-
-  // Explore: packages/viz/explore.js over a source that reads the core. Its saved state (picked sessions,
-  // the current visualizer, the puck's corner) is kept per workspace in this tab.
-  let exploreTab = null;
-  let exploreWorkspace = null;
-  const exploreKey = () => `snagboat.ui.explore.${state.workspace}`;
-  function readExploreState() {
-    try {
-      const v = JSON.parse(recall(exploreKey()) || '{}');
-      return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
-    } catch {
-      return {};
-    }
-  }
-  function writeExploreState(v) {
-    remember(exploreKey(), JSON.stringify(v));
-  }
-  function exploreSource() {
-    const workspace = state.workspace;
-    const q = `workspace=${encodeURIComponent(workspace)}`;
-    const listeners = { sessions: [], explorer: [] };
-    const failed = (err) => {
-      if (err instanceof Unauthorized) needLink('This page has lost its connection to the core.');
-      else setStatus('down', err.message || 'The core is not answering');
-    };
-    return {
-      listSessions() {
-        api(`/sessions?${q}`)
-          .then((list) => {
-            const sessions = [...list].sort((a, b) => b.firstTs.localeCompare(a.firstTs) || a.sessionId.localeCompare(b.sessionId));
-            for (const cb of listeners.sessions) cb({ sessions, headlines: {} });
-          })
-          .catch(failed);
-      },
-      loadSessions(ids) {
-        api(`/explore?${q}&ids=${ids.map(encodeURIComponent).join(',')}`)
-          .then((st) => {
-            for (const cb of listeners.explorer) cb(st);
-          })
-          .catch(failed);
-      },
-      closeExplorer() {
-        for (const cb of listeners.explorer) cb(null);
-      },
-      getState: readExploreState,
-      setState(partial) {
-        writeExploreState({ ...readExploreState(), ...partial });
-      },
-      onSessions(cb) {
-        listeners.sessions.push(cb);
-      },
-      onExplorer(cb) {
-        listeners.explorer.push(cb);
-      },
-      openSessionId: () => state.lastSession || null,
-    };
-  }
-  async function renderExplore() {
-    const ctx = await loadViz();
-    if (exploreTab && exploreWorkspace !== state.workspace) {
-      exploreTab.destroy();
-      exploreTab = null;
-    }
-    if (!exploreTab) {
-      exploreWorkspace = state.workspace;
-      exploreTab = window.snagboatExplore.mount($('explore-root'), exploreSource(), ctx);
-    }
-    exploreTab.shown();
   }
 
   // --- Adding an advisor (step 5c) ---------------------------------------------------------------------
@@ -875,7 +789,7 @@
   }
   function loadSuggestions() {
     suggestionsReady ??= (async () => {
-      await loadViz();
+      await loadDrawings();
       await loadScript('shared.js');
       window.snagboat = {
         ...window.snagboatShared,
@@ -895,7 +809,7 @@
   }
 
   // --- The page ------------------------------------------------------------------------
-  const state = { workspace: null, days: 7, advisors: [], sessionLimit: SESSIONS_PAGE, lastSession: null };
+  const state = { workspace: null, days: 7, advisors: [], sessionLimit: SESSIONS_PAGE };
 
   async function loadWorkspaces() {
     const list = await api('/workspaces');
@@ -911,10 +825,10 @@
     return true;
   }
 
-  /** Draws the view the address names; on the timer, Explore is left alone (it keeps its own sessions). */
+  /** Draws the view the address names; on the timer, the form and Suggestions are left alone. */
   async function refresh(timer = false) {
     const [view, id] = route();
-    if (timer && (view === 'explore' || view === 'add' || view === 'suggestions')) return;
+    if (timer && (view === 'add' || view === 'suggestions')) return;
     try {
       const health = await api('/health');
       setStatus('ok', `core ${health.version}`);
@@ -923,7 +837,6 @@
       if (view === 'advisor') await renderAdvisor(id);
       else if (view === 'session') await renderSession(id);
       else if (view === 'sessions') await renderSessions();
-      else if (view === 'explore') await renderExplore();
       else if (view === 'add') await renderAdd();
       else if (view === 'suggestions') await renderSuggestions();
       else await renderAdvisors();
@@ -939,7 +852,7 @@
         $('timeline-host').replaceChildren();
         sessionUi.tree = null;
         sessionUi.timeline = null;
-        for (const box of ['session-outcomes', 'session-findings', 'session-explore']) $(box).replaceChildren();
+        for (const box of ['session-outcomes', 'session-findings']) $(box).replaceChildren();
         return;
       }
       setStatus('down', err.message && !(err instanceof TypeError) ? err.message : 'The core is not answering');
@@ -971,7 +884,6 @@
     if (!fragment().get('days')) setFragment({ ...Object.fromEntries(fragment()), days: String(state.days) });
     $('workspace').addEventListener('change', () => {
       state.workspace = $('workspace').value;
-      state.lastSession = null;
       // A session belongs to one workspace: switching shows the new one's list.
       if (route()[0] === 'session') setFragment({ view: 'sessions', days: String(state.days) });
       void refresh();

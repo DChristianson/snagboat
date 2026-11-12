@@ -5,15 +5,13 @@ import { EventLog } from '../eventLog';
 import { workspaceStoreDir } from '../userStore';
 import { FindingReplay } from '../../heuristics/replay';
 import { LiveFinding, sessionFindings } from '../../heuristics/sessionFindings';
-import { buildExplorerState, ExplorerState } from '@snagboat/viz';
-import { EXPLORE_SESSION_CAP } from '@snagboat/viz';
 import { FindingsService } from './findings';
 import { FindingState } from './responses';
 
 /**
- * Sessions in the advisor UI (RFC step 5b): the session list, one session with
- * what came of it, and the Explore tab's sessions, worked out by the core from
- * a workspace's store so no front door needs VS Code to read them.
+ * Sessions in the advisor UI (RFC step 5b): the session list and one session
+ * with what came of it, worked out by the core from a workspace's store so no
+ * front door needs VS Code to read them.
  *
  * A session's view is built as VS Code's Sessions tab builds it (its events in
  * time order, a fresh replay of the workspace's own heuristics and settings,
@@ -72,11 +70,6 @@ export class SessionPages {
       .sort((a, b) => b.lastTs.localeCompare(a.lastTs) || a.sessionId.localeCompare(b.sessionId));
   }
 
-  /** The summaries alone, for the Explore picker and lookups. */
-  async summaries(workspace: string): Promise<SessionSummary[]> {
-    return (await this.scan(workspace)).sessions;
-  }
-
   /** One session's page; undefined if the workspace has no such session. */
   async page(workspace: string, sessionId: string): Promise<SessionPage | undefined> {
     const scan = await this.scan(workspace);
@@ -88,18 +81,6 @@ export class SessionPages {
     const responses: Record<string, FindingState> = {};
     for (const f of view.findings) if (f.active && current.responses[f.heuristicId]) responses[f.heuristicId] = current.responses[f.heuristicId];
     return { workspace, view, outcomes: scan.outcomes.get(sessionId) ?? [], responses };
-  }
-
-  /** The Explore tab's state for these sessions, in this order, at most EXPLORE_SESSION_CAP of them. */
-  async explore(workspace: string, ids: string[]): Promise<ExplorerState> {
-    const picked = [...new Set(ids)].slice(0, EXPLORE_SESSION_CAP);
-    const scan = await this.scan(workspace);
-    const summaries = picked.map((id) => scan.sessions.find((s) => s.sessionId === id)).filter((s): s is SessionSummary => !!s);
-    const { current, newReplay } = await this.findings.forSessions(workspace);
-    const events = await this.eventsOf(workspace, summaries);
-    const views = new Map<string, SessionView>();
-    for (const s of summaries) views.set(s.sessionId, this.viewOf(s, events.get(s.sessionId) ?? [], newReplay, current.findings, current.muted));
-    return buildExplorerState(picked, (id) => views.get(id));
   }
 
   private viewOf(

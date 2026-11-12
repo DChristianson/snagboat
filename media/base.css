@@ -1,0 +1,106 @@
+/* The base the Snagboat pages draw on: page, buttons, chips, legend, tables,
+   the tooltip, the session list. Copied from Factory Clock's viz.css on
+   2026-11-12; this copy is Snagboat's own. Reads only the --sb-* tokens in
+   theme.css. Each host loads theme.css (and, in VS Code, vscodeTheme.css),
+   then this file and drawings/drawings.css, then its own page styles. */
+body {
+  margin: 0;
+  padding: 16px 20px 32px;
+  background: var(--sb-surface);
+  color: var(--sb-ink);
+  font-family: var(--sb-font);
+  font-size: var(--sb-font-size);
+  line-height: 1.45;
+}
+
+main { max-width: 1100px; }
+h1 { font-size: 1.35em; font-weight: 600; margin: 0 0 4px; }
+section { margin-top: 28px; }
+.muted { color: var(--sb-ink-muted); }
+.small { font-size: 0.9em; }
+
+/* Buttons */
+button {
+  font: inherit;
+  color: var(--sb-button-ink, var(--sb-ink));
+  background: var(--sb-button-bg, transparent);
+  border: 1px solid var(--sb-button-border, transparent);
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+button:hover { background: var(--sb-button-hover, var(--sb-toolbar-hover)); }
+button:focus-visible, select:focus-visible, input:focus-visible, .col-hit:focus-visible {
+  outline: 1px solid var(--sb-accent);
+  outline-offset: 1px;
+}
+button[aria-pressed="true"] {
+  color: var(--sb-pressed-ink);
+  background: var(--sb-pressed-bg);
+}
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--sb-link);
+  text-align: left;
+  word-break: break-all;
+}
+button.link:hover { text-decoration: underline; background: none; }
+
+/* Chips */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--sb-rule); border-radius: 12px; padding: 1px 4px 1px 10px; }
+
+/* Charts: controls, legend, series colors */
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 0 0 6px; color: var(--sb-ink); }
+.legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.legend .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.s1 { fill: var(--sb-series-1); background: var(--sb-series-1); }
+.s2 { fill: var(--sb-series-2); background: var(--sb-series-2); }
+.s3 { fill: var(--sb-series-3); background: var(--sb-series-3); }
+
+/* Tables */
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--sb-rule); vertical-align: top; }
+th { color: var(--sb-ink-muted); font-weight: 600; position: sticky; top: 0; background: var(--sb-surface); }
+td.num, th.num { text-align: right; }
+select, input[type="search"] {
+  font: inherit;
+  color: var(--sb-input-ink);
+  background: var(--sb-input-bg);
+  border: 1px solid var(--sb-input-border, var(--sb-rule));
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+
+/* Tooltip */
+.tooltip {
+  position: fixed;
+  z-index: 10;
+  pointer-events: none;
+  background: var(--sb-tip-bg);
+  color: var(--sb-tip-ink, var(--sb-ink));
+  border: 1px solid var(--sb-tip-border, var(--sb-rule));
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 0.9em;
+  min-width: 140px;
+}
+.tooltip .row { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+
+@media (forced-colors: active) {
+  .s1, .s2, .s3, .tree rect, .tree-legend .swatch { forced-color-adjust: none; }
+}
+
+/* Title row: the detail view's header, where its tabs sit */
+.title-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-bottom: 4px; }
+.title-row h1 { margin: 0; }
+
+/* Session list (VS Code's Sessions tab) */
+.spacer { flex: 1; }
+.list-wrap { max-height: 260px; overflow: auto; }
+.session-list tbody tr { cursor: pointer; }
+.session-list tbody tr:hover { background: var(--sb-hover, rgba(128, 128, 128, 0.12)); }
+.session-list tbody tr.selected { background: var(--sb-active-bg, rgba(128, 128, 128, 0.2)); color: var(--sb-active-ink, var(--sb-ink)); }

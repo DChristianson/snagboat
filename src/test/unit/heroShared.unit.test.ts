@@ -9,7 +9,7 @@ import { replayFindings } from '../../web/findings';
 
 /**
  * The hero views' shared helpers in the visualization kit, packages/viz/vizkit.js (replay, force
- * layout), run in Node, and the detail view's media/shared.js on top of it.
+ * layout), run in Node; and the detail view's media/shared.js on Snagboat's own kit, media/drawings/kit.js.
  * The files are plain browser scripts, so it's loaded into a sandbox with a bare window;
  * only the parts that build DOM need a document, and these tests don't touch them.
  * Synthetic sessions only: real traces never go in unit tests.
@@ -98,9 +98,9 @@ async function main() {
   const one = [views[0]];
   const longAfter = () => Date.parse('2030-01-01T00:00:00Z'); // the examples are long finished
 
-  test('shared.js is the kit plus the detail view\'s own helpers, and the kit has none of them', () => {
-    const win = loadMedia('packages/viz/vizkit.js', 'media/shared.js');
-    const kit = win.snagboatVizKit as Record<string, unknown>;
+  test('shared.js is Snagboat\'s drawing kit plus the detail view\'s own helpers, and the kit has none of them', () => {
+    const win = loadMedia('media/drawings/kit.js', 'media/shared.js');
+    const kit = win.snagboatKit as Record<string, unknown>;
     const page = win.snagboatShared as Record<string, unknown>;
     for (const name of Object.keys(kit)) assert.strictEqual(page[name], kit[name], name);
     assert.deepStrictEqual(Object.keys(page).filter((k) => !(k in kit)), ['formatDay']);

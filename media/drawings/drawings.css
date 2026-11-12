@@ -1,0 +1,56 @@
+/* The turn tree and context timeline (turnTree.js, contextTimeline.js).
+   Copied from Factory Clock's viz.css on 2026-11-12; this copy is
+   Snagboat's own. Reads only the --sb-* tokens in theme.css. */
+.tree, .context-chart { width: 100%; display: block; }
+.tree .node { fill: var(--sb-panel, rgba(128, 128, 128, 0.14)); stroke: var(--sb-rule); stroke-width: 1; }
+.tree .turn-0 { fill: var(--sb-turn-0); }
+.tree .turn-1 { fill: var(--sb-turn-1); }
+.tree .node-agent { fill-opacity: 0.6; }
+.tree .node-sub { fill-opacity: 0.3; }
+.tree .node-unlinked { fill: rgba(128, 128, 128, 0.3); stroke-dasharray: 4 3; }
+.tree .cat { fill-opacity: 0.22; }
+.tree .cat-0 { fill: rgba(128, 128, 128, 0.5); }
+.tree .node-selected { stroke: var(--sb-accent, var(--sb-series-1)); stroke-width: 2; }
+.tree .cat-1 { fill: var(--sb-cat-1); }
+.swatch.cat-1 { background: var(--sb-cat-1); }
+.tree .cat-2 { fill: var(--sb-cat-2); }
+.swatch.cat-2 { background: var(--sb-cat-2); }
+.tree .cat-3 { fill: var(--sb-cat-3); }
+.swatch.cat-3 { background: var(--sb-cat-3); }
+.tree .cat-4 { fill: var(--sb-cat-4); }
+.swatch.cat-4 { background: var(--sb-cat-4); }
+.tree .cat-5 { fill: var(--sb-cat-5); }
+.swatch.cat-5 { background: var(--sb-cat-5); }
+.swatch.cat-0 { background: rgba(128, 128, 128, 0.5); }
+.swatch.swatch-unlinked { background: rgba(128, 128, 128, 0.3); outline: 1px dashed var(--sb-rule); }
+.tree .cat-stripe { pointer-events: none; }
+.tree-legend { margin: 6px 0 0; }
+.tree .tree-node { cursor: pointer; }
+.tree .tree-node:hover .node, .tree .tree-node:focus .node { stroke: var(--sb-accent, var(--sb-series-1)); }
+.tree .tree-node:focus { outline: none; }
+.node-label { fill: var(--sb-ink); font-size: 12px; }
+.node-sub-label { fill: var(--sb-ink-muted); font-size: 11px; }
+.warn-mark { fill: var(--sb-warn); }
+.info-mark { fill: var(--sb-info); }
+.context-chart .grid { stroke: var(--sb-rule); stroke-width: 1; shape-rendering: crispEdges; }
+.context-chart .axis-label { fill: var(--sb-ink-muted); font-size: 11px; }
+.context-chart .hit { fill: transparent; }
+.context-chart .hit:hover { fill: var(--sb-hover, rgba(128, 128, 128, 0.15)); }
+.turn-band { fill: var(--sb-selection-soft, rgba(57, 135, 229, 0.12)); }
+.mark-line { stroke: var(--sb-ink); stroke-width: 1.25; opacity: 0.6; shape-rendering: crispEdges; }
+.prompt-rule { cursor: pointer; }
+.prompt-rule line { stroke: var(--sb-ink); stroke-width: 1; opacity: 0.5; shape-rendering: crispEdges; }
+.prompt-rule:hover line, .prompt-rule:focus line { opacity: 1; stroke-width: 2; }
+.prompt-rule:focus { outline: none; }
+.prompt-label { fill: var(--sb-ink); font-size: 11px; }
+.compaction-line { stroke: var(--sb-warn); stroke-width: 1.5; }
+.finding-bracket { stroke: var(--sb-warn); stroke-width: 2; }
+.finding-bracket.info { stroke: var(--sb-info); }
+.finding-mark .hit { fill: transparent; }
+.finding-mark { cursor: default; }
+/* Earlier findings: outlined badge, dashed bracket. */
+.finding-mark.past .warn-mark { fill: var(--sb-surface); stroke: var(--sb-warn); stroke-width: 1.5; }
+.finding-mark.past .info-mark { fill: var(--sb-surface); stroke: var(--sb-info); stroke-width: 1.5; }
+.finding-mark.past .finding-bracket { stroke-dasharray: 3 3; }
+.lane { fill: rgba(128, 128, 128, 0.45); }
+.brush { fill: var(--sb-selection, rgba(57, 135, 229, 0.25)); }

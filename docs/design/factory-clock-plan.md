@@ -1,6 +1,21 @@
 # Factory Clock: Visualization Package Plan
 
-Status: proposed, 2026-11-09. Companion to the [architecture RFC](architecture-rfc.md).
+Status: proposed, 2026-11-09; revised by the decision of 2026-11-12 below. Companion to the [architecture RFC](architecture-rfc.md).
+
+## Decision, 2026-11-12
+
+Factory Clock is web only, and it is purely the explorer. It moves to its own repository. Snagboat keeps its own copy of the two drawings it uses, the turn tree and the context timeline, and drops Explore and the hero views. The two copies of the drawings will drift. That is accepted. A coding agent can bring them back in step when needed.
+
+In the maintainer's words: "snagboat should just keep a copy of what it uses, and drops explore and no hero viz or any of that fancy stuff. the code will drift but that's what agentic coding is for. factory clock we will plan a way to export findings and plans, internal names should become factory clock's own". And earlier: "factory clock is just going to be web only and purely the viz explorer".
+
+What changes in this plan:
+
+- Snagboat's hosts no longer load the package. The VS Code detail view and the advisor UI draw sessions with Snagboat's own copy in `media/drawings/` (step 6).
+- There are no versioned releases for Snagboat to pin. The old step 6, "Release `dist/`", is dropped.
+- Factory Clock takes its own names inside: its npm name and its globals (step 7).
+- After the move to its own repository (step 8), Snagboat and Factory Clock meet only through files. Snagboat will export findings and plans for Factory Clock to load (step 9).
+
+The rest of this document is the plan as proposed on 2026-11-09, with the steps updated.
 
 ## Summary
 
@@ -35,7 +50,7 @@ The page's Content-Security-Policy already sets `connect-src 'none'`, so loaded 
 - Anyone can open the gallery on the web and load their own data, with nothing to install.
 - No runtime dependencies: no framework, no charting library, no server, no web fonts to start.
 - The only input is the shared schema: `NormalizedEvent` JSONL, turned into session views by the schema package's builder.
-- The same files run unchanged in the public site and the core's advisor UI. VS Code no longer hosts visualizations.
+- The same files run unchanged in the public site and the core's advisor UI. VS Code no longer hosts visualizations. (Superseded on 2026-11-12: Factory Clock is web only, and Snagboat keeps its own copy of the two drawings it uses.)
 - The package has its own identity: its own README, gallery, version, changelog and contribution guide.
 
 **Non-goals**
@@ -53,7 +68,6 @@ flowchart LR
   DEMO["Demo data<br>synthetic, traces"] --> SV
   SV["Session views<br>from the schema package's builder"] --> FC["Factory Clock<br>kit, explorer, 32 visualizers"]
   FC --> WEB["Public web page<br>GitHub Pages"]
-  FC --> ADV["Advisor UI<br>served by the core"]
 ```
 
 Every input becomes `NormalizedEvent` JSONL before it reaches the page, and the schema package turns events into session views. The visualizers never see where data came from or which host they run in.
@@ -87,9 +101,9 @@ packages/viz/
 ## Dependencies, build and hosting
 
 - **Runtime: none.** Plain scripts and SVG or canvas, as today. Fonts stay system stacks; shipping font files for the hero views is a later, separate decision.
-- **Build: one step, and optional for hosts.** esbuild bundles the TypeScript session-view builder into one browser script, as `npm run build:web` does now. `dist/` is committed on each release, so a host can use the package without building anything.
+- **Build: one step.** esbuild bundles the TypeScript session-view builder into one browser script, as `npm run build:web` does now. (A committed `dist/` for other hosts was dropped on 2026-11-12: the web page is the only host.)
 - **Hosting.** GitHub Pages, deployed by a workflow in the package, with the same strict Content-Security-Policy: scripts only from the page, no network requests, no analytics, no service worker.
-- **Testing.** The catalog test, replay-clock tests and a headless smoke check of the page move with the package. Each release also loads `dist/` in the advisor UI before Snagboat pins the new version.
+- **Testing.** The catalog test, replay-clock tests and a headless smoke check of the page move with the package.
 - **Versioning.** Semver, tied to the schema version it reads. A schema major version means a viz major version.
 
 ## Data on the page
@@ -130,9 +144,18 @@ Each step leaves the web demo working.
    - [The visualizer contract](visualizer-contract.md) now covers each host's load order, how hosts build `ctx` (with `tipFor` and `hashId`, so its list matches every name `vizkit.js` exports), the advisor UI's security policy, and the explorer's own host interface (`snagboatExplore.mount(root, source, ctx)` and the source object). Its list of gaps before outside authors stands.
    - The web page is titled Factory Clock, with a line saying it is part of Snagboat and a link to the repository. The root README's "Try it in your browser" section and Quick tour's Explore bullet name it, and the bullet says Explore opens in the advisor UI when the per-user store preview is on. `docs/usage.md` and `PRIVACY.md` name it too.
 
-   Left for later, outside the repository's files: the page is still served at `dchristianson.github.io/snagboat/`, from the Snagboat repository's Pages site. A Factory Clock address of its own comes with its own repository in step 7. The globals keep the names `snagboatViz`, `snagboatVizKit` and `snagboatExplore`, and the package keeps the npm name `@snagboat/viz`; renaming either would change the contract, so it waits for step 6 or 7.
-6. **Release `dist/`.** Version the package, commit prebuilt files, and have the core's advisor UI pin a version.
-7. **Move to its own repository** once steps 1 to 6 land.
+   Left for later, outside the repository's files: the page is still served at `dchristianson.github.io/snagboat/`, from the Snagboat repository's Pages site. A Factory Clock address of its own comes with its own repository in step 8. The globals keep the names `snagboatViz`, `snagboatVizKit` and `snagboatExplore`, and the package keeps the npm name `@snagboat/viz`; renaming them is step 7.
+6. **Snagboat keeps its own copy; drops Explore — done (2026-11-12).** This replaces the old step 6, "Release `dist/`": there are no versioned releases for Snagboat to pin.
+
+   **As built.** Snagboat copied what its session page draws with into its own files, under its own names, and stopped loading the package:
+   - `media/drawings/turnTree.js` and `contextTimeline.js`, from the package's two visualizers, without the registry. A host calls `window.snagboatDrawings.turnTree(host, ctx)` and `.contextTimeline(host, ctx)` directly.
+   - `media/drawings/kit.js` (`window.snagboatKit`), the part of `vizkit.js` they and the detail view use: DOM and SVG, formatting, the tooltip, the session helpers.
+   - `media/theme.css` with Snagboat's own `--sb-*` tokens, `media/base.css` (the page base from `viz.css`), and `media/drawings/drawings.css` (the two drawings' styles from `viz.css`). The webview maps the tokens to VS Code's in `vscodeTheme.css`; the advisor UI uses `theme.css` as is.
+   - Explore is gone from the detail view, the advisor UI, the core (`GET /explore`, `SessionPages.explore`) and `SessionController`. The core no longer serves the package's files, and the VSIX no longer ships them.
+   - A unit test (`vizBoundary.unit.test.ts`) keeps Snagboat's extension, core and pages from importing or loading the package. The web page's entry in `src/web` and the demo trace script in `src/scripts` still use it, as do some unit tests for their synthetic sessions; they move with Factory Clock.
+7. **Rename internals to Factory Clock's own names.** The npm name (`@snagboat/viz`) and the globals (`snagboatViz`, `snagboatVizKit`, `snagboatExplore`) become Factory Clock's own.
+8. **Move to its own repository**, with the web page, its workflow and its tests. Factory Clock is web only.
+9. **Plan how Snagboat exports findings and plans** for Factory Clock to load, beside the daily event files it loads today.
 
 ## Open questions
 

@@ -5,7 +5,8 @@ import * as path from 'path';
 // packages/viz is @snagboat/viz, Factory Clock (docs/design/factory-clock-plan.md, step 4):
 // the visualizers, the explorer, their theme and styles, the catalog, and the web page.
 // Its TypeScript may import only itself and @snagboat/schema, so it can leave Snagboat;
-// a host plugs in what it adds (Snagboat's web build passes its heuristics' findings).
+// a host plugs in what it adds (Snagboat's web build passes its heuristics' findings). And Snagboat
+// itself (the extension, the core, its pages) no longer uses the package at all.
 
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
@@ -40,6 +41,32 @@ async function main() {
         assert.ok(target.startsWith(srcDir + path.sep), `${rel(file)} imports ${spec}, outside the package`);
       }
     }
+  });
+
+  // The other direction (decided 2026-11-12, docs/design/factory-clock-plan.md): Snagboat keeps its
+  // own copy of the two session drawings it uses and has no Explore, so nothing it ships imports or
+  // loads packages/viz. src/web and src/scripts build Factory Clock's web page and move with it; the
+  // tests use its synthetic sessions as fixtures.
+  test("Snagboat's extension, core and pages neither import nor load packages/viz", () => {
+    const root = path.resolve(pkgDir, '..', '..');
+    const under = (dir: string, ext: RegExp): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) return under(full, ext);
+        return ext.test(e.name) ? [full] : [];
+      });
+    const skip = ['web', 'scripts', 'test'].map((d) => path.join(root, 'src', d) + path.sep);
+    const files = [...under(path.join(root, 'src'), /\.ts$/).filter((f) => !skip.some((s) => f.startsWith(s))), ...under(path.join(root, 'media'), /\.(js|css|html)$/)];
+    assert.ok(files.length > 50, 'found the sources');
+    const banned = /@snagboat\/viz|packages\/viz|snagboatViz|snagboatVizKit|snagboatExplore|vizkit\.js|viz\.css|explore\.js|viz\/index\.json|ASSET_FILES|EXPLORE_SESSION_CAP|buildExplorerState/;
+    // Comments may say where a copy came from; code may not reach for it.
+    const code = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*\/\/.*$/gm, '');
+    for (const file of files) {
+      const hit = banned.exec(code(fs.readFileSync(file, 'utf8')));
+      assert.ok(!hit, `${path.relative(root, file)} mentions ${hit?.[0]}`);
+    }
+    const ignore = fs.readFileSync(path.join(root, '.vscodeignore'), 'utf8');
+    assert.ok(!/packages\/viz/.test(ignore), '.vscodeignore ships packages/viz');
   });
 
   let failures = 0;

@@ -22,8 +22,6 @@ import { FindingState, Response } from './responses';
 import { SessionListItem, SessionPage, SessionPages } from './sessionPages';
 import { NotWaiting, parseSuggestionAction, SuggestionsService } from './suggestions';
 import { SuggestionsView } from '../../discovery/suggestionsController';
-import { ExplorerState } from '@snagboat/viz';
-import { ASSET_FILES, EXPLORE_SESSION_CAP } from '@snagboat/viz';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
 import { loadAdvisorGoals } from '../../advisor/goals';
@@ -70,7 +68,6 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *   GET  /sessions/:id/view[?workspace=w]
  *                              the session as the advisor UI draws it: its view (turns, tool
  *                              calls, findings) and its outcomes (RFC step 5b)
- *   GET  /explore?workspace=w&ids=a,b  the Explore tab's state for up to 8 sessions (step 5b)
  *   GET  /events/stream[?changedSince=<iso>]
  *                              server-sent events: each batch written to the token's
  *                              workspaces, as a JSON array per message; with changedSince,
@@ -247,7 +244,7 @@ export class CoreService {
   /** Hosts a front door asked the core to accept besides 127.0.0.1 and localhost: VS Code's forwarded address in a remote window. */
   private readonly extraHosts = new Set<string>();
   private readonly uiCodes = new Map<string, { expires: number; workspace?: string }>();
-  private readonly uiDirs = findUiDirs();
+  private readonly uiDir = findUiDir();
   /** Folder -> the .code-workspace workspace it's part of, per token that registered them. */
   private readonly tokenFolders = new Map<string, Map<string, string>>();
   /** Ends each open event stream with "stopping"; resolves when it has closed. */
@@ -513,7 +510,6 @@ export class CoreService {
       if (route === 'POST /findings/respond') return send(200, await this.respond(scope, await this.readBody(req, 4096)));
       if (route === 'GET /findings') return send(200, await this.currentFindings(scope, url.searchParams.get('workspace')));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days'), url.searchParams.get('workspace')));
-      if (route === 'GET /explore') return send(200, await this.explore(scope, url.searchParams.get('workspace'), url.searchParams.get('ids')));
       if (req.method === 'GET' && url.pathname.startsWith('/sessions/') && url.pathname.endsWith('/view')) {
         return send(200, await this.sessionPage(scope, decodeURIComponent(url.pathname.slice('/sessions/'.length, -'/view'.length)), url.searchParams.get('workspace')));
       }
@@ -901,18 +897,17 @@ export class CoreService {
       return;
     }
     const name = pathname === '/ui/' ? 'index.html' : pathname.slice('/ui/'.length);
-    const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8' };
+    const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
     const type = types[path.extname(name)];
-    const file = type ? uiFile(this.uiDirs, name) : undefined;
+    const file = type ? uiFile(this.uiDir, name) : undefined;
     let body: Buffer | undefined;
     try {
-      if (file === VIZ_INDEX) body = Buffer.from(JSON.stringify(vizScripts(this.uiDirs!.viz)));
-      else if (file) body = fs.readFileSync(file);
+      if (file) body = fs.readFileSync(file);
     } catch {
       body = undefined;
     }
     if (!body) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...security }).end(this.uiDirs ? 'Not found' : 'The advisor UI files are missing from this install');
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...security }).end(this.uiDir ? 'Not found' : 'The advisor UI files are missing from this install');
       return;
     }
     res.writeHead(200, { 'Content-Type': type!, ...security }).end(body);
@@ -958,15 +953,6 @@ export class CoreService {
     return page;
   }
 
-  /** GET /explore?workspace=w&ids=a,b: the Explore tab's sessions (step 5b), at most EXPLORE_SESSION_CAP. */
-  private async explore(scope: Scope, workspace: string | null, idsParam: string | null): Promise<ExplorerState> {
-    if (workspace === null) throw new HttpError(400, 'name the workspace: ?workspace=<workspace>');
-    this.store(scope, workspace);
-    const ids = (idsParam ?? '').split(',').filter(Boolean);
-    if (ids.length > EXPLORE_SESSION_CAP) throw new HttpError(400, `at most ${EXPLORE_SESSION_CAP} sessions at once`);
-    return this.sessionPages.explore(workspace, ids);
-  }
-
   /** A workspace this token reads that has a store, or 404. */
   private store(scope: Scope, workspace: string) {
     if (!sees(scope, workspace)) throw new HttpError(403, `this token can't read ${workspace}`);
@@ -976,55 +962,33 @@ export class CoreService {
   }
 }
 
-/** The name a page asks for the visualizers' scripts by (GET /ui/viz/index.json). */
-const VIZ_INDEX = 'viz/index.json';
 /**
- * The advisor UI's own files (media/ui), and the Factory Clock package (packages/viz, step 4) it
- * loads the shared theme and the visualizers from: ASSET_FILES at its root, and viz/<name>.js.
+ * The file for a /ui/ name, or undefined: plain names under media/ui (no folders, no ..), Snagboat's
+ * shared page files under media/ (MEDIA_FILES), and drawings/<name>.js or .css under media/drawings.
  */
-interface UiDirs {
-  ui: string;
-  viz: string;
-}
-
-/**
- * The file for a /ui/ name, or undefined: plain names under media/ui (no folders, no ..),
- * the package's files in ASSET_FILES, and viz/<name>.js under packages/viz/viz.
- */
-function uiFile(dirs: UiDirs | undefined, name: string): string | undefined {
-  if (!dirs) return undefined;
-  if (name === VIZ_INDEX) return VIZ_INDEX;
-  const viz = /^viz\/([a-z0-9][a-z0-9-]*\.js)$/i.exec(name);
-  if (viz) return path.join(dirs.viz, 'viz', viz[1]);
+function uiFile(ui: string | undefined, name: string): string | undefined {
+  if (!ui) return undefined;
+  const drawing = /^drawings\/([a-z0-9][a-z0-9-]*\.(?:js|css))$/i.exec(name);
+  if (drawing) return path.join(ui, '..', 'drawings', drawing[1]);
   if (!/^[a-z0-9][a-z0-9.-]*$/i.test(name)) return undefined;
-  if (ASSET_FILES.includes(name)) return path.join(dirs.viz, name);
-  return DETAIL_SCRIPTS.includes(name) ? path.join(dirs.ui, '..', name) : path.join(dirs.ui, name);
-}
-
-/** VS Code's Suggestions tab and its helpers, from media/ beside media/ui, which the advisor UI runs too (step 5c-2). */
-const DETAIL_SCRIPTS = ['shared.js', 'suggestions.js'];
-
-/** The visualizers' scripts in the order a page loads them: the registry first. */
-function vizScripts(vizDir: string): string[] {
-  let files: string[] = [];
-  try {
-    files = fs.readdirSync(path.join(vizDir, 'viz')).filter((f) => /^[a-z0-9][a-z0-9-]*\.js$/i.test(f));
-  } catch {
-    return [];
-  }
-  return files.sort((a, b) => (a === 'registry.js' ? -1 : b === 'registry.js' ? 1 : a.localeCompare(b))).map((f) => `viz/${f}`);
+  return MEDIA_FILES.includes(name) ? path.join(ui, '..', name) : path.join(ui, name);
 }
 
 /**
- * media/ui and packages/viz, found from wherever the core runs: dist/snagboat.js (in the repo, or
- * in the installed extension, whose VSIX ships both folders) or compiled tests under out/. Both
- * sit at the same root.
+ * Files from media/ beside media/ui that the advisor UI loads too: the theme and base styles, and
+ * VS Code's Suggestions tab with its helpers (step 5c-2).
  */
-function findUiDirs(): UiDirs | undefined {
+const MEDIA_FILES = ['theme.css', 'base.css', 'shared.js', 'suggestions.js'];
+
+/**
+ * media/ui, found from wherever the core runs: dist/snagboat.js (in the repo, or in the installed
+ * extension, whose VSIX ships media/) or compiled tests under out/.
+ */
+function findUiDir(): string | undefined {
   let dir = __dirname;
   for (let i = 0; i < 6; i++) {
     const ui = path.join(dir, 'media', 'ui');
-    if (fs.existsSync(path.join(ui, 'index.html'))) return { ui, viz: path.join(dir, 'packages', 'viz') };
+    if (fs.existsSync(path.join(ui, 'index.html'))) return ui;
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;

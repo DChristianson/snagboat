@@ -2,6 +2,8 @@
 
 Status: describes the code as of 2026-11-11, written for step 5 of the [Factory Clock plan](factory-clock-plan.md#steps). The package is `packages/viz` ([README](../../packages/viz/README.md), [contribution guide](../../packages/viz/CONTRIBUTING.md)); this page stays in `docs/design` until the package moves to its own repository (step 7). Where the code and this page disagree, the code wins; say so in an issue.
 
+Since 2026-11-12 the web page is the only host ([decision](factory-clock-plan.md#decision-2026-11-12)). The advisor UI and the VS Code detail view no longer load the package. They draw sessions with Snagboat's own copy of the turn tree and the context timeline (`media/drawings/`), and Explore is gone from both.
+
 This page is for someone writing a new visualizer. The design behind it is in [visualization-explorer.md](visualization-explorer.md#the-visualizer-contract).
 
 ## What a visualizer is
@@ -13,8 +15,6 @@ Every host loads `vizkit.js` (sets `window.snagboatVizKit`) first, then `viz/reg
 | Host | Order |
 | --- | --- |
 | Web page | `vizkit.js`, `viz/registry.js`, every file in `viz/` in name order (written by `packages/viz/scripts/webDemo.js`), `explore.js`, then the page's bundle |
-| Advisor UI | `vizkit.js`, then the files the core lists at `/ui/viz/index.json` (`registry.js` first, the rest in name order), then `explore.js`, each loaded when the page first needs them (`media/ui/app.js`) |
-| VS Code detail view | `vizkit.js`, the detail view's `shared.js` and `detail.js`, `viz/registry.js`, the visualizers in the order `src/ui/detailPanel.ts` lists them, then the tabs (`sessions.js`, `explore.js`, ...) |
 
 So a visualizer can rely on the registry existing when its script runs, and on nothing else being ready yet. Do the work in `mount`, not at load time.
 
@@ -73,7 +73,7 @@ const ctx = { ...kit, tooltip, ...kit.tipFor(tooltip) };    // the page
 // the explorer then mounts each visualizer with { ...ctx, select }
 ```
 
-The Sessions tab and the advisor UI's session page mount `turn-tree` and `context-timeline` themselves, with their own `select`. Read the comments in `vizkit.js` for details; this is the list, in the groups below, of every name `vizkit.js` exports.
+Until 2026-11-12, Snagboat's Sessions tab and the advisor UI's session page mounted `turn-tree` and `context-timeline` themselves, with their own `select`; they now use their own copies. Read the comments in `vizkit.js` for details; this is the list, in the groups below, of every name `vizkit.js` exports.
 
 **From the host**
 
@@ -185,7 +185,7 @@ The page draws the slides from the catalog, not the registry. Add an entry to `C
 - Order in the array is carousel order. Standard views come before the hero views.
 - A new `language` value is added only with the view that brings that look, so the puck never offers a chip that matches nothing.
 
-Then load the script. The web demo picks up every file in `packages/viz/viz/` (`packages/viz/scripts/webDemo.js`), and so does the advisor UI (the core lists them at `/ui/viz/index.json`). The VS Code webview lists each script by name in `src/ui/detailPanel.ts`; add yours before `sessions.js`. The VSIX ships every file in `packages/viz/viz/` (`.vscodeignore`), so nothing else changes.
+Then load the script. The web demo picks up every file in `packages/viz/viz/` (`packages/viz/scripts/webDemo.js`), so nothing else changes.
 
 If the catalog and the registry disagree, the puck says so ("Catalog mismatch") and the slide shows "No renderer is registered".
 
@@ -295,7 +295,6 @@ Things an outside author can't do today without changing Snagboat, or that the c
 
 - **The catalog is TypeScript.** Title, description and tags live in `packages/viz/src/catalog.ts`, so a new visualizer means editing and compiling the package, which Snagboat builds. Step 4 of the plan moved it into the package as TypeScript; a `catalog.json` is still open.
 - **Tags are written twice.** `register` takes `title` and `tags` that nothing reads, and nothing checks they match the catalog. The explorer design's example also passes `description` to `register`, which is ignored.
-- **The webview lists scripts by hand.** `src/ui/detailPanel.ts` names every file in `packages/viz/viz/`; the web demo finds them on its own. This goes away when VS Code drops the Explore tab (architecture RFC step 5c, behind the per-user store setting).
 - **The catalog test lists every id.** Adding a view means editing `explorer.unit.test.ts`. No unit test checks that each catalog entry has a registered script, or the reverse; only the puck's runtime note does.
 - **No per-view stylesheet.** The CSP rules out inline styles, so a view's CSS goes in the shared stylesheet. The shared classes (`viz-chart`, `line-N`, `hit`, ...) aren't documented outside the CSS.
 - **`ctx` is the whole kit, unversioned.** About fifty helpers, some for one view (`termsOf`, `drift`). Any rename breaks outside views, and there's no list of which helpers are stable.
