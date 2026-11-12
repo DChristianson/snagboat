@@ -1,6 +1,6 @@
 # Factory Clock: Visualization Package Plan
 
-Status: proposed, 2026-11-09; revised by the decision of 2026-11-12 below. Companion to the [architecture RFC](architecture-rfc.md).
+Status: proposed, 2026-11-09; revised by the decision of 2026-11-12 below. Step 8 is built: Factory Clock now lives in [its own repository](https://github.com/DChristianson/factory-clock). Companion to the [architecture RFC](architecture-rfc.md).
 
 ## Decision, 2026-11-12
 
@@ -90,7 +90,7 @@ packages/viz/
   dist/               prebuilt files for hosts that don't build
 ```
 
-**Contracts it keeps.** The visualizer contract stays exactly as [documented](visualizer-contract.md): `register({ id, title, tags, mount(host, ctx) })`, an instance with `update(sessions, selection, options)`, `resize()`, `destroy()` and optional `setActive()`. The shared selection and the source object (`listSessions`, `loadSessions`, `getState`, `setState`) also stay.
+**Contracts it keeps.** The visualizer contract stays exactly as [documented](https://github.com/DChristianson/factory-clock/blob/main/docs/visualizer-contract.md): `register({ id, title, tags, mount(host, ctx) })`, an instance with `update(sessions, selection, options)`, `resize()`, `destroy()` and optional `setActive()`. The shared selection and the source object (`listSessions`, `loadSessions`, `getState`, `setState`) also stay.
 
 **Contracts it changes.**
 
@@ -136,12 +136,12 @@ Each step leaves the web demo working.
    The page's `EventSet` used to replay Snagboat's heuristics itself. It now takes a findings function from its host, and Snagboat's bundle entry passes `replayFindings` with the same heuristics, so the page is unchanged. That entry (`src/web/main.ts`, `src/web/findings.ts`) stays in Snagboat, and its bundle and the assembled page still land in `out/web`, which `pages.yml` deploys. The workflow stays in `.github/workflows`, the only place GitHub runs one from, until step 7.
 
    Hosts load the page files from the package folder. The VS Code webview adds `packages/viz` as a second local resource root, and the core serves them under `/ui/` from `packages/viz` beside `media/ui`. The VSIX ships those files through `.vscodeignore`, so the layout is the same in the repo and the installed extension. VS Code keeps its Explore tab for now: dropping it is RFC step 5c, behind the per-user store setting.
-5. **Give it an identity — done.** Write its README and contribution guide, document the [visualizer contract](visualizer-contract.md) for outside authors, and publish the gallery as Factory Clock.
+5. **Give it an identity — done.** Write its README and contribution guide, document the [visualizer contract](https://github.com/DChristianson/factory-clock/blob/main/docs/visualizer-contract.md) for outside authors, and publish the gallery as Factory Clock.
 
    **As built.** Docs and the page's name only; no code or contract changed:
-   - [`packages/viz/README.md`](../../packages/viz/README.md): what Factory Clock is, the five hero views and the 32 in the catalog, how to build and open the web page, the three hosts, the input, the rules (no runtime dependencies, its own theme, its own imports), and the web page's privacy.
-   - [`packages/viz/CONTRIBUTING.md`](../../packages/viz/CONTRIBUTING.md): the steps to add a visualizer (script, catalog entry, each host's loading, styling, accessibility, tests), and a checklist.
-   - [The visualizer contract](visualizer-contract.md) now covers each host's load order, how hosts build `ctx` (with `tipFor` and `hashId`, so its list matches every name `vizkit.js` exports), the advisor UI's security policy, and the explorer's own host interface (`snagboatExplore.mount(root, source, ctx)` and the source object). Its list of gaps before outside authors stands.
+   - `packages/viz/README.md` (now the factory-clock repository's README): what Factory Clock is, the five hero views and the 32 in the catalog, how to build and open the web page, the three hosts, the input, the rules (no runtime dependencies, its own theme, its own imports), and the web page's privacy.
+   - `packages/viz/CONTRIBUTING.md`: the steps to add a visualizer (script, catalog entry, each host's loading, styling, accessibility, tests), and a checklist.
+   - [The visualizer contract](https://github.com/DChristianson/factory-clock/blob/main/docs/visualizer-contract.md) now covers each host's load order, how hosts build `ctx` (with `tipFor` and `hashId`, so its list matches every name `vizkit.js` exports), the advisor UI's security policy, and the explorer's own host interface (`snagboatExplore.mount(root, source, ctx)` and the source object). Its list of gaps before outside authors stands.
    - The web page is titled Factory Clock, with a line saying it is part of Snagboat and a link to the repository. The root README's "Try it in your browser" section and Quick tour's Explore bullet name it, and the bullet says Explore opens in the advisor UI when the per-user store preview is on. `docs/usage.md` and `PRIVACY.md` name it too.
 
    Left for later, outside the repository's files: the page is still served at `dchristianson.github.io/snagboat/`, from the Snagboat repository's Pages site. A Factory Clock address of its own comes with its own repository in step 8. The globals keep the names `snagboatViz`, `snagboatVizKit` and `snagboatExplore`, and the package keeps the npm name `@snagboat/viz`; renaming them is step 7.
@@ -168,11 +168,20 @@ Each step leaves the web demo working.
    | The Factory Clock hero view's own `--fc-*` variables in `viz.css` | `--clock-*`, to make room for the tokens |
    | The page's `localStorage` key `snagboat.explore` | `factoryClock.explore` |
 
-   The folder stays `packages/viz`, and the root scripts keep their names (`build:viz`, `build:web`), so `pages.yml` is unchanged. The package's docs and [the visualizer contract](visualizer-contract.md) now describe one host, the web page. Snagboat's own copy keeps its own names (`snagboatDrawings`, `snagboatKit`, `--sb-*`).
+   The folder stays `packages/viz`, and the root scripts keep their names (`build:viz`, `build:web`), so `pages.yml` is unchanged. The package's docs and [the visualizer contract](https://github.com/DChristianson/factory-clock/blob/main/docs/visualizer-contract.md) now describe one host, the web page. Snagboat's own copy keeps its own names (`snagboatDrawings`, `snagboatKit`, `--sb-*`).
 
    The web page still gets its findings from Snagboat. Its bundle entry (`src/web/main.ts`, built by `esbuild.js` into `out/web/snagboat-web.js`) passes `replayFindings`, which replays Snagboat's heuristics over the loaded events. Step 9 replaces that with findings Snagboat exports.
-8. **Move to its own repository**, with the web page, its workflow and its tests. Factory Clock is web only.
-9. **Plan how Snagboat exports findings and plans** for Factory Clock to load, beside the daily event files it loads today. Until then the page's findings come from Snagboat's bundle entry (step 7).
+8. **Move to its own repository — done (2026-11-12).** With the web page, its workflow and its tests. Factory Clock is web only.
+
+   **As built.** Factory Clock is [DChristianson/factory-clock](https://github.com/DChristianson/factory-clock), and its page is at <https://dchristianson.github.io/factory-clock/>:
+   - Its history came along. The new repository was made from a `git subtree split` of `packages/viz`, so each file keeps its commits.
+   - It keeps its own copy of the schema package (`@snagboat/schema`), copied into the new repository. Snagboat keeps `packages/schema` as its only workspace.
+   - [The visualizer contract](https://github.com/DChristianson/factory-clock/blob/main/docs/visualizer-contract.md) and [the explorer's design](https://github.com/DChristianson/factory-clock/blob/main/docs/visualization-explorer.md) moved with it. Their copies in Snagboat's `docs/design` are gone, with the hero views' mockup images.
+   - The page shows no findings until step 9. Snagboat's bundle entry (`src/web`, which replayed Snagboat's heuristics for the page) is gone, with `tsconfig.web.json`, esbuild's web build, and the `build:web` and `build:viz` scripts.
+   - The old address redirects. Snagboat's Pages site, `dchristianson.github.io/snagboat/`, now deploys two static pages from `pages/` (`index.html`, and the same page as `404.html` for deep paths). Each sends the browser to Factory Clock's site.
+   - Snagboat's unit tests keep their own copy of the synthetic sessions, in `src/test/fixtures/synthetic.ts`. The tests of Factory Clock itself moved with it. `vizBoundary.unit.test.ts` now checks that nothing in Snagboat's `src/`, `media/` or `package.json` uses `packages/viz` or `factory-clock`.
+   - `npm run demo:traces` stays in Snagboat, since it reads Snagboat's event logs. It now needs `--out <file>`, and still writes `window.factoryClockDemoTraces`. The reviewed output is committed in the factory-clock repository.
+9. **Plan how Snagboat exports findings and plans** for Factory Clock to load, beside the daily event files it loads today. Until then the page shows no findings.
 
 ## Open questions
 
@@ -184,4 +193,5 @@ Each step leaves the web demo working.
 
 ## Sources
 
-- [Snagboat repository](https://github.com/DChristianson/snagboat), including `docs/design/visualization-explorer.md`, `media/viz/registry.js`, `scripts/webDemo.js` and `web/index.html`
+- [Snagboat repository](https://github.com/DChristianson/snagboat) as of 2026-11-09, including `docs/design/visualization-explorer.md`, `media/viz/registry.js`, `scripts/webDemo.js` and `web/index.html`
+- [Factory Clock repository](https://github.com/DChristianson/factory-clock), where those files live now

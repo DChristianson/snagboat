@@ -944,8 +944,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     }),
     vscode.commands.registerCommand('snagboat.openAdvisorUi', () => openAdvisorUi()),
     vscode.commands.registerCommand('snagboat.revealEventLog', async () => {
-      // Shows the daily files' folder in the file manager (to load them into the
-      // web demo), creating nothing: activation makes the folder, so an empty
+      // Shows the daily files' folder in the file manager (to load them into
+      // Factory Clock's web page), creating nothing: activation makes the folder, so an empty
       // one means nothing has been logged yet either.
       const dir = eventLog.dir;
       if (!fs.existsSync(dir) || (await eventLog.listDays()).length === 0) {

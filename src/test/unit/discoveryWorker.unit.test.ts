@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { NormalizedEvent } from '@snagboat/schema';
-import { syntheticEvents } from 'factory-clock/web';
+import { syntheticEvents } from '../fixtures/synthetic';
 import { coreRequest, readCoreFile } from '../../core/service/coreFile';
 import { CoreService } from '../../core/service/server';
 import { StoreWriter } from '../../core/service/storeWriter';

@@ -23,7 +23,7 @@ If you use VS Code alongside the others, turn on its per-user store preview (`sn
 
 ## Try it in your browser
 
-No install needed: [Factory Clock](https://dchristianson.github.io/snagboat/), Snagboat's set of session visualizations, runs in a web page over example sessions, or over your own event log files, read in the browser and sent nowhere ([PRIVACY.md](PRIVACY.md#the-web-demo)). Its code is in [packages/viz](packages/viz/README.md) for now and is moving to its own repository. Snagboat itself no longer has an Explore tab.
+No install needed: [Factory Clock](https://dchristianson.github.io/factory-clock/) is a web page of session visualizations. It draws example sessions, or your own event log files, which it reads in the browser and sends nowhere. It started as Snagboat's Explore tab, a carousel of experimental views of your sessions. Snagboat no longer has that tab. Factory Clock now lives in [its own repository](https://github.com/DChristianson/factory-clock), with its own privacy notes. The old address, `dchristianson.github.io/snagboat/`, redirects there.
 
 ## An example
 
@@ -214,7 +214,7 @@ I built it for myself. I spend long stretches in agent sessions and wanted to se
 **Build your own.** This is the age of AI. Why download a plugin and live with someone else's choices? Snagboat is a starting point, MIT licensed, and there are three ways to make it yours:
 
 - **Without code:** raise or lower any heuristic's thresholds ([settings](docs/settings.md#heuristic-thresholds)), and write your own rules as JSON in `snagboat.rules` ([docs/heuristics.md](docs/heuristics.md#rules)).
-- **In a fork:** add a heuristic (one file in `src/heuristics/`), an adapter for another agent (one folder in `src/adapters/`), or a visualizer for Factory Clock (one file in `packages/viz/viz/`, plus its entry in `packages/viz/src/catalog.ts`). [CONTRIBUTING.md](CONTRIBUTING.md) has the layout and the steps for heuristics and adapters; [packages/viz/CONTRIBUTING.md](packages/viz/CONTRIBUTING.md) has the steps for a visualizer, and [the visualizer contract](docs/design/visualizer-contract.md) the interface.
+- **In a fork:** add a heuristic (one file in `src/heuristics/`) or an adapter for another agent (one folder in `src/adapters/`). [CONTRIBUTING.md](CONTRIBUTING.md) has the layout and the steps. Visualizers belong to [Factory Clock](https://github.com/DChristianson/factory-clock), in its own repository, with [the visualizer contract](https://github.com/DChristianson/factory-clock/blob/main/docs/visualizer-contract.md).
 - **From scratch:** point your coding agent at this repo, or at an empty one, and build the version with the views and heuristics you actually want.
 
 ## Development
@@ -223,8 +223,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 
 | Script | What it does |
 | --- | --- |
-| `npm run build` | Bundles `src/extension.ts` to `dist/extension.js` with esbuild, and the web demo's bundle, so a Node import creeping into the browser-side model fails here |
-| `npm run build:web` | Builds the Factory Clock web page into `out/web/`: type-checks the page, bundles it, and copies the Factory Clock package's scripts and stylesheets in (`packages/viz/scripts/webDemo.js`); the Pages workflow deploys that folder |
+| `npm run build` | Bundles `src/extension.ts` to `dist/extension.js` with esbuild, with the CLI and its discovery worker |
 | `npm run watch` | Rebuilds on change |
 | `npm run test:unit` | Unit tests, no VS Code needed |
 | `npm test` | Compiles and bundles, then runs the integration suite in a real VS Code instance via `@vscode/test-electron` |

@@ -1528,7 +1528,6 @@
     "build": "npm run build:packages && node esbuild.js",
     "build:plugin": "npm run build && node scripts/buildPlugin.js",
     "package:plugin": "npm run build:plugin && node scripts/packagePlugin.js",
-    "build:web": "npm run build:packages && tsc -p tsconfig.web.json && node esbuild.js --web && node packages/viz/scripts/webDemo.js",
     "watch": "npm run build:packages && node esbuild.js --watch",
     "vscode:prepublish": "npm run build",
     "package": "vsce package --no-dependencies",
@@ -1546,8 +1545,7 @@
     "test": "node ./out/test/runTest.js",
     "test:unit": "npm run compile-tests && node scripts/runUnit.js",
     "build:schema": "npm run build -w @snagboat/schema",
-    "build:viz": "npm run build -w factory-clock",
-    "build:packages": "npm run build:schema && npm run build:viz"
+    "build:packages": "npm run build:schema"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",

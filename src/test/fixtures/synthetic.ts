@@ -2,15 +2,16 @@ import { EventToolCategory } from '@snagboat/schema';
 import { AgentId, NormalizedEvent } from '@snagboat/schema';
 
 /**
- * The web demo's example sessions (docs/design/visualization-explorer.md,
- * "Synthetic data"): four sessions of NormalizedEvents shaped like real
- * Claude Code and Copilot ones, from a seeded generator, so every visit draws
- * the same examples. Prompts with turn ids and text, model calls with the
- * four token counts, tool calls with categories, a subagent in some turns,
- * automatic compactions in the long session, idle gaps between prompts, and
- * one turn busy enough on one file to trip the tool-churn heuristic on
- * replay. Nothing here touches the DOM, so it's unit-tested under the root
- * tsconfig.
+ * Synthetic sessions for unit tests, copied from Factory Clock's web demo
+ * generator (https://github.com/DChristianson/factory-clock) when it moved to
+ * its own repository. Snagboat keeps its own copy, so the two may drift.
+ *
+ * Four sessions of NormalizedEvents shaped like real Claude Code and Copilot
+ * ones, from a seeded generator, so every run gets the same events. Prompts
+ * with turn ids and text, model calls with the four token counts, tool calls
+ * with categories, a subagent in some turns, automatic compactions in the long
+ * session, idle gaps between prompts, and one turn busy enough on one file to
+ * trip the tool-churn heuristic on replay.
  */
 
 /** The UTC day the examples happen on. */

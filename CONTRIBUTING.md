@@ -27,8 +27,7 @@ Press F5 in VS Code to launch an Extension Development Host. The **Run Extension
 | Path | What's there |
 | --- | --- |
 | `src/extension.ts` | Activation: wires adapters, storage, heuristics, and UI together |
-| `packages/schema/` | `@snagboat/schema`, an npm workspace: `NormalizedEvent`, its JSON Schema, and the session-view builder. Imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`); built with `npm run build:schema`, which `build`, `build:web` and `compile-tests` run first (through `build:packages`) |
-| `packages/viz/` | `factory-clock`, Factory Clock, an npm workspace: one plain script per visualizer under `viz/` (and `viz/registry.js`), the explorer (`explore.js`), the visualization kit the visualizers and the explorer use (`vizkit.js`), the `--fc-*` color tokens (`theme.css`), and the visualizers' and explorer's styles (`viz.css`); the visualizer catalog and the explorer's model in TypeScript (`src/catalog.ts`, `src/explorerModel.ts`); and the web demo (`src/web/`: the page, example sessions, the JSONL reader, the in-memory session source; `hosts/web/`: `index.html` and its stylesheet; `scripts/webDemo.js`, which assembles it under `out/web/`). Imports only itself and `@snagboat/schema` (`vizBoundary.unit.test.ts`); built with `npm run build:viz`. Web only: Snagboat's extension, core and pages don't use it, and the VSIX doesn't ship it |
+| `packages/schema/` | `@snagboat/schema`, an npm workspace: `NormalizedEvent`, its JSON Schema, and the session-view builder. Imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`); built with `npm run build:schema`, which `build` and `compile-tests` run first (through `build:packages`) |
 | `src/core/` | Event bus, daily event log, retention and rollups, `EventStore`, aggregates, health, file tailing, the per-user store and its migration (`userStore.ts`, `migrate.ts`), settings files (`config.ts`), and `host.ts`, the engine's view of settings and workspace folders |
 | `src/core/service/` | The core service (preview): the server, its Claude Code and Copilot CLI collectors, the store writer, and `client.ts`, a window's connection to it. See [docs/architecture.md](docs/architecture.md#the-two-modes) |
 | `src/adapters/<agent>/` | One folder per source (`claude-code`, `copilot`). Parsing lives in `normalize.ts`, free of the `vscode` module so it can be unit tested |
@@ -36,7 +35,6 @@ Press F5 in VS Code to launch an Extension Development Host. The **Run Extension
 | `src/cli/` | The `snagboat` command line (`dist/snagboat.js`): finds the extension's event stores (`stores.ts`) and reads them; `migrate` copies them into the per-user store, and `serve` and `core` run the core service. Runs without VS Code, so it follows the engine's import rule |
 | `src/vscode/` | VS Code-only glue moved out of the engine: the `Host` implementation, the edit tracker, the advisor's pickers and key storage, and the backfill and relabel commands. Engine folders (`core`, `adapters`, `heuristics`, `discovery`, `review`, `nudges`, `advisor`, `backfill`) may not import `vscode`, `src/vscode` or `src/ui` (`engineBoundary.unit.test.ts`) |
 | `src/ui/` | Status bar text, the detail view's panel and model, and the session views; the page itself is under `media/` (`detail.js`, `sessions.js`, `suggestions.js`, the detail view's own helpers in `shared.js` and styles in `detail.css`, Snagboat's `--sb-*` tokens in `theme.css` and base styles in `base.css`, `vscodeTheme.css`, which maps the tokens to VS Code's theme, and the two session drawings in `drawings/`) |
-| `src/web/` | Snagboat's build of the web demo: the bundle's entry (`main.ts`), which hands the package's page Snagboat's built-in heuristics for findings (`findings.ts`) |
 | `src/scripts/transcripts.ts` | Dev tooling for Claude Code transcripts (`verify:transcripts`, fixture redaction) |
 | `scripts/licenses.js` | Generates `THIRD_PARTY_LICENSES.md` from what's actually bundled |
 | `src/test/unit/` | Unit tests |
@@ -76,7 +74,7 @@ Some unit tests deliberately use real file watching, real HTTP servers, and the 
 
 ## Adding a visualizer
 
-Visualizers belong to Factory Clock, the `packages/viz` workspace. Its [contribution guide](packages/viz/CONTRIBUTING.md) has the steps and a checklist, and [the visualizer contract](docs/design/visualizer-contract.md) the interface.
+Visualizers belong to Factory Clock, which has [its own repository](https://github.com/DChristianson/factory-clock). Its contribution guide has the steps and a checklist, and [the visualizer contract](https://github.com/DChristianson/factory-clock/blob/main/docs/visualizer-contract.md) the interface. Snagboat keeps its own copy of the two drawings its session pages use, in `media/drawings/`.
 
 ## Dependencies and licenses
 

@@ -31,7 +31,7 @@ Findings ("Show in session"), session ids in the Overview timeline, and the dail
 
 ### Factory Clock, in your browser
 
-Snagboat used to have an Explore tab, a carousel of 32 experimental views. It was removed on 2026-11-12. The views live on as [Factory Clock](https://dchristianson.github.io/snagboat/), a web page that runs over example sessions, or over your own daily files (`events/YYYY-MM-DD.jsonl`; **Snagboat: Reveal Event Log Folder** opens the folder they're in), read in your browser and sent nowhere. See [PRIVACY.md](../PRIVACY.md#the-web-demo). Snagboat keeps its own copy of the two drawings its Sessions tab uses, the turn tree and the context timeline.
+Snagboat used to have an Explore tab, a carousel of 32 experimental views. It was removed on 2026-11-12. The views live on as [Factory Clock](https://dchristianson.github.io/factory-clock/), a web page in [its own repository](https://github.com/DChristianson/factory-clock). It runs over example sessions, or over your own daily files (`events/YYYY-MM-DD.jsonl`; **Snagboat: Reveal Event Log Folder** opens the folder they're in), read in your browser and sent nowhere. The old address, `dchristianson.github.io/snagboat/`, redirects there. See [PRIVACY.md](../PRIVACY.md#factory-clock). Snagboat keeps its own copy of the two drawings its Sessions tab uses, the turn tree and the context timeline.
 
 ### Suggestions
 
