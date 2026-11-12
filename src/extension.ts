@@ -425,9 +425,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
 
   /**
    * Opens the advisor UI (RFC step 5a) in the browser with a one-time link, optionally at a session or view
-   * (step 5c: with the per-user store on, Sessions and Explore live there). It's served by the core.
+   * (step 5c: with the per-user store on, Sessions live there). It's served by the core.
    */
-  const openAdvisorUi = async (target: { sessionId?: string; view?: 'sessions' | 'explore' } = {}): Promise<void> => {
+  const openAdvisorUi = async (target: { sessionId?: string; view?: 'sessions' } = {}): Promise<void> => {
     if (!core) {
       void vscode.window.showInformationMessage('Snagboat: the advisor UI is served by the core service, which runs with snagboat.storage.perUserStore on (User settings, then reload).');
       return;
@@ -474,7 +474,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     acknowledge: (heuristicId) => respondTo(heuristicId, 'acknowledge'),
     useful: (heuristicId) => respondTo(heuristicId, 'useful'),
     setMuted: (heuristicId, muted) => respondTo(heuristicId, muted ? 'mute' : 'unmute'),
-    // As the core's client, Sessions and Explore are the advisor UI's (RFC step 5c).
+    // As the core's client, Sessions are the advisor UI's (RFC step 5c).
     inBrowser: () => !!core,
     openInBrowser: (target) => openAdvisorUi(target),
   });
@@ -583,8 +583,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     heldEvents = [];
     try {
       const openSession = sessions.openSessionId;
-      const explored = sessions.exploredSessionIds;
-      sessions.closeExplorer(); // so explore() below re-reads them from the reloaded log
       aggregate.reset();
       todayAggregate.reset();
       dailyHistory.reset();
@@ -603,7 +601,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       }
       await eventStore.rehydrateFrom(logged);
       if (openSession) await sessions.open(openSession);
-      if (explored.length > 0) await sessions.explore(explored);
     } finally {
       const held = heldEvents;
       heldEvents = undefined;
@@ -1123,7 +1120,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         dailyHistory.reset();
         sessionIndex.reset();
         sessions.close();
-        sessions.closeExplorer();
         eventStore.reset();
         loggedIds.clear();
         testsGreen.reset();

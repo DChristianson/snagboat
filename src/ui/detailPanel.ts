@@ -4,7 +4,6 @@ import { DetailState, DetailTab, isDetailMessage, resolveTargetFile } from './de
 import { SessionController } from './sessionController';
 import { SuggestionsController } from '../discovery/suggestionsController';
 import { Capability, ExplainRequest } from '../vscode/advisor';
-import { ASSET_FILES } from '@snagboat/viz';
 
 const UPDATE_DEBOUNCE_MS = 500;
 
@@ -24,11 +23,11 @@ export interface DetailPanelHooks {
   /** Today's UTC day key, for the session list's default day. */
   today(): string;
   /**
-   * Whether Sessions and Explore live in the advisor UI (RFC step 5c: the window is the core's client, with the
-   * per-user store on); the panel then hides those tabs and opens them, and any session, in the browser.
+   * Whether Sessions live in the advisor UI (RFC step 5c: the window is the core's client, with the
+   * per-user store on); the panel then hides that tab and opens it, and any session, in the browser.
    */
   inBrowser?(): boolean;
-  openInBrowser?(target: { sessionId?: string; view?: 'sessions' | 'explore' }): Promise<void>;
+  openInBrowser?(target: { sessionId?: string; view?: 'sessions' }): Promise<void>;
 }
 
 /** Where to take the page when opening it from a link or command. */
@@ -61,8 +60,8 @@ export class DetailPanel implements vscode.Disposable {
   }
 
   show(target?: DetailTarget): void {
-    // A session, Sessions or Explore with those in the browser: opened there, without opening this panel for it.
-    if (target && !this.panel && this.hooks.inBrowser?.() && (target.sessionId || target.tab === 'sessions' || target.tab === 'explore')) {
+    // A session or Sessions with those in the browser: opened there, without opening this panel for it.
+    if (target && !this.panel && this.hooks.inBrowser?.() && (target.sessionId || target.tab === 'sessions')) {
       void this.navigate(target);
       return;
     }
@@ -73,15 +72,13 @@ export class DetailPanel implements vscode.Disposable {
     }
     this.pendingTarget = target;
     const mediaRoot = vscode.Uri.joinPath(this.extensionUri, 'media');
-    // The visualizers, the explorer, the kit, the theme, and their styles: the Factory Clock package.
-    const vizRoot = vscode.Uri.joinPath(this.extensionUri, 'packages', 'viz');
     const panel = vscode.window.createWebviewPanel('snagboat.detail', 'Snagboat', vscode.ViewColumn.Active, {
       enableScripts: true,
-      localResourceRoots: [mediaRoot, vizRoot],
+      localResourceRoots: [mediaRoot],
     });
     this.panel = panel;
     this.openableCache.clear();
-    panel.webview.html = this.html(panel.webview, mediaRoot, vizRoot);
+    panel.webview.html = this.html(panel.webview, mediaRoot);
     panel.onDidDispose(() => {
       this.panel = undefined;
       clearTimeout(this.pendingUpdate);
@@ -119,25 +116,11 @@ export class DetailPanel implements vscode.Disposable {
   private postState(): void {
     if (!this.panel) return;
     const inBrowser = !!this.hooks.inBrowser?.();
-    // Sessions and Explore in the browser: neither tab is shown, so a saved one falls back to the overview.
-    if (inBrowser && (this.activeTab === 'sessions' || this.activeTab === 'explore')) this.activeTab = 'overview';
+    // Sessions in the browser: the tab isn't shown, so a saved one falls back to the overview.
+    if (inBrowser && this.activeTab === 'sessions') this.activeTab = 'overview';
     void this.panel.webview.postMessage({ type: 'state', state: this.hooks.buildState(this.isOpenable), inBrowser });
     if (this.activeTab === 'sessions') this.postSessions();
     if (this.activeTab === 'suggestions') this.postSuggestions();
-    if (this.activeTab === 'explore') {
-      this.postExploreSessions();
-      this.postExplorer();
-    }
-  }
-
-  private postExploreSessions(): void {
-    if (!this.panel) return;
-    void this.panel.webview.postMessage({ type: 'exploreSessions', list: this.hooks.sessions.listAll() });
-  }
-
-  private postExplorer(): void {
-    if (!this.panel) return;
-    void this.panel.webview.postMessage({ type: 'explorer', state: this.hooks.sessions.explorerState() });
   }
 
   private postSuggestions(): void {
@@ -154,10 +137,10 @@ export class DetailPanel implements vscode.Disposable {
 
   /** Switches tab, day, and session, then tells the page where it is. */
   private async navigate(target: DetailTarget): Promise<void> {
-    if (this.hooks.inBrowser?.() && this.hooks.openInBrowser && (target.sessionId || target.tab === 'sessions' || target.tab === 'explore')) {
-      await this.hooks.openInBrowser(target.sessionId ? { sessionId: target.sessionId } : { view: target.tab as 'sessions' | 'explore' });
+    if (this.hooks.inBrowser?.() && this.hooks.openInBrowser && (target.sessionId || target.tab === 'sessions')) {
+      await this.hooks.openInBrowser(target.sessionId ? { sessionId: target.sessionId } : { view: 'sessions' });
       if (!this.panel) return;
-      if (this.activeTab === 'sessions' || this.activeTab === 'explore') this.activeTab = 'overview';
+      if (this.activeTab === 'sessions') this.activeTab = 'overview';
       void this.panel.webview.postMessage({ type: 'navigate', tab: this.activeTab });
       this.postState();
       return;
@@ -188,10 +171,6 @@ export class DetailPanel implements vscode.Disposable {
       case 'tab':
         this.activeTab = message.tab;
         if (message.tab === 'sessions') this.postSessions();
-        if (message.tab === 'explore') {
-          this.postExploreSessions();
-          this.postExplorer();
-        }
         if (message.tab === 'suggestions') {
           this.postSuggestions();
           // The first visit runs discovery; after that, only Discover again does.
@@ -243,9 +222,7 @@ export class DetailPanel implements vscode.Disposable {
         this.sessionDay = message.day;
         this.postSessions();
         break;
-      case 'listExploreSessions':
-        this.postExploreSessions();
-        break;
+
       case 'openSession':
         await this.navigate({ sessionId: message.sessionId, day: this.sessionDay });
         break;
@@ -253,14 +230,7 @@ export class DetailPanel implements vscode.Disposable {
         this.hooks.sessions.close();
         void this.panel?.webview.postMessage({ type: 'session', view: null });
         break;
-      case 'explore':
-        await this.hooks.sessions.explore(message.sessionIds);
-        this.postExplorer();
-        break;
-      case 'closeExplorer':
-        this.hooks.sessions.closeExplorer();
-        void this.panel?.webview.postMessage({ type: 'explorer', state: null });
-        break;
+
       case 'openAdvisorUi':
         await this.hooks.openInBrowser?.(message.view ? { view: message.view } : {});
         break;
@@ -287,20 +257,18 @@ export class DetailPanel implements vscode.Disposable {
     }
   }
 
-  private html(webview: vscode.Webview, mediaRoot: vscode.Uri, vizRoot: vscode.Uri): string {
+  private html(webview: vscode.Webview, mediaRoot: vscode.Uri): string {
     const nonce = crypto.randomBytes(16).toString('base64');
-    // The package's files (viz/ and ASSET_FILES) load from packages/viz; the detail view's own from media.
-    const fileUri = (file: string) => vscode.Uri.joinPath(file.startsWith('viz/') || ASSET_FILES.includes(file) ? vizRoot : mediaRoot, ...file.split('/'));
-    // In load order: the visualization kit, the detail view's own helpers, the
-    // page, the visualizer registry and the visualizers, then the tabs that
-    // draw through them.
-    const scripts = ['vizkit.js', 'shared.js', 'detail.js', 'viz/registry.js', 'viz/turnTree.js', 'viz/contextTimeline.js', 'viz/sessionStrips.js', 'viz/costPerPrompt.js', 'viz/contextFill.js', 'viz/sequenceDiagram.js', 'viz/eventGraph.js', 'viz/actorGraph.js', 'viz/promptTerms.js', 'viz/gantt.js', 'viz/treemap.js', 'viz/heatmap.js', 'viz/toolRibbon.js', 'viz/weekPicture.js', 'viz/histogram.js', 'viz/boxViolin.js', 'viz/ridgeline.js', 'viz/scatter.js', 'viz/bubble.js', 'viz/sunburst.js', 'viz/calendarHeatmap.js', 'viz/radar.js', 'viz/parallelCoords.js', 'viz/streamgraph.js', 'viz/sankey.js', 'viz/adjacencyMatrix.js', 'viz/swimlane.js', 'viz/livingNetwork.js', 'viz/sessionFingerprint.js', 'viz/conversationLandscape.js', 'viz/terminalBoard.js', 'viz/factoryClock.js', 'sessions.js', 'explore.js', 'exploreSource.js', 'suggestions.js']
+    const fileUri = (file: string) => vscode.Uri.joinPath(mediaRoot, ...file.split('/'));
+    // In load order: the drawing kit, the detail view's own helpers, the page,
+    // the two session drawings, then the tabs that draw through them.
+    const scripts = ['drawings/kit.js', 'shared.js', 'detail.js', 'drawings/turnTree.js', 'drawings/contextTimeline.js', 'sessions.js', 'suggestions.js']
       .map((file) => webview.asWebviewUri(fileUri(file)))
       .map((uri) => `<script nonce="${nonce}" src="${uri}"></script>`)
       .join('\n');
-    // The visualizations' own tokens, then their mapping to VS Code's theme, then
-    // their styles, then the page.
-    const styles = ['theme.css', 'vscodeTheme.css', 'viz.css', 'detail.css']
+    // Snagboat's tokens, then their mapping to VS Code's theme, then the base
+    // and drawing styles, then the page.
+    const styles = ['theme.css', 'vscodeTheme.css', 'base.css', 'drawings/drawings.css', 'detail.css']
       .map((file) => webview.asWebviewUri(fileUri(file)))
       .map((uri) => `<link rel="stylesheet" href="${uri}">`)
       .join('\n');

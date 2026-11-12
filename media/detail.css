@@ -1,26 +1,26 @@
 /* The detail view's own styles: Today, the chart, findings, tabs, the
    Sessions tab's frame, suggestions. Loaded last, after theme.css,
-   vscodeTheme.css, and viz.css, which styles the visualizers and the
-   explorer and gives this page its base (body, buttons, tables, tooltip).
-   Colors come from the --sv-* tokens in theme.css. */
+   vscodeTheme.css, base.css (body, buttons, tables, tooltip), and
+   drawings/drawings.css (the two session drawings).
+   Colors come from the --sb-* tokens in theme.css. */
 h2 { font-size: 1.05em; font-weight: 600; margin: 0 0 10px; }
 
 /* Today tiles */
 .tiles { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
-.tile { min-width: 140px; padding: 10px 14px; border: 1px solid var(--sv-rule); border-radius: 6px; }
-.tile .label { color: var(--sv-ink-muted); font-size: 0.9em; }
+.tile { min-width: 140px; padding: 10px 14px; border: 1px solid var(--sb-rule); border-radius: 6px; }
+.tile .label { color: var(--sb-ink-muted); font-size: 0.9em; }
 .tile .value { font-size: 1.6em; font-weight: 600; }
 
 /* Findings */
 .finding {
-  border: 1px solid var(--sv-rule);
+  border: 1px solid var(--sb-rule);
   border-left-width: 3px;
   border-radius: 4px;
   padding: 10px 12px;
   margin-bottom: 8px;
 }
-.finding.warn { border-left-color: var(--sv-warn); }
-.finding.info { border-left-color: var(--sv-info); }
+.finding.warn { border-left-color: var(--sb-warn); }
+.finding.info { border-left-color: var(--sb-info); }
 .finding.acknowledged { opacity: 0.65; }
 .finding .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .badge {
@@ -31,73 +31,61 @@ h2 { font-size: 1.05em; font-weight: 600; margin: 0 0 10px; }
   border-radius: 3px;
   border: 1px solid currentColor;
 }
-.badge.warn { color: var(--sv-warn); }
-.badge.info { color: var(--sv-info); }
+.badge.warn { color: var(--sb-warn); }
+.badge.info { color: var(--sb-info); }
 .finding .summary { margin: 4px 0; }
 .finding .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 
 /* Chart */
 .chart { width: 100%; height: 220px; display: block; }
-.chart .grid { stroke: var(--sv-rule); stroke-width: 1; shape-rendering: crispEdges; }
-.chart .axis-label { fill: var(--sv-ink-muted); font-size: 11px; }
+.chart .grid { stroke: var(--sb-rule); stroke-width: 1; shape-rendering: crispEdges; }
+.chart .axis-label { fill: var(--sb-ink-muted); font-size: 11px; }
 .chart .col-hit { fill: transparent; cursor: default; }
-.chart .col-hit:hover, .chart .col-hit:focus { fill: var(--sv-hover, rgba(128, 128, 128, 0.12)); }
+.chart .col-hit:hover, .chart .col-hit:focus { fill: var(--sb-hover, rgba(128, 128, 128, 0.12)); }
 details { margin-top: 8px; }
-summary { cursor: pointer; color: var(--sv-ink-muted); }
+summary { cursor: pointer; color: var(--sb-ink-muted); }
 
 /* Tables */
-tr.highlight td { background: var(--sv-highlight, rgba(234, 92, 0, 0.2)); }
-.excerpt td { border-bottom: 1px solid var(--sv-rule); padding-top: 0; }
+tr.highlight td { background: var(--sb-highlight, rgba(234, 92, 0, 0.2)); }
+.excerpt td { border-bottom: 1px solid var(--sb-rule); padding-top: 0; }
 tr.excerpt details { margin-top: 0; }
 .excerpt-text { white-space: pre-wrap; margin: 4px 0 6px; max-width: 80ch; }
-.status-failure { color: var(--sv-error); }
+.status-failure { color: var(--sb-error); }
 .timeline-wrap { max-height: 520px; overflow: auto; }
 input[type="search"] { min-width: 220px; }
 .filter-note { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 
 /* Tooltip: the chart's swatches and total (showTooltip in detail.js) */
 .tooltip .row .key { display: inline-flex; gap: 6px; align-items: center; }
-.tooltip .total { border-top: 1px solid var(--sv-rule); margin-top: 4px; padding-top: 4px; font-weight: 600; }
+.tooltip .total { border-top: 1px solid var(--sb-rule); margin-top: 4px; padding-top: 4px; font-weight: 600; }
 
 /* Tabs */
 .tabs { display: flex; gap: 4px; }
-.tab { border-radius: 4px 4px 0 0; border-bottom: 2px solid transparent; background: none; color: var(--sv-ink-muted); }
-.tab[aria-selected="true"] { border-bottom-color: var(--sv-accent, var(--sv-series-1)); color: var(--sv-ink); font-weight: 600; }
+.tab { border-radius: 4px 4px 0 0; border-bottom: 2px solid transparent; background: none; color: var(--sb-ink-muted); }
+.tab[aria-selected="true"] { border-bottom-color: var(--sb-accent, var(--sb-series-1)); color: var(--sb-ink); font-weight: 600; }
 .browser-links { display: inline-flex; gap: 12px; align-items: center; margin-left: 12px; }
 .browser-links[hidden] { display: none; }
-.tab .exp {
-  font-size: 0.7em;
-  font-weight: 400;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--sv-ink-muted);
-  border: 1px solid var(--sv-rule);
-  border-radius: 3px;
-  padding: 0 4px;
-  margin-left: 6px;
-  vertical-align: middle;
-}
 
 /* Sessions tab */
 .session-view { margin-top: 18px; }
 .session-head { display: flex; align-items: center; gap: 8px; }
 .crumbs { font-size: 1.05em; }
 .tree-host, .timeline-host { width: 100%; }
-.timeline-panel { margin-top: 12px; border: 1px solid var(--sv-rule); border-radius: 4px; padding: 8px 10px; }
+.timeline-panel { margin-top: 12px; border: 1px solid var(--sb-rule); border-radius: 4px; padding: 8px 10px; }
 .panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .session-findings { margin-top: 18px; }
-.prompt-panel { margin-top: 10px; padding: 8px 10px; border: 1px solid var(--sv-rule); border-radius: 4px; max-height: 14em; overflow-y: auto; }
+.prompt-panel { margin-top: 10px; padding: 8px 10px; border: 1px solid var(--sb-rule); border-radius: 4px; max-height: 14em; overflow-y: auto; }
 .prompt-panel .prompt-text { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .findings-table td, .findings-table th { padding: 4px 8px 4px 0; text-align: left; vertical-align: top; }
 .findings-table .nowrap { white-space: nowrap; }
-.findings-table .sev.warn { color: var(--sv-warn); }
-.findings-table .sev.info { color: var(--sv-info); }
+.findings-table .sev.warn { color: var(--sb-warn); }
+.findings-table .sev.info { color: var(--sb-info); }
 .session-view.expanded .tree-host { margin-bottom: 4px; }
 
 /* Suggestions */
 .suggestion .summary input.threshold { width: 7em; margin: 0 2px; }
-.rule-json { white-space: pre-wrap; word-break: break-all; margin: 6px 0 0; padding: 8px; border: 1px solid var(--sv-rule); border-radius: 4px; }
-.saved-rule { border-bottom: 1px solid var(--sv-rule); padding: 8px 0; }
+.rule-json { white-space: pre-wrap; word-break: break-all; margin: 6px 0 0; padding: 8px; border: 1px solid var(--sb-rule); border-radius: 4px; }
+.saved-rule { border-bottom: 1px solid var(--sb-rule); padding: 8px 0; }
 .saved-rule .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .saved-rule p { margin: 2px 0 6px; }
 .prompt-head { display: flex; align-items: baseline; gap: 4px; }

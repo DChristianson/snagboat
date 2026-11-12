@@ -79,7 +79,7 @@ async function main() {
     for (const part of ["default-src 'none'", "script-src 'self'", "connect-src 'self'", "frame-ancestors 'none'"]) assert.ok(csp.includes(part), part);
     assert.ok(!/<script>|style="/.test(page.text), 'no inline script or style, which the policy forbids');
     assert.match((await raw(core.port, 'GET', '/ui/app.js', { Host: host })).headers['content-type'] ?? '', /javascript/);
-    assert.match((await raw(core.port, 'GET', '/ui/theme.css', { Host: host })).text, /--sv-surface/, "the visualizers' theme");
+    assert.match((await raw(core.port, 'GET', '/ui/theme.css', { Host: host })).text, /--sb-surface/, "Snagboat's theme");
     assert.strictEqual((await raw(core.port, 'GET', '/ui', { Host: host })).status, 308);
     for (const bad of ['/ui/../package.json', '/ui/%2e%2e/package.json', '/ui/x.txt', '/ui/sub/app.js']) assert.strictEqual((await raw(core.port, 'GET', bad, { Host: host })).status, 404, bad);
     for (const f of ['app.js', 'app.css', 'index.html']) assert.ok(fs.existsSync(path.join(__dirname, '..', '..', '..', 'media', 'ui', f)), f);

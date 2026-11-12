@@ -11,8 +11,8 @@ import { sessionFindings } from '../../heuristics/sessionFindings';
 import { saveConfig } from '../../core/config';
 
 // Sessions in the advisor UI (RFC step 5b): the core lists a workspace's sessions with their
-// outcomes, builds one session's view as VS Code's Sessions tab does, serves the Explore tab's
-// state, and serves the Factory Clock visualizers beside the page. No VS Code involved.
+// outcomes, builds one session's view as VS Code's Sessions tab does, and serves Snagboat's two
+// session drawings beside the page. No VS Code involved.
 
 function raw(port: number, urlPath: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; text: string }> {
   return new Promise((resolve, reject) => {
@@ -96,21 +96,11 @@ async function main() {
     assert.strictEqual((await get(`/sessions/s-b/view?workspace=${encodeURIComponent(a)}`)).status, 404, "another workspace's session");
   });
 
-  test("the Explore tab's state: the catalog and the picked sessions' views, in order, unknown ones named", async () => {
-    const { body } = await get<{ catalog: unknown[]; sessions: Array<{ summary: { sessionId: string } }>; notLoaded: string[] }>(`/explore?workspace=${encodeURIComponent(a)}&ids=s-old,s-new,nope`);
-    assert.ok(body.catalog.length > 10);
-    assert.deepStrictEqual(body.sessions.map((s) => s.summary.sessionId), ['s-old', 's-new']);
-    assert.deepStrictEqual(body.notLoaded, ['nope']);
-    assert.strictEqual((await get(`/explore?ids=s-new`)).status, 400, 'names the workspace');
-    assert.strictEqual((await get(`/explore?workspace=${encodeURIComponent(a)}&ids=${'x,'.repeat(9)}`)).status, 400, 'at most 8');
-  });
-
   test("a workspace token reads only its own workspace's sessions", async () => {
     const minted = await coreRequest(core.port, info.token, 'POST', '/tokens', { workspaces: [b] });
     const token = (minted.body as { token: string }).token;
     assert.strictEqual((await get(`/sessions?workspace=${encodeURIComponent(a)}`, token)).status, 403);
     assert.strictEqual((await get(`/sessions/s-new/view?workspace=${encodeURIComponent(a)}`, token)).status, 403);
-    assert.strictEqual((await get(`/explore?workspace=${encodeURIComponent(a)}&ids=s-new`, token)).status, 403);
     assert.strictEqual((await get(`/sessions/s-new/view`, token)).status, 404, 'not found among its own');
     assert.strictEqual((await get(`/sessions?workspace=${encodeURIComponent(b)}`, token)).status, 200);
   });
@@ -131,15 +121,11 @@ async function main() {
     assert.strictEqual(body[0].sessionId, 's-third');
   });
 
-  test('the Factory Clock visualizers are served beside the page, the registry listed first', async () => {
+  test("Snagboat's own drawings are served beside the page; Explore and the Factory Clock files are gone", async () => {
     const host = { Host: `127.0.0.1:${core.port}` };
-    const index = await raw(core.port, '/ui/viz/index.json', host);
-    assert.strictEqual(index.status, 200);
-    const files = JSON.parse(index.text) as string[];
-    assert.strictEqual(files[0], 'viz/registry.js');
-    assert.ok(files.includes('viz/factoryClock.js') && files.includes('viz/turnTree.js'));
-    for (const f of ['vizkit.js', 'viz.css', 'explore.js', 'viz/turnTree.js']) assert.strictEqual((await raw(core.port, `/ui/${f}`, host)).status, 200, f);
-    for (const f of ['viz/../extension.js', 'viz/sub/x.js', 'detail.js', '..%2Fpackage.json', 'viz/registry.ts']) assert.strictEqual((await raw(core.port, `/ui/${f}`, host)).status, 404, f);
+    for (const f of ['theme.css', 'base.css', 'drawings/drawings.css', 'drawings/kit.js', 'drawings/turnTree.js', 'drawings/contextTimeline.js', 'shared.js', 'suggestions.js']) assert.strictEqual((await raw(core.port, `/ui/${f}`, host)).status, 200, f);
+    for (const f of ['viz/index.json', 'vizkit.js', 'viz.css', 'explore.js', 'viz/turnTree.js', 'drawings/../extension.js', 'drawings/sub/x.js', 'detail.js', '..%2Fpackage.json', 'drawings/kit.ts']) assert.strictEqual((await raw(core.port, `/ui/${f}`, host)).status, 404, f);
+    assert.strictEqual((await get(`/explore?workspace=${encodeURIComponent(a)}&ids=s-new`)).status, 404, 'no /explore route');
   });
 
   test('a session shows a live finding once, merged with the episode it continues; muted ones are left out', () => {
