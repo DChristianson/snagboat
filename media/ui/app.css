@@ -204,3 +204,32 @@ a.btn { text-decoration: none; display: inline-block; }
 .swatches .glyph.cue-blue { --cue: var(--cue-blue); }
 .swatches .glyph.cue-red { --cue: var(--cue-red); }
 .swatches .glyph.cue-teal { --cue: var(--cue-teal); }
+
+/* Suggestions (step 5c-2): VS Code's Suggestions tab (media/suggestions.js), with the detail view's styles
+   for it, scoped here so they don't touch the rest of the page. */
+#view-suggestions:not([hidden]) { display: grid; gap: 14px; }
+#suggestions-root { display: block; }
+#suggestions-root section { margin-top: 18px; }
+#suggestions-root section:first-child { margin-top: 0; }
+#suggestions-root h2 { font-size: 14px; margin: 0; }
+#suggestions-root .panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+#suggestions-root .finding { display: block; border: 1px solid var(--sv-rule); border-left-width: 3px; border-radius: 4px; padding: 10px 12px; margin-bottom: 8px; background: var(--sv-surface); }
+#suggestions-root .finding.warn { border-left-color: var(--sv-warn); }
+#suggestions-root .finding.info { border-left-color: var(--sv-info); }
+#suggestions-root .finding .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+#suggestions-root .badge { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; padding: 0 6px; border-radius: 3px; border: 1px solid currentColor; }
+#suggestions-root .badge.warn { color: var(--sv-warn); }
+#suggestions-root .badge.info { color: var(--sv-info); }
+#suggestions-root .finding .summary { margin: 4px 0; }
+#suggestions-root .finding .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+#suggestions-root .filter-note { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+#suggestions-root .suggestion .summary input.threshold { width: 7em; margin: 0 2px; font: inherit; }
+#suggestions-root .rule-json { white-space: pre-wrap; word-break: break-all; margin: 6px 0 0; padding: 8px; border: 1px solid var(--sv-rule); border-radius: 4px; font-family: var(--sv-mono); font-size: 11.5px; }
+#suggestions-root .saved-rule { border-bottom: 1px solid var(--sv-rule); padding: 8px 0; }
+#suggestions-root .saved-rule .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+#suggestions-root .saved-rule p { margin: 2px 0 6px; }
+#suggestions-root p { margin: 4px 0; }
+#suggestions-root input.threshold { color: var(--sv-input-ink, var(--sv-ink)); background: var(--sv-input-bg, var(--sv-surface)); border: 1px solid var(--sv-input-border, var(--sv-rule)); border-radius: 4px; padding: 2px 6px; }
+.advice { gap: 8px; border-left: 3px solid var(--sv-accent); }
+.advice h2 { font-size: 14px; }
+.advice .payload { margin: 0; max-height: 360px; overflow: auto; font: 11.5px/1.45 var(--sv-mono); background: var(--sv-panel); border: 1px solid var(--sv-rule); border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }

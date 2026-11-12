@@ -1,10 +1,11 @@
 import { buildDigest, DigestPolicy, DigestTurn } from '../advisor/digest';
-import { Probe } from '../discovery/probes';
+import { Probe } from './probes';
 import { categoryDoc, EffectivenessInput, MAX_EXAMPLES_PER_CANDIDATE, MAX_FAMILIES, MAX_PROPOSE_CANDIDATES, MAX_TOOL_NAMES, parseProposals, ProposeInput } from '../advisor/proposeHeuristics';
 import { parseShellSubCategory, ShellSubCategory } from '@snagboat/schema';
 import { NormalizedEvent } from '@snagboat/schema';
-import { Baseline, Candidate, DiscoveryOptions, DiscoveryRun, runDiscovery, Score, ThresholdSuggestion } from '../discovery/discover';
-import { shellCategoryReach } from '../discovery/shellCategories';
+import { Baseline, Candidate, DiscoveryOptions, runDiscovery, Score, ThresholdSuggestion } from './discover';
+import { AsyncDiscoveryRun, inProcess } from './offThread';
+import { shellCategoryReach } from './shellCategories';
 import { parseRule, RuleSource, TARGET_MEASURES } from '../heuristics/rule';
 import { Provenance, RuleStore } from '../heuristics/ruleStore';
 
@@ -95,7 +96,10 @@ interface AdvisorResults extends AdvisorState {
 export interface SuggestionsHooks {
   /** This workspace's stored events over the discovery window. */
   loadEvents(): Promise<NormalizedEvent[]>;
-  options(): DiscoveryOptions;
+  /** The heuristics and settings discovery runs with, in process (VS Code's tab); unused when `discover` is given. */
+  options?(): DiscoveryOptions;
+  /** Runs discovery elsewhere (the core's worker thread); absent: in process with `options`. */
+  discover?(events: NormalizedEvent[]): Promise<AsyncDiscoveryRun>;
   store: RuleStore;
   settingsRules(): RuleSource;
   /** Saved rules or categories changed: rebuild the running heuristics. */
@@ -138,7 +142,10 @@ function titleOf(doc: unknown, key: 'title' | 'label'): string {
  * (with provenance) and dismissals into a remembered list.
  */
 export class SuggestionsController {
-  private run?: DiscoveryRun;
+  private run?: AsyncDiscoveryRun;
+  /** The latest tweak asked for each candidate: an older one answered later is dropped. */
+  private tweaks = new Map<string, number>();
+  private disposed = false;
   private status: SuggestionsView['status'] = 'idle';
   private error?: string;
   private ranAt?: string;
@@ -169,7 +176,13 @@ export class SuggestionsController {
     this.notify();
     try {
       const events = await this.hooks.loadEvents();
-      this.run = runDiscovery(events, this.hooks.options());
+      const run = this.hooks.discover ? await this.hooks.discover(events) : inProcess(runDiscovery(events, this.optionsOrThrow()));
+      if (this.disposed) {
+        run.dispose();
+        return;
+      }
+      this.run?.dispose();
+      this.run = run;
       this.tweaked.clear();
       this.accepted.clear();
       this.advisor = SuggestionsController.noAdvice();
@@ -181,6 +194,19 @@ export class SuggestionsController {
       this.error = err instanceof Error ? err.message : String(err);
     }
     this.notify();
+  }
+
+  private optionsOrThrow(): DiscoveryOptions {
+    if (!this.hooks.options) throw new Error('no discovery options');
+    return this.hooks.options();
+  }
+
+  /** Lets go of the last run (its worker, if it has one). */
+  dispose(): void {
+    this.disposed = true;
+    this.run?.dispose();
+    this.run = undefined;
+    this.listeners = [];
   }
 
   private static noAdvice(): AdvisorResults {
@@ -268,7 +294,12 @@ export class SuggestionsController {
         valid.push({ doc, value });
       }
     }
-    const scores = run.score(valid.map((v) => v.value));
+    const scores = await run.score(valid.map((v) => v.value));
+    if (this.run !== run) {
+      this.advisor = before.status === 'asking' ? SuggestionsController.noAdvice() : before;
+      this.notify();
+      return;
+    }
     for (const v of valid) {
       const score = scores.get(v.value.id)!;
       if (score.episodes === 0) results.problems.push(`rule ${v.value.id} was dropped: it would never have fired on your history`);
@@ -305,14 +336,17 @@ export class SuggestionsController {
     this.notify();
   }
 
-  /** Re-scores a candidate at your threshold. */
-  tweak(id: string, threshold: number): void {
-    const proposed = this.run?.result.candidates.find((c) => c.rule.id === id);
-    if (!proposed) return;
+  /** Re-scores a candidate at your threshold; the last asked wins when several are in flight. */
+  async tweak(id: string, threshold: number): Promise<void> {
+    const run = this.run;
+    const proposed = run?.result.candidates.find((c) => c.rule.id === id);
+    if (!run || !proposed) return;
+    const asked = (this.tweaks.get(id) ?? 0) + 1;
+    this.tweaks.set(id, asked);
     if (threshold === proposed.threshold) this.tweaked.delete(id);
     else {
-      const c = this.run!.tweak(id, threshold);
-      if (!c) return;
+      const c = await run.tweak(id, threshold);
+      if (!c || this.run !== run || this.tweaks.get(id) !== asked) return;
       this.tweaked.set(id, c);
     }
     this.notify();

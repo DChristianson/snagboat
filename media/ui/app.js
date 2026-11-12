@@ -414,12 +414,12 @@
     $('problems').hidden = !problems || problems.length === 0;
     $('problems').textContent = problems && problems.length ? `Problems in your advisors' persona.md files: ${problems.join('; ')}` : '';
   }
-  const VIEWS = ['advisors', 'advisor', 'add', 'sessions', 'session', 'explore'];
+  const VIEWS = ['advisors', 'advisor', 'add', 'sessions', 'session', 'explore', 'suggestions'];
   function showView(name) {
     for (const v of VIEWS) $(`view-${v}`).hidden = v !== name;
     // The nav marks the section you're in: an advisor's page is under Advisors, a session's under Sessions.
     const section = { advisor: 'advisors', add: 'advisors', session: 'sessions' }[name] || name;
-    for (const n of ['advisors', 'sessions', 'explore']) {
+    for (const n of ['advisors', 'sessions', 'explore', 'suggestions']) {
       $(`nav-${n}`).classList.toggle('on', n === section);
       if (n === section) $(`nav-${n}`).setAttribute('aria-current', 'page');
       else $(`nav-${n}`).removeAttribute('aria-current');
@@ -434,7 +434,7 @@
     const f = fragment();
     if (f.get('advisor')) return ['advisor', f.get('advisor')];
     if (f.get('session')) return ['session', f.get('session')];
-    if (['sessions', 'explore', 'add'].includes(f.get('view'))) return [f.get('view')];
+    if (['sessions', 'explore', 'add', 'suggestions'].includes(f.get('view'))) return [f.get('view')];
     return ['advisors'];
   }
 
@@ -769,6 +769,131 @@
     });
   }
 
+  // --- Suggestions (step 5c-2) ------------------------------------------------------------------------
+  // VS Code's own Suggestions tab (media/suggestions.js), run over the core: a shim gives it the helpers
+  // and the postMessage it expects, sends its actions to POST /suggestions, and hands it each view.
+  let suggestionsReady = null;
+  let suggestionsPoll = null;
+  const SUGGESTION_ACTIONS = {
+    discover: () => ({ action: 'discover' }),
+    tweakSuggestion: (m) => ({ action: 'tweak', id: m.id, threshold: m.threshold }),
+    acceptSuggestion: (m) => ({ action: 'accept', id: m.id }),
+    acceptShellCategory: (m) => ({ action: 'acceptCategory', id: m.id }),
+    dismissSuggestion: (m) => ({ action: 'dismiss', id: m.id }),
+    clearDismissed: () => ({ action: 'clearDismissed' }),
+    applyThreshold: (m) => ({ action: 'applyThreshold', heuristic: m.heuristic, setting: m.setting }),
+    removeSaved: (m) => ({ action: 'removeSaved', section: m.section, id: m.id }),
+    askAdvisor: () => ({ action: 'askAdvisor' }),
+    applyAdvisorThreshold: (m) => ({ action: 'applyAdvisorThreshold', heuristic: m.heuristic, setting: m.setting }),
+  };
+  let choosingAdvisor = false;
+  /**
+   * Beside VS Code's view: the core's local advisors (step 5c-2b). A request waiting for your approval shows
+   * its exact payload with Send and Cancel; Ask another advisor lists the others; an error says what failed.
+   */
+  function renderAdvice(view) {
+    const box = $('advice');
+    const core = view.core || { advisors: [] };
+    const parts = [];
+    const send = (body) => void suggestionMessage({ type: '__core', body });
+    if (core.approval) {
+      const a = core.approval;
+      const yes = el('button', { class: 'btn primary', type: 'button', text: 'Send' });
+      const no = el('button', { class: 'btn ghost', type: 'button', text: "Don't send" });
+      yes.addEventListener('click', () => send({ action: 'approve', id: a.id, send: true }));
+      no.addEventListener('click', () => send({ action: 'approve', id: a.id, send: false }));
+      parts.push(
+        el('h2', { text: `Send this to ${a.advisor} (${a.model})?` }),
+        el('p', { class: 'small', text: `Below is exactly what will be sent, to a model on this machine. This is the first request with ${a.advisor}'s current address and sending rules; you won't be asked again until they change, here or in VS Code.` }),
+        el('pre', { class: 'payload', text: a.payload }),
+        el('div', { class: 'acts' }, [yes, no])
+      );
+    } else if (choosingAdvisor) {
+      parts.push(el('h2', { text: 'Ask which advisor?' }));
+      const row = el('div', { class: 'acts' });
+      for (const c of core.advisors) {
+        const b = el('button', { class: 'btn', type: 'button', text: c.model ? `${c.label} (${c.model})` : c.label });
+        b.addEventListener('click', () => {
+          choosingAdvisor = false;
+          send({ action: 'askAdvisor', advisorId: c.id });
+        });
+        row.append(b);
+      }
+      const cancel = el('button', { class: 'btn ghost', type: 'button', text: 'Cancel' });
+      cancel.addEventListener('click', () => {
+        choosingAdvisor = false;
+        renderAdvice(view);
+      });
+      row.append(cancel);
+      parts.push(row);
+    }
+    if (core.error) parts.push(el('p', { class: 'err', text: core.error }));
+    if (!core.advisors.length && view.status === 'ready') {
+      parts.push(el('p', { class: 'small muted', text: 'To have an advisor name these candidates and propose rules here, run a local model (for example Ollama) or add one to snagboat.advisors in your user settings. The advisor UI asks only models on this machine; hosted advisors stay in VS Code.' }));
+    }
+    box.replaceChildren(...parts);
+    box.hidden = parts.length === 0;
+  }
+  let lastSuggestions = null;
+  function showSuggestions(view) {
+    lastSuggestions = view;
+    window.postMessage({ type: 'suggestions', view }, location.origin);
+    renderAdvice(view);
+    clearTimeout(suggestionsPoll);
+    // Discovery and advisor requests run in the core; look again until they're done (a request waiting for
+    // your approval is shown, not polled).
+    const busy = view.status === 'running' || (view.advisor && view.advisor.status === 'asking' && !(view.core && view.core.approval));
+    if (busy && route()[0] === 'suggestions') suggestionsPoll = setTimeout(() => void refreshSuggestions(), 1500);
+  }
+  async function refreshSuggestions() {
+    try {
+      showSuggestions(await api(`/suggestions?workspace=${encodeURIComponent(state.workspace)}`));
+    } catch (err) {
+      if (err instanceof Unauthorized) needLink('This page has lost its connection to the core.');
+      else setStatus('down', err.message || 'The core is not answering');
+    }
+  }
+  async function suggestionMessage(m) {
+    if (!m || typeof m !== 'object') return;
+    if (m.type === 'openSession' && typeof m.sessionId === 'string') {
+      location.hash = `#${new URLSearchParams({ session: m.sessionId }).toString()}`;
+      return;
+    }
+    if (m.type === 'askAnotherAdvisor') {
+      choosingAdvisor = true;
+      if (lastSuggestions) renderAdvice(lastSuggestions);
+      return;
+    }
+    const make = m.type === '__core' ? () => m.body : SUGGESTION_ACTIONS[m.type];
+    if (!make) return;
+    try {
+      showSuggestions(await api('/suggestions', { method: 'POST', body: JSON.stringify({ workspace: state.workspace, ...make(m) }) }));
+    } catch (err) {
+      if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core.');
+      showMessage("Couldn't do that", [String(err.message || err)]);
+    }
+  }
+  function loadSuggestions() {
+    suggestionsReady ??= (async () => {
+      await loadViz();
+      await loadScript('shared.js');
+      window.snagboat = {
+        ...window.snagboatShared,
+        suggestionsRoot: $('suggestions-root'),
+        vscode: { postMessage: (m) => void suggestionMessage(m), getState: () => ({}), setState: () => undefined },
+      };
+      await loadScript('suggestions.js');
+    })();
+    suggestionsReady.catch(() => {
+      suggestionsReady = null;
+    });
+    return suggestionsReady;
+  }
+  async function renderSuggestions() {
+    await loadSuggestions();
+    await refreshSuggestions();
+  }
+
   // --- The page ------------------------------------------------------------------------
   const state = { workspace: null, days: 7, advisors: [], sessionLimit: SESSIONS_PAGE, lastSession: null };
 
@@ -789,7 +914,7 @@
   /** Draws the view the address names; on the timer, Explore is left alone (it keeps its own sessions). */
   async function refresh(timer = false) {
     const [view, id] = route();
-    if (timer && (view === 'explore' || view === 'add')) return;
+    if (timer && (view === 'explore' || view === 'add' || view === 'suggestions')) return;
     try {
       const health = await api('/health');
       setStatus('ok', `core ${health.version}`);
@@ -800,6 +925,7 @@
       else if (view === 'sessions') await renderSessions();
       else if (view === 'explore') await renderExplore();
       else if (view === 'add') await renderAdd();
+      else if (view === 'suggestions') await renderSuggestions();
       else await renderAdvisors();
     } catch (err) {
       if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core: the core restarted, or the link was already used.');

@@ -91,6 +91,10 @@ export function coreRequest(port: number, token: string, method: string, urlPath
         path: urlPath,
         method,
         timeout: timeoutMs,
+        // A connection per request. Node's agent keeps connections alive by default, and the core closes an
+        // idle one after 5 seconds: a core busy for that long (discovery on a slow machine) closed it just as
+        // the next request went out on it, which failed with ECONNRESET. On 127.0.0.1 a new one costs nothing.
+        agent: false,
         headers: { Authorization: `Bearer ${token}`, ...(data ? { 'Content-Type': 'application/json', 'Content-Length': data.length } : {}) },
       },
       (res) => {

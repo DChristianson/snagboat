@@ -23,7 +23,7 @@ import { buildDigest, digestForReading, DigestPolicy } from './advisor/digest';
 import { PromptLayers } from './advisor/prompts';
 import { ChatMessage } from './advisor/providers';
 import { sessionDigestInput } from './advisor/source';
-import { Advisor, Capability } from './vscode/advisor';
+import { Advisor, APPROVED_KEY, Capability } from './vscode/advisor';
 import { CAPABILITY_LABELS } from './advisor/advisors';
 import { AuditLog } from './advisor/audit';
 import { EffectivenessInput, proposeHeuristicsMessages } from './advisor/proposeHeuristics';
@@ -49,6 +49,8 @@ import { renderStatusBar } from './ui/statusBar';
 import { buildBreakdownLines, formatCount } from './ui/format';
 import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
 import { DetailPanel } from './ui/detailPanel';
+import { readDismissed, writeDismissed } from './core/suggestionsState';
+import { readApprovals, writeApprovals } from './core/advisorApprovals';
 import { FindingsView } from './ui/findingsView';
 import { EditTrackerAdapter } from './vscode/editTracker';
 import { vscodeHost } from './vscode/host';
@@ -67,7 +69,7 @@ import { ruleHeuristic } from './heuristics/ruleHeuristic';
 import { RuleStore } from './heuristics/ruleStore';
 import { setShellSubCategories } from '@snagboat/schema';
 import { runDiscovery } from './discovery/discover';
-import { SuggestionsController } from './ui/suggestionsController';
+import { SuggestionsController } from './discovery/suggestionsController';
 import { exportRules, importRules } from './ui/ruleTransfer';
 
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
@@ -76,6 +78,10 @@ const MIN_PASSED_EPISODE_MS = 30_000;
 const MUTED_HEURISTICS_KEY = 'snagboat.mutedHeuristics';
 // Global: saved rules are shared by every workspace, so a dismissed suggestion stays dismissed everywhere.
 const DISMISSED_SUGGESTIONS_KEY = 'snagboat.dismissedSuggestions';
+/** Set once this machine's dismissals were added to ~/.snagboat/suggestions.json (per-user store). */
+const DISMISSED_MOVED_KEY = 'snagboat.dismissedSuggestionsShared';
+/** Set once this machine's advisor payload approvals were added to ~/.snagboat/advisor-approvals.json (per-user store). */
+const APPROVALS_MOVED_KEY = 'snagboat.advisorApprovalsShared';
 const RESPONDING_SINCE_KEY = 'snagboat.respondingSince';
 const HEADLINES_KEY = 'snagboat.headlines';
 /** Headlines are asked for sessions that ended within this many days. */
@@ -348,6 +354,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     // The core reads the same rules (config.json, already synced, and rules.json); have it evaluate now.
     void core?.findings();
   };
+  // The first time with the per-user store on, this window's dismissals join the shared list (they stay in global state too).
+  if (storage.perUser && !context.globalState.get<boolean>(DISMISSED_MOVED_KEY)) {
+    const mine = context.globalState.get<string[]>(DISMISSED_SUGGESTIONS_KEY, []);
+    try {
+      if (mine.length > 0) writeDismissed(snagboatHome(), [...readDismissed(snagboatHome()), ...mine]);
+      void context.globalState.update(DISMISSED_MOVED_KEY, true);
+    } catch (err) {
+      outputChannel.appendLine(`Suggestions: couldn't share dismissed suggestions: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   const suggestions = new SuggestionsController({
     loadEvents: loadDiscoveryEvents,
     options: discoveryOptions,
@@ -355,8 +371,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     settingsRules: settingsRuleSource,
     rulesChanged: () => rulesChanged(),
     applySetting: (heuristic, setting, value) => Promise.resolve(vscode.workspace.getConfiguration(heuristicSettingsSection(heuristic)).update(setting, value, vscode.ConfigurationTarget.Global)),
-    dismissed: () => context.globalState.get<string[]>(DISMISSED_SUGGESTIONS_KEY, []),
-    setDismissed: (ids) => Promise.resolve(context.globalState.update(DISMISSED_SUGGESTIONS_KEY, ids)),
+    // With the per-user store on, one list shared with the core's advisor UI (RFC step 5c-2).
+    dismissed: () => (storage.perUser ? readDismissed(snagboatHome()) : context.globalState.get<string[]>(DISMISSED_SUGGESTIONS_KEY, [])),
+    setDismissed: (ids) => (storage.perUser ? Promise.resolve(writeDismissed(snagboatHome(), ids)) : Promise.resolve(context.globalState.update(DISMISSED_SUGGESTIONS_KEY, ids))),
     sessionName: (id) => sessionIndex.get(id)?.name,
     propose: async (build, advisorId) => {
       const asked = await advisor.ask('propose-heuristics', async ({ policy, prompts }) => proposeHeuristicsMessages(build(policy), prompts), { title: 'proposing heuristics', advisorId });
@@ -395,7 +412,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   };
   const audit = new AuditLog(storage.sharedDir);
   void audit.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
-  const advisor = new Advisor({ secrets: context.secrets, globalState: context.globalState, audit, output: outputChannel, digestInput });
+  // With the per-user store on, payload approvals are shared with the core's advisor UI; this machine's join them once.
+  if (storage.perUser && !context.globalState.get<boolean>(APPROVALS_MOVED_KEY)) {
+    try {
+      writeApprovals(snagboatHome(), { ...context.globalState.get<Record<string, string>>(APPROVED_KEY, {}), ...readApprovals(snagboatHome()) });
+      void context.globalState.update(APPROVALS_MOVED_KEY, true);
+    } catch (err) {
+      outputChannel.appendLine(`Advisor: couldn't share payload approvals: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  const advisor = new Advisor({ secrets: context.secrets, globalState: context.globalState, ...(storage.perUser ? { approvals: { get: () => readApprovals(snagboatHome()), set: (a: Record<string, string>) => writeApprovals(snagboatHome(), a) } } : {}), audit, output: outputChannel, digestInput });
 
   /**
    * Opens the advisor UI (RFC step 5a) in the browser with a one-time link, optionally at a session or view

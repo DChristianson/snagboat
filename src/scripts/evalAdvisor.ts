@@ -48,7 +48,7 @@ import { builtInHeuristics } from '../heuristics/builtIns';
 import { FindingReplay } from '../heuristics/replay';
 import { RuleStore } from '../heuristics/ruleStore';
 import { NormalizedEvent } from '@snagboat/schema';
-import { SuggestionsController } from '../ui/suggestionsController';
+import { SuggestionsController } from '../discovery/suggestionsController';
 import { advisorsFromSettings } from './advisorSettings';
 import { defaultSessions, sessionEvents } from './replayHeuristics';
 

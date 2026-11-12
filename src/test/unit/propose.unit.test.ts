@@ -7,7 +7,7 @@ import { categoryDoc, parseProposals, proposeHeuristicsMessages, ProposeInput } 
 import { NormalizedEvent } from '@snagboat/schema';
 import { builtInHeuristics } from '../../heuristics/builtIns';
 import { RuleStore } from '../../heuristics/ruleStore';
-import { AdvisorAnswer, SuggestionsController } from '../../ui/suggestionsController';
+import { AdvisorAnswer, SuggestionsController } from '../../discovery/suggestionsController';
 
 const at = (min: number) => new Date(Date.UTC(2026, 0, 1, 0, 0) + min * 60_000).toISOString();
 

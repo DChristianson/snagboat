@@ -129,9 +129,10 @@ async function main() {
     };
     const keys = ['captureContent', 'retention.textDays', 'heuristics.stalled.minutes', 'advisor.providers', 'storage.perUserStore'];
     const next = withVsCodeSettings(current, keys, { 'heuristics.stalled.minutes': 30, 'advisor.providers': [] }, { '/w/a': {}, '/w/c': {}, '/w/d': { captureContent: false } });
-    assert.deepStrictEqual(next.defaults, { collect: true, 'heuristics.stalled.minutes': 30 }, 'captureContent unset in VS Code now; collect (hand-written) kept; advisor not copied');
+    assert.deepStrictEqual(next.defaults, { collect: true, 'heuristics.stalled.minutes': 30, 'advisor.providers': [] }, 'captureContent unset in VS Code now; collect (hand-written) kept; which advisors exist copied (step 5c-2b)');
     assert.deepStrictEqual(next.projects, { '/w/a': { collect: false }, '/w/b': { captureContent: false }, '/w/d': { captureContent: false } }, "a's VS Code keys cleared, b untouched (another window's), c emptied and removed, d added");
-    assert.ok(!isSyncedSetting('advisor.providers') && !isSyncedSetting('advisors') && !isSyncedSetting('storage.perUserStore') && isSyncedSetting('rules'));
+    assert.ok(isSyncedSetting('advisor.providers') && isSyncedSetting('advisors') && isSyncedSetting('advisor.defaults') && isSyncedSetting('rules'));
+    assert.ok(!isSyncedSetting('storage.perUserStore') && !isSyncedSetting('advisor.headlines') && !isSyncedSetting('advisor.reviewDirectory') && !isSyncedSetting('advisor.auditPayloads'), "where data lives, and what only VS Code's advisor uses");
   });
 
   test('`snagboat config` shows the effective settings and where they came from', async () => {

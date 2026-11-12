@@ -20,6 +20,8 @@ import { TodayAggregate } from '../aggregate';
 import { FindingsService, WorkspaceFindings } from './findings';
 import { FindingState, Response } from './responses';
 import { SessionListItem, SessionPage, SessionPages } from './sessionPages';
+import { NotWaiting, parseSuggestionAction, SuggestionsService } from './suggestions';
+import { SuggestionsView } from '../../discovery/suggestionsController';
 import { ExplorerState } from '@snagboat/viz';
 import { ASSET_FILES, EXPLORE_SESSION_CAP } from '@snagboat/viz';
 import { TestsGreen } from '../../outcomes/testsGreen';
@@ -82,6 +84,9 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              workspace, its card's brief), this period against
  *                              the one before (RFC step 4c)
  *   GET  /workspaces           the workspaces the token reads, most recently active first
+ *   GET  /suggestions?workspace=w  the Suggestions view: discovery's candidates, thresholds, shell categories,
+ *                              saved rules (step 5c-2); POST /suggestions { workspace, action, ... } acts on it
+ *                              (any token, a reader's included: accepted rules and thresholds are yours)
  *   GET  /today?workspace=w     today's tokens, cache rate and milestones, and how many findings are showing (step 5d)
  *   GET  /advisor-form         the + form's choices: measures, rules an advisor can speak for, templates (step 5c)
  *   POST /advisors             a new advisor from the form: ~/.snagboat/advisors/<id>/persona.md, never
@@ -230,6 +235,7 @@ export class CoreService {
   private readonly writer: StoreWriter;
   private readonly findings: FindingsService;
   private readonly sessionPages: SessionPages;
+  private readonly suggestions: SuggestionsService;
   /** Streams that want findings, told of each change. */
   private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
@@ -275,6 +281,7 @@ export class CoreService {
     });
     this.writer.onWritten((workspace, events) => this.findings.ingest(workspace, events));
     this.sessionPages = new SessionPages(opts.home, this.findings);
+    this.suggestions = new SuggestionsService(opts.home, this.findings, (line) => this.log(line));
     // Outcomes (RFC step 4): tests going green, worked out from what's written and written back.
     const testsGreen = new TestsGreen();
     this.writer.onWritten((workspace, events) => {
@@ -409,6 +416,7 @@ export class CoreService {
     for (const t of this.timers) clearInterval(t);
     this.collector?.stop();
     this.copilot?.stop();
+    this.suggestions.dispose();
     await this.findings.dispose().catch(() => undefined);
     removeCoreRoute(this.opts.home, process.pid);
     removeCoreFile(this.opts.home, process.pid);
@@ -495,6 +503,8 @@ export class CoreService {
       if (route === 'GET /workspaces') return send(200, this.workspaces(scope));
       if (route === 'POST /ui-links') return send(200, this.uiLink(scope, await this.readBody(req).catch(() => ({}))));
       if (route === 'GET /advisors') return send(200, await this.advisors(scope, url.searchParams.get('workspace'), url.searchParams.get('days'), url.searchParams.get('series') === '1', url.searchParams.get('weeks')));
+      if (route === 'GET /suggestions') return send(200, await this.suggestionsView(scope, url.searchParams.get('workspace')));
+      if (route === 'POST /suggestions') return send(200, await this.suggestionsAct(scope, await this.readBody(req, 4096)));
       if (route === 'GET /today') return send(200, await this.today(scope, url.searchParams.get('workspace')));
       if (route === 'GET /advisor-form') return send(200, await this.advisorForm());
       if (route === 'POST /advisors') return send(201, await this.addAdvisor(await this.readBody(req, 8192)));
@@ -700,6 +710,32 @@ export class CoreService {
       for (const r of reports) r.brief = advisorBrief(r, live, notified, r.id === 'navigator' ? ahead : undefined, findingsNow.responses);
     }
     return { days, workspaces: stores.map((s) => s.workspace), advisors: reports, problems };
+  }
+
+  /** GET /suggestions?workspace=w: the Suggestions view (step 5c-2); discovery starts on the first ask. */
+  private async suggestionsView(scope: Scope, workspace: string | null): Promise<SuggestionsView> {
+    if (workspace === null) throw new HttpError(400, 'name the workspace: ?workspace=<workspace>');
+    this.store(scope, workspace);
+    return this.suggestions.view(workspace);
+  }
+
+  /**
+   * POST /suggestions { workspace, action, ... }: Discover again, tweak a candidate's threshold, accept or
+   * dismiss one, apply a threshold, remove a saved rule. Accepting rules and thresholds is one of the writes
+   * a reader (browser) key may make, as the design pass agreed: they're yours, kept as VS Code keeps them.
+   */
+  private async suggestionsAct(scope: Scope, body: unknown): Promise<SuggestionsView> {
+    const workspace = (body as { workspace?: unknown } | undefined)?.workspace;
+    if (typeof workspace !== 'string') throw new HttpError(400, 'name the workspace');
+    this.store(scope, workspace);
+    const action = parseSuggestionAction(body);
+    if (!action) throw new HttpError(400, 'no such action, or its fields are missing');
+    try {
+      return await this.suggestions.act(workspace, action);
+    } catch (err) {
+      if (err instanceof NotWaiting) throw new HttpError(409, err.message);
+      throw err;
+    }
   }
 
   /**
@@ -959,8 +995,12 @@ function uiFile(dirs: UiDirs | undefined, name: string): string | undefined {
   const viz = /^viz\/([a-z0-9][a-z0-9-]*\.js)$/i.exec(name);
   if (viz) return path.join(dirs.viz, 'viz', viz[1]);
   if (!/^[a-z0-9][a-z0-9.-]*$/i.test(name)) return undefined;
-  return ASSET_FILES.includes(name) ? path.join(dirs.viz, name) : path.join(dirs.ui, name);
+  if (ASSET_FILES.includes(name)) return path.join(dirs.viz, name);
+  return DETAIL_SCRIPTS.includes(name) ? path.join(dirs.ui, '..', name) : path.join(dirs.ui, name);
 }
+
+/** VS Code's Suggestions tab and its helpers, from media/ beside media/ui, which the advisor UI runs too (step 5c-2). */
+const DETAIL_SCRIPTS = ['shared.js', 'suggestions.js'];
 
 /** The visualizers' scripts in the order a page loads them: the registry first. */
 function vizScripts(vizDir: string): string[] {
