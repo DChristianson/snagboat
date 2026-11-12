@@ -2,71 +2,46 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// packages/viz is Factory Clock, the npm workspace factory-clock (docs/design/factory-clock-plan.md):
-// the visualizers, the explorer, their theme and styles, the catalog, and the web page.
-// Its TypeScript may import only itself and @snagboat/schema, so it can leave Snagboat;
-// a host plugs in what it adds (Snagboat's web build passes its heuristics' findings). And Snagboat
-// itself (the extension, the core, its pages) no longer uses the package at all.
+// Factory Clock moved to its own repository, https://github.com/DChristianson/factory-clock
+// (docs/design/factory-clock-plan.md, step 8). Snagboat keeps its own copy of the two session
+// drawings it uses (media/drawings), and the unit tests keep their own copy of the synthetic
+// sessions (src/test/fixtures/synthetic.ts). So nothing in Snagboat imports or loads Factory Clock.
 
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
   const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
 
-  // Compiled to out/test/unit; the package sits at packages/viz from the repo root.
-  const pkgDir = path.resolve(__dirname, '..', '..', '..', 'packages', 'viz');
-  const srcDir = path.join(pkgDir, 'src');
-  const filesUnder = (dir: string): string[] =>
-    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) return filesUnder(full);
-      return e.name.endsWith('.ts') ? [full] : [];
-    });
-  const files = filesUnder(srcDir);
-  const importsOf = (file: string): string[] =>
-    [...fs.readFileSync(file, 'utf8').matchAll(/(?:from|import|require)\s*\(?\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
-  const rel = (file: string) => path.relative(pkgDir, file).split(path.sep).join('/');
+  // Compiled to out/test/unit; the repo root is three levels up.
+  const root = path.resolve(__dirname, '..', '..', '..');
 
-  test('packages/viz has the moved files', () => {
-    for (const f of ['src/catalog.ts', 'src/explorerModel.ts', 'src/web/eventSet.ts', 'src/web/page.ts', 'src/web/synthetic.ts', 'viz/registry.js', 'vizkit.js', 'explore.js', 'viz.css', 'theme.css', 'hosts/web/index.html', 'hosts/web/web.css', 'scripts/webDemo.js']) {
-      assert.ok(fs.existsSync(path.join(pkgDir, f)), `missing packages/viz/${f}`);
-    }
+  test('packages/viz is gone; the workspace holds only the schema package', () => {
+    assert.ok(!fs.existsSync(path.join(root, 'packages', 'viz')), 'packages/viz still exists');
+    assert.deepStrictEqual(fs.readdirSync(path.join(root, 'packages')), ['schema']);
   });
 
-  test('the package imports only itself and @snagboat/schema', () => {
-    for (const file of files) {
-      for (const spec of importsOf(file)) {
-        if (spec === '@snagboat/schema') continue;
-        assert.ok(spec.startsWith('.'), `${rel(file)} imports ${spec}, outside the package`);
-        const target = path.resolve(path.dirname(file), spec);
-        assert.ok(target.startsWith(srcDir + path.sep), `${rel(file)} imports ${spec}, outside the package`);
-      }
-    }
-  });
-
-  // The other direction (decided 2026-11-12, docs/design/factory-clock-plan.md): Snagboat keeps its
-  // own copy of the two session drawings it uses and has no Explore, so nothing it ships imports or
-  // loads packages/viz. src/web and src/scripts build Factory Clock's web page and move with it; the
-  // tests use its synthetic sessions as fixtures.
-  test("Snagboat's extension, core and pages neither import nor load packages/viz", () => {
-    const root = path.resolve(pkgDir, '..', '..');
+  test('nothing in src/, media/, package.json, esbuild.js or .vscodeignore uses packages/viz or factory-clock', () => {
+    const self = path.join(root, 'src', 'test', 'unit', 'vizBoundary.unit.test.ts');
     const under = (dir: string, ext: RegExp): string[] =>
       fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
         const full = path.join(dir, e.name);
         if (e.isDirectory()) return under(full, ext);
         return ext.test(e.name) ? [full] : [];
       });
-    const skip = ['web', 'scripts', 'test'].map((d) => path.join(root, 'src', d) + path.sep);
-    const files = [...under(path.join(root, 'src'), /\.ts$/).filter((f) => !skip.some((s) => f.startsWith(s))), ...under(path.join(root, 'media'), /\.(js|css|html)$/)];
+    const files = [
+      ...under(path.join(root, 'src'), /\.ts$/).filter((f) => f !== self),
+      ...under(path.join(root, 'media'), /\.(js|css|html)$/),
+      ...['package.json', 'esbuild.js', '.vscodeignore'].map((f) => path.join(root, f)),
+    ];
     assert.ok(files.length > 50, 'found the sources');
-    const banned = /['"]factory-clock(?:\/[\w/]*)?['"]|packages\/viz|factoryClock|vizkit\.js|viz\.css|explore\.js|viz\/index\.json|ASSET_FILES|EXPLORE_SESSION_CAP|buildExplorerState/;
-    // Comments may say where a copy came from; code may not reach for it.
-    const code = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*\/\/.*$/gm, '');
+    const banned = /['"]factory-clock(?:\/[\w/]*)?['"]|packages\/viz|factoryClock(?:Kit|Explore)?\b/;
+    // Comments may say where a copy came from; code may not reach for it. The demo traces tool
+    // writes window.factoryClockDemoTraces, the global Factory Clock's page reads.
+    const code = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*(\/\/|#).*$/gm, '');
     for (const file of files) {
-      const hit = banned.exec(code(fs.readFileSync(file, 'utf8')));
+      const text = fs.readFileSync(file, 'utf8');
+      const hit = banned.exec(file.endsWith('.json') ? text : code(text));
       assert.ok(!hit, `${path.relative(root, file)} mentions ${hit?.[0]}`);
     }
-    const ignore = fs.readFileSync(path.join(root, '.vscodeignore'), 'utf8');
-    assert.ok(!/packages\/viz/.test(ignore), '.vscodeignore ships packages/viz');
   });
 
   let failures = 0;

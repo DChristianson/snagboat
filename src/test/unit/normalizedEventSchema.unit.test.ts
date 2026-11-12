@@ -2,14 +2,14 @@ import * as assert from 'assert';
 import * as path from 'path';
 import { EventOutcome, NormalizedEvent, NormalizedEventKind, normalizedEventSchema, normalizedEventSchemaV1, normalizedEventSchemaV2, TOOL_CATEGORY_LABELS } from '@snagboat/schema';
 import { sessionEvents } from '../../scripts/replayHeuristics';
-import { syntheticEvents } from 'factory-clock/web';
+import { syntheticEvents } from '../fixtures/synthetic';
 import { normalizeHookPayload } from '../../adapters/claude-code/normalize';
 
 // The JSON Schema in @snagboat/schema (normalizedEvent.v3.schema.json) must describe the
 // events Snagboat actually writes. A compile-time check in jsonSchema.ts keeps its field
 // list equal to NormalizedEvent's; this test checks the values: enums against the
-// TypeScript unions, and real events (the Claude Code fixture, the web demo's
-// synthetic sessions) against the schema.
+// TypeScript unions, and real events (the Claude Code fixture, the synthetic
+// sessions in src/test/fixtures/synthetic.ts) against the schema.
 
 type Schema = Record<string, any>;
 
@@ -157,7 +157,7 @@ async function main() {
     assert.ok(validate(schema, { ...ok, taskOp: { op: 'create', id: '1', description: 'd' } }).length > 0);
   });
 
-  test("every event in the web demo's synthetic sessions is valid", () => {
+  test('every event in the synthetic sessions is valid', () => {
     const events = syntheticEvents();
     assert.ok(events.length > 0);
     for (const e of events) assert.deepStrictEqual(validate(schema, JSON.parse(JSON.stringify(e))), [], e.eventId);

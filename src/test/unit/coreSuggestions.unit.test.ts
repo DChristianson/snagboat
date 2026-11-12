@@ -11,7 +11,7 @@ import { FindingsService } from '../../core/service/findings';
 import { parseSuggestionAction, SuggestionsService } from '../../core/service/suggestions';
 import { SuggestionsView } from '../../discovery/suggestionsController';
 import { readDismissed } from '../../core/suggestionsState';
-import { syntheticEvents } from 'factory-clock/web';
+import { syntheticEvents } from '../fixtures/synthetic';
 
 // Suggestions in the advisor UI (RFC step 5c-2): the core runs VS Code's Suggestions controller
 // over a workspace's store, with its own heuristics; writes go where VS Code's go (saved rules,
