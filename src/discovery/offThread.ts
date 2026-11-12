@@ -13,7 +13,8 @@ import { Candidate, DiscoveryOptions, DiscoveryResult, DiscoveryRun, Score } fro
  * posts and the UI keep their answers meanwhile. DiscoveryOptions holds functions, which don't
  * cross to a worker, so it goes as DiscoveryData: built-ins by id, rules as parsed (plain data),
  * settings and context limits as snapshots. The worker keeps its run for tweaks and scores; the
- * history's events stay on this side too, for the advisor's examples.
+ * history's events stay on this side too, for the advisor's examples and to bring back a worker
+ * stopped for sitting idle (meanwhile the history is held only here, not in both threads).
  */
 
 /** DiscoveryOptions as plain data, for a worker. */
@@ -105,60 +106,183 @@ function history(events: NormalizedEvent[]): { sorted: () => NormalizedEvent[]; 
   };
 }
 
-/**
- * Runs discovery over the events in a worker thread and keeps the worker for the run's tweaks and
- * scores until it's disposed. Rejects if the worker fails; a failed worker's later requests reject too.
- */
-export async function discoverOffThread(events: NormalizedEvent[], data: DiscoveryData, script = WORKER_SCRIPT): Promise<AsyncDiscoveryRun> {
-  const worker = new Worker(script);
-  // The core's server keeps the process alive; a worker alone shouldn't.
-  worker.unref();
-  const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
-  let nextId = 0;
-  let failed: Error | undefined;
-  const fail = (err: Error) => {
-    failed ??= err;
-    for (const p of pending.values()) p.reject(failed);
-    pending.clear();
-  };
-  worker.on('message', (reply: WorkerReply) => {
-    const p = pending.get(reply.id);
-    if (!p) return;
-    pending.delete(reply.id);
-    if ('error' in reply) p.reject(new Error(reply.error));
-    else p.resolve(reply.value);
-  });
-  worker.on('error', (err) => fail(err));
-  worker.on('exit', (code) => fail(new Error(`discovery worker stopped (exit code ${code})`)));
-  const ask = <T>(request: WithoutId<Asked>): Promise<T> => {
-    if (failed) return Promise.reject(failed);
-    const id = ++nextId;
-    return new Promise<T>((resolve, reject) => {
-      pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
-      worker.postMessage({ ...request, id });
-    });
-  };
+/** How long a run's worker may sit unasked before it's stopped: the core's default. */
+export const DEFAULT_WORKER_IDLE_MS = 15 * 60_000;
 
-  try {
+export interface OffThreadOptions {
+  /** The worker's script; default WORKER_SCRIPT. */
+  script?: string;
+  /**
+   * Stop the worker after this long with nothing asked of it (0 or absent: keep it until disposed).
+   * The next tweak or score starts a new one over the same events and data, which gives the same
+   * answers (discovery is deterministic), so only the first answer after a stop is slower.
+   */
+  idleMs?: number;
+  /** Told when an idle worker is stopped and when one is brought back. */
+  log?: (line: string) => void;
+}
+
+/** A run whose worker may be stopped while idle and brought back on the next request. */
+export interface OffThreadRun extends AsyncDiscoveryRun {
+  /** Whether its worker is up now. */
+  readonly workerRunning: boolean;
+  /** How many times a stopped worker was brought back. */
+  readonly restarts: number;
+}
+
+/** One worker thread and the requests it hasn't answered. */
+class DiscoveryWorker {
+  private readonly worker: Worker;
+  private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private nextId = 0;
+  private failed?: Error;
+
+  constructor(script: string) {
+    this.worker = new Worker(script);
+    // The core's server keeps the process alive; a worker alone shouldn't.
+    this.worker.unref();
+    this.worker.on('message', (reply: WorkerReply) => {
+      const p = this.pending.get(reply.id);
+      if (!p) return;
+      this.pending.delete(reply.id);
+      if ('error' in reply) p.reject(new Error(reply.error));
+      else p.resolve(reply.value);
+    });
+    this.worker.on('error', (err) => this.fail(err));
+    this.worker.on('exit', (code) => this.fail(new Error(`discovery worker stopped (exit code ${code})`)));
+  }
+
+  private fail(err: Error): void {
+    this.failed ??= err;
+    for (const p of this.pending.values()) p.reject(this.failed);
+    this.pending.clear();
+  }
+
+  /** Sends the events, a turn of the event loop apart, and runs discovery over them. */
+  async run(events: NormalizedEvent[], data: DiscoveryData): Promise<DiscoveryResult> {
     for (let i = 0; i < events.length; i += CHUNK) {
-      if (failed) throw failed;
-      worker.postMessage({ type: 'events', events: events.slice(i, i + CHUNK) } satisfies WorkerRequest);
+      if (this.failed) throw this.failed;
+      this.worker.postMessage({ type: 'events', events: events.slice(i, i + CHUNK) } satisfies WorkerRequest);
       await new Promise((r) => setImmediate(r));
     }
-    const result = await ask<DiscoveryResult>({ type: 'run', data });
-    const h = history(events);
-    return {
-      result,
-      tweak: (ruleId, threshold) => ask<Candidate | undefined>({ type: 'tweak', ruleId, threshold }),
-      score: (rules) => ask<Map<string, Score>>({ type: 'score', rules }),
-      sessionEvents: (sessionId) => h.bySession().get(sessionId) ?? [],
-      get events() {
-        return h.sorted();
-      },
-      dispose: () => void worker.terminate(),
-    };
+    return this.ask<DiscoveryResult>({ type: 'run', data });
+  }
+
+  ask<T>(request: WithoutId<Asked>): Promise<T> {
+    if (this.failed) return Promise.reject(this.failed);
+    const id = ++this.nextId;
+    return new Promise<T>((resolve, reject) => {
+      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      this.worker.postMessage({ ...request, id });
+    });
+  }
+
+  stop(): void {
+    void this.worker.terminate();
+  }
+}
+
+/**
+ * Runs discovery over the events in a worker thread and keeps the worker for the run's tweaks and
+ * scores until it's disposed, or until it has sat `idleMs` with nothing asked of it; the next tweak
+ * or score then brings a worker back over the same events and data. Rejects if the worker fails; a
+ * failed worker's later requests reject too.
+ */
+export async function discoverOffThread(events: NormalizedEvent[], data: DiscoveryData, options: string | OffThreadOptions = {}): Promise<OffThreadRun> {
+  const { script = WORKER_SCRIPT, idleMs = 0, log = () => undefined } = typeof options === 'string' ? { script: options } : options;
+  const first = new DiscoveryWorker(script);
+  let result: DiscoveryResult;
+  try {
+    result = await first.run(events, data);
   } catch (err) {
-    void worker.terminate();
+    first.stop();
     throw err;
   }
+
+  /** The live worker; undefined once stopped for idling, or disposed. */
+  let worker: DiscoveryWorker | undefined = first;
+  /** A worker being brought back, shared by the requests waiting for it. */
+  let starting: Promise<DiscoveryWorker> | undefined;
+  /** Requests asked and not yet answered: the worker is never stopped under one. */
+  let busy = 0;
+  let timer: NodeJS.Timeout | undefined;
+  let disposed = false;
+  let restarts = 0;
+  const letGo = () => new Error('discovery worker stopped (the run was let go)');
+
+  /** (Re)starts the idle countdown when nothing is in flight; clears it otherwise. */
+  const countdown = () => {
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+    if (disposed || !(idleMs > 0) || busy > 0 || !worker) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      if (disposed || busy > 0 || !worker) return;
+      worker.stop();
+      worker = undefined;
+      log(`the discovery worker sat idle for ${Math.round(idleMs / 1000)}s; stopped it`);
+    }, idleMs);
+    // Nor should its timer keep the process alive.
+    timer.unref();
+  };
+
+  const live = (): Promise<DiscoveryWorker> => {
+    if (worker) return Promise.resolve(worker);
+    starting ??= (async () => {
+      log('bringing the discovery worker back');
+      const w = new DiscoveryWorker(script);
+      try {
+        // The same events and data make the same run, so its answers match the result already shown.
+        await w.run(events, data);
+      } catch (err) {
+        w.stop();
+        throw err;
+      }
+      if (disposed) {
+        w.stop();
+        throw letGo();
+      }
+      restarts += 1;
+      worker = w;
+      return w;
+    })().finally(() => (starting = undefined));
+    return starting;
+  };
+
+  const request = async <T>(asked: WithoutId<Asked>): Promise<T> => {
+    if (disposed) throw letGo();
+    busy += 1;
+    countdown();
+    try {
+      return await (await live()).ask<T>(asked);
+    } finally {
+      busy -= 1;
+      countdown();
+    }
+  };
+
+  countdown();
+  const h = history(events);
+  return {
+    result,
+    tweak: (ruleId, threshold) => request<Candidate | undefined>({ type: 'tweak', ruleId, threshold }),
+    score: (rules) => request<Map<string, Score>>({ type: 'score', rules }),
+    sessionEvents: (sessionId) => h.bySession().get(sessionId) ?? [],
+    get events() {
+      return h.sorted();
+    },
+    get workerRunning() {
+      return worker !== undefined;
+    },
+    get restarts() {
+      return restarts;
+    },
+    dispose: () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      worker?.stop();
+      worker = undefined;
+    },
+  };
 }

@@ -9,7 +9,7 @@ import { RuleSource } from '../../heuristics/rule';
 import { RuleStore } from '../../heuristics/ruleStore';
 import { SuggestionsController, SuggestionsView } from '../../discovery/suggestionsController';
 import { runDiscovery } from '../../discovery/discover';
-import { AsyncDiscoveryRun, DiscoveryData, discoverOffThread, discoveryOptionsOf, inProcess, workerAvailable } from '../../discovery/offThread';
+import { AsyncDiscoveryRun, DEFAULT_WORKER_IDLE_MS, DiscoveryData, discoverOffThread, discoveryOptionsOf, inProcess, OffThreadRun, workerAvailable } from '../../discovery/offThread';
 import { FindingsService } from './findings';
 import { CoreAdvisorChoice, CoreAdvisors, PendingApproval } from './advisorModels';
 import { proposeHeuristicsMessages } from '../../advisor/proposeHeuristics';
@@ -29,7 +29,8 @@ import { proposeHeuristicsMessages } from '../../advisor/proposeHeuristics';
  *
  * Discovery and re-scoring a tweaked threshold run in a worker thread (discovery/offThread.ts), so the
  * core keeps answering hooks, event posts and the UI meanwhile; without the worker's script beside
- * the core's (a build that left it out), they run in process.
+ * the core's (a build that left it out), they run in process. A workspace's worker is stopped after
+ * sitting idle (workerIdleMs) and brought back over the same history on the next tweak or score.
  */
 
 export type SuggestionAction =
@@ -96,6 +97,15 @@ interface Entry {
   names: Map<string, string>;
   /** The last advisor request's failure, shown until the next one. */
   error?: string;
+  /** The latest discovery's worker-backed run, when discovery ran in a worker. */
+  run?: OffThreadRun;
+}
+
+export interface SuggestionsOptions {
+  /** The local advisors asked for proposals; default the user's own (advisorModels.ts). */
+  advisors?: CoreAdvisors;
+  /** Stop a workspace's discovery worker after this long with nothing asked of it; 0 never. Default 15 minutes. */
+  workerIdleMs?: number;
 }
 
 export class SuggestionsService {
@@ -109,9 +119,9 @@ export class SuggestionsService {
     private readonly home: string,
     private readonly findings: FindingsService,
     private readonly log: (line: string) => void = () => undefined,
-    advisors?: CoreAdvisors
+    private readonly options: SuggestionsOptions = {}
   ) {
-    this.advisors = advisors ?? new CoreAdvisors(home, undefined, log);
+    this.advisors = options.advisors ?? new CoreAdvisors(home, undefined, log);
   }
 
   /** The Suggestions view for a workspace; discovery runs on the first ask, then on Discover again. */
@@ -183,14 +193,26 @@ export class SuggestionsService {
     this.entries.clear();
   }
 
+  /** Whether a workspace's discovery worker is up, and how often it was brought back; undefined without one (for tests). */
+  worker(workspace: string): { running: boolean; restarts: number } | undefined {
+    const run = this.entries.get(workspace)?.run;
+    return run ? { running: run.workerRunning, restarts: run.restarts } : undefined;
+  }
+
   /** Discovery over the events with the workspace's heuristics as data, in the worker. */
-  private async discover(events: NormalizedEvent[], data: DiscoveryData): Promise<AsyncDiscoveryRun> {
+  private async discover(workspace: string, events: NormalizedEvent[], data: DiscoveryData): Promise<AsyncDiscoveryRun> {
     if (this.inProcess || !workerAvailable()) {
       if (!this.inProcess) this.log(`the discovery worker isn't beside the core; discovery runs in process`);
       this.inProcess = true;
       return inProcess(runDiscovery(events, discoveryOptionsOf(data)));
     }
-    return discoverOffThread(events, data);
+    const run = await discoverOffThread(events, data, {
+      idleMs: this.options.workerIdleMs ?? DEFAULT_WORKER_IDLE_MS,
+      log: (line) => this.log(`${line} (${workspace})`),
+    });
+    const entry = this.entries.get(workspace);
+    if (entry) entry.run = run;
+    return run;
   }
 
   /** The heuristics discovery runs with, as data a worker can rebuild them from. */
@@ -235,7 +257,7 @@ export class SuggestionsService {
           }
           return events;
         },
-        discover: (events) => this.discover(events, this.discoveryData(options)),
+        discover: (events) => this.discover(workspace, events, this.discoveryData(options)),
         store,
         settingsRules: (): RuleSource => {
           const rules = configHost(this.home, this.folderOf(workspace)).get<unknown>('snagboat', 'rules', []);

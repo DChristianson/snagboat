@@ -133,6 +133,8 @@ export interface CoreOptions {
   heuristicsEveryMs?: number;
   /** How often to move spooled events of workspaces no longer claimed; default 30 seconds. */
   ingestEveryMs?: number;
+  /** Stop a workspace's idle discovery worker after this long; default 15 minutes (SuggestionsService). */
+  discoveryWorkerIdleMs?: number;
   /** Read Claude Code transcripts and Copilot CLI sessions for every project (default true; 3c-3b, 3c-3d). */
   collect?: boolean;
   /** Where Claude Code keeps its projects' transcripts; default ~/.claude/projects (SNAGBOAT_CLAUDE_PROJECTS_DIR). */
@@ -281,7 +283,7 @@ export class CoreService {
     });
     this.writer.onWritten((workspace, events) => this.findings.ingest(workspace, events));
     this.sessionPages = new SessionPages(opts.home, this.findings);
-    this.suggestions = new SuggestionsService(opts.home, this.findings, (line) => this.log(line));
+    this.suggestions = new SuggestionsService(opts.home, this.findings, (line) => this.log(line), { workerIdleMs: opts.discoveryWorkerIdleMs });
     // Outcomes (RFC step 4): tests going green, worked out from what's written and written back.
     const testsGreen = new TestsGreen();
     this.writer.onWritten((workspace, events) => {

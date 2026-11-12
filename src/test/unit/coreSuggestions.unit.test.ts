@@ -7,7 +7,9 @@ import { externalChanges, loadConfig, SnagboatConfig } from '../../core/config';
 import { coreRequest, readCoreFile } from '../../core/service/coreFile';
 import { CoreService } from '../../core/service/server';
 import { StoreWriter } from '../../core/service/storeWriter';
-import { parseSuggestionAction } from '../../core/service/suggestions';
+import { FindingsService } from '../../core/service/findings';
+import { parseSuggestionAction, SuggestionsService } from '../../core/service/suggestions';
+import { SuggestionsView } from '../../discovery/suggestionsController';
 import { readDismissed } from '../../core/suggestionsState';
 import { syntheticEvents } from '@snagboat/viz/web';
 
@@ -128,6 +130,43 @@ async function main() {
   test("VS Code's Suggestions script and its helpers are served beside the page; the rest of media/ isn't", async () => {
     for (const f of ['suggestions.js', 'shared.js']) assert.strictEqual(await raw(core.port, `/ui/${f}`), 200, f);
     for (const f of ['detail.js', 'sessions.js', 'detail.css']) assert.strictEqual(await raw(core.port, `/ui/${f}`), 404, f);
+  });
+
+  test("a workspace's idle discovery worker is stopped, and the next tweak brings it back with the same view", async () => {
+    const findings = new FindingsService({ home, onChange: () => undefined });
+    const lines: string[] = [];
+    const idling = new SuggestionsService(home, findings, (l) => lines.push(l), { workerIdleMs: 400 });
+    const steady = new SuggestionsService(home, findings, () => undefined, { workerIdleMs: 0 });
+    const settle = async (s: SuggestionsService) => {
+      for (let i = 0; i < 200; i++) {
+        const v = await s.view(a);
+        if (v.status !== 'running' && v.status !== 'idle') return v;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      throw new Error('discovery never finished');
+    };
+    try {
+      await settle(steady);
+      const before = await settle(idling);
+      assert.strictEqual(before.status, 'ready');
+      assert.deepStrictEqual(idling.worker(a), { running: true, restarts: 0 });
+      for (let i = 0; i < 100 && idling.worker(a)?.running; i++) await new Promise((r) => setTimeout(r, 20));
+      assert.deepStrictEqual(idling.worker(a), { running: false, restarts: 0 }, 'stopped after sitting idle');
+      assert.ok(lines.some((l) => /idle/.test(l) && l.includes(a)), lines.join('\n'));
+      // The view doesn't need the worker: it's the one shown before it stopped.
+      const strip = (v: SuggestionsView) => ({ ...v, ranAt: undefined });
+      assert.deepStrictEqual(strip(await idling.view(a)), strip(before));
+      const c = before.candidates.find((x) => x.threshold !== undefined)!;
+      const tweaked = await idling.act(a, { action: 'tweak', id: c.id, threshold: c.threshold! * 2 });
+      assert.deepStrictEqual(idling.worker(a), { running: true, restarts: 1 }, 'brought back for the tweak');
+      const expected = await steady.act(a, { action: 'tweak', id: c.id, threshold: c.threshold! * 2 });
+      assert.deepStrictEqual(strip(tweaked), strip(expected), "the same view as a worker that never stopped");
+      assert.strictEqual(tweaked.candidates.find((x) => x.id === c.id)!.threshold, c.threshold! * 2);
+      assert.deepStrictEqual(steady.worker(a), { running: true, restarts: 0 });
+    } finally {
+      idling.dispose();
+      steady.dispose();
+    }
   });
 
   let failures = 0;
