@@ -58,7 +58,7 @@ Note that Copilot's own `github.copilot.chat.otel.captureContent` makes Copilot 
 
 ## The advisor
 
-Advisors are models you configure (`snagboat.advisors`, or the short form `snagboat.advisor.providers`), each offering some of five abilities, and each ability names the advisor it uses (`snagboat.advisor.defaults`) unless you pick another. What is sent depends on the ability:
+Advisors are models you configure (`snagboat.advisors`, or the short form `snagboat.advisor.providers`), each offering some of five abilities, and each ability names the advisor it uses (`snagboat.advisor.defaults`) unless you pick another. How to set one up is in [advisor models](docs/advisor-models.md). What is sent depends on the ability:
 
 - **Summarize a session** (**Explain**, in the Sessions tab, on a notification, or **Snagboat: Explain Session...**) sends one **session digest** per request.
 - **Propose heuristics** (**Ask the advisor**, in the Suggestions tab) sends discovery's candidates: each candidate's pattern, threshold, and your percentiles, plus digests of up to two of the turns that reached it, under the same rules as below, and the names of your shell command families (`curl`, `npm install`) with their counts, never their arguments. It also sends how each heuristic and rule did over the window (ids, episode counts, how many you acknowledged or muted) and the built-in thresholds against your history.
