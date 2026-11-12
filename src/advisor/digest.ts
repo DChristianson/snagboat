@@ -1,9 +1,9 @@
 import * as crypto from 'crypto';
 import * as path from 'path';
 import { contextSize } from '../core/contextLimits';
-import { isConversationEvent } from '../core/sessions';
-import { commandPrefix, isShellTool } from '../core/toolCategory';
-import { NormalizedEvent } from '../core/types';
+import { isConversationEvent } from '@snagboat/schema';
+import { commandPrefix, isShellTool } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 
 /**
  * The session digest: the only thing the advisor ever sees. A compact,
@@ -136,7 +136,8 @@ export function redactPath(p: string, roots: string[], mode: DigestPolicy['paths
     if (!path.isAbsolute(p)) return p;
     for (const root of roots) {
       const rel = path.relative(root, p);
-      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel;
+      // Forward slashes on every platform, so a digest reads the same from Windows.
+      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel.split(path.sep).join('/');
     }
   }
   return `file-${crypto.createHash('sha256').update(p).digest('hex').slice(0, 8)}${path.extname(p)}`;

@@ -1,14 +1,20 @@
 import { ModelContextMarks } from '../core/contextLimits';
 import { EventLog } from '../core/eventLog';
-import { SessionIndex } from '../core/sessions';
-import { NormalizedEvent } from '../core/types';
+import { SessionIndex } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 import { FindingReplay } from '../heuristics/replay';
-import { buildExplorerState, byNewestStart, ExploreSessionList, ExplorerState, SessionListPayload } from './explorerModel';
-import { buildSessionView, FindingInput, SessionView } from './sessionModel';
-import { EXPLORE_SESSION_CAP } from './visualizers';
+import { sessionFindings } from '../heuristics/sessionFindings';
+import { buildSessionView, FindingInput, SessionSummary, SessionView } from '@snagboat/schema';
 
-// The list's shape lives in explorerModel.ts (vscode- and fs-free, so the web demo shares it).
-export type { SessionListPayload } from './explorerModel';
+/** The day's session list the Sessions tab draws (the `sessions` message). */
+export interface SessionListPayload {
+  day: string;
+  /** Days with sessions, newest first, for the day picker. */
+  days: string[];
+  sessions: SessionSummary[];
+  /** The advisor's headline per session, where there is one (model output). */
+  headlines: Record<string, string>;
+}
 
 export interface SessionExtras {
   /** The advisor's headline for a session, when headlines are on. */
@@ -38,19 +44,15 @@ interface LoadedSession {
 }
 
 /**
- * Serves the Sessions tab and the Explore tab: the session list per day, the
- * Sessions tab's one open session, and the explorer's small set. Each loaded
- * session's events are read once from its days' raw files and then kept
- * current from live events, so updates never re-read files. Past findings
- * come from replaying the session's events through the heuristics once on
- * load, then feeding that replay each live event. The open session and the
- * explore set share one map, so a session in both is loaded once, and
- * changing either set never evicts a member of the other.
+ * Serves the Sessions tab: the session list per day and the one open
+ * session. The open session's events are read once from its days' raw files
+ * and then kept current from live events, so updates never re-read files.
+ * Past findings come from replaying the session's events through the
+ * heuristics once on load, then feeding that replay each live event.
  */
 export class SessionController {
   private readonly loaded = new Map<string, LoadedSession>();
   private openId?: string;
-  private exploreIds: string[] = [];
 
   constructor(
     private readonly index: SessionIndex,
@@ -72,21 +74,10 @@ export class SessionController {
     return { day: chosen, days, sessions, headlines };
   }
 
-  /** Every retained session for the Explore tab's picker, newest start first. */
-  listAll(): ExploreSessionList {
-    const sessions = byNewestStart(this.index.list());
-    const headlines: Record<string, string> = {};
-    for (const s of sessions) {
-      const h = this.extras.headline?.(s.sessionId);
-      if (h) headlines[s.sessionId] = h;
-    }
-    return { sessions, headlines };
-  }
-
   /**
    * Opens a session for the Sessions tab, (re)loading its events from its
    * days' raw files; undefined if it's unknown or no longer retained. The
-   * previously open session stays loaded only if the explorer has it.
+   * previously open session is dropped.
    */
   async open(sessionId: string): Promise<SessionView | undefined> {
     const loaded = await this.load(sessionId);
@@ -105,37 +96,6 @@ export class SessionController {
 
   get openSessionId(): string | undefined {
     return this.openId;
-  }
-
-  /**
-   * Sets the explore set to these ids, in order, at most EXPLORE_SESSION_CAP
-   * of them. Ids not loaded yet are read from their days' files the way
-   * open() reads; ones already loaded (including the open session) aren't
-   * re-read. Sessions no longer in either set are evicted. Unknown ids stay
-   * in the set and show up in the state as not loaded.
-   */
-  async explore(sessionIds: string[]): Promise<ExplorerState> {
-    const ids = [...new Set(sessionIds)].slice(0, EXPLORE_SESSION_CAP);
-    for (const id of ids) if (!this.loaded.has(id)) await this.load(id);
-    const previous = this.exploreIds;
-    this.exploreIds = ids;
-    for (const id of previous) if (!ids.includes(id)) this.evict(id);
-    return this.explorerState();
-  }
-
-  /** The explore set, in picked order, with a view for each loaded session. */
-  explorerState(): ExplorerState {
-    return buildExplorerState(this.exploreIds, (id) => this.viewOf(id));
-  }
-
-  get exploredSessionIds(): string[] {
-    return [...this.exploreIds];
-  }
-
-  closeExplorer(): void {
-    const previous = this.exploreIds;
-    this.exploreIds = [];
-    for (const id of previous) this.evict(id);
   }
 
   /** Keeps every loaded session current; returns true if the event belonged to one of them. */
@@ -168,9 +128,9 @@ export class SessionController {
     return loaded;
   }
 
-  /** Drops a session's events unless the other tab still has it. */
+  /** Drops a session's events unless it's the open one. */
   private evict(sessionId: string): void {
-    if (sessionId === this.openId || this.exploreIds.includes(sessionId)) return;
+    if (sessionId === this.openId) return;
     this.loaded.delete(sessionId);
   }
 
@@ -182,32 +142,8 @@ export class SessionController {
     return { ...buildSessionView(summary, session.events, this.marks(), this.sessionFindings(session.replay)), ...(headline ? { headline } : {}) };
   }
 
-  /**
-   * Replayed episodes plus live findings. A replayed episode still reporting
-   * at the end that shares events with a live finding of the same heuristic is
-   * that finding, so it shows once, as active.
-   */
+  /** Replayed episodes plus live findings, without muted heuristics (sessionFindings). */
   private sessionFindings(replay: FindingReplay | undefined): FindingInput[] {
-    const muted = new Set(this.findings.muted?.() ?? []);
-    const active = this.findings.active().filter((f) => !muted.has(f.heuristicId));
-    const out: FindingInput[] = [];
-    const matched = new Set<FindingLike>();
-    for (const ep of replay?.episodes() ?? []) {
-      if (muted.has(ep.heuristicId)) continue;
-      const refs = new Set(ep.eventRefs);
-      const live = ep.open ? active.find((f) => !matched.has(f) && f.heuristicId === ep.heuristicId && f.eventRefs.some((r) => refs.has(r))) : undefined;
-      if (live) matched.add(live);
-      out.push({
-        heuristicId: ep.heuristicId,
-        severity: live?.severity ?? ep.severity,
-        summary: live?.summary ?? ep.summary,
-        eventRefs: live ? [...new Set([...ep.eventRefs, ...live.eventRefs])] : ep.eventRefs,
-        startTs: ep.startTs,
-        endTs: ep.endTs,
-        active: !!live,
-      });
-    }
-    for (const f of active) if (!matched.has(f)) out.push({ ...f, active: true });
-    return out;
+    return sessionFindings(replay?.episodes() ?? [], this.findings.active(), this.findings.muted?.() ?? []);
   }
 }

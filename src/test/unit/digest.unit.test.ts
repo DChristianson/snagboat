@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { buildDigest, digestText, DigestInput, HOSTED_POLICY, LOCAL_POLICY, redactPath } from '../../advisor/digest';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '@snagboat/schema';
 
 const at = (min: number) => new Date(Date.UTC(2026, 0, 1, 0, 0) + min * 60_000).toISOString();
 const ROOT = '/work/project';

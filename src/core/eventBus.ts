@@ -1,4 +1,4 @@
-import { NormalizedEvent } from './types';
+import { NormalizedEvent } from '@snagboat/schema';
 
 type Listener = (event: NormalizedEvent) => void;
 

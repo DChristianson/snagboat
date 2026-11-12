@@ -16,7 +16,8 @@
   },
   "homepage": "https://github.com/DChristianson/snagboat#readme",
   "engines": {
-    "vscode": "^1.119.0"
+    "vscode": "^1.145.0",
+    "node": ">=24"
   },
   "categories": [
     "Visualization",
@@ -36,6 +37,9 @@
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
+  "bin": {
+    "snagboat": "./dist/snagboat.js"
+  },
   "contributes": {
     "commands": [
       {
@@ -49,6 +53,10 @@
       {
         "command": "snagboat.revealEventLog",
         "title": "Snagboat: Reveal Event Log Folder"
+      },
+      {
+        "command": "snagboat.openAdvisorUi",
+        "title": "Snagboat: Open Advisor UI"
       },
       {
         "command": "snagboat.previewDigest",
@@ -119,6 +127,24 @@
         "title": "Snagboat (Dev): Emit Test Event"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "snagboat",
+          "title": "Snagboat",
+          "icon": "media/snagboat-activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "snagboat": [
+        {
+          "type": "webview",
+          "id": "snagboat.findings",
+          "name": "Findings"
+        }
+      ]
+    },
     "menus": {
       "commandPalette": [
         {
@@ -130,6 +156,12 @@
     "configuration": {
       "title": "Snagboat",
       "properties": {
+        "snagboat.outcomes.git": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "With the per-user store on, the core service reads this project's git history (read-only: `git log`, `git show`, `git blame`) to record what became of commits made in a session: whether each was kept or reverted after 7 days, how many of its lines survive after 7 and 30 days, and whether it was a milestone (made after the session's tests last passed). Commit ids, counts and times only; no code. Off stops it for this project. A project's `.snagboat.json` can turn it off, not on."
+        },
         "snagboat.captureContent": {
           "type": "boolean",
           "default": true,
@@ -158,6 +190,12 @@
           "default": 30,
           "minimum": 1,
           "markdownDescription": "Days captured prompts and reply excerpts are kept, counting today. Older events keep everything else, with the text removed. Capped at `#snagboat.retention.rawDays#`. The default matches how long Claude Code keeps its own transcripts."
+        },
+        "snagboat.storage.perUserStore": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Preview: keep Snagboat's data in one per-user store, `~/.snagboat/data` (one folder per workspace, with saved rules in `~/.snagboat/rules.json`), instead of VS Code's storage for each window. Turning it on copies this window's existing data there; nothing is moved or deleted, so turning it off goes back to the data in VS Code's storage as it was, without what was recorded while it was on. With it on, VS Code starts Snagboat's core service, which records Claude Code and Copilot CLI sessions in **every project on this machine** (see PRIVACY.md; `\"collect.unopened\": false` in `~/.snagboat/config.json` limits it to projects VS Code knows), and each window shows its own workspace from it. Set it in User settings (it is not offered under Workspace); it applies to every window. Takes effect when the window reloads."
         },
         "snagboat.copilot.captureStructure": {
           "type": "boolean",
@@ -1483,14 +1521,19 @@
       }
     }
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "node esbuild.js",
-    "build:web": "tsc -p tsconfig.web.json && node esbuild.js --web && node scripts/webDemo.js",
-    "watch": "node esbuild.js --watch",
+    "build": "npm run build:packages && node esbuild.js",
+    "build:plugin": "npm run build && node scripts/buildPlugin.js",
+    "package:plugin": "npm run build:plugin && node scripts/packagePlugin.js",
+    "watch": "npm run build:packages && node esbuild.js --watch",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package",
+    "package": "vsce package --no-dependencies",
     "licenses": "node scripts/licenses.js",
-    "compile-tests": "tsc -p . --outDir out",
+    "check:readme": "node scripts/readmeCheck.js",
+    "compile-tests": "npm run build:packages && tsc -p . --outDir out",
     "verify:transcripts": "npm run compile-tests && node ./out/scripts/transcripts.js verify",
     "replay:heuristics": "npm run compile-tests && node ./out/scripts/replayHeuristics.js",
     "demo:traces": "npm run compile-tests && node ./out/scripts/demoTraces.js",
@@ -1500,12 +1543,14 @@
     "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile-tests && node ./out/test/unit/core.unit.test.js && node ./out/test/unit/claudeCode.unit.test.js && node ./out/test/unit/copilot.unit.test.js && node ./out/test/unit/format.unit.test.js && node ./out/test/unit/eventStore.unit.test.js && node ./out/test/unit/heuristics.unit.test.js && node ./out/test/unit/retention.unit.test.js && node ./out/test/unit/detail.unit.test.js && node ./out/test/unit/capture.unit.test.js && node ./out/test/unit/transcriptDedup.unit.test.js && node ./out/test/unit/transcriptTailer.unit.test.js && node ./out/test/unit/hookRouting.unit.test.js && node ./out/test/unit/conversation.unit.test.js && node ./out/test/unit/toolCategory.unit.test.js && node ./out/test/unit/contextLimits.unit.test.js && node ./out/test/unit/copilotStructure.unit.test.js && node ./out/test/unit/copilotCli.unit.test.js && node ./out/test/unit/sessions.unit.test.js && node ./out/test/unit/explorer.unit.test.js && node ./out/test/unit/backfill.unit.test.js && node ./out/test/unit/text.unit.test.js && node ./out/test/unit/fixtureReplay.unit.test.js && node ./out/test/unit/rules.unit.test.js && node ./out/test/unit/discovery.unit.test.js && node ./out/test/unit/suggestions.unit.test.js && node ./out/test/unit/digest.unit.test.js && node ./out/test/unit/advisor.unit.test.js && node ./out/test/unit/prompts.unit.test.js && node ./out/test/unit/headlines.unit.test.js && node ./out/test/unit/propose.unit.test.js && node ./out/test/unit/review.unit.test.js && node ./out/test/unit/nudges.unit.test.js && node ./out/test/unit/web.unit.test.js && node ./out/test/unit/heroShared.unit.test.js"
+    "test:unit": "npm run compile-tests && node scripts/runUnit.js",
+    "build:schema": "npm run build -w @snagboat/schema",
+    "build:packages": "npm run build:schema"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
-    "@types/node": "^22.20.5",
-    "@types/vscode": "~1.118.0",
+    "@types/node": "^24.19.2",
+    "@types/vscode": "~1.145.0",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.1.0",
     "esbuild": "^0.28.2",

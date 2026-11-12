@@ -6,7 +6,7 @@ import { Aggregate } from '../../core/aggregate';
 import { DailyHistory } from '../../core/dailyHistory';
 import { EventLog } from '../../core/eventLog';
 import { AggregateStore, summarizeDay } from '../../core/retention';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { FindingsRegistry } from '../../heuristics/findingsRegistry';
 import { Finding } from '../../heuristics/types';
 import { buildDetailState, isDetailMessage, resolveTargetFile, TIMELINE_LIMIT } from '../../ui/detailModel';
@@ -185,6 +185,13 @@ async function main() {
 
   test('isDetailMessage accepts only well-formed messages', () => {
     assert.ok(isDetailMessage({ type: 'ready' }));
+    assert.ok(isDetailMessage({ type: 'openAdvisorUi' }));
+    assert.ok(isDetailMessage({ type: 'openAdvisorUi', view: 'sessions' }));
+    assert.ok(!isDetailMessage({ type: 'openAdvisorUi', view: 'explore' }), 'no Explore');
+    assert.ok(!isDetailMessage({ type: 'tab', tab: 'explore' }), 'no Explore tab');
+    assert.ok(!isDetailMessage({ type: 'explore', sessionIds: [] }));
+    assert.ok(!isDetailMessage({ type: 'listExploreSessions' }));
+    assert.ok(!isDetailMessage({ type: 'openAdvisorUi', view: 'elsewhere' }));
     assert.ok(isDetailMessage({ type: 'acknowledge', heuristicId: 'stalled' }));
     assert.ok(isDetailMessage({ type: 'setMuted', heuristicId: 'stalled', muted: false }));
     assert.ok(isDetailMessage({ type: 'openFile', target: 'a.ts' }));

@@ -1,6 +1,6 @@
-import { eventTokens } from '../core/sessions';
-import { baseCategory, classifyCommand, classifyTool, isShellTool } from '../core/toolCategory';
-import { NormalizedEvent } from '../core/types';
+import { eventTokens } from '@snagboat/schema';
+import { baseCategory, classifyCommand, classifyTool, isShellTool } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 
 /**
  * The pure half of the backfill command: which source file an event came

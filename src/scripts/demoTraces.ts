@@ -1,10 +1,12 @@
 /**
- * Builds the web demo's example traces (docs/design/visualization-explorer.md,
- * "Demo data") from Snagboat's own daily event files, and a review report of
- * every piece of text in them. Dev tooling only; never shipped.
+ * Builds Factory Clock's example traces from Snagboat's own daily event files,
+ * and a review report of every piece of text in them. Dev tooling only; never
+ * shipped. Factory Clock lives in its own repository
+ * (https://github.com/DChristianson/factory-clock, docs/visualization-explorer.md,
+ * "Demo data"). The reviewed output is committed there, as hosts/web/demo/traces.js.
  *
  *   npm run demo:traces -- --events <events dir> [--events <dir> ...] --session <id or prefix> [...]
- *                          [--out web/demo/traces.js] [--report <file.md>]
+ *                          --out <traces.js> [--report <file.md>]
  *
  * What goes in: only the named sessions' events, each slimmed to what the
  * session views read. Shell-command and file targets and the raw source
@@ -18,7 +20,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { redactSecrets } from '../core/excerpt';
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '@snagboat/schema';
 
 /** The fields of an event the demo keeps; everything else (target, raw, channel extras) is dropped. */
 const KEPT: Array<keyof NormalizedEvent> = ['sessionId', 'agent', 'ts', 'kind', 'status', 'model', 'tokens', 'textExcerpt', 'promptText', 'sessionName', 'turnId', 'agentId', 'toolName', 'toolCategory', 'channel', 'endsTurn', 'contextLimit', 'compaction'];
@@ -112,9 +114,9 @@ export function textLines(set: DemoTraceSet): TextLine[] {
 /** The file the page loads: a script, since the page's CSP forbids fetching. One event per line, so a diff reads. */
 export function traceScript(set: DemoTraceSet): string {
   return [
-    '// The web demo’s example traces: real Snagboat sessions, slimmed by `npm run demo:traces` (src/scripts/demoTraces.ts).',
+    '// Factory Clock’s example traces: real Snagboat sessions, slimmed by `npm run demo:traces` (src/scripts/demoTraces.ts).',
     '// Every prompt, reply excerpt, and session name in here was read by a person before it was committed.',
-    'window.snagboatDemoTraces = {',
+    'window.factoryClockDemoTraces = {',
     `  picked: ${JSON.stringify(set.picked)},`,
     '  events: [',
     ...set.events.map((e) => `    ${JSON.stringify(e)},`),
@@ -163,7 +165,7 @@ function readEvents(dirs: string[]): NormalizedEvent[] {
 function main(argv: string[]): void {
   const dirs: string[] = [];
   const sessions: string[] = [];
-  let outFile = path.join(__dirname, '..', '..', 'web', 'demo', 'traces.js');
+  let outFile = '';
   let report = '';
   for (let i = 0; i < argv.length; i++) {
     const v = argv[++i];
@@ -174,6 +176,7 @@ function main(argv: string[]): void {
     else throw new Error(`demo:traces: unknown argument ${argv[i - 1]}`);
   }
   if (!dirs.length || !sessions.length) throw new Error('demo:traces: give --events <dir> and --session <id> at least once each');
+  if (!outFile) throw new Error('demo:traces: give --out <file>, such as hosts/web/demo/traces.js in a factory-clock checkout');
   const set = buildTraceSet(readEvents(dirs), sessions, os.homedir());
   const lines = textLines(set);
   fs.mkdirSync(path.dirname(outFile), { recursive: true });

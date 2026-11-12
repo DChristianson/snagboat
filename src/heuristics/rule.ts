@@ -1,5 +1,5 @@
-import { isShellSubCategoryId, isToolCategory, parseShellSubCategory, ShellSubCategory } from '../core/toolCategory';
-import { NormalizedEvent } from '../core/types';
+import { isShellSubCategoryId, isToolCategory, parseShellSubCategory, ShellSubCategory } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 
 /**
  * Declarative heuristics: which events count, what to measure over them, and

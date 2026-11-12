@@ -4,7 +4,7 @@ import { normalizeTranscriptLine } from '../../adapters/claude-code/normalize';
 import { normalizeOtlpTraces } from '../../adapters/copilot/normalize';
 import { findHedges, verbalHedgeHeuristic } from '../../heuristics/verbalHedge';
 import { ReadonlyEventStore } from '../../core/eventStore';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '@snagboat/schema';
 
 // Real transcript assistant lines carry message.content as an array of blocks;
 // only `text` blocks are the agent's reply.

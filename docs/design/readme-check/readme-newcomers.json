@@ -1,0 +1,122 @@
+{
+  "date": "2026-11-11",
+  "readme": "README.md",
+  "model": "claude-haiku-5-5",
+  "costUsd": 0.00375539,
+  "passed": 14,
+  "total": 14,
+  "results": [
+    {
+      "id": 1,
+      "question": "What is a \"finding\"?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "A finding is a sign of trouble that Snagboat flags in an agent's activity, raised by one of its heuristics. Findings appear in the status bar and the detail view. The page does not give a more detailed definition."
+    },
+    {
+      "id": 2,
+      "question": "What is a \"heuristic\" in this project? Name two in your own words.",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "A heuristic is a rule that watches the agents' recorded activity for one kind of trouble. Two examples: `backtracking` fires when one file or shell command fails 3 or more times in one turn, and `stalled` fires when an unfinished turn has had no agent activity for 15 minutes."
+    },
+    {
+      "id": 3,
+      "question": "What is the \"advisor\"? Is it required? Does it send my code to the cloud?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "The advisor is an optional feature where a model you choose explains a session, turn, or finding, and also helps with suggestions. It is not required. By default it uses a local Ollama server at localhost, so nothing leaves your machine; sending to a hosted provider happens only if you add one with an API key, and you see the payload before the first request."
+    },
+    {
+      "id": 4,
+      "question": "What is a \"turn\"?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "A turn is a prompt plus everything the agent does in answer to it, until it stops or you prompt again. Most heuristics judge only the current turn, so their findings clear when you prompt again."
+    },
+    {
+      "id": 5,
+      "question": "What does \"normalized event log\" mean here, and why would I care?",
+      "confidence": "medium",
+      "notInPage": false,
+      "pass": true,
+      "answer": "It means Claude Code and Copilot activity are converted into one common event shape and stored as daily JSONL files that you can read with jq or DuckDB. This lets heuristics and views work the same regardless of which agent produced the events. The page does not explicitly state further benefits beyond being able to read and analyze the log yourself."
+    },
+    {
+      "id": 6,
+      "question": "Does it work with Cursor, Codex, or Windows?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "Only Claude Code and GitHub Copilot are watched; Cursor and Codex aren't. Windows is supported only in a newer, less-tried way: hooks run through Git Bash, and it hasn't been tried with Claude Code on a real Windows machine. macOS and Linux are the main supported platforms."
+    },
+    {
+      "id": 7,
+      "question": "What does the snagboat name mean, and why was it chosen?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "In the 1800s, snagboats pulled sunken trees called snags out of rivers like the Mississippi, and snags were steamboats' deadliest hazard because they couldn't be seen from the deck. The name was chosen because Snagboat watches for hazards you can't see in agent sessions, such as loops, churn, and a quietly filling context."
+    },
+    {
+      "id": 8,
+      "question": "Does installing it change any files in my repo? Which?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "Yes. For every folder you open in VS Code, it adds two hook entries to `.claude/settings.json` in that project. If that file is committed, the change appears in `git status`, and you can remove the entries with the Remove Claude Code Hooks command."
+    },
+    {
+      "id": 9,
+      "question": "What does the Explore tab do, and can I try anything without installing?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "The Explore tab (experimental) shows up to eight sessions through a carousel of visualizers such as timelines, treemaps, and graphs, with a puck that names the current visualizer and filters by tags. You can try it without installing via the web demo at dchristianson.github.io/snagboat, which runs the Explore views over example sessions or over your own event log files read in the browser and sent nowhere."
+    },
+    {
+      "id": 10,
+      "question": "What is discovery / the Suggestions tab?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "Discovery, shown in the Suggestions tab (via the Snagboat: Discover Heuristics command), proposes rules, thresholds, and shell categories based on what's unusual in your own history. Each is scored by replay, and you can accept, adjust, or dismiss it."
+    },
+    {
+      "id": 11,
+      "question": "What does `cache-thrash` mean, and what should I do when it fires?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "cache-thrash fires when two or more calls in one turn each wrote 50,000 or more tokens to the prompt cache and wrote more than they read. The page says to find whatever early in the prompt changes on every call (instructions, the tool list, or injected files), and keep it stable so calls reuse the cache."
+    },
+    {
+      "id": 12,
+      "question": "Is it free / what's the license? Is it stable?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "Yes, it is free and open source under the MIT license. It is not stable: the page describes it as working but early, at version 0.0.2, and lists features not yet built."
+    },
+    {
+      "id": 13,
+      "question": "What's the one-sentence pitch of this project?",
+      "confidence": "high",
+      "notInPage": false,
+      "pass": true,
+      "answer": "Snagboat is a VS Code extension that watches Claude Code and Copilot agent sessions and flags signs of trouble like loops, churn, going quiet, budget overruns, or hedging, while keeping everything on your machine."
+    },
+    {
+      "id": 14,
+      "question": "Would a new user know what to do when a warning appears?",
+      "confidence": "medium",
+      "notInPage": false,
+      "pass": true,
+      "answer": "Partly. The Findings table gives a \"What to try\" line for each heuristic, and the status bar icons and hover text explain what's shown. However, the page doesn't say how to clear a warning beyond prompting again or acknowledging it, and warnings about Snagboat itself (the warning icon) are explained only briefly, so a new user is only partly guided."
+    }
+  ]
+}

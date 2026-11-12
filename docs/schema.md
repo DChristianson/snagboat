@@ -1,5 +1,9 @@
 # Common schema and transformation matrix
 
+The types below live in [packages/schema/src/types.ts](../packages/schema/src/types.ts), in the `@snagboat/schema` workspace package ([design/architecture-rfc.md](design/architecture-rfc.md)). [Factory Clock](https://github.com/DChristianson/factory-clock) keeps its own copy of it. The same shape is published as JSON Schema in [normalizedEvent.v3.schema.json](../packages/schema/src/normalizedEvent.v3.schema.json); a compile-time check keeps its field list equal to the type's, and `normalizedEventSchema.unit.test.ts` validates real events against it.
+
+**Versions.** Version 3 adds the `outcome` kind and the `outcome` field (below), `todos` and `taskOp`; version 2 added `workspace`. Each version only adds, so every version 1 and 2 event is a valid version 3 event, a reader takes all three, and older logs need no conversion. A reader that switches on `kind` should ignore kinds it doesn't know. Versions 1 and 2 stay published as [normalizedEvent.v1.schema.json](../packages/schema/src/normalizedEvent.v1.schema.json) (`normalizedEventSchemaV1`) and [normalizedEvent.v2.schema.json](../packages/schema/src/normalizedEvent.v2.schema.json) (`normalizedEventSchemaV2`). Version 3 is unreleased: it may still gain outcome types and fields before the `refactor` branch ships. The package imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`).
+
 ## `NormalizedEvent`
 
 ```ts
@@ -12,7 +16,8 @@ interface NormalizedEvent {
   agent: AgentId;
   ts: string;
   kind: 'tool_call' | 'tool_result' | 'edit' | 'test_run'
-    | 'turn_start' | 'turn_stop' | 'user_prompt' | 'compaction' | 'session_name';
+    | 'turn_start' | 'turn_stop' | 'user_prompt' | 'compaction' | 'session_name'
+    | 'outcome';           // v3
   target?: string;
   status: 'success' | 'failure' | 'unknown';
   model?: string;
@@ -30,10 +35,38 @@ interface NormalizedEvent {
   toolName?: string;     // tool calls: the tool's name as reported
   toolCategory?: 'file-read' | 'file-edit' | 'search' | 'script' | 'tests-builds'
     | 'version-control' | 'shell' | 'web' | 'mcp' | 'subagent' | 'other';
+  todos?: {             // v3, tool calls to the agent's todo tool (TodoWrite)
+    pending: number; inProgress: number; completed: number;
+    items?: Array<{ text: string; status: 'pending' | 'in_progress' | 'completed' }>;  // capture on only
+  };
+  taskOp?: {            // v3, tool calls to the agent's task tools (TaskCreate, TaskUpdate, TaskList)
+    op: 'create' | 'update' | 'list';
+    id?: string;                                   // create, update
+    status?: 'pending' | 'in_progress' | 'completed' | 'deleted';  // update
+    subject?: string;                              // create, update; capture on only
+    tasks?: Array<{ id: string; status: 'pending' | 'in_progress' | 'completed'; subject?: string }>;  // list; subject capture on only
+  };
   compaction?: { trigger: 'auto' | 'manual' | 'unknown'; preTokens?: number; postTokens?: number };
   channel?: 'inline';    // model calls from editor features, not agent turns
   contextLimit?: number; // the model's prompt budget for this call, when reported
   endsTurn?: true;       // this event ends its turn (see below)
+  workspace?: string;    // v2: the workspace it was recorded in (see below)
+  outcome?: {            // v3, outcome events: what was measured (see below)
+    type: 'tests_green' | 'finding_response'
+      | 'commit_kept' | 'commit_reverted' | 'code_survival' | 'milestone' | 'approval' | 'notified';
+    refs?: string[];       // the events it's about
+    failures?: number;     // tests_green: failed runs before it passed
+    afterMs?: number;      // tests_green: first failure to green
+    heuristicId?: string;  // finding_response
+    response?: 'useful' | 'muted' | 'acknowledged' | 'passed';  // finding_response
+    commit?: string;       // git outcomes: the commit
+    files?: number;        // git outcomes: the session's files it touched
+    linesWritten?: number; // code_survival: lines it added to them
+    linesSurviving?: number; // code_survival: still there
+    days?: number;         // code_survival: 7 or 30
+    advisor?: string;      // notified: whose notify limit it fell under
+    decision?: 'asked' | 'denied';  // approval
+  };
   confidence?: number;
   raw: {
     adapter: string;
@@ -45,6 +78,24 @@ interface NormalizedEvent {
 
 `confidence` is intentionally optional. Current Claude Code and Copilot integrations do not expose a trustworthy probability signal, but reserving the field now avoids a future schema migration. Built-in agent IDs stay explicit while third-party adapters should use a namespaced `custom:*` identifier. `raw.event` is optional and exists only for inspection or debugging when keeping part of the source payload is worth the extra storage.
 
+`workspace` (version 2) names the workspace an event was recorded in: its folder path, its `.code-workspace` file path, or `(no folder)` for a window with no folder open (a remote window's is its URI, such as `vscode-remote://…`). It's set on every event in the per-user store (`~/.snagboat/data`, `snagboat.storage.perUserStore`), which holds every workspace's events, and absent in a VS Code window's own storage, which holds only that window's. `snagboat migrate` sets it on the events it copies there.
+
+`outcome` events (version 3) measure how work went. Snagboat works most of them out from other events (`raw.adapter` is `snagboat-outcomes`); `approval` comes straight from Claude Code's permission hooks (`raw.adapter` is `claude-code`). Each is filed in the session it's about:
+
+- `tests_green`: a tool call in the tests-builds category succeeded after one or more failed in the same session. `refs` names the first failure and the passing run; its id is derived from the passing run's, so reading the same events again adds nothing. Whoever writes the workspace's events works it out: the core, or a window writing its own folder.
+- `notified`: Snagboat showed you a notification for `heuristicId` (a finding or an early warning), with `advisor` when it falls under an advisor's `notify` rules; filed in its session. Lookout's notifications per hour count these.
+- `approval`: Claude Code asked you to approve a tool call (`PermissionRequest` hook, `decision: 'asked'`), or auto mode denied one (`PermissionDenied`, `decision: 'denied'`). Only `toolName` is kept, never the tool's input or the denial's reason; a denial's `refs` names its tool call (`tool:<tool_use_id>`) and its id is derived from it. Claude Code sends no hook when you deny a prompt yourself, so a prompt's answer isn't recorded: Bosun's approvals per session is prompts less auto mode's denials.
+- `finding_response`: a finding's episode ended, and `response` says how you met it, strongest first: marked **Useful**, muted, acknowledged, or let it pass. `refs` are the finding's events; filed in the session of the latest one still in the window's recent events.
+
+- Git outcomes, worked out by the core from the project's history (read-only; `outcomes.git`). A session's commit is one made between its first event and 30 minutes after its last that touches a file its agent edited:
+  - `milestone`, at the commit's time: the session's last test or build run before it passed.
+  - `commit_kept` or `commit_reverted`, 7 days after it: whether a commit saying "This reverts commit <id>" came within those 7 days.
+  - `code_survival`, 7 and 30 days after it: of the lines it added to the session's files, `linesSurviving` are still there at HEAD (`git blame`).
+
+  Each has a fixed id and time, so running again adds nothing. Every commit counts, on any branch: work merged by squash counts as its branch commits and again as the squash commit (decided: count both). Multi-root workspaces aren't read yet.
+
+Outcome events don't count as agent activity: they're left out of totals, the daily chart, session lists and heuristics.
+
 `model` is optional and populated per event where the source reliably reports it, since coverage varies by adapter: the Claude Code transcript carries `message.model` directly alongside `message.usage` on every assistant turn, so the `claude-code` adapter should populate it whenever it emits token-bearing `turn_stop` events. Copilot OTel spans/metrics are expected to carry the model via the OpenTelemetry GenAI semantic conventions (`gen_ai.request.model` / `gen_ai.response.model`), so the `copilot` adapter's OTel path should populate it once that is verified against a live capture. Copilot's log-scrape path should leave `model` unset rather than guessing: its local session log's model field is consistently empty regardless of which model actually served the request. Per-event `model` is intended to support future per-model cost-weighting in longer-horizon rollups, distinct from the flat token totals used today.
 
 ## Transformation matrix
@@ -53,8 +104,12 @@ Every adapter should document how each raw signal maps into the shared schema.
 
 | Raw signal | Source | `kind` | `target` | `status` | `tokens` | `textExcerpt` | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `PostToolUse` hook payload | Claude Code | `tool_call` | `tool_input.file_path` or `.command` | Derived from `tool_response.error` | — | — | Hooks provide structure but not usage. |
+| `PostToolUse` and `PostToolUseFailure` hook payloads | Claude Code | `tool_call` | `tool_input.file_path` or `.command` | `success` from `PostToolUse` (`failure` if `tool_response.error`); `failure` from `PostToolUseFailure` (a failed call, or a Bash command exiting non-zero), `unknown` if `is_interrupt` | — | — | Hooks provide structure but not usage. |
+| `tool_use` block, then its `tool_result` | Claude Code JSONL | `tool_call` | `input.file_path` or `.command` | `failure` if the result `is_error`, else `success` | — | — | Built when the result arrives (backfill builds the same from whole transcripts), with id `tool:<tool_use_id>` like the hooks', so a call both report counts once. How projects without Snagboat's hooks get tool calls; a call whose result comes after a restart is lost. |
+| `TodoWrite` tool call (hook's `tool_input.todos`, or the transcript's `tool_use` input) | Claude Code | Decorates the `tool_call` with `todos` | — | — | — | Each item's `content` in `todos.items` when `snagboat.captureContent` is on, up to 50 items of 200 characters, redacted | Counts of `pending`, `in_progress` and `completed` items always; `activeForm` and unknown statuses are dropped. The latest list in a session is Navigator's plan when the workspace has no Beads. |
+| `TaskCreate`, `TaskUpdate` and `TaskList` tool calls (hook's `tool_input` and `tool_response`, or the transcript's `tool_use` input and its result line's `toolUseResult`) | Claude Code | Decorates the `tool_call` with `taskOp` | — | — | — | Each task's `subject` when `snagboat.captureContent` is on, 200 characters, redacted (a list's first 50) | The change each call made to the plan: `create` with the new task's id (`tool_response.task.id`; only in the result), `update` with its id (`taskId`, or `id`/`task_id`) and new status or subject (`deleted` removes it), or `list`, every task (up to 200), replacing what came before. Never `description`, `activeForm`, `owner` or `metadata`. Failed calls, `TaskGet`, and calls missing what they need (a create without its id) record none. Unlike `TodoWrite` these change the plan a task at a time, so Navigator replays a session's changes in order; a session that used both takes whichever it used last. |
 | `Stop` hook payload | Claude Code | `turn_stop` with `endsTurn` | — | `unknown` | — | — | Marks the end of a turn. |
+| `PermissionRequest` and `PermissionDenied` hook payloads | Claude Code | `outcome` (`approval`, `decision` `asked` or `denied`) | — | `unknown` | — | — | Only `tool_name` (as `toolName`), and `tool_use_id` (in `refs`, PermissionDenied only); `tool_input` and `reason` are dropped. Registered with `"async": true`, so Claude Code doesn't wait for them and ignores their output: they never decide or delay a permission prompt. |
 | `prompt_id`, `agent_id` on any hook payload | Claude Code | Decorates the hook's event | — | — | — | — | Become `turnId` and `agentId`. Payloads without `prompt_id` (older Claude Code) take the session's current turn from the transcript. |
 | Transcript message with usage block | Claude Code JSONL | `turn_stop` | — | `unknown` | Direct map from `input_tokens`, `output_tokens`, and cache fields, **once per `message.id`** | See next row | Primary token-accounting source. Claude Code writes one line per content block (thinking, text, tool_use), each repeating the whole message's `usage`; consecutive lines sharing a `message.id` are merged into one event. |
 | Transcript message text | Claude Code JSONL | Decorates the owning `turn_stop` event | — | `unknown` | — | `text` content blocks only, truncated to 500 characters, when `snagboat.captureContent` is on | Heuristics mine this captured text later; adapters do not need to invent a separate hedge event. |
@@ -85,8 +140,8 @@ This matrix is the adapter conformance spec. New adapters should not be accepted
 The schema is designed so sensitive content remains optional:
 
 - structural fields (`kind`, `status`, `target`, `tokens`) support most heuristics and reporting
-- `promptText` and `textExcerpt` are captured by default (`snagboat.captureContent`), redacted, and kept for `snagboat.retention.textDays` (default 30), after which they're removed from their events; `sessionName` stays with its session (see [PRIVACY.md](../PRIVACY.md#retention))
-- `session_name` events are metadata: they don't count as agent activity in totals or heuristics
+- `promptText`, `textExcerpt`, `todos.items` and task subjects in `taskOp` are captured by default (`snagboat.captureContent`), redacted, and kept for `snagboat.retention.textDays` (default 30), after which they're removed from their events; `sessionName` stays with its session (see [PRIVACY.md](../PRIVACY.md#retention))
+- `session_name` and `outcome` events don't count as agent activity in totals or heuristics
 - `target` is structural for file paths but can carry sensitive content for shell commands, so it is a candidate for a shorter retention too
 - `raw.ref` points back to source material without copying entire payloads into the normalized record
 - `raw.event` is optional debug data and should be omitted unless an adapter has a clear inspection need
@@ -102,4 +157,4 @@ Examples include `transcripts/session.jsonl#L128`, `file:///.../copilot.log#offs
 
 ## Tool categories
 
-`toolCategory` is a high-level label for what a tool call ran, computed in the adapter by `src/core/toolCategory.ts` from the tool's name and, for shell tools, the command line: interpreter runs (a script file, or inline code such as `python3 - <<EOF`) are `script`; test runners, build tools, and package-manager `test`/`build`/`lint` scripts are `tests-builds`; `git`/`gh` are `version-control`; other commands are `shell`. Chains are classified by their first meaningful segment (`cd src && npm test` is `tests-builds`). It's pattern matching and will mislabel some calls; see [design/conversation-view.md](design/conversation-view.md#tool-classification). Copilot doesn't export tool arguments, so its terminal tool is always `shell`.
+`toolCategory` is a high-level label for what a tool call ran, computed in the adapter by `packages/schema/src/toolCategory.ts` from the tool's name and, for shell tools, the command line: interpreter runs (a script file, or inline code such as `python3 - <<EOF`) are `script`; test runners, build tools, and package-manager `test`/`build`/`lint` scripts are `tests-builds`; `git`/`gh` are `version-control`; other commands are `shell`. Chains are classified by their first meaningful segment (`cd src && npm test` is `tests-builds`). It's pattern matching and will mislabel some calls; see [design/conversation-view.md](design/conversation-view.md#tool-classification). Copilot doesn't export tool arguments, so its terminal tool is always `shell`.

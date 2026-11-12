@@ -29,7 +29,8 @@
     vscode.setState({ ...(vscode.getState() || {}), range: ui.range, agent: ui.agent, kind: ui.kind, status: ui.status, search: ui.search, ...(extra || {}) });
   }
 
-  // DOM, SVG, and formatting helpers come from shared.js (loaded first).
+  // DOM, SVG, and formatting helpers come from shared.js, the drawing kit
+  // (drawings/kit.js) plus the detail view's own; both are loaded first.
   const shared = window.snagboatShared;
   const { el, svg, compact, fmt, niceMax, clip, formatTime, formatDay } = shared;
 
@@ -80,35 +81,42 @@
   const timelineCount = el('p', { class: 'muted small' });
   const timelineBody = el('tbody');
 
-  // ---------- tabs: Overview (this script), Sessions (sessions.js), Suggestions (suggestions.js), and Explore (explore.js) ----------
+  // ---------- tabs: Overview (this script), Sessions (sessions.js), and Suggestions (suggestions.js) ----------
   const overviewRoot = el('div', { id: 'overview-root', role: 'tabpanel', 'aria-labelledby': 'tab-overview' });
   const sessionsRoot = el('div', { id: 'sessions-root', role: 'tabpanel', 'aria-labelledby': 'tab-sessions', hidden: true });
   const suggestionsRoot = el('div', { id: 'suggestions-root', role: 'tabpanel', 'aria-labelledby': 'tab-suggestions', hidden: true });
-  const exploreRoot = el('div', { id: 'explore-root', role: 'tabpanel', 'aria-labelledby': 'tab-explore', hidden: true });
   const tabButtons = {};
   function selectTab(tab, notify) {
     for (const [name, btn] of Object.entries(tabButtons)) btn.setAttribute('aria-selected', String(name === tab));
     overviewRoot.hidden = tab !== 'overview';
     sessionsRoot.hidden = tab !== 'sessions';
     suggestionsRoot.hidden = tab !== 'suggestions';
-    exploreRoot.hidden = tab !== 'explore';
     persist({ tab });
     if (notify) vscode.postMessage({ type: 'tab', tab });
     if (tab === 'sessions' && window.snagboatSessions) window.snagboatSessions.shown();
-    if (window.snagboatExplore) {
-      if (tab === 'explore') window.snagboatExplore.shown();
-      else window.snagboatExplore.hidden();
-    }
   }
-  for (const [name, label] of [['overview', 'Overview'], ['sessions', 'Sessions'], ['suggestions', 'Suggestions'], ['explore', 'Explore']]) {
+  for (const [name, label] of [['overview', 'Overview'], ['sessions', 'Sessions'], ['suggestions', 'Suggestions']]) {
     const btn = el('button', { id: `tab-${name}`, class: 'tab', role: 'tab', text: label });
-    if (name === 'explore') btn.append(el('span', { class: 'exp', text: 'experimental' }));
     btn.addEventListener('click', () => selectTab(name, true));
     tabButtons[name] = btn;
   }
   const tabBar = el('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Snagboat views' }, Object.values(tabButtons));
+  // With the per-user store on, Sessions live in the advisor UI in your browser (RFC step 5c).
+  const openUi = (view) => vscode.postMessage({ type: 'openAdvisorUi', ...(view ? { view } : {}) });
+  const browserLinks = el('span', { class: 'browser-links small', hidden: true }, [
+    el('button', { class: 'link', text: 'Sessions ↗', title: 'Open the sessions in the advisor UI, in your browser' }),
+    el('button', { class: 'link', text: 'Advisor UI ↗', title: 'Open the advisor UI in your browser' }),
+  ]);
+  browserLinks.children[0].addEventListener('click', () => openUi('sessions'));
+  browserLinks.children[1].addEventListener('click', () => openUi());
+  tabBar.append(browserLinks);
+  function setInBrowser(on) {
+    tabButtons.sessions.hidden = on;
+    browserLinks.hidden = !on;
+    if (on && !sessionsRoot.hidden) selectTab('overview', false);
+  }
 
-  app.replaceChildren(el('div', { class: 'title-row' }, [el('h1', { text: 'Snagboat' }), tabBar]), overviewRoot, sessionsRoot, suggestionsRoot, exploreRoot);
+  app.replaceChildren(el('div', { class: 'title-row' }, [el('h1', { text: 'Snagboat' }), tabBar]), overviewRoot, sessionsRoot, suggestionsRoot);
   overviewRoot.append(
     el('header', {}, [updatedNote, captureNote, tiles]),
     el('section', { 'aria-labelledby': 'findings-h' }, [el('h2', { id: 'findings-h', text: 'Findings' }), findingsList, mutedRow]),
@@ -145,7 +153,7 @@
 
   // For sessions.js and suggestions.js (same document, same CSP nonce): the
   // shared helpers again, plus what only this page has.
-  window.snagboat = { ...shared, vscode, persist, sessionsRoot, suggestionsRoot, exploreRoot, selectTab, tooltip, showTip, hideTip };
+  window.snagboat = { ...shared, vscode, persist, sessionsRoot, suggestionsRoot, selectTab, tooltip, showTip, hideTip };
 
   // ---------- header ----------
 
@@ -184,7 +192,7 @@
             el('div', { class: 'head' }, [
               el('span', { class: `badge ${f.severity}`, text: f.severity === 'warn' ? 'Warning' : 'Info' }),
               el('strong', { text: f.heuristicId }),
-              f.acknowledged && el('span', { class: 'muted small', text: 'Acknowledged: hidden from the status bar until it clears' }),
+              f.acknowledged && el('span', { class: 'muted small', text: f.useful ? 'Marked useful: hidden from the status bar until it clears' : 'Acknowledged: hidden from the status bar until it clears' }),
             ]),
             el('p', { class: 'summary', text: f.summary }),
             f.suggestedAction && el('p', { class: 'muted small', text: f.suggestedAction }),
@@ -205,6 +213,12 @@
                     persist({ sessionId: f.sessionId });
                     vscode.postMessage({ type: 'openSession', sessionId: f.sessionId });
                   },
+                }),
+              !f.useful &&
+                el('button', {
+                  text: 'Useful',
+                  title: 'This finding helped; also hides it from the status bar until it clears',
+                  onclick: () => vscode.postMessage({ type: 'useful', heuristicId: f.heuristicId }),
                 }),
               !f.acknowledged &&
                 el('button', { text: 'Acknowledge', onclick: () => vscode.postMessage({ type: 'acknowledge', heuristicId: f.heuristicId }) }),
@@ -492,6 +506,7 @@
 
   window.addEventListener('message', (evt) => {
     if (evt.data && evt.data.type === 'state') {
+      setInBrowser(!!evt.data.inBrowser);
       state = evt.data.state;
       render();
     } else if (evt.data && evt.data.type === 'navigate') {
@@ -500,7 +515,7 @@
   });
   // Restore the tab from the last session of this panel.
   const savedTab = (vscode.getState() || {}).tab;
-  if (savedTab === 'sessions' || savedTab === 'suggestions' || savedTab === 'explore') {
+  if (savedTab === 'sessions' || savedTab === 'suggestions') {
     selectTab(savedTab, false);
     vscode.postMessage({ type: 'tab', tab: savedTab });
   } else {

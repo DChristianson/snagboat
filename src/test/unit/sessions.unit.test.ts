@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { SessionIndex } from '../../core/sessions';
-import { NormalizedEvent } from '../../core/types';
-import { buildSessionView, callContext } from '../../ui/sessionModel';
+import { SessionIndex } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
+import { buildSessionView, callContext } from '@snagboat/schema';
 import { SessionController } from '../../ui/sessionController';
 import { EventLog } from '../../core/eventLog';
 import { isDetailMessage } from '../../ui/detailModel';

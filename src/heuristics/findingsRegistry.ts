@@ -5,6 +5,8 @@ import { ResponseTracker } from './responses';
 export interface FindingView {
   finding: Finding;
   acknowledged: boolean;
+  /** Marked useful this episode. */
+  useful: boolean;
   muted: boolean;
 }
 
@@ -26,6 +28,8 @@ export class FindingsRegistry {
   // nothing, so a fresh occurrence of the same problem resurfaces. Muting is
   // indefinite (persisted by the caller via onMutedChange).
   private acknowledged = new Set<string>();
+  /** Marked useful this episode. */
+  private useful = new Set<string>();
   private muted: Set<string>;
 
   constructor(initiallyMuted: Iterable<string> = [], private readonly responses?: ResponseTracker) {
@@ -43,6 +47,8 @@ export class FindingsRegistry {
 
   report(heuristicId: string, findings: Finding[]): void {
     this.responses?.reported(heuristicId, findings);
+    // An episode of a muted heuristic is never seen: it's muted from the start, not left to pass.
+    if (findings.length > 0 && this.muted.has(heuristicId)) this.responses?.muted(heuristicId, true);
     const prev = this.byHeuristic.get(heuristicId) ?? [];
     const changed = !sameFindings(prev, findings);
     if (findings.length > 0) {
@@ -50,6 +56,7 @@ export class FindingsRegistry {
     } else {
       this.byHeuristic.delete(heuristicId);
       this.acknowledged.delete(heuristicId);
+      this.useful.delete(heuristicId);
     }
     if (changed) this.notify();
   }
@@ -59,6 +66,37 @@ export class FindingsRegistry {
     if (!this.byHeuristic.has(heuristicId) || this.acknowledged.has(heuristicId)) return;
     this.acknowledged.add(heuristicId);
     this.responses?.acknowledged(heuristicId);
+    this.notify();
+  }
+
+  /** Says a heuristic's current findings were useful; also acknowledges them. No-op if nothing is active. */
+  markUseful(heuristicId: string): void {
+    if (!this.byHeuristic.has(heuristicId) || this.useful.has(heuristicId)) return;
+    this.useful.add(heuristicId);
+    this.responses?.useful(heuristicId);
+    if (!this.acknowledged.has(heuristicId)) {
+      this.acknowledged.add(heuristicId);
+      this.responses?.acknowledged(heuristicId);
+    }
+    this.notify();
+  }
+
+/**
+   * Takes how you've met the findings from the core, which keeps it for every
+   * front door (a window that's the core's client): acknowledged, useful and
+   * muted, as the core has them.
+   */
+  mirror(states: Record<string, { acknowledged: boolean; useful: boolean; muted: boolean }>, muted: string[]): void {
+    const next = { acknowledged: new Set<string>(), useful: new Set<string>(), muted: new Set(muted) };
+    for (const [id, st] of Object.entries(states)) {
+      if (st.acknowledged) next.acknowledged.add(id);
+      if (st.useful) next.useful.add(id);
+    }
+    const same = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((x) => b.has(x));
+    if (same(next.acknowledged, this.acknowledged) && same(next.useful, this.useful) && same(next.muted, this.muted)) return;
+    this.acknowledged = next.acknowledged;
+    this.useful = next.useful;
+    this.muted = next.muted;
     this.notify();
   }
 
@@ -88,6 +126,7 @@ export class FindingsRegistry {
     return this.list().map((finding) => ({
       finding,
       acknowledged: this.acknowledged.has(finding.heuristicId),
+      useful: this.useful.has(finding.heuristicId),
       muted: this.muted.has(finding.heuristicId),
     }));
   }

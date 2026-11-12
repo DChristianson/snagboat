@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import { nudgeLine } from '../../advisor/proposeNudges';
 import { EventStore } from '../../core/eventStore';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { contextPressureHeuristic } from '../../heuristics/contextPressure';
 import { parseRule } from '../../heuristics/rule';
 import { ruleHeuristic } from '../../heuristics/ruleHeuristic';
@@ -42,6 +42,37 @@ async function main() {
     n.update(new Map(), [], on());
     assert.strictEqual(n.update(new Map([['backtracking', [finding('backtracking', 'warn', 's1/t3/c')]]]), [], on()).length, 1, 'a new episode in a new turn');
     assert.deepStrictEqual(new Nudger(locate).update(active, [], on('all')).map((x) => x.heuristicId), ['backtracking', 'verbal-hedge']);
+  });
+
+  test("an advisor's max_per_hour caps the notifications of the heuristics it speaks for; others are unaffected", () => {
+    let now = 0;
+    const n = new Nudger(locate, () => now);
+    const limits = [{ advisor: 'navigator', rules: ['backtracking', 'runaway-turn'], maxPerHour: 1 }];
+    const episode = (id: string, turn: string) => new Map([[id, [finding(id, 'warn', `s1/${turn}/a`)]]]);
+    const first = n.update(episode('backtracking', 't1'), [], on('warnings', { limits }));
+    assert.deepStrictEqual(first.map((x) => [x.heuristicId, x.advisor]), [['backtracking', 'navigator']]);
+    n.update(new Map(), [], on('warnings', { limits }));
+    now = 10 * 60_000;
+    assert.deepStrictEqual(n.update(episode('backtracking', 't2'), [], on('warnings', { limits })), [], 'a second within the hour: capped');
+    assert.deepStrictEqual(n.update(new Map(), [progress('runaway-turn', 's1/t3/x')], on('warnings', { limits })), [], 'early warnings count too');
+    assert.strictEqual(n.update(episode('stalled', 't4'), [], on('warnings', { limits })).length, 1, 'a heuristic no advisor lists');
+    n.update(new Map(), [], on('warnings', { limits }));
+    now = 61 * 60_000;
+    assert.strictEqual(n.update(episode('backtracking', 't5'), [], on('warnings', { limits })).length, 1, 'an hour later');
+  });
+
+  test("room() names a finding's advisor and whether its limit is holding it back, without using it", () => {
+    let now = 0;
+    const n = new Nudger(locate, () => now);
+    const limits = [{ advisor: 'navigator', rules: ['backtracking'], maxPerHour: 1 }, { advisor: 'lookout', rules: ['noisy'] }];
+    assert.deepStrictEqual(n.room('backtracking', { limits }), { advisor: 'navigator', held: false });
+    assert.deepStrictEqual(n.room('backtracking', { limits }), { advisor: 'navigator', held: false }, 'reading uses nothing');
+    assert.deepStrictEqual(n.room('noisy', { limits }), { advisor: 'lookout', held: false }, 'no limit');
+    assert.deepStrictEqual(n.room('stalled', { limits }), { held: false }, 'no advisor');
+    n.update(new Map([['backtracking', [finding('backtracking', 'warn', 's1/t1/a')]]]), [], on('warnings', { limits }));
+    assert.deepStrictEqual(n.room('backtracking', { limits }), { advisor: 'navigator', held: true });
+    now = 61 * 60_000;
+    assert.strictEqual(n.room('backtracking', { limits }).held, false, 'an hour later');
   });
 
   test('off, quiet, and muted never notify, and an episode already under way when notifications turn on stays quiet', () => {

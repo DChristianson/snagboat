@@ -80,6 +80,8 @@ suite('Snagboat core plumbing', () => {
     await vscode.commands.executeCommand('snagboat._emitTestEvent');
     await vscode.commands.executeCommand('snagboat._emitTestEvent');
 
+    // As a client of the core, the events go to the core and come back on its feed.
+    await waitFor(() => api.getAggregateSnapshot().totalTokens >= beforeTokens + 2 * 35);
     const after = api.getAggregateSnapshot();
     assert.strictEqual(after.totalTokens, beforeTokens + 2 * 35, 'total tokens should include both emitted events');
     assert.strictEqual(
@@ -95,6 +97,90 @@ suite('Snagboat core plumbing', () => {
     // the real vscode.workspace.getConfiguration() wiring in heuristicSettings()
     // doesn't throw in a live host, not the heuristic's own logic (unit-tested).
     assert.ok(!api.getFindings().some((f) => f.heuristicId === 'stalled'), 'stalled should not fire right after recent activity');
+  });
+
+  test('events are written to the store the storage setting picks', async () => {
+    const home = process.env.SNAGBOAT_HOME;
+    assert.ok(home, 'SNAGBOAT_HOME must be set by runTest.ts');
+    const workspacesDir = path.join(home!, 'data', 'workspaces');
+    await vscode.commands.executeCommand('snagboat._emitTestEvent');
+    if (!process.env.SNAGBOAT_TEST_PER_USER_STORE) {
+      // Off (the default): nothing is written to the per-user store.
+      assert.ok(!fs.existsSync(path.join(home!, 'data')), 'the per-user store is untouched with the setting off');
+      return;
+    }
+    const folder = vscode.workspace.workspaceFolders![0].uri.fsPath;
+    const tagged = () => {
+      if (!fs.existsSync(workspacesDir)) return false;
+      for (const key of fs.readdirSync(workspacesDir)) {
+        const eventsDir = path.join(workspacesDir, key, 'events');
+        if (!fs.existsSync(eventsDir)) continue;
+        for (const day of fs.readdirSync(eventsDir)) {
+          const lines = fs.readFileSync(path.join(eventsDir, day), 'utf8').split('\n').filter(Boolean);
+          if (lines.some((l) => JSON.parse(l).sessionId === 'dev-test-session' && JSON.parse(l).workspace === folder)) return true;
+        }
+      }
+      return false;
+    };
+    await waitFor(tagged);
+    // The window is a client: the core writes the folder, and the window claims nothing (3c-3c).
+    assert.strictEqual(api.getStorageMode(), 'core', 'the window started the core and follows it');
+    const claims = fs.readdirSync(workspacesDir).map((key) => path.join(workspacesDir, key, 'writer.json')).filter((f) => fs.existsSync(f));
+    assert.deepStrictEqual(claims, [], 'no claim');
+    const core = JSON.parse(fs.readFileSync(path.join(home!, 'core.json'), 'utf8'));
+    assert.notStrictEqual(core.pid, process.pid, 'the core runs in its own process');
+  });
+
+  test("the window marks its VS Code storage folder with its workspace, whichever store the setting picks", () => {
+    const dir = api.getVsCodeStorageDir();
+    assert.ok(dir, 'the test window has a folder open, so it has workspace storage');
+    const marker = JSON.parse(fs.readFileSync(path.join(dir!, 'snagboat-workspace.json'), 'utf8'));
+    assert.deepStrictEqual(marker, { folder: vscode.workspace.workspaceFolders![0].uri.fsPath });
+  });
+
+  test("with the per-user store on, the window copies Snagboat's settings into ~/.snagboat/config.json", async function () {
+    if (!process.env.SNAGBOAT_TEST_PER_USER_STORE) return this.skip();
+    const configFile = path.join(process.env.SNAGBOAT_HOME!, 'config.json');
+    const folder = vscode.workspace.workspaceFolders![0].uri.fsPath;
+    const project = () => {
+      try {
+        return (JSON.parse(fs.readFileSync(configFile, 'utf8')).projects ?? {})[folder] as Record<string, unknown> | undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const config = vscode.workspace.getConfiguration('snagboat');
+    await config.update('heuristics.stalled.minutes', 21, vscode.ConfigurationTarget.Workspace);
+    try {
+      await waitFor(() => project()?.['heuristics.stalled.minutes'] === 21);
+    } finally {
+      await config.update('heuristics.stalled.minutes', undefined, vscode.ConfigurationTarget.Workspace);
+    }
+    await waitFor(() => project() === undefined, 8000);
+  });
+
+  test('a setting changed in config.json outside VS Code (the advisor UI applying a threshold) comes into its settings', async function () {
+    if (!process.env.SNAGBOAT_TEST_PER_USER_STORE) return this.skip();
+    const configFile = path.join(process.env.SNAGBOAT_HOME!, 'config.json');
+    const key = 'heuristics.stalled.maxMinutes';
+    const user = () => vscode.workspace.getConfiguration('snagboat').inspect<number>(key)?.globalValue;
+    const edit = (value: number | undefined) => {
+      const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+      if (value === undefined) delete config.defaults[key];
+      else config.defaults[key] = value;
+      // As the core writes it: a temp file renamed over config.json.
+      fs.writeFileSync(`${configFile}.test.tmp`, JSON.stringify(config, null, 2));
+      fs.renameSync(`${configFile}.test.tmp`, configFile);
+    };
+    try {
+      edit(123);
+      await waitFor(() => user() === 123);
+      // And the window's next sync keeps it rather than undoing it.
+      await waitFor(() => JSON.parse(fs.readFileSync(configFile, 'utf8')).defaults[key] === 123);
+    } finally {
+      await vscode.workspace.getConfiguration('snagboat').update(key, undefined, vscode.ConfigurationTarget.Global);
+    }
+    await waitFor(() => JSON.parse(fs.readFileSync(configFile, 'utf8')).defaults[key] === undefined);
   });
 
   test('saving a real file triggers the edit-tracker adapter', async () => {
@@ -124,6 +210,7 @@ suite('Snagboat core plumbing', () => {
       type: 'assistant',
       uuid: `fixture-${Date.now()}`,
       sessionId: 'fixture-session',
+      cwd: vscode.workspace.workspaceFolders![0].uri.fsPath,
       timestamp: new Date().toISOString(),
       message: {
         model: 'claude-sonnet-5',
@@ -148,6 +235,7 @@ suite('Snagboat core plumbing', () => {
         type: 'assistant',
         uuid: `${messageId}-${i}`,
         sessionId: 'fixture-split-session',
+        cwd: vscode.workspace.workspaceFolders![0].uri.fsPath,
         timestamp: new Date().toISOString(),
         message: {
           id: messageId,
@@ -190,8 +278,9 @@ suite('Snagboat core plumbing', () => {
     await waitFor(() => toolCalls() > before);
     assert.strictEqual(toolCalls(), before + 1);
 
-    // The same payload without the token is rejected (the token check comes first).
-    const routeFile = path.join(home!, 'routes', folder.replace(/\//g, '-'));
+    // The same payload without the token is rejected (the token check comes first). A client
+    // window publishes no route of its own: the script sends hooks to the core (core.route).
+    const routeFile = api.getStorageMode() === 'core' ? path.join(home!, 'core.route') : path.join(home!, 'routes', folder.replace(/\//g, '-'));
     const [port] = fs.readFileSync(routeFile, 'utf8').trim().split(' ');
     const status = await postJsonStatus(Number(port), '/hook', payload);
     assert.strictEqual(status, 401);
@@ -294,6 +383,11 @@ suite('Snagboat core plumbing', () => {
     await waitFor(() =>
       vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputWebview && t.label === 'Snagboat'))
     );
+  });
+
+  test('the compact findings panel opens in its own sidebar view', async () => {
+    // VS Code adds a focus command for each contributed view; it fails if the view isn't registered.
+    await vscode.commands.executeCommand('snagboat.findings.focus');
   });
 
   test('the detail view opens as a webview tab and the today snapshot tracks new events', async () => {

@@ -1,9 +1,11 @@
-import { NormalizedEvent } from './types';
+import { NormalizedEvent } from '@snagboat/schema';
 
 /** Upper bound on a captured textExcerpt (agent reply), in UTF-16 code units. */
 export const EXCERPT_MAX_CHARS = 500;
 /** Upper bound on captured prompt text; 98% of real prompts fit whole (the rest is mostly pasted logs and files). */
 export const PROMPT_MAX_CHARS = 2000;
+/** Upper bound on one captured todo item's text. */
+export const TODO_MAX_CHARS = 200;
 
 /**
  * Secret formats replaced before any text is stored. A backstop for the
@@ -68,14 +70,41 @@ export function makePromptText(fragments: Array<string | undefined>): string | u
   return `${kept}… (+${(text.length - kept.length).toLocaleString('en-US')} characters)`;
 }
 
-/** Whether the event carries captured text that text retention and Remove Captured Text remove. */
-export function hasCapturedText(event: NormalizedEvent): boolean {
-  return event.textExcerpt !== undefined || event.promptText !== undefined;
+/** A todo item's text, secrets redacted, capped at TODO_MAX_CHARS with a trailing ellipsis. */
+export function makeTodoText(text: string | undefined): string | undefined {
+  const t = redactSecrets(joinFragments([text]));
+  if (t.length === 0) return undefined;
+  if (t.length <= TODO_MAX_CHARS) return t;
+  return `${cutAt(t, TODO_MAX_CHARS - 1)}…`;
 }
 
-/** The event without its captured text (reply excerpt and prompt text). Session names are kept. */
+/** Whether the event carries captured text that text retention and Remove Captured Text remove. */
+export function hasCapturedText(event: NormalizedEvent): boolean {
+  return (
+    event.textExcerpt !== undefined ||
+    event.promptText !== undefined ||
+    event.todos?.items !== undefined ||
+    event.taskOp?.subject !== undefined ||
+    event.taskOp?.tasks?.some((t) => t.subject !== undefined) === true
+  );
+}
+
+/**
+ * The event without its captured text (reply excerpt, prompt text, todo items'
+ * text, task subjects; a todo list's counts and a task's id and status stay).
+ * Session names are kept.
+ */
 export function withoutCapturedText(event: NormalizedEvent): NormalizedEvent {
   if (!hasCapturedText(event)) return event;
   const { textExcerpt: _reply, promptText: _prompt, ...rest } = event;
+  if (rest.todos?.items) {
+    const { items: _items, ...counts } = rest.todos;
+    rest.todos = counts;
+  }
+  if (rest.taskOp) {
+    const { subject: _subject, ...op } = rest.taskOp;
+    if (op.tasks) op.tasks = op.tasks.map(({ subject: _s, ...t }) => t);
+    rest.taskOp = op;
+  }
   return rest;
 }

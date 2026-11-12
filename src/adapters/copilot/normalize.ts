@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
-import { NormalizedEvent, EventTokens } from '../../core/types';
+import { NormalizedEvent, EventTokens } from '@snagboat/schema';
 import { makeExcerpt } from '../../core/excerpt';
-import { classifyTool } from '../../core/toolCategory';
+import { classifyTool } from '@snagboat/schema';
 
 /**
  * Parses the OTLP/HTTP JSON wire format (a stable, documented protobuf-JSON

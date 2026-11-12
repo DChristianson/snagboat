@@ -3,7 +3,7 @@ import * as path from 'path';
 import { mainTranscriptOf, readTranscriptSession } from '../adapters/claude-code/transcriptSession';
 import { CopilotCliState, copilotSessionNameEvent, normalizeCopilotCliChunk, readSessionName } from '../adapters/copilot/cliSessions';
 import { EventLog, eventDay } from '../core/eventLog';
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { dayStats, DayStats, mergeDay, promptedTurns, sourceFileOf } from './merge';
 
 /**

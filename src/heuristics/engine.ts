@@ -1,6 +1,16 @@
-import { NormalizedEventKind } from '../core/types';
+import { NormalizedEventKind } from '@snagboat/schema';
 import { ReadonlyEventStore } from '../core/eventStore';
 import { Heuristic, Finding, Progress } from './types';
+
+/**
+ * The recent window of events heuristics see (EventStore), the same in a VS
+ * Code window and the core. Generous placeholder sizing, comfortably covering
+ * every heuristic's short window (minutes) without reading their settings.
+ */
+export const EVENT_STORE_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const EVENT_STORE_MAX_EVENTS = 5000;
+/** How often every heuristic runs, events or not: some (stalled) fire on the absence of events. */
+export const HEURISTICS_INTERVAL_MS = 30_000;
 
 export class HeuristicsEngine {
   constructor(

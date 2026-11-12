@@ -10,6 +10,7 @@ Every setting Snagboat contributes, by area. All are in the `snagboat` section o
 | `snagboat.retention.rawDays` | `90` | Days of raw events to keep, counting today. Older days are rolled up into daily totals and their raw events deleted. |
 | `snagboat.retention.textDays` | `30` | Days captured prompts and reply excerpts are kept, counting today, capped at `rawDays`. Older events keep everything else, without the text. The default matches how long Claude Code keeps its own transcripts. |
 | `snagboat.retention.aggregateDays` | `-1` | Days of daily totals to keep; `-1` keeps them forever, `0` keeps none (raw days past `rawDays` are then deleted without being rolled up). |
+| `snagboat.storage.perUserStore` | `false` | Preview: keep data in one per-user store, `~/.snagboat/data`, one folder per workspace, instead of VS Code's storage for each window. Turning it on copies this window's data there and leaves the original in place, so turning it off goes back to it as it was. With it on, the window starts the core service (`snagboat serve`), which collects and writes, and shows its own workspace from it ([how](usage.md#the-per-user-store-and-the-core-preview)); if the core can't start, the window writes its own folder as before. The core records Claude Code and Copilot CLI sessions in every project on the machine: see `collect.unopened` below to limit it. Set it in User settings; it is not offered under Workspace. Applies to all windows, when each reloads. See `snagboat migrate` in the CLI. |
 
 See [PRIVACY.md](../PRIVACY.md) for what each source records and where everything is stored.
 
@@ -17,8 +18,9 @@ See [PRIVACY.md](../PRIVACY.md) for what each source records and where everythin
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `snagboat.claudeCode.configureHooks` | `true` | Add Snagboat's `PostToolUse` and `Stop` hooks to each workspace folder's `.claude/settings.json` (set per folder). Off leaves the file alone: token usage still comes from transcripts, but tool calls and turn ends from hooks stop. **Snagboat: Remove Claude Code Hooks from Project...** removes existing entries and turns this off. |
+| `snagboat.claudeCode.configureHooks` | `true` | Add Snagboat's `PostToolUse`, `PostToolUseFailure`, `Stop`, `PermissionRequest` and `PermissionDenied` hooks to each workspace folder's `.claude/settings.json` (set per folder). Off leaves the file alone: token usage still comes from transcripts, but tool calls, turn ends and permission prompts from hooks stop. **Snagboat: Remove Claude Code Hooks from Project...** removes existing entries and turns this off. |
 | `snagboat.copilot.otlpPort` | `4318` | Local port for Copilot's OpenTelemetry export; point `github.copilot.chat.otel.otlpEndpoint` at `http://127.0.0.1:<port>`. Only one window can listen on it. |
+| `snagboat.outcomes.git` | `true` | With the per-user store on, the core reads this project's git history, read-only, to record what became of commits made in a session (kept or reverted at 7 days, lines surviving at 7 and 30 days, milestones). Commit ids and counts only. A project's `.snagboat.json` may turn it off, not on. See [PRIVACY.md](../PRIVACY.md#what-is-captured). |
 | `snagboat.copilot.captureStructure` | `false` | Development aid: record the structure of Copilot's telemetry (span names, links, timings, attribute names, and numbers such as token counts; every text value replaced by its length) to global storage, for mapping its spans. Summarize with `npm run summarize:copilot`. |
 
 ## Budgets
@@ -76,7 +78,7 @@ Accepted rules and categories live in `rules.json` in Snagboat's global storage,
 
 An entry in `snagboat.advisors` is a model advisor: `id`, `label`, `baseUrl`, `model`, and `send` as for a provider, plus `abilities`, which names what it offers. Leave `abilities` out to offer everything; otherwise each ability is `true`, `false`, or an object with its own `send` rules over the advisor's. Several advisors can offer one ability: `snagboat.advisor.defaults` picks the one used, and the others are a click away (**Ask another advisor** in the Suggestions tab, **Ask Another Advisor** on the review notification, and **Snagboat: Explain Session with Advisor...**). Every answer names the advisor and its model. A hosted advisor's first request shows the exact payload and asks; changing its address or any ability's `send` rules asks again.
 
-**Prompts.** Each advisor can have its own persona and strategy, for every ability it offers: `persona` (text in the setting) or `personaFile` (a path; `~` allowed), or the file `~/.snagboat/advisors/<id>/persona.md` when it exists. Each ability can have its own instruction: `"prompt": "<path>"` in the ability's object, or `~/.snagboat/advisors/<id>/<ability>.md`. Snagboat always appends its own data-handling rules and the answer's shape after your text, so a persona can't change what is sent or how answers are read. **Snagboat: Write Default Advisor Prompts...** writes an advisor's defaults to its folder, each under a comment that is dropped when read, to edit from; an empty file means the default. Two local advisors on the same model with different personas, for example:
+**Prompts.** Each advisor can have its own goal and voice (a `persona.md` can also carry front matter making it one of the goal advisors; see [usage](usage.md#advisors-and-their-goals)), for every ability it offers: `persona` (text in the setting) or `personaFile` (a path; `~` allowed), or the file `~/.snagboat/advisors/<id>/persona.md` when it exists. Each ability can have its own instruction: `"prompt": "<path>"` in the ability's object, or `~/.snagboat/advisors/<id>/<ability>.md`. Snagboat always appends its own data-handling rules and the answer's shape after your text, so an advisor's own text can't change what is sent or how answers are read. **Snagboat: Write Default Advisor Prompts...** writes an advisor's defaults to its folder, each under a comment that is dropped when read, to edit from; an empty file means the default. Two local advisors on the same model with different goals and voices, for example:
 
 ```jsonc
 "snagboat.advisors": [
@@ -110,3 +112,39 @@ An entry in `snagboat.advisors` is a model advisor: `id`, `label`, `baseUrl`, `m
 | `snagboat.nudges.notify` | `"off"` | `warnings` notifies when a warning appears (and for early warnings); `all` for every finding. At most one per turn, never modal; muted heuristics never notify. See [Nudges](heuristics.md#nudges). |
 | `snagboat.nudges.quiet` | `[]` | Heuristic or rule ids that never notify, while still showing in the status bar. |
 | `snagboat.nudges.advisor` | `false` | When a nudge fires, also ask the `propose-nudges` advisor for one line on what to do, shown under the finding in the status bar tooltip as model output. It never prompts while you work: until you've picked a model and approved that advisor's payload through Explain, it doesn't ask. |
+
+## Outside VS Code: `~/.snagboat/config.json` and `.snagboat.json`
+
+With `snagboat.storage.perUserStore` on, the core service and the `snagboat` CLI read Snagboat's settings from files, so they apply without VS Code running. The keys are the settings above without `snagboat.` (`captureContent`, `retention.textDays`, `heuristics.stalled.minutes`). `snagboat config` shows the settings that apply to the current folder and where each comes from.
+
+Layers, lowest first:
+
+| Layer | Where | Who writes it |
+| --- | --- | --- |
+| Built-in defaults | the tables above | |
+| Your defaults | `~/.snagboat/config.json`, `"defaults"` | VS Code copies your User settings here, or you edit it |
+| One project's | `~/.snagboat/config.json`, `"projects"` keyed by folder; the nearest folder containing the project applies | VS Code copies each window's workspace and folder settings here, or you edit it |
+| The project's own | `.snagboat.json` in the project, found from the project folder up to the repository root | Whoever commits it |
+
+```json
+{
+  "version": 1,
+  "defaults": { "captureContent": true, "heuristics.stalled.minutes": 20 },
+  "projects": { "/Users/me/src/client-work": { "captureContent": false, "collect": false } }
+}
+```
+
+VS Code copies only settings someone set, and only Snagboat's own. `storage.*` stays in VS Code, and so do the advisor settings only VS Code uses (`advisor.headlines`, `advisor.weeklyReview`, `advisor.reviewDirectory`, `advisor.modelTiers`, `advisor.auditPayloads`). Which advisors exist (`advisors`, `advisor.providers`) and which one each ability uses (`advisor.defaults`, and the older `*Provider` settings) are copied, so the advisor UI can ask the local ones; the core reads those from your defaults only, never a project's or a `.snagboat.json`, and API keys are never settings. A key VS Code doesn't have, such as `collect`, is left as you wrote it. When something else changes a setting in `config.json` (the advisor UI applying a threshold, or you), VS Code takes it into its own settings.
+
+Two keys exist only here, for the core service, which records every Claude Code and Copilot CLI project on the machine while it runs:
+
+| Key | Default | Where | Purpose |
+| --- | --- | --- | --- |
+| `collect` | `true` | defaults, a project entry, or `.snagboat.json` | `false` stops Snagboat recording that project (its Claude Code transcripts and hooks, and its Copilot CLI sessions). |
+| `collect.unopened` | `true` | `config.json` `"defaults"` only | `false` records only projects inside a workspace Snagboat knows: one with a folder in `~/.snagboat/data`, one in `"projects"` here, or one a VS Code window registered. |
+
+**`.snagboat.json` is shared with everyone who clones the project**, so it can set only team settings: heuristic thresholds, token budgets, `rules`, `toolCategories`, discovery and nudges. Privacy settings it can only make more private: turn `captureContent`, `copilot.captureStructure` or `claudeCode.configureHooks` off, shorten retention, or set `"collect": false`. Anything else in it is ignored, and `snagboat config` says why.
+
+```json
+{ "settings": { "heuristics.toolChurn.minCalls": 12, "captureContent": false } }
+```

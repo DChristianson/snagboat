@@ -16,7 +16,7 @@ updates:
       # package). Bump it by hand together with engines.vscode.
       - dependency-name: "@types/vscode"
       # Should match the Node major that the minimum supported VS Code ships
-      # (Node 22 for VS Code 1.119). Bump the major by hand with engines.vscode.
+      # (Node 24 for VS Code 1.145). Bump the major by hand with engines.vscode.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions

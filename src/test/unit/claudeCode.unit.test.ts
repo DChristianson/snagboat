@@ -100,6 +100,20 @@ async function main() {
     });
     assert.strictEqual(failure!.status, 'failure');
     assert.strictEqual(failure!.target, 'false');
+
+    // Claude Code sends failed calls (a Bash command exiting non-zero) to PostToolUseFailure, with the error at the top level.
+    const failed = normalizeHookPayload({
+      session_id: 'sess-1',
+      hook_event_name: 'PostToolUseFailure',
+      tool_use_id: 'toolu_1',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm test' },
+      error: 'Exit code 1\nError: 2 tests failed',
+    });
+    assert.deepStrictEqual([failed!.kind, failed!.status, failed!.target, failed!.eventId, failed!.raw.ref], ['tool_call', 'failure', 'npm test', 'tool:toolu_1', 'hook:PostToolUseFailure:Bash']);
+    assert.strictEqual(failed!.toolCategory, 'tests-builds');
+    const interrupted = normalizeHookPayload({ session_id: 'sess-1', hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_input: { command: 'npm test' }, error: 'interrupted', is_interrupt: true });
+    assert.strictEqual(interrupted!.status, 'unknown', 'interrupted: neither passed nor failed');
   });
 
   test('normalizeHookPayload maps Stop to a turn_stop event and ignores unknown hook names', () => {
@@ -110,6 +124,38 @@ async function main() {
     assert.strictEqual(normalizeHookPayload({ hook_event_name: 'SomethingElse' }), undefined);
     assert.strictEqual(normalizeHookPayload('not an object'), undefined);
     assert.strictEqual(normalizeHookPayload(null), undefined);
+  });
+
+  test('normalizeHookPayload maps PermissionRequest and PermissionDenied to approval outcomes, keeping only the tool name', () => {
+    // Shapes from the Claude Code hooks reference: PermissionRequest has no tool_use_id; PermissionDenied does, and a reason.
+    const asked = normalizeHookPayload({
+      session_id: 'sess-1',
+      prompt_id: 'p1',
+      hook_event_name: 'PermissionRequest',
+      permission_mode: 'default',
+      tool_name: 'Bash',
+      tool_input: { command: 'rm -rf node_modules', description: 'Remove node_modules directory' },
+      permission_suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'rm -rf node_modules' }], behavior: 'allow', destination: 'localSettings' }],
+    });
+    assert.deepStrictEqual([asked!.kind, asked!.toolName, asked!.turnId, asked!.outcome, asked!.raw], [
+      'outcome', 'Bash', 'p1', { type: 'approval', decision: 'asked' }, { adapter: 'claude-code', ref: 'hook:PermissionRequest:Bash' },
+    ]);
+    assert.ok(!JSON.stringify(asked).includes('node_modules'), 'no command text');
+    assert.strictEqual(asked!.target, undefined);
+
+    const denied = normalizeHookPayload({
+      session_id: 'sess-1',
+      hook_event_name: 'PermissionDenied',
+      permission_mode: 'auto',
+      tool_name: 'Bash',
+      tool_input: { command: 'rm -rf /tmp/build', description: 'Clean build directory' },
+      tool_use_id: 'toolu_01ABC',
+      reason: '[Irreversible Local Destruction]',
+    });
+    assert.deepStrictEqual([denied!.eventId, denied!.outcome, denied!.raw.ref], [
+      'outcome:approval:denied:toolu_01ABC', { type: 'approval', decision: 'denied', refs: ['tool:toolu_01ABC'] }, 'hook:PermissionDenied:Bash',
+    ]);
+    assert.ok(!JSON.stringify(denied).includes('/tmp/build') && !JSON.stringify(denied).includes('Destruction'), 'no command text or reason');
   });
 
   test('ensureHooksConfigured additively merges hooks without touching existing settings', async () => {
@@ -131,6 +177,11 @@ async function main() {
     assert.strictEqual(afterFirst.hooks.PostToolUse[0].hooks[0].command, 'echo existing');
     assert.ok(afterFirst.hooks.PostToolUse[1].hooks[0].command === CMD);
     assert.strictEqual(afterFirst.hooks.Stop.length, 1);
+    assert.strictEqual(afterFirst.hooks.PostToolUseFailure[0].hooks[0].command, CMD, 'failed tool calls too');
+    for (const name of ['PermissionRequest', 'PermissionDenied']) {
+      assert.deepStrictEqual(afterFirst.hooks[name], [{ matcher: '*', hooks: [{ type: 'command', command: CMD, async: true }] }], `${name}: in the background, so it can't decide or delay a prompt`);
+    }
+    assert.strictEqual(afterFirst.hooks.PostToolUse[1].hooks[0].async, undefined, 'the others as before');
 
     // Calling again must be idempotent: no duplicate snagboat entries.
     await ensureHooksConfigured(dir, CMD);
@@ -165,6 +216,11 @@ async function main() {
       'old entry rewritten in place, duplicate group dropped, user hook untouched'
     );
     assert.deepStrictEqual(after.hooks.Stop[0].hooks[0].command, CMD);
+
+    // A permission hook written without async (by hand, or an older entry) is made a background one.
+    fs.writeFileSync(settingsPath, JSON.stringify({ hooks: { PermissionRequest: [{ matcher: '*', hooks: [{ type: 'command', command: CMD }] }] } }));
+    await ensureHooksConfigured(dir, CMD);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).hooks.PermissionRequest, [{ matcher: '*', hooks: [{ type: 'command', command: CMD, async: true }] }]);
   });
 
   test('removeHooksConfigured removes only Snagboat entries, then whatever that leaves empty', async () => {
@@ -214,9 +270,11 @@ async function main() {
   });
 
   test('buildHookCommand writes the default location with a literal $HOME and never fails', () => {
+    // On Windows the command runs the script through Git Bash's sh (see hooksConfig.ts).
+    const sh = process.platform === 'win32' ? 'sh ' : '';
     const cmd = buildHookCommand(path.join(os.homedir(), '.snagboat', 'bin', 'snagboat-hook'));
-    assert.strictEqual(cmd, '"$HOME/.snagboat/bin/snagboat-hook" 2>/dev/null || true # snagboat-hook-receiver');
-    assert.ok(buildHookCommand('/opt/x/snagboat-hook').startsWith('"/opt/x/snagboat-hook"'));
+    assert.strictEqual(cmd, `${sh}"$HOME/.snagboat/bin/snagboat-hook" 2>/dev/null || true # snagboat-hook-receiver`);
+    assert.ok(buildHookCommand('/opt/x/snagboat-hook').startsWith(`${sh}"/opt/x/snagboat-hook"`));
   });
 
   test('ensureHooksConfigured creates .claude/settings.json from scratch when absent', async () => {

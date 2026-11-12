@@ -2,11 +2,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AggregateSnapshot } from '../core/aggregate';
 import { DailyTokens } from '../core/dailyHistory';
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { FindingView } from '../heuristics/findingsRegistry';
 import { agentEventTotal } from './format';
-import { toolCategoryLabel } from '../core/toolCategory';
-import { EXPLORE_SESSION_CAP } from './visualizers';
+import { toolCategoryLabel } from '@snagboat/schema';
 
 /** Newest events sent to the timeline; the store's own window caps it further (24h). */
 export const TIMELINE_LIMIT = 1000;
@@ -41,6 +40,8 @@ export interface FindingItem {
   /** The session most of its events belong to, for "Show in session". */
   sessionId?: string;
   acknowledged: boolean;
+  /** Marked useful this episode. */
+  useful: boolean;
   muted: boolean;
 }
 
@@ -60,11 +61,11 @@ export interface DetailState {
 export type DetailMessage =
   | { type: 'ready' }
   | { type: 'acknowledge'; heuristicId: string }
+  | { type: 'useful'; heuristicId: string }
   | { type: 'setMuted'; heuristicId: string; muted: boolean }
   | { type: 'openFile'; target: string }
   | { type: 'tab'; tab: DetailTab }
   | { type: 'listSessions'; day?: string }
-  | { type: 'listExploreSessions' }
   | { type: 'openSession'; sessionId: string }
   | { type: 'closeSession' }
   | { type: 'discover' }
@@ -80,10 +81,9 @@ export type DetailMessage =
   | { type: 'removeSaved'; section: 'rules' | 'categories'; id: string }
   | { type: 'explain'; sessionId: string; turnId?: string; heuristicId?: string }
   | { type: 'tactics'; sessionId: string }
-  | { type: 'explore'; sessionIds: string[] }
-  | { type: 'closeExplorer' };
+  | { type: 'openAdvisorUi'; view?: 'sessions' };
 
-export type DetailTab = 'overview' | 'sessions' | 'suggestions' | 'explore';
+export type DetailTab = 'overview' | 'sessions' | 'suggestions';
 
 export function isDetailMessage(value: unknown): value is DetailMessage {
   if (typeof value !== 'object' || value === null) return false;
@@ -92,27 +92,26 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
     case 'ready':
       return true;
     case 'acknowledge':
+    case 'useful':
       return typeof m.heuristicId === 'string';
     case 'setMuted':
       return typeof m.heuristicId === 'string' && typeof m.muted === 'boolean';
     case 'openFile':
       return typeof m.target === 'string';
     case 'tab':
-      return m.tab === 'overview' || m.tab === 'sessions' || m.tab === 'suggestions' || m.tab === 'explore';
+      return m.tab === 'overview' || m.tab === 'sessions' || m.tab === 'suggestions';
     case 'listSessions':
       return m.day === undefined || (typeof m.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m.day));
     case 'openSession':
       return typeof m.sessionId === 'string';
+    case 'openAdvisorUi':
+      return m.view === undefined || m.view === 'sessions';
     case 'closeSession':
-    case 'closeExplorer':
-    case 'listExploreSessions':
     case 'discover':
     case 'askAdvisor':
     case 'askAnotherAdvisor':
     case 'clearDismissed':
       return true;
-    case 'explore':
-      return Array.isArray(m.sessionIds) && m.sessionIds.length <= EXPLORE_SESSION_CAP && m.sessionIds.every((id) => typeof id === 'string');
     case 'tweakSuggestion':
       return typeof m.id === 'string' && typeof m.threshold === 'number' && Number.isFinite(m.threshold) && m.threshold > 0;
     case 'acceptSuggestion':
@@ -207,7 +206,7 @@ export function buildDetailState(inputs: {
         openable: e.target !== undefined && inputs.isOpenable(e.target),
       })),
     },
-    findings: inputs.findings.map(({ finding, acknowledged, muted }) => ({
+    findings: inputs.findings.map(({ finding, acknowledged, useful, muted }) => ({
       sessionId: dominantSession(finding.eventRefs, sessionOf),
       heuristicId: finding.heuristicId,
       severity: finding.severity,
@@ -216,6 +215,7 @@ export function buildDetailState(inputs: {
       detectedAt: finding.detectedAt,
       eventRefs: finding.eventRefs,
       acknowledged,
+      useful,
       muted,
     })),
     muted: inputs.muted,

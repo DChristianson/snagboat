@@ -10,3 +10,15 @@ out/
 
 # macOS folder metadata
 .DS_Store
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*
+
+# The Claude Code plugin's built files (npm run build:plugin)
+plugins/snagboat/dist/
+plugins/snagboat/hooks/forward.sh
+snagboat-claude-plugin-*.zip

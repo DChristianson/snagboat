@@ -11,9 +11,9 @@ Thanks for helping out. This guide covers how the code is organized, how to run 
 
 ## Setup
 
-Requires Node.js 22 or later (packaging with `@vscode/vsce` needs it) and VS Code 1.119 or later.
+Requires Node.js 24 or later and VS Code 1.145 or later.
 
-The minimum VS Code version (`engines.vscode`) also pins two dev dependencies, which Dependabot is told not to move on its own: `@types/vscode` must not be newer than that minimum (so code can't use APIs older VS Code lacks), and `@types/node` should match the Node major that version ships (Node 22 for 1.119). Raise all three together, deliberately.
+The minimum VS Code version (`engines.vscode`) also pins two dev dependencies, which Dependabot is told not to move on its own: `@types/vscode` must not be newer than that minimum (so code can't use APIs older VS Code lacks), and `@types/node` should match the Node major that version ships (Node 24 for 1.145). Raise all three together, deliberately.
 
 ```bash
 npm install
@@ -27,14 +27,16 @@ Press F5 in VS Code to launch an Extension Development Host. The **Run Extension
 | Path | What's there |
 | --- | --- |
 | `src/extension.ts` | Activation: wires adapters, storage, heuristics, and UI together |
-| `src/core/` | Event bus, daily event log, retention and rollups, `EventStore`, aggregates, health, file tailing |
-| `src/adapters/<agent>/` | One folder per source (`claude-code`, `copilot`, `edit-tracker`). Parsing lives in `normalize.ts`, free of the `vscode` module so it can be unit tested |
+| `packages/schema/` | `@snagboat/schema`, an npm workspace: `NormalizedEvent`, its JSON Schema, and the session-view builder. Imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`); built with `npm run build:schema`, which `build` and `compile-tests` run first (through `build:packages`) |
+| `src/core/` | Event bus, daily event log, retention and rollups, `EventStore`, aggregates, health, file tailing, the per-user store and its migration (`userStore.ts`, `migrate.ts`), settings files (`config.ts`), and `host.ts`, the engine's view of settings and workspace folders |
+| `src/core/service/` | The core service (preview): the server, its Claude Code and Copilot CLI collectors, the store writer, and `client.ts`, a window's connection to it. See [docs/architecture.md](docs/architecture.md#the-two-modes) |
+| `src/adapters/<agent>/` | One folder per source (`claude-code`, `copilot`). Parsing lives in `normalize.ts`, free of the `vscode` module so it can be unit tested |
 | `src/heuristics/` | The engine, the findings registry (acknowledge/mute), and one file per heuristic |
-| `src/ui/` | Status bar text, the detail view's panel and model, the session views, and the visualizer catalog (`visualizers.ts`); the page itself is under `media/` (`detail.js`, `sessions.js`, `suggestions.js`, `explore.js`, the shared helpers in `shared.js`, `detail.css`), with one file per visualizer under `media/viz/` |
-| `src/web/`, `web/` | The web demo: the page's code, example sessions, and in-memory session source, bundled for the browser; `web/index.html` and its stylesheet |
+| `src/cli/` | The `snagboat` command line (`dist/snagboat.js`): finds the extension's event stores (`stores.ts`) and reads them; `migrate` copies them into the per-user store, and `serve` and `core` run the core service. Runs without VS Code, so it follows the engine's import rule |
+| `src/vscode/` | VS Code-only glue moved out of the engine: the `Host` implementation, the edit tracker, the advisor's pickers and key storage, and the backfill and relabel commands. Engine folders (`core`, `adapters`, `heuristics`, `discovery`, `review`, `nudges`, `advisor`, `backfill`) may not import `vscode`, `src/vscode` or `src/ui` (`engineBoundary.unit.test.ts`) |
+| `src/ui/` | Status bar text, the detail view's panel and model, and the session views; the page itself is under `media/` (`detail.js`, `sessions.js`, `suggestions.js`, the detail view's own helpers in `shared.js` and styles in `detail.css`, Snagboat's `--sb-*` tokens in `theme.css` and base styles in `base.css`, `vscodeTheme.css`, which maps the tokens to VS Code's theme, and the two session drawings in `drawings/`) |
 | `src/scripts/transcripts.ts` | Dev tooling for Claude Code transcripts (`verify:transcripts`, fixture redaction) |
 | `scripts/licenses.js` | Generates `THIRD_PARTY_LICENSES.md` from what's actually bundled |
-| `scripts/webDemo.js` | Assembles the web demo under `out/web/` (`npm run build:web`) |
 | `src/test/unit/` | Unit tests |
 | `src/test/suite/` | Integration tests that run inside VS Code |
 
@@ -43,14 +45,14 @@ Press F5 in VS Code to launch an Extension Development Host. The **Run Extension
 | Command | What it runs |
 | --- | --- |
 | `npm run test:unit` | Every unit test file, no VS Code needed. This is what CI runs. |
-| `npm test` | The integration suite in a real VS Code instance (`@vscode/test-electron`, mocha TDD style). Uses a private `SNAGBOAT_HOME`, transcripts folder, and Copilot port, so it doesn't disturb your own windows. |
+| `npm test` | The integration suite in a real VS Code instance (`@vscode/test-electron`, mocha TDD style), run twice: first with VS Code's storage, then with `snagboat.storage.perUserStore` on, where the test window starts a real core and is its client. Uses a private `SNAGBOAT_HOME`, user settings folder, transcripts and Copilot folders, and Copilot port, so it doesn't disturb your own windows, and stops the core it started. |
 | `npm run replay:heuristics` | Replays your own Claude Code transcripts for this project through every heuristic and reports what would have fired, and when. For calibrating thresholds; `--settings '<json>'` overrides them. Prints counts and times only. `--rules <file.json>` adds rules (a list, as in `snagboat.rules`) to score them too. |
 | `npm run review:ui` | The presentation review: replays this project's last 7 days (`--days`), or the redacted fixture (`--fixture`), to the moments a warning or several findings were active, prints the status bar and tooltip as they looked (findings by heuristic id only), and runs the fixed checks. `--models a,b` also asks each model for the advisor's review and writes it to `out/eval/`. |
 | `npm run discover` | Runs discovery over the same transcripts and prints the report **Snagboat: Discover Heuristics** shows. Names heuristic ids and command families only. |
 | `npm run eval:advisor -- --models a,b` | Runs Explain over digests of this project's recent sessions (the whole session, its busiest turn, its first finding) with each model, and writes the answers side by side to `out/eval/`. Checks the three headings, absolute paths, and whether the server cut the prompt to fit its context window; quality is yours to judge. `--capability propose` instead runs discovery over the transcripts and asks each model to propose heuristics through the Suggestions tab's own controller, reporting what it would keep and drop. `--base-url` defaults to Ollama on this machine; a hosted one needs `SNAGBOAT_EVAL_API_KEY` and gets the hosted sending rules. The console shows timings and checks only. |
 | `npm run verify:transcripts` | Replays your own Claude Code transcripts for this project through the adapter and checks token totals. Prints totals only. |
 
-Unit tests are plain Node scripts: each file collects `test(name, fn)` cases, runs them, prints `PASS`/`FAIL`, and exits non-zero on failure. No test framework is involved. A new test file must be added to the `test:unit` script in `package.json`. Keep code under test free of the `vscode` module; if something needs VS Code, pass the value in (as `TranscriptTailer` takes its folder) rather than importing it.
+Unit tests are plain Node scripts: each file collects `test(name, fn)` cases, runs them, prints `PASS`/`FAIL`, and exits non-zero on failure. No test framework is involved. `scripts/runUnit.js` runs every `out/test/unit/*.unit.test.js`, each in its own process, so a new test file is picked up by its name. Keep code under test free of the `vscode` module; if something needs VS Code, pass the value in (as `TranscriptTailer` takes its folder) rather than importing it.
 
 Some unit tests deliberately use real file watching, real HTTP servers, and the real hook shell script. When a test talks to a server running in the same process, spawn child processes asynchronously: a synchronous spawn blocks the event loop the server needs.
 
@@ -69,6 +71,10 @@ Some unit tests deliberately use real file watching, real HTTP servers, and the 
 2. Add it to `builtInHeuristics()` in `src/heuristics/index.ts`. Settings go under `snagboat.heuristics.<id>` in `package.json`; if the section name differs from the id (camelCase, for example), add it to `SETTINGS_SECTION`.
 3. Give it a status bar glyph in `FINDING_GLYPHS` (`src/ui/format.ts`).
 4. Document it in [docs/heuristics.md](docs/heuristics.md), the README's findings table, and [docs/settings.md](docs/settings.md), including whether it needs optional data such as `textExcerpt`.
+
+## Adding a visualizer
+
+Visualizers belong to Factory Clock, which has [its own repository](https://github.com/DChristianson/factory-clock). Its contribution guide has the steps and a checklist, and [the visualizer contract](https://github.com/DChristianson/factory-clock/blob/main/docs/visualizer-contract.md) the interface. Snagboat keeps its own copy of the two drawings its session pages use, in `media/drawings/`.
 
 ## Dependencies and licenses
 

@@ -1,87 +1,55 @@
 # snagboat
 
-Snagboat is a VS Code extension that watches AI coding agents (Claude Code and GitHub Copilot Chat), normalizes their activity into one local event log, and flags signs of trouble: an agent looping on the same file, churning through tool calls, going quiet, blowing a token budget, or sounding unsure of itself. Results show up in the status bar and a detail view. Everything stays on your machine.
+Snagboat watches your AI coding agents (Claude Code and GitHub Copilot Chat) and flags signs of trouble: an agent looping on the same file, churning through tool calls, going quiet, blowing a token budget, or sounding unsure of itself. Each sign it flags is a **finding**, raised by one of its **heuristics**: rules that watch the agents' recorded activity for one kind of trouble. You see findings where you work: in VS Code, in Claude Code, in your browser, or in a terminal. Everything stays on your machine.
 
 ![The Sessions tab: a Copilot session's turn tree, split by prompt, agent, and tool category, above its context timeline](docs/images/sessions-tab.png)
 
-## Highlights
+- **Tells you when an agent is in trouble.** Looping on one file or command, churning through tool calls, going quiet, filling its context, or burning tokens past a budget you set: eight heuristics watch for these and flag them, each with [what to try](#findings).
+- **Shows where the tokens went.** Each session's turn tree splits its tokens by prompt, agent, and tool category, for Claude Code and Copilot alike.
+- **One event log for both agents.** Their activity is normalized into one daily JSONL format you can also read with `jq` or DuckDB.
+- **Learns what's unusual for you.** Discovery proposes rules and thresholds from your own history, each scored by replaying that history before you accept it.
+- **Explains, privately.** A model you choose explains sessions and findings: local by default; a hosted one gets a redacted digest, which you see before it's first sent, and every request to it is logged.
 
-- **One event log for both agents.** Claude Code and Copilot activity, normalized into daily JSONL you can read with `jq` or DuckDB.
-- **Eight heuristics, tuned on real sessions.** Thresholds come from replaying real transcripts, and the same replay runs in the unit tests.
-- **Heuristics from your own history.** Discovery proposes rules and thresholds from what's unusual for you, each scored by replay before you accept it.
-- **A privacy-first advisor.** A model explains sessions and findings: local by default, a redacted digest for hosted providers, the payload shown before it's sent, no tools for the model, and an audit log.
+## Where you can use it
 
-## How it fits together
-
-```mermaid
-flowchart LR
-  subgraph Sources
-    Transcripts[Claude Code transcripts]
-    Hooks[Claude Code hooks]
-    CopilotCli[Copilot agent session logs]
-    Copilot[Copilot editor telemetry]
-    Saves[VS Code file saves]
-  end
-
-  subgraph Adapters
-    ClaudeAdapter[claude-code]
-    CopilotAdapter[copilot]
-    EditTracker[edit-tracker]
-  end
-
-  subgraph Core
-    EventLog[Daily JSONL event log]
-    Retention[Retention: daily rollups]
-    Store[EventStore: recent events + token totals]
-    Heuristics[Heuristics engine: built-ins + your rules]
-    Discovery[Discovery: rules from your history]
-  end
-
-  subgraph UI
-    Status[Status bar]
-    Detail[Detail view]
-    Advisor[Advisor: a model you choose, local by default]
-  end
-
-  Transcripts --> ClaudeAdapter
-  Hooks -->|snagboat-hook routes to this window| ClaudeAdapter
-  CopilotCli --> CopilotAdapter
-  Copilot --> CopilotAdapter
-  Saves --> EditTracker
-  ClaudeAdapter & CopilotAdapter & EditTracker --> EventLog
-  EventLog --> Retention
-  EventLog --> Store --> Heuristics --> Status & Detail
-  Store --> Discovery --> Detail
-  Detail -->|digests| Advisor
-```
-
-Adapters own all agent-specific parsing and emit one normalized event shape ([docs/schema.md](docs/schema.md)); heuristics and UI never branch on which agent produced an event. Each VS Code window runs its own hook receiver on its own port, and the hook script routes each Claude Code project's hooks to the window that has it open. Details: [docs/architecture.md](docs/architecture.md).
-
-## Why
-
-I built it for myself. I spend long stretches in agent sessions and wanted to see them top down: which prompt kicked off what, where the tokens went, and when things started going sideways. What's here is basic, but I get more use out of it every week.
-
-**The name.** In the 1800s, [snagboats](https://en.wikipedia.org/wiki/Snagboat) pulled sunken trees, called snags, out of rivers like the Mississippi. You couldn't see a snag from the deck, and snags were the steamboat's deadliest hazard. Henry Shreve built the first snagboat, the *Heliopolis*, in 1829. This Snagboat watches for the hazards you can't see in your agent sessions: loops, churn, a context quietly filling up.
-
-**Build your own.** This is the age of AI. Why download a plugin and live with someone else's choices? Point your agent at this repo, or at an empty one, and build the version with the views and heuristics you actually want. Snagboat is a starting point.
-
-## Status
-
-Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md)). Install it from a [GitHub release](https://github.com/DChristianson/snagboat/releases); it's not yet on the Marketplace or Open VSX. macOS and Linux only: Claude Code hooks go through a POSIX shell script. See [what's not built yet](#not-built-yet).
-
-## What it watches
-
-| Source | How | What you get |
+| Where | What you get | How to get it |
 | --- | --- | --- |
-| Claude Code | Tails the session transcripts in `~/.claude/projects/<project>/` | Token usage per API message (input, output, cache read/creation), model, reply excerpts, your prompts' text, and the session's title |
-| Claude Code | `PostToolUse` and `Stop` hooks, added to the project's `.claude/settings.json` automatically | Tool calls with their target (file path or shell command) and success or failure; turn boundaries |
-| GitHub Copilot (Agent mode) | Reads the Copilot CLI's session logs in `~/.copilot/session-state/`, which VS Code's agent host writes for every Agent-mode session | Prompts and their text, reply excerpts, the session's name, every model call with token usage, model, and the model's context limit, and tool calls with their commands and outcomes |
-| GitHub Copilot (editor features) | Copilot's optional OpenTelemetry export to a local receiver | Token usage of inline and next-edit suggestions and other editor-side model calls, kept separate from agent turns |
-| VS Code | File saves | Edits per file, for agent-independent signals |
+| VS Code | The status bar, a findings panel, and a detail view with your sessions and Suggestions (with the per-user store on, sessions open in your browser instead); notifications, Explain, and a weekly review | Install the extension from a release ([Install](#install)) |
+| Claude Code (preview) | Your sessions recorded without VS Code, slash commands such as `/snagboat:findings`, read-only tools the agent can use to read findings and sessions, and a status line | Start Claude Code with the plugin ([Claude Code plugin](#claude-code-plugin-preview)); needs Node.js 24 |
+| Your browser (preview) | The advisor UI: each advisor's goal and live finding, your sessions and what came of them, Suggestions (with asking a model on this machine, after you approve what it's sent), and adding an advisor | `snagboat open`, `/snagboat:open` in Claude Code, or **Snagboat: Open Advisor UI** in VS Code with the per-user store on; each link works once ([usage](docs/usage.md#the-advisor-ui-preview)) |
+| Command line | Sessions, findings, advisors' measures and settings, as text or JSON | `snagboat` while the Claude Code plugin is enabled, or `node dist/snagboat.js` from a clone ([Command line](#command-line)); needs Node.js 24 |
+
+If you use VS Code alongside the others, turn on its per-user store preview (`snagboat.storage.perUserStore`), so it shows the same sessions and findings they do ([known limitations](#known-limitations)).
+
+## Try it in your browser
+
+No install needed: [Factory Clock](https://dchristianson.github.io/factory-clock/) is a web page of session visualizations. It draws example sessions, or your own event log files, which it reads in the browser and sends nowhere. It started as Snagboat's Explore tab, a carousel of experimental views of your sessions. Snagboat no longer has that tab. Factory Clock now lives in [its own repository](https://github.com/DChristianson/factory-clock), with its own privacy notes. The old address, `dchristianson.github.io/snagboat/`, redirects there.
+
+## An example
+
+You ask Claude Code to fix a failing test and turn to something else. That prompt starts a **turn**: the prompt and everything the agent does in answer to it, until it stops or you prompt again. The agent runs `npm test`, edits a file, runs it again, and it fails a third time. That trips the `backtracking` heuristic, and the status bar now shows its finding: "npm test failed 3 times in this turn". You click the status bar, and the detail view lists the finding; **Show in session** opens the session, where the turn tree shows what this prompt has cost so far. You stop the agent, read the failure yourself, and prompt again with what it was missing. The new prompt starts a new turn, and the finding clears.
+
+Each heuristic has a line on [what to try](#findings) when it fires.
+
+## Status and requirements
+
+Working, but early (version `0.0.2`; see the [changelog](CHANGELOG.md) and [what's not built yet](#not-built-yet)). Free and open source under the [MIT license](LICENSE).
+
+- **Agents:** Claude Code and GitHub Copilot only. Other agents, such as Cursor's or Codex, aren't watched.
+- **VS Code** 1.145 or later, for the extension.
+- **Platforms:** macOS and Linux. Windows is not supported (see [known limitations](#known-limitations)).
+- **Node.js** 24 or later, for the Claude Code plugin, the `snagboat` command line, or building from source. The extension itself runs on the Node.js that VS Code ships.
+- **Where to get it:** a [GitHub release](https://github.com/DChristianson/snagboat/releases). The extension isn't on the Marketplace or Open VSX yet, and the plugin isn't in a Claude Code marketplace yet.
 
 ## Install
 
-Requires VS Code 1.119 or later.
+> **Before you install**
+>
+> - **The VS Code extension edits a file in your projects.** For every folder you open in VS Code, Snagboat adds hook entries to `.claude/settings.json`: commands Claude Code runs after each tool call, when the agent stops, and when it asks for permission, which tell Snagboat what happened. If that file is committed, the change shows up in `git status`. [Removing them](#claude-code-setup) is one command.
+> - **It stores your prompts' text** and the agents' reply excerpts, for 30 days by default (common secret formats are redacted first). Turn `snagboat.captureContent` off to store no text.
+> - **It records full shell commands** from Claude Code's Bash tool, which can contain secrets. They're kept as long as their events: 90 days by default.
+>
+> All of it stays on your machine. Details: [PRIVACY.md](PRIVACY.md).
 
 Download `snagboat-<version>.vsix` from the [latest release](https://github.com/DChristianson/snagboat/releases/latest), then:
 
@@ -89,7 +57,7 @@ Download `snagboat-<version>.vsix` from the [latest release](https://github.com/
 code --install-extension snagboat-0.0.2.vsix
 ```
 
-Or build it yourself (needs Node.js 22 or later):
+Or build it yourself (needs Node.js 24 or later):
 
 ```bash
 git clone https://github.com/DChristianson/snagboat.git
@@ -103,13 +71,32 @@ Then reload each open VS Code window (**Developer: Reload Window**). Snagboat ac
 
 ### Claude Code setup
 
-Nothing to configure. Snagboat finds the project's transcripts on its own and, on activation, adds two hook entries to the project's `.claude/settings.json` that run `~/.snagboat/bin/snagboat-hook`. The hook entries never block or fail Claude Code, even if Snagboat isn't running. If `.claude/settings.json` is committed in your repo, the change will show up in `git status`; the entry is the same for every user and machine. To remove them, run **Snagboat: Remove Claude Code Hooks from Project...**, which also turns off `snagboat.claudeCode.configureHooks` for the folder so they aren't added back (or delete the entries whose command ends in `# snagboat-hook-receiver`, and turn that setting off yourself).
+Nothing to configure. Snagboat finds the project's transcripts on its own and, on activation, adds hook entries to the project's `.claude/settings.json` that run `~/.snagboat/bin/snagboat-hook`. The hook entries never block or fail Claude Code, even if Snagboat isn't running. If `.claude/settings.json` is committed in your repo, the change will show up in `git status`; the entry is the same for every user and machine. To remove them, run **Snagboat: Remove Claude Code Hooks from Project...**, which also turns off `snagboat.claudeCode.configureHooks` for the folder so they aren't added back (or delete the entries whose command ends in `# snagboat-hook-receiver`, and turn that setting off yourself).
+
+### Claude Code plugin (preview)
+
+The plugin brings Snagboat into Claude Code, with or without VS Code. Its hooks record your sessions, and step aside in projects where VS Code's hook already does. It adds slash commands (`/snagboat:findings`, `/snagboat:sessions`, `/snagboat:advisors`, `/snagboat:open` for the advisor UI), read-only tools the agent can use to read findings and sessions, and a status line you add with `/snagboat:statusline`. It needs Node.js 24 or later on your PATH, since Claude Code doesn't ship Node.
+
+Releases after 0.0.2 attach it as `snagboat-claude-plugin-<version>.zip`. Start Claude Code with it:
+
+```bash
+claude --plugin-dir snagboat-claude-plugin-<version>.zip
+```
+
+Or build it from a clone:
+
+```bash
+npm run build:plugin
+claude --plugin-dir plugins/snagboat
+```
+
+Details: [plugins/snagboat](plugins/snagboat/README.md).
 
 ### Copilot setup
 
 Agent mode needs no setup: Snagboat reads its session logs, picking the sessions started inside each window's workspace.
 
-To also count the tokens used by Copilot's inline and next-edit suggestions, turn on Copilot's telemetry in your VS Code settings:
+To also count the tokens used by Copilot's inline and next-edit suggestions, turn on Copilot's OpenTelemetry export in your VS Code settings. OpenTelemetry is an open standard for telemetry, and OTLP its protocol; here Copilot sends it to a receiver Snagboat runs on your machine.
 
 ```json
 {
@@ -123,12 +110,16 @@ The port must match `snagboat.copilot.otlpPort` (default `4318`). Only one VS Co
 
 ## Quick tour
 
-- **Status bar:** today's tokens, agent events, and local edits, plus the most important active finding. Hover for the breakdown by agent and any health problems with Snagboat itself.
-- **Detail view** (click the status bar, or **Snagboat: Open Detail View**): the **Overview** tab has today's totals, findings to acknowledge or mute, a daily token chart, and a filterable 24-hour timeline.
-- **Sessions tab:** each day's sessions by name. Open one for its turn tree (where the tokens went, by prompt, agent, and tool category), its context timeline, and its findings, past ones included.
-- **Explore tab** (experimental): up to eight sessions through a carousel of visualizers, each drawing the same sessions its own way, with a puck that names the current one and filters by its tags. Try the views in your browser at <https://dchristianson.github.io/snagboat/>, over example sessions or your own files; nothing leaves your machine.
+In VS Code:
+
+- **Status bar:** today's tokens, agent events, and local edits, plus the most important active finding. Snagboat counts tokens, not dollars: it has no price data. Hover for the breakdown by agent and any health problems with Snagboat itself.
+- **Findings panel** (Snagboat's icon in the activity bar): the findings now, each with its advisor, today's tokens, and links to the advisor UI and the detail view.
+- **Detail view** (click the status bar, or **Snagboat: Open Detail View**): the **Overview** tab has today's totals, active findings, a daily token chart, and a filterable 24-hour timeline. **Acknowledge** a finding to hide it from the status bar until that problem clears; **mute** a heuristic to hide its findings in this workspace until you unmute it.
+- **Sessions tab:** each day's sessions by name. Open one for its turn tree (where the tokens went, by prompt, agent, and tool category), its context timeline, and its findings, past ones included. With the per-user store preview (`snagboat.storage.perUserStore`) on, sessions open in the advisor UI in your browser instead of the detail view.
 - **Suggestions tab** (**Snagboat: Discover Heuristics**): rules, thresholds, and shell categories proposed from your own history, scored by replay; accept, adjust, or dismiss.
 - **Snagboat: Write Review** writes a weekly Markdown review of this workspace to `~/.snagboat/reviews/`.
+
+For Claude Code, your browser, and the command line, see [Where you can use it](#where-you-can-use-it).
 
 Every view and command: [docs/usage.md](docs/usage.md). Every setting: [docs/settings.md](docs/settings.md).
 
@@ -136,22 +127,34 @@ Every view and command: [docs/usage.md](docs/usage.md). Every setting: [docs/set
 
 Most heuristics judge each session's current turn (everything since your latest prompt), so they clear when you prompt again.
 
-| Heuristic | Fires when | Status bar glyph |
+| Heuristic | Fires when (defaults) | What to try | Status bar icon |
+| --- | --- | --- | --- |
+| `runaway-turn` | One prompt has driven 100 or more model calls, or 100 or more tool calls | Check the turn is still on track. If not, stop it and split the job into narrower prompts. | `run-all` |
+| `context-pressure` | Context was compacted automatically during the turn, meaning earlier conversation was summarized to make room (warning), or the latest call sent 90% or more of the model's limit (info) | After a compaction, restate anything the agent still needs, since earlier details were summarized. Near the limit, wrap up the thread or start a fresh session. | `fold` |
+| `cache-thrash` | Two or more calls in one turn each wrote 50,000 or more tokens to the prompt cache (where the provider keeps the start of a prompt, so the next call can reuse it at a lower price), more than they read from it | Something early in the prompt changes on every call: instructions, the tool list, or files injected each time. Find it and keep it stable, so calls reuse the cache instead of paying full price. | `flame` |
+| `backtracking` | In one turn, one target (a file or shell command) failed 3 or more times, or one file was edited 10 or more times | Stop the agent and look at why that command or file keeps failing or changing, then re-prompt with what it's missing. | `history` |
+| `tool-churn` | In 5 minutes, 8 or more tool calls in one session, at least 90% of them on the same one or two targets | Look at those calls (the finding filters the Overview timeline to them). If the agent is going in circles, interrupt and redirect it. | `sync` |
+| `stalled` | An unfinished turn has had no agent activity for 15 minutes: a long-running tool, a permission prompt, or a stuck agent. A finished turn going quiet never fires; after 3 hours the turn counts as abandoned. | Go to the agent: answer a permission prompt or question, or stop it if it's stuck. | `clock` |
+| `token-budget` | A session, or today's total for this workspace, crosses a budget you set (none by default) | Start a fresh session, or open the session's turn tree to see where the tokens went. | `dashboard` |
+| `verbal-hedge` | Two or more replies in one session hedge or self-correct ("I think", "let me try again", "my mistake") within 10 minutes. Informational, and a warning only alongside repeated or failing tool activity. Needs `snagboat.captureContent` (on by default). | Skim the agent's recent replies. If it's also repeating or failing actions, step in with more context. | `comment-discussion` |
+
+When a finding is a false alarm for you, raise its threshold ([settings](docs/settings.md#heuristic-thresholds)), or mute it. Default thresholds come from replaying real sessions; `npm run replay:heuristics` replays yours, and the Suggestions tab compares them with your history. Your own rules run alongside, as JSON (see [docs/heuristics.md](docs/heuristics.md#rules)).
+
+The icons are VS Code's built-in [codicons](https://microsoft.github.io/vscode-codicons/dist/codicon.html), named here: the status bar shows the icon of the most important active finding. With none it shows `pulse`. A `warning` icon is about Snagboat itself, not your agent: something like a port it couldn't listen on, or a rule that doesn't validate. Hover the status bar for the message, or run **Snagboat: Show Token/Event Breakdown** to print it in the Snagboat output with any rule problems. A port warning usually means another window already has the port ([known limitations](#known-limitations)); a rule problem goes away when you fix or remove that entry in `snagboat.rules` or `snagboat.toolCategories`. Details: [docs/heuristics.md](docs/heuristics.md).
+
+**Notifications** are off by default. Set `snagboat.nudges.notify` to `warnings` (or `all`) to be told when a finding appears, with buttons to show it in its session, explain it, mark it useful, acknowledge it, or mute it. There's at most one per turn, never a modal dialog, and `snagboat.nudges.quiet` keeps any heuristic out of them. With notifications on, `runaway-turn` and `context-pressure` also warn early, at 80% of their thresholds (`earlyWarning`), while there's still time to act: "Heading for a runaway turn: 80 of 100 model calls". `snagboat.nudges.advisor` adds the advisor's one-line suggestion under the finding in the status bar tooltip.
+
+## What it watches
+
+| Source | How | What you get |
 | --- | --- | --- |
-| `runaway-turn` | One prompt has driven 100 or more model calls or tool calls | `$(run-all)` |
-| `context-pressure` | Context was compacted automatically during the turn (warning), or is near the model's limit (info) | `$(fold)` |
-| `cache-thrash` | Calls in one turn keep rewriting the prompt cache instead of reusing it | `$(flame)` |
-| `backtracking` | One target fails repeatedly, or one file is edited over and over, within a turn | `$(history)` |
-| `tool-churn` | A burst of tool calls in one session mostly hits the same one or two targets | `$(sync)` |
-| `stalled` | An unfinished turn has had no agent activity for a while: a long-running tool, a permission prompt, or a stuck agent. A finished turn going quiet never fires. | `$(clock)` |
-| `token-budget` | A session, or today's total for this workspace, crosses a budget you set | `$(dashboard)` |
-| `verbal-hedge` | Replies in one session repeatedly hedge or self-correct ("I think", "let me try again", "my mistake"). Informational, and a warning only alongside repeated or failing tool activity. Needs `snagboat.captureContent` (on by default). | `$(comment-discussion)` |
+| Claude Code | Tails the session transcripts in `~/.claude/projects/<project>/` | Token usage per API message (input, output, cache read/creation), model, reply excerpts, your prompts' text, and the session's title |
+| Claude Code | `PostToolUse`, `PostToolUseFailure`, `Stop`, `PermissionRequest` and `PermissionDenied` hooks, added to the project's `.claude/settings.json` automatically (the permission hooks run in the background and never decide anything) | Tool calls with their target (file path or shell command) and success or failure; turn boundaries; which tools you were asked to approve, or auto mode denied |
+| GitHub Copilot (Agent mode) | Reads the Copilot CLI's session logs in `~/.copilot/session-state/`, which VS Code's agent host writes for every Agent-mode session | Prompts and their text, reply excerpts, the session's name, every model call with token usage, model, and the model's context limit, and tool calls with their commands and outcomes |
+| GitHub Copilot (editor features) | Copilot's optional OpenTelemetry export to a local receiver | Token usage of inline and next-edit suggestions and other editor-side model calls, kept separate from agent turns |
+| VS Code | File saves | Edits per file, for agent-independent signals |
 
-Default thresholds come from replaying real sessions; `npm run replay:heuristics` replays yours, and the Suggestions tab compares them with your history. Your own rules run alongside, as JSON (see [docs/heuristics.md](docs/heuristics.md#rules)).
-
-With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself shows `$(warning)`. Details: [docs/heuristics.md](docs/heuristics.md).
-
-**Notifications** are off by default. Set `snagboat.nudges.notify` to `warnings` (or `all`) to be told when a finding appears, with buttons to show it in its session, explain it, acknowledge it, or mute it. There's at most one per turn, never a modal dialog, and `snagboat.nudges.quiet` keeps any heuristic out of them. With notifications on, `runaway-turn` and `context-pressure` also warn early, at 80% of their thresholds (`earlyWarning`), while there's still time to act: "Heading for a runaway turn: 80 of 100 model calls". `snagboat.nudges.advisor` adds the advisor's one-line suggestion under the finding in the status bar tooltip.
+Each agent has an adapter that turns its logs into one event shape ([docs/schema.md](docs/schema.md)), so heuristics and views never depend on which agent produced an event. By default each VS Code window collects for its own workspace: it runs its own hook receiver, and the hook script routes each Claude Code project's hooks to the window that has it open. With the per-user store preview on, a core service collects for every project and each window is its client ([command line](#command-line)). How the parts fit together: [docs/architecture.md](docs/architecture.md#data-flow).
 
 ## Advisor (optional)
 
@@ -172,9 +175,47 @@ With no active finding the glyph is `$(pulse)`; a problem with Snagboat itself s
 - **Small local models** may cut a whole session's digest to fit their context window; Explain warns when that happens. For Ollama, a larger window (`OLLAMA_CONTEXT_LENGTH=16384 ollama serve`) fixes it, and explaining one turn or finding sends far less.
 - **You see it first.** Before a provider's first request, and again whenever its address or sending rules change, Snagboat opens the exact payload and asks. **Snagboat: Preview Advisor Digest...** shows a session's digest as any provider would get it.
 
+## Command line
+
+`snagboat` reads the same event logs from a terminal or an agent, without VS Code running. Every command prints JSON with `--json`. While the Claude Code plugin is enabled, it's `snagboat` on the agent's PATH and `~/.snagboat/bin/snagboat` for you. From a clone, `npm run build` builds it as `dist/snagboat.js`, as below.
+
+```sh
+node dist/snagboat.js sessions            # sessions in the workspace containing this folder
+node dist/snagboat.js session <id> --json # one session's summary
+node dist/snagboat.js sessions --all      # every workspace's sessions
+node dist/snagboat.js stores              # where the logs are
+node dist/snagboat.js config              # the settings that apply here, and where each comes from
+node dist/snagboat.js findings            # this workspace's findings, from the running core
+node dist/snagboat.js advisors            # each advisor's goal and measures, this week against last
+node dist/snagboat.js open                # the advisor UI in your browser (a one-time link)
+node dist/snagboat.js mcp                 # an MCP server with read-only tools (the Claude Code plugin runs it)
+node dist/snagboat.js statusline          # one line for Claude Code's status line
+node dist/snagboat.js migrate --dry-run   # what migrate would copy into ~/.snagboat/data
+node dist/snagboat.js migrate             # copy every store into the per-user store
+node dist/snagboat.js sessions --all --store user   # read the per-user store
+```
+
+`snagboat serve` runs the **core service** (preview): one local process per user that reads and writes the per-user store for other tools, on `127.0.0.1` only, found through `~/.snagboat/core.json`. `snagboat core start` starts it in the background, `core status` and `core stop` find it, and it stops by itself after 30 idle minutes (`--idle-minutes`). **While it runs, the core records Claude Code and Copilot CLI sessions in every project on this machine**, not only ones open in VS Code: it reads `~/.claude/projects` and `~/.copilot/session-state`, files each project under the workspace that contains it (or its repository), and applies retention to them. A project's `"collect": false`, `"collect.unopened": false` in your `~/.snagboat/config.json`, or `--no-collect` limits it ([privacy](PRIVACY.md#what-is-captured)). Claude Code hooks for a project with no VS Code window open go to the core too, and once a core has run, hooks that find no core are kept until it next starts. With `snagboat.storage.perUserStore` on, VS Code starts the core and each window becomes its client: the core collects and writes, and a window shows its own workspace from it ([handoff](docs/design/handoff-3c.md)).
+
+`migrate` is for the per-user store preview (`snagboat.storage.perUserStore`). It copies, never moves or deletes; running it again copies only what's new. To check a migration, save `sessions --all --json` to a file before migrating, then run `migrate --verify <file>`: every session in it must be in the per-user store with the same prompt, tool-call and token counts.
+
+By default a command reads only the store of the workspace that contains the current folder; `--all` is the explicit way to read across workspaces. It finds stores written by VS Code and its forks (Insiders, VSCodium, Cursor, Windsurf), including their servers in a dev container or over Remote-SSH (`~/.vscode-server` and the like; run the CLI on that side), or one store named by `SNAGBOAT_STORE`. The server doesn't record which workspace a store belongs to, so Snagboat writes it in the store (`snagboat-workspace.json`) when a window opens it. A server store from before that has no record until its folder is opened again: until then only `--all` reads it, and `migrate` skips it. Publishing it as an npm package comes later ([architecture RFC](docs/design/architecture-rfc.md)).
+
 ## Privacy
 
-Nothing leaves your machine unless you set up a hosted advisor provider and approve what it receives (see [Advisor](#advisor-optional)), and there is no telemetry on the extension's UI. Events are stored as daily JSONL files in VS Code's per-workspace storage, readable with `jq`, DuckDB, or a notebook. Two things worth knowing. **Snagboat stores your prompts' text** by default, along with agent reply excerpts and session names: common secret formats are redacted first, prompts and replies are kept for 30 days (`snagboat.retention.textDays`), and **Snagboat: Remove Captured Text** deletes them on demand; turn `snagboat.captureContent` off to store no text at all. And for Claude Code's Bash tool, an event's target is the **full shell command**, which can contain secrets. [PRIVACY.md](PRIVACY.md) lists exactly what each source records and every place Snagboat stores anything.
+Nothing leaves your machine unless you set up a hosted advisor provider and approve what it receives (see [Advisor](#advisor-optional)), and there is no telemetry on the extension's UI. Events are stored as daily JSONL files in VS Code's per-workspace storage, or in `~/.snagboat/data` with the per-user store preview and for everything the Claude Code plugin and the core record, readable with `jq`, DuckDB, or a notebook. Two things worth knowing. **Snagboat stores your prompts' text** by default, along with agent reply excerpts and session names: common secret formats are redacted first, prompts and replies are kept for 30 days (`snagboat.retention.textDays`), and **Snagboat: Remove Captured Text** deletes them on demand; turn `snagboat.captureContent` off to store no text at all. And for Claude Code's Bash tool, an event's target is the **full shell command**, which can contain secrets. [PRIVACY.md](PRIVACY.md) lists exactly what each source records and every place Snagboat stores anything.
+
+## Why
+
+I built it for myself. I spend long stretches in agent sessions and wanted to see them top down: which prompt kicked off what, where the tokens went, and when things started going sideways. What's here is basic, but I get more use out of it every week.
+
+**The name.** In the 1800s, [snagboats](https://en.wikipedia.org/wiki/Snagboat) pulled sunken trees, called snags, out of rivers like the Mississippi. You couldn't see a snag from the deck, and snags were the steamboat's deadliest hazard. Henry Shreve built the first snagboat, the *Heliopolis*, in 1829. This Snagboat watches for the hazards you can't see in your agent sessions: loops, churn, a context quietly filling up.
+
+**Build your own.** This is the age of AI. Why download a plugin and live with someone else's choices? Snagboat is a starting point, MIT licensed, and there are three ways to make it yours:
+
+- **Without code:** raise or lower any heuristic's thresholds ([settings](docs/settings.md#heuristic-thresholds)), and write your own rules as JSON in `snagboat.rules` ([docs/heuristics.md](docs/heuristics.md#rules)).
+- **In a fork:** add a heuristic (one file in `src/heuristics/`) or an adapter for another agent (one folder in `src/adapters/`). [CONTRIBUTING.md](CONTRIBUTING.md) has the layout and the steps. Visualizers belong to [Factory Clock](https://github.com/DChristianson/factory-clock), in its own repository, with [the visualizer contract](https://github.com/DChristianson/factory-clock/blob/main/docs/visualizer-contract.md).
+- **From scratch:** point your coding agent at this repo, or at an empty one, and build the version with the views and heuristics you actually want.
 
 ## Development
 
@@ -182,8 +223,7 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 
 | Script | What it does |
 | --- | --- |
-| `npm run build` | Bundles `src/extension.ts` to `dist/extension.js` with esbuild, and the web demo's bundle, so a Node import creeping into the browser-side model fails here |
-| `npm run build:web` | Builds the web demo into `out/web/`: type-checks the page, bundles it, and copies the explorer's scripts and stylesheet in; the Pages workflow deploys that folder |
+| `npm run build` | Bundles `src/extension.ts` to `dist/extension.js` with esbuild, with the CLI and its discovery worker |
 | `npm run watch` | Rebuilds on change |
 | `npm run test:unit` | Unit tests, no VS Code needed |
 | `npm test` | Compiles and bundles, then runs the integration suite in a real VS Code instance via `@vscode/test-electron` |
@@ -192,24 +232,25 @@ Open the repo in VS Code and press F5 to run Snagboat in an Extension Developmen
 | `npm run verify:transcripts` | Replays your own local Claude Code transcripts for this project through the adapter and checks token totals; prints totals only |
 | `npm run package` | Builds the `.vsix` |
 | `npm run licenses` | Regenerates `THIRD_PARTY_LICENSES.md` from the bundled dependencies (`-- --check` verifies it, as CI does) |
+| `npm run check:readme` | Asks Claude Haiku newcomer questions about this README, from the README alone; run by hand ([docs/design/readme-check.md](docs/design/readme-check.md)) |
 
 ## Known limitations
 
 - **Copilot editor telemetry is collected by one window.** Copilot in every window exports to the same port, so the first window to claim it records all inline-suggestion usage and the others show a "failed to listen on port" health warning. Copilot agent sessions and Claude Code don't have this problem.
 - **The Copilot receiver doesn't authenticate requests**, so another local process could submit fake Copilot events. Claude Code hooks are token-protected. See [SECURITY.md](SECURITY.md).
-- **Windows is unsupported**: the hook script needs a POSIX shell.
+- **Windows is not supported.** It may work through Git Bash, which Claude Code uses to run hooks there, but it is untested. The unit tests run on Windows in CI, and the VS Code integration tests don't.
+- **VS Code keeps its own data unless the per-user store is on.** By default each VS Code window keeps its workspace's data in VS Code's storage. The command line reads it, but the advisor UI and the Claude Code plugin's commands don't. Turning on `snagboat.storage.perUserStore` (a preview) puts everything in one place; it copies what VS Code already has.
 
 ## Not built yet
 
 From the [roadmap](docs/roadmap.md):
 
-- advisors with their own prompts and personas, and the advisor's use of your prompts' text
 - telling an agent that's waiting on you from one that's stuck (`stalled`)
 - terminal exit codes and `git diff` polling, to tell real edits from no-op saves
 - a token budget across all workspaces, with a treemap view
 - extension points for third-party adapters and heuristics
 - log export to CSV and SQLite
-- publishing to the Marketplace and Open VSX
+- publishing to the Marketplace and Open VSX, and the Claude Code plugin to a plugin marketplace
 
 ## Repository docs
 

@@ -1,0 +1,19 @@
+/* The compact findings panel (RFC step 5c), in VS Code's own theme colors. */
+body { margin: 0; padding: 8px 12px; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+main { display: grid; gap: 8px; }
+.finding { display: grid; grid-template-columns: 3px minmax(0, 1fr) auto; gap: 8px; align-items: center; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, transparent)); border-radius: 4px; padding: 6px 8px 6px 0; }
+.sev { align-self: stretch; border-radius: 4px 0 0 4px; background: var(--vscode-editorInfo-foreground, #3794ff); }
+.sev.warn { background: var(--vscode-editorWarning-foreground, #cca700); }
+.what { display: grid; gap: 2px; min-width: 0; }
+.what b { font-weight: 600; overflow-wrap: anywhere; }
+.what span { color: var(--vscode-descriptionForeground); font-size: 0.92em; }
+button { font: inherit; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: 0; border-radius: 2px; padding: 2px 8px; cursor: pointer; }
+button:hover { background: var(--vscode-button-secondaryHoverBackground); }
+button:disabled { opacity: 0.6; cursor: default; }
+button.link { background: none; color: var(--vscode-textLink-foreground); padding: 0; }
+button.link:hover { text-decoration: underline; background: none; }
+button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.done { color: var(--vscode-testing-iconPassed, var(--vscode-descriptionForeground)); font-size: 0.92em; }
+.muted { color: var(--vscode-descriptionForeground); margin: 0; }
+.small { font-size: 0.92em; }
+.links { display: flex; gap: 14px; flex-wrap: wrap; }

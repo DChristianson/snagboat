@@ -1,5 +1,5 @@
-import { classifyCommand, commandPrefix, isShellTool, parseShellSubCategory, ShellSubCategory } from '../core/toolCategory';
-import { NormalizedEvent } from '../core/types';
+import { classifyCommand, commandPrefix, isShellTool, parseShellSubCategory, ShellSubCategory } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 
 /** Commands whose second word says what they do (`npm install`, `docker run`), so families are two words. */
 const TWO_WORD = new Set(['npm', 'pnpm', 'yarn', 'bun', 'pip', 'pip3', 'brew', 'cargo', 'go', 'apt', 'apt-get', 'docker', 'kubectl', 'gcloud', 'aws', 'az', 'code']);

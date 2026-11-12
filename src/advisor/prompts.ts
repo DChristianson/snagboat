@@ -1,6 +1,7 @@
 import * as path from 'path';
 import { AdvisorConfig, Capability, CAPABILITIES } from './advisors';
 import { HEURISTIC_GLOSSARY } from './glossary';
+import { parseFrontMatter } from './goals';
 
 /**
  * An advisor's system prompt, in three layers:
@@ -121,12 +122,17 @@ export function promptDir(homeDir: string, advisorId: string): string {
 }
 
 export function expandHome(p: string, homeDir: string): string {
-  return p.replace(/^~(?=$|[\\/])/, homeDir);
+  // path.join rather than plain substitution, so ~/x on Windows becomes C:\\Users\\me\\x, not a mix of separators.
+  return /^~(?=$|[\\/])/.test(p) ? path.join(homeDir, p.slice(1)) : p;
 }
 
-/** A prompt file's text as sent: HTML comments (the notes the written defaults carry) are dropped. */
+/**
+ * A prompt file's text as sent: front matter (a persona.md's goal, measures
+ * and limits; see ./goals.ts) and HTML comments (the notes the written
+ * defaults carry) are dropped.
+ */
 export function promptFileText(text: string): string {
-  return text.replace(/<!--[\s\S]*?-->/g, '').trim();
+  return parseFrontMatter(text).body.replace(/<!--[\s\S]*?-->/g, '').trim();
 }
 
 export interface ResolvedPrompts extends PromptLayers {

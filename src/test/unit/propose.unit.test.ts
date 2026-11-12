@@ -4,10 +4,10 @@ import * as os from 'os';
 import * as path from 'path';
 import { DigestPolicy, HOSTED_POLICY, LOCAL_POLICY } from '../../advisor/digest';
 import { categoryDoc, parseProposals, proposeHeuristicsMessages, ProposeInput } from '../../advisor/proposeHeuristics';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { builtInHeuristics } from '../../heuristics/builtIns';
 import { RuleStore } from '../../heuristics/ruleStore';
-import { AdvisorAnswer, SuggestionsController } from '../../ui/suggestionsController';
+import { AdvisorAnswer, SuggestionsController } from '../../discovery/suggestionsController';
 
 const at = (min: number) => new Date(Date.UTC(2026, 0, 1, 0, 0) + min * 60_000).toISOString();
 

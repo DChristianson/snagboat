@@ -1,0 +1,27 @@
+#!/bin/sh
+# At each session start:
+# 1. Keeps ~/.snagboat/bin/snagboat pointing at this version of the plugin, so the
+#    status line (and you, in a terminal) can run the Snagboat CLI from a path
+#    that doesn't change when the plugin updates. Rewritten only when it differs.
+# 2. Installs the hook forwarder at ~/.snagboat/bin/snagboat-hook if it's missing,
+#    so a project's committed VS Code hook entry (which runs that path) works on a
+#    machine with only the plugin. VS Code rewrites it on activation; this never
+#    replaces one that's there.
+# Never fails.
+cat >/dev/null
+home="${SNAGBOAT_HOME:-$HOME/.snagboat}"
+mkdir -p "$home/bin" 2>/dev/null || exit 0
+# The plugin root, single-quoted for the script below (a ' becomes '\''), so no path can run as code.
+root=$(printf '%s' "$CLAUDE_PLUGIN_ROOT" | sed "s/'/'\\\\''/g")
+want="#!/bin/sh
+# Written by the Snagboat Claude Code plugin at session start; points at its current version.
+exec sh '$root/bin/snagboat' \"\$@\""
+shim="$home/bin/snagboat"
+if [ "$(cat "$shim" 2>/dev/null)" != "$want" ]; then
+  printf '%s\n' "$want" > "$shim.$$" && chmod 755 "$shim.$$" && mv -f "$shim.$$" "$shim"
+fi
+here=$(dirname "$0")
+if [ ! -f "$home/bin/snagboat-hook" ] && [ -f "$here/forward.sh" ]; then
+  cp "$here/forward.sh" "$home/bin/snagboat-hook.$$" && chmod 755 "$home/bin/snagboat-hook.$$" && mv -f "$home/bin/snagboat-hook.$$" "$home/bin/snagboat-hook"
+fi
+exit 0

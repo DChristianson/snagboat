@@ -8,7 +8,7 @@ import { Aggregate, TodayAggregate, localDayKey } from '../../core/aggregate';
 import { CheckpointStore } from '../../core/checkpointStore';
 import { makeAdapterContext } from '../../core/adapterContext';
 import { HealthRegistry } from '../../core/health';
-import { NormalizedEvent } from '../../core/types';
+import { NormalizedEvent } from '@snagboat/schema';
 
 function makeEvent(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
   return {
@@ -135,6 +135,19 @@ async function main() {
     assert.strictEqual(today.snapshot(nextMorning).totalTokens, 0, 'first touch after midnight resets');
     today.apply(makeEvent({ ts: nextMorning.toISOString() }), nextMorning);
     assert.strictEqual(today.snapshot(nextMorning).totalTokens, 37);
+  });
+
+  test("TodayAggregate counts today's milestones, once each, and forgets them at midnight", () => {
+    const morning = new Date(2026, 0, 10, 9, 0, 0);
+    const today = new TodayAggregate(morning);
+    const milestone = (id: string, ts: Date) => makeEvent({ eventId: id, ts: ts.toISOString(), kind: 'outcome', tokens: undefined, outcome: { type: 'milestone', commit: 'abc' } });
+    today.apply(milestone('m1', morning), morning);
+    today.apply(milestone('m1', morning), morning);
+    today.apply(milestone('m0', new Date(2026, 0, 9, 9, 0, 0)), morning);
+    today.apply(makeEvent({ eventId: 'tg', ts: morning.toISOString(), kind: 'outcome', tokens: undefined, outcome: { type: 'tests_green' } }), morning);
+    assert.strictEqual(today.milestones(morning), 1);
+    assert.strictEqual(today.snapshot(morning).totalTokens, 0, 'outcomes are not activity');
+    assert.strictEqual(today.milestones(new Date(2026, 0, 11, 0, 1, 0)), 0);
   });
 
   test('TodayAggregate.rehydrateFrom picks today\'s events out of UTC-keyed daily files', async () => {

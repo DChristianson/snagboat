@@ -1,4 +1,4 @@
-import { AdapterContext, NormalizedEvent } from './types';
+import { AdapterContext, NormalizedEvent } from '@snagboat/schema';
 import { EventBus } from './eventBus';
 import { CheckpointStore } from './checkpointStore';
 import { HealthRegistry } from './health';

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snagboat</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="drawings/drawings.css">
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="Snagboat">
+    <div class="brand">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 12 L9 3 L16 12 Z" class="stroke"/><path d="M1 14 H17" class="stroke"/></svg>
+      Snagboat
+    </div>
+    <nav class="navgroup" aria-label="This workspace">
+      <div class="eyebrow">This workspace</div>
+      <a class="side-link on" href="#" id="nav-advisors" aria-current="page">Advisors <span class="count" id="count-advisors"></span></a>
+      <a class="side-link" href="#view=sessions" id="nav-sessions">Sessions <span class="count" id="count-sessions"></span></a>
+      <a class="side-link" href="#view=suggestions" id="nav-suggestions">Suggestions</a>
+    </nav>
+  </aside>
+  <main class="main" id="main">
+    <div class="bar">
+      <div class="left">
+        <label class="sr-only" for="workspace">Workspace</label>
+        <select id="workspace"></select>
+        <label class="sr-only" for="days">Period</label>
+        <select id="days" data-advisors-only>
+          <option value="7">Last 7 days against the 7 before</option>
+          <option value="14">Last 14 days against the 14 before</option>
+          <option value="30">Last 30 days against the 30 before</option>
+        </select>
+      </div>
+      <div class="right"><span class="status" id="status">Connecting…</span></div>
+    </div>
+    <div id="message" class="message" hidden></div>
+
+    <section id="view-advisors" aria-labelledby="advisors-h">
+      <h1 id="advisors-h" class="sr-only">Advisors</h1>
+      <div class="advisors" id="advisors"></div>
+      <section class="flist" id="others" hidden aria-labelledby="others-h">
+        <h2 id="others-h">Other findings <span class="muted small">· from heuristics no advisor speaks for</span></h2>
+        <div id="other-findings"></div>
+      </section>
+    </section>
+
+    <section id="view-advisor" hidden aria-labelledby="advisor-h">
+      <a class="back small" href="#" id="back">← All advisors</a>
+      <div class="detail-head">
+        <span class="glyph" id="detail-glyph"></span>
+        <div class="who">
+          <h1 id="advisor-h"></h1>
+          <span id="detail-status"></span>
+          <span class="mono small muted" id="detail-meta"></span>
+        </div>
+      </div>
+      <div class="detail">
+        <div class="panel">
+          <h2 id="chart-h"></h2>
+          <div class="chart" id="chart"></div>
+          <p class="small muted" id="chart-note"></p>
+        </div>
+        <div class="panel">
+          <h2>Speaks for</h2>
+          <dl class="kv" id="speaks"></dl>
+          <p class="voice" id="voice"></p>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Measures <span class="muted small" id="measures-note"></span></h2>
+        <div class="measures" id="detail-measures"></div>
+      </div>
+      <div class="panel">
+        <h2>Proposed changes</h2>
+        <p class="small muted">Rule changes are proposed on the <a href="#view=suggestions">Suggestions</a> page: discovery from your history, and an advisor model on this machine that names the candidates and proposes rules, replayed over your history before you accept them.</p>
+      </div>
+    </section>
+
+    <section id="view-add" hidden aria-labelledby="add-h">
+      <a class="back small" href="#">← All advisors</a>
+      <div class="view-head">
+        <h1 id="add-h">Add an advisor</h1>
+        <span class="muted small">Written to your advisors folder as persona.md; edit that file to change it later.</span>
+      </div>
+      <form id="add-form" class="panel add-form" novalidate>
+        <div class="field">
+          <label for="add-template">Start from</label>
+          <select id="add-template"><option value="">A blank advisor</option></select>
+        </div>
+        <div class="field">
+          <label for="add-name">Name</label>
+          <input id="add-name" type="text" maxlength="40" required autocomplete="off" placeholder="Quartermaster">
+        </div>
+        <div class="field">
+          <label for="add-status">Status line</label>
+          <input id="add-status" type="text" maxlength="80" required autocomplete="off" placeholder="Keeping retries rare">
+          <span class="hint small muted">Its goal in plain words, shown on its card.</span>
+        </div>
+        <div class="field">
+          <label for="add-goal">Goal id</label>
+          <input id="add-goal" type="text" maxlength="48" required autocomplete="off" placeholder="fewer-retries" pattern="[a-z][a-z0-9-]*">
+          <span class="hint small muted">Lowercase letters, digits and dashes. Names the goal in experiments and the CLI.</span>
+        </div>
+        <fieldset class="field">
+          <legend>Measures</legend>
+          <div class="checks" id="add-measures"></div>
+        </fieldset>
+        <fieldset class="field">
+          <legend>Speaks for</legend>
+          <span class="hint small muted">The heuristics and rules whose notifications count against its limit.</span>
+          <div class="checks" id="add-rules"></div>
+        </fieldset>
+        <div class="field">
+          <label for="add-max">Notifications an hour, at most</label>
+          <input id="add-max" type="number" min="0" max="20" step="1" value="2">
+          <span class="hint small muted">0: it never notifies.</span>
+        </div>
+        <fieldset class="field">
+          <legend>Look</legend>
+          <div class="swatches" id="add-colors"></div>
+          <div class="swatches" id="add-icons"></div>
+        </fieldset>
+        <div class="field">
+          <label for="add-voice">Voice</label>
+          <textarea id="add-voice" rows="5" maxlength="2000" placeholder="Who it is and how it speaks, for when it has a model to ask."></textarea>
+        </div>
+        <div class="acts">
+          <button class="btn primary" type="submit" id="add-submit">Add advisor</button>
+          <a class="btn ghost" href="#">Cancel</a>
+          <span class="err" id="add-error" role="alert"></span>
+        </div>
+      </form>
+    </section>
+
+    <section id="view-sessions" hidden aria-labelledby="sessions-h">
+      <div class="view-head">
+        <h1 id="sessions-h">Sessions</h1>
+        <span class="muted small" id="sessions-note"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="sessions">
+          <thead>
+            <tr><th scope="col">Session</th><th scope="col">Started</th><th scope="col" class="n">Length</th><th scope="col" class="n">Prompts</th><th scope="col" class="n">Tool calls</th><th scope="col" class="n">Tokens</th><th scope="col">What came of it</th></tr>
+          </thead>
+          <tbody id="sessions-body"></tbody>
+        </table>
+      </div>
+      <button class="btn ghost" type="button" id="sessions-more" hidden>Show more</button>
+    </section>
+
+    <section id="view-session" hidden aria-labelledby="session-h">
+      <a class="back small" href="#view=sessions">← All sessions</a>
+      <div class="view-head">
+        <h1 id="session-h"></h1>
+        <span class="muted small" id="session-meta"></span>
+      </div>
+      <div class="panel">
+        <h2>Outcomes</h2>
+        <div class="outcomes" id="session-outcomes"></div>
+      </div>
+      <div class="panel">
+        <h2>Turns <span class="muted small">· click a block to focus on it</span></h2>
+        <div class="tree-host" id="tree-host"></div>
+        <div class="panel-head"><h2>Context timeline</h2><span class="spacer"></span><button class="btn ghost" type="button" id="whole">Show whole session</button></div>
+        <div class="timeline-host" id="timeline-host"></div>
+      </div>
+      <div class="panel">
+        <h2>Findings in this session</h2>
+        <div class="flist" id="session-findings"></div>
+      </div>
+    </section>
+
+    <section id="view-suggestions" hidden aria-labelledby="suggestions-h">
+      <div class="view-head">
+        <h1 id="suggestions-h">Suggestions</h1>
+        <span class="muted small">Rules discovered in this workspace's history, thresholds against it, and your saved rules. Accepting saves to your rules, shared by every workspace.</span>
+      </div>
+      <div id="advice" class="panel advice" hidden aria-live="polite"></div>
+      <div id="suggestions-root" class="panel"></div>
+    </section>
+
+    <p class="small muted" id="problems" hidden></p>
+  </main>
+</div>
+<div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+</body>
+</html>

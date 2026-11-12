@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DChristianson/snagboat/schema/normalized-event/v3",
+  "title": "NormalizedEvent",
+  "description": "One line of Snagboat's daily event log (docs/schema.md). Version 3 adds the outcome kind and the outcome field, for outcome signals Snagboat works out, the todos field, the agent's todo list, and the taskOp field, a change to its task list; version 2 added workspace. Every version 1 and 2 event is a valid version 3 event. It matches the NormalizedEvent type in types.ts; a unit test and a compile-time check keep them in step.",
+  "type": "object",
+  "required": [
+    "eventId",
+    "sessionId",
+    "agent",
+    "ts",
+    "kind",
+    "status",
+    "raw"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": {
+      "type": "string"
+    },
+    "sessionId": {
+      "type": "string"
+    },
+    "agent": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "claude-code",
+            "copilot",
+            "generic-fs"
+          ]
+        },
+        {
+          "pattern": "^custom:"
+        }
+      ]
+    },
+    "ts": {
+      "type": "string",
+      "description": "ISO 8601 timestamp."
+    },
+    "kind": {
+      "enum": [
+        "tool_call",
+        "edit",
+        "turn_start",
+        "turn_stop",
+        "user_prompt",
+        "compaction",
+        "session_name",
+        "outcome"
+      ]
+    },
+    "target": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "success",
+        "failure",
+        "unknown"
+      ]
+    },
+    "model": {
+      "type": "string"
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "type": "number"
+        },
+        "output": {
+          "type": "number"
+        },
+        "cacheRead": {
+          "type": "number"
+        },
+        "cacheCreation": {
+          "type": "number"
+        }
+      }
+    },
+    "textExcerpt": {
+      "type": "string"
+    },
+    "promptText": {
+      "type": "string"
+    },
+    "sessionName": {
+      "type": "string"
+    },
+    "turnId": {
+      "type": "string"
+    },
+    "agentId": {
+      "type": "string"
+    },
+    "toolName": {
+      "type": "string"
+    },
+    "toolCategory": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "file-read",
+            "file-edit",
+            "search",
+            "script",
+            "tests-builds",
+            "version-control",
+            "shell",
+            "web",
+            "mcp",
+            "subagent",
+            "other"
+          ]
+        },
+        {
+          "pattern": "^[^:]*:shell/"
+        }
+      ]
+    },
+    "channel": {
+      "const": "inline"
+    },
+    "endsTurn": {
+      "const": true
+    },
+    "contextLimit": {
+      "type": "number"
+    },
+    "todos": {
+      "description": "tool_call events for the agent's todo tool: how many items are in each state, and their text when capture is on.",
+      "type": "object",
+      "required": [
+        "pending",
+        "inProgress",
+        "completed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "pending": {
+          "type": "number"
+        },
+        "inProgress": {
+          "type": "number"
+        },
+        "completed": {
+          "type": "number"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "text",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "taskOp": {
+      "description": "tool_call events for the agent's task tools: the change each made to its plan (a new task, a task's new status or subject, or the whole list), subjects only when capture is on.",
+      "type": "object",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "create",
+            "update",
+            "list"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed",
+            "deleted"
+          ]
+        },
+        "subject": {
+          "type": "string"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed"
+                ]
+              },
+              "subject": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "compaction": {
+      "type": "object",
+      "required": [
+        "trigger"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "trigger": {
+          "enum": [
+            "auto",
+            "manual",
+            "unknown"
+          ]
+        },
+        "preTokens": {
+          "type": "number"
+        },
+        "postTokens": {
+          "type": "number"
+        }
+      }
+    },
+    "workspace": {
+      "type": "string",
+      "description": "The workspace the event was recorded in: its folder path, its .code-workspace file path, or \"(no folder)\"."
+    },
+    "outcome": {
+      "description": "outcome events (version 3): what was measured.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "tests_green",
+            "finding_response",
+            "commit_kept",
+            "commit_reverted",
+            "code_survival",
+            "milestone",
+            "approval",
+            "notified"
+          ]
+        },
+        "refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "failures": {
+          "type": "number"
+        },
+        "afterMs": {
+          "type": "number"
+        },
+        "heuristicId": {
+          "type": "string"
+        },
+        "response": {
+          "enum": [
+            "useful",
+            "muted",
+            "acknowledged",
+            "passed"
+          ]
+        },
+        "commit": {
+          "type": "string"
+        },
+        "files": {
+          "type": "number"
+        },
+        "linesWritten": {
+          "type": "number"
+        },
+        "linesSurviving": {
+          "type": "number"
+        },
+        "days": {
+          "type": "number"
+        },
+        "advisor": {
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "asked",
+            "denied"
+          ]
+        }
+      }
+    },
+    "raw": {
+      "type": "object",
+      "required": [
+        "adapter",
+        "ref"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "event": {}
+      }
+    }
+  }
+}

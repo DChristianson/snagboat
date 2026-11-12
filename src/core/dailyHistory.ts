@@ -1,7 +1,7 @@
 import { Aggregate } from './aggregate';
 import type { EventLogReader } from './eventLog';
 import type { AggregateStore, DailyAggregate } from './retention';
-import { NormalizedEvent } from './types';
+import { NormalizedEvent } from '@snagboat/schema';
 
 export interface DailyTokens {
   /** YYYY-MM-DD, UTC -- the same key the daily log and aggregate files use. */

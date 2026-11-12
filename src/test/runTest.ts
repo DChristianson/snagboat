@@ -2,6 +2,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
+import { sanitizeCwd } from '../adapters/claude-code/workspace';
+import { coreRequest, readCoreFile } from '../core/service/coreFile';
 
 /**
  * When npm test is started by a process running inside VS Code's extension
@@ -29,35 +31,67 @@ async function downloadVSCode(version: string, attempts = 3): Promise<string> {
   }
 }
 
-async function main() {
-  clearInheritedVsCodeEnv();
+/**
+ * Runs the integration suite twice: with VS Code's per-window storage (the
+ * default), then with snagboat.storage.perUserStore on, set in a private user
+ * settings folder, so every test also passes against the per-user store. Each
+ * run gets fresh folders.
+ */
+async function runSuite(vscodeExecutablePath: string, perUserStore: boolean): Promise<void> {
   const extensionDevelopmentPath = path.resolve(__dirname, '../../');
   const extensionTestsPath = path.resolve(__dirname, './suite/index');
 
   const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-workspace-'));
-  const transcriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-transcripts-'));
+  // Claude Code's projects folder: the window reads its own project's transcripts, or, as a
+  // client of the core (per-user store), the core reads every project's.
+  const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-projects-'));
+  const transcriptsDir = path.join(projectsDir, sanitizeCwd(workspaceDir));
+  fs.mkdirSync(transcriptsDir);
   const snagboatHome = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-home-'));
   const copilotSessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-copilot-sessions-'));
+  const launchArgs = [workspaceDir, '--disable-extensions'];
+  if (perUserStore) {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-user-data-'));
+    fs.mkdirSync(path.join(userDataDir, 'User'));
+    fs.writeFileSync(path.join(userDataDir, 'User', 'settings.json'), JSON.stringify({ 'snagboat.storage.perUserStore': true }));
+    launchArgs.push(`--user-data-dir=${userDataDir}`);
+  }
 
+  console.log(`\n=== integration suite, ${perUserStore ? 'per-user store (snagboat.storage.perUserStore on)' : "VS Code's storage"}`);
+  await runTests({
+    vscodeExecutablePath,
+    extensionDevelopmentPath,
+    extensionTestsPath,
+    launchArgs,
+    // A private Snagboat home (hook routes and script, and the per-user store) and
+    // alternate OTLP port, so this doesn't touch or collide with a real window you
+    // might have open (~/.snagboat, port 4318).
+    extensionTestsEnv: {
+      SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR: transcriptsDir,
+      SNAGBOAT_CLAUDE_PROJECTS_DIR: projectsDir,
+      SNAGBOAT_HOME: snagboatHome,
+      SNAGBOAT_COPILOT_SESSIONS_DIR: copilotSessionsDir,
+      SNAGBOAT_COPILOT_DISCOVERY_MS: '500',
+      SNAGBOAT_COPILOT_OTLP_PORT: '4319',
+      SNAGBOAT_TEST_PER_USER_STORE: perUserStore ? '1' : '',
+    },
+  }).finally(() => stopCore(snagboatHome));
+}
+
+/** The core the test window started outlives it (it exits when idle); stop it with the run. */
+async function stopCore(home: string): Promise<void> {
+  const info = readCoreFile(home);
+  if (!info) return;
+  await coreRequest(info.port, info.token, 'POST', '/shutdown', {}).catch(() => undefined);
+}
+
+async function main() {
+  clearInheritedVsCodeEnv();
   try {
     // CI also tests the minimum supported VS Code (engines.vscode); default is the latest stable.
     const vscodeExecutablePath = await downloadVSCode(process.env.SNAGBOAT_TEST_VSCODE_VERSION || 'stable');
-    await runTests({
-      vscodeExecutablePath,
-      extensionDevelopmentPath,
-      extensionTestsPath,
-      launchArgs: [workspaceDir, '--disable-extensions'],
-      // A private Snagboat home (hook routes and script) and alternate OTLP
-      // port, so this doesn't touch or collide with a real window you might
-      // have open (~/.snagboat, port 4318).
-      extensionTestsEnv: {
-        SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR: transcriptsDir,
-        SNAGBOAT_HOME: snagboatHome,
-        SNAGBOAT_COPILOT_SESSIONS_DIR: copilotSessionsDir,
-        SNAGBOAT_COPILOT_DISCOVERY_MS: '500',
-        SNAGBOAT_COPILOT_OTLP_PORT: '4319',
-      },
-    });
+    await runSuite(vscodeExecutablePath, false);
+    await runSuite(vscodeExecutablePath, true);
   } catch (err) {
     console.error('Failed to run tests', err);
     process.exit(1);

@@ -1,0 +1,121 @@
+/* Snagboat's color tokens: every page's styles (base.css, drawings.css,
+   detail.css, the advisor UI's app.css) read only these --sb-* variables.
+   Each has a light and a dark value from prefers-color-scheme, which the
+   advisor UI in the browser uses as is. The values are VS Code's default
+   light and dark themes. Copied from Factory Clock's theme.css on
+   2026-11-12; this copy is Snagboat's own.
+
+   VS Code's webview maps the tokens to VS Code's theme variables after this
+   file, on body, in vscodeTheme.css. */
+:root {
+  --sb-font: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, Ubuntu, "Droid Sans", sans-serif;
+  --sb-font-size: 13px;
+  --sb-mono: ui-monospace, Menlo, Consolas, monospace;
+
+  /* Ground, text and lines. */
+  --sb-surface: #ffffff;
+  --sb-ink: #3b3b3b;
+  --sb-ink-muted: #717171;
+  --sb-rule: #c8c8c8;
+  --sb-panel: #f8f8f8;
+  --sb-shadow: rgba(0, 0, 0, 0.16);
+  --sb-tip-bg: #f8f8f8;
+  --sb-tip-ink: #3b3b3b;
+  --sb-tip-border: #c8c8c8;
+
+  /* Focus, links and states. */
+  --sb-accent: #005fb8;
+  --sb-link: #005fb8;
+  --sb-error: #f85149;
+  --sb-warn: #bf8803;
+  --sb-info: #1a85ff;
+  --sb-ok: #388a34;
+  --sb-hover: #f2f2f2;
+  --sb-active-bg: #e8e8e8;
+  --sb-active-ink: #000000;
+  --sb-selection: #add6ff;
+  --sb-selection-soft: rgba(173, 214, 255, 0.3);
+  --sb-highlight: rgba(234, 92, 0, 0.33);
+
+  /* Controls: plain buttons, pressed buttons and tags, inputs. */
+  --sb-button-bg: #e5e5e5;
+  --sb-button-ink: #3b3b3b;
+  --sb-button-hover: #cccccc;
+  --sb-button-border: rgba(0, 0, 0, 0.05);
+  --sb-pressed-bg: #005fb8;
+  --sb-pressed-ink: #ffffff;
+  --sb-pressed-hover: #0258a8;
+  --sb-toolbar-hover: rgba(184, 184, 184, 0.31);
+  --sb-input-bg: #ffffff;
+  --sb-input-ink: #3b3b3b;
+  --sb-input-border: #cecece;
+
+  /* Chart series slots: the reference palette's first three categorical hues,
+     validated against VS Code's default light (#ffffff) and dark (#1e1e1e)
+     editor surfaces. Slot 3 is below 3:1 on light, so the chart always ships
+     with its table view. */
+  --sb-series-1: #2a78d6;
+  --sb-series-2: #eb6834;
+  --sb-series-3: #1baf7a;
+  /* Turn tree: two alternating turn shades (blue ramp 100/200; 500/650 dark),
+     picked to keep >= 3.4:1 against the default theme text, and the five
+     category groups (reference palette slots 2, 3, 7, 4, 5, in that order,
+     validated as neighbors and next-but-one neighbors in both themes). */
+  --sb-turn-0: #cde2fb;
+  --sb-turn-1: #9ec5f4;
+  --sb-cat-1: #eb6834;
+  --sb-cat-2: #1baf7a;
+  --sb-cat-3: #6250d6;
+  --sb-cat-4: #eda100;
+  --sb-cat-5: #e87ba4;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sb-surface: #1f1f1f;
+    --sb-ink: #cccccc;
+    --sb-ink-muted: #9d9d9d;
+    --sb-rule: #313131;
+    --sb-panel: #202020;
+    --sb-shadow: rgba(0, 0, 0, 0.36);
+    --sb-tip-bg: #202020;
+    --sb-tip-ink: #cccccc;
+    --sb-tip-border: #454545;
+
+    --sb-accent: #0078d4;
+    --sb-link: #4daafc;
+    --sb-error: #f88070;
+    --sb-warn: #cca700;
+    --sb-info: #3794ff;
+    --sb-ok: #73c991;
+    --sb-hover: #2a2d2e;
+    --sb-active-bg: #04395e;
+    --sb-active-ink: #ffffff;
+    --sb-selection: #264f78;
+    --sb-selection-soft: rgba(173, 214, 255, 0.15);
+    --sb-highlight: rgba(234, 92, 0, 0.33);
+
+    --sb-button-bg: #313131;
+    --sb-button-ink: #cccccc;
+    --sb-button-hover: #3c3c3c;
+    --sb-button-border: rgba(255, 255, 255, 0.07);
+    --sb-pressed-bg: #0078d4;
+    --sb-pressed-ink: #ffffff;
+    --sb-pressed-hover: #026ec1;
+    --sb-toolbar-hover: rgba(90, 93, 94, 0.31);
+    --sb-input-bg: #313131;
+    --sb-input-ink: #cccccc;
+    --sb-input-border: #3c3c3c;
+
+    --sb-series-1: #3987e5;
+    --sb-series-2: #d95926;
+    --sb-series-3: #199e70;
+    --sb-turn-0: #256abf;
+    --sb-turn-1: #104281;
+    --sb-cat-1: #d95926;
+    --sb-cat-2: #199e70;
+    --sb-cat-3: #9085e9;
+    --sb-cat-4: #c98500;
+    --sb-cat-5: #d55181;
+  }
+}

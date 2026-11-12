@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { AdapterContext } from '../../core/types';
+import { AdapterContext } from '@snagboat/schema';
 import { LineTailer } from '../../core/lineTailer';
 import { isWithinFolders } from '../../core/paths';
 import { CopilotCliState, copilotSessionNameEvent, normalizeCopilotCliChunk, readSessionCwd, readSessionName } from './cliSessions';
@@ -32,7 +32,9 @@ export function readCliCheckpoint(
 /**
  * Follows Copilot CLI sessions (~/.copilot/session-state/<id>/events.jsonl)
  * whose working directory is inside this window's workspace, the same way
- * the Claude Code tailer follows transcripts.
+ * the Claude Code tailer follows transcripts. The core (3c-3d) follows every
+ * session instead (workspaceFolders undefined), each with the context of its
+ * own project (contextFor: its workspace and capture setting).
  */
 export class CopilotCliTailer {
   private discovery?: NodeJS.Timeout;
@@ -44,11 +46,17 @@ export class CopilotCliTailer {
   constructor(
     private readonly ctx: AdapterContext,
     private readonly baseDir: string,
-    private readonly workspaceFolders: string[],
+    private readonly workspaceFolders: string[] | undefined,
     private readonly offsets: Map<string, number>,
     private readonly lastTurns: Map<string, string>,
     private readonly persistCheckpoint: () => void,
-    private readonly opts: { discoveryIntervalMs?: number; activeWindowMs?: number; rescanIntervalMs?: number } = {}
+    private readonly opts: {
+      discoveryIntervalMs?: number;
+      activeWindowMs?: number;
+      rescanIntervalMs?: number;
+      /** The context for a session started in cwd; undefined to not record it. Default: the tailer's ctx. */
+      contextFor?: (cwd: string) => AdapterContext | undefined;
+    } = {}
   ) {}
 
   start(): void {
@@ -114,7 +122,7 @@ export class CopilotCliTailer {
       // A brand-new session may not have written session.start yet; ask again next time.
       if (cwd !== null) this.cwdBySession.set(dir, cwd);
     }
-    return cwd !== null && isWithinFolders(cwd, this.workspaceFolders);
+    return cwd !== null && (this.workspaceFolders === undefined || isWithinFolders(cwd, this.workspaceFolders));
   }
 
   private stateFor(file: string): CopilotCliState {
@@ -137,15 +145,19 @@ export class CopilotCliTailer {
         this.persistCheckpoint();
       },
       onLines: (f, lines, offset) => {
+        const cwd = this.cwdBySession.get(dir);
+        const ctx = this.opts.contextFor && cwd ? this.opts.contextFor(cwd) : this.ctx;
         const state = this.stateFor(f);
-        const captureContent = this.ctx.captureContent();
-        for (const event of normalizeCopilotCliChunk(lines, f, offset, state, { captureContent })) this.ctx.publish(event);
+        const captureContent = ctx?.captureContent() ?? false;
+        const events = normalizeCopilotCliChunk(lines, f, offset, state, { captureContent });
+        if (!ctx) return; // read (the session's state stays current) but not recorded
+        for (const event of events) ctx.publish(event);
         if (!captureContent) return;
         // The session's name lives in workspace.yaml beside the log; check it whenever the log grows.
         const named = readSessionName(f);
         if (named && named.name !== state.lastName) {
           state.lastName = named.name;
-          this.ctx.publish(copilotSessionNameEvent(state.sessionId ?? path.basename(path.dirname(f)), named.name, f, named.updatedAt));
+          ctx.publish(copilotSessionNameEvent(state.sessionId ?? path.basename(path.dirname(f)), named.name, f, named.updatedAt));
         }
       },
       onReadResult: (f, err) =>

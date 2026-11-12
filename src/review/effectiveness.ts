@@ -1,4 +1,4 @@
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { FindingReplay, ReplayEpisode } from '../heuristics/replay';
 import { ResponseEpisode, ResponseStats, responseStats } from '../heuristics/responses';
 import { Heuristic } from '../heuristics/types';

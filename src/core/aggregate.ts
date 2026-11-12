@@ -1,4 +1,4 @@
-import { AgentId, NormalizedEvent, NormalizedEventKind } from './types';
+import { AgentId, NormalizedEvent, NormalizedEventKind } from '@snagboat/schema';
 import type { EventLogReader } from './eventLog';
 import type { AggregateStore, DailyAggregate } from './retention';
 
@@ -24,8 +24,8 @@ export class Aggregate {
   private totalTokens = 0;
 
   apply(event: NormalizedEvent): void {
-    // A session's name is metadata about the session, not agent activity.
-    if (event.kind === 'session_name') return;
+    // A session's name is metadata about the session, and an outcome a measure of how it went: not agent activity.
+    if (event.kind === 'session_name' || event.kind === 'outcome') return;
     let agentAgg = this.perAgent.get(event.agent);
     if (!agentAgg) {
       agentAgg = emptyAgentAggregate();
@@ -128,6 +128,8 @@ export function localDayKey(date: Date): string {
 export class TodayAggregate {
   private day: string;
   private agg = new Aggregate();
+  /** Milestone outcomes recorded today, by event id (the compact findings panel's "1 milestone"). */
+  private milestoneIds = new Set<string>();
 
   constructor(now: Date = new Date()) {
     this.day = localDayKey(now);
@@ -135,7 +137,15 @@ export class TodayAggregate {
 
   apply(event: NormalizedEvent, now: Date = new Date()): void {
     this.rollTo(now);
-    if (localDayKey(new Date(event.ts)) === this.day) this.agg.apply(event);
+    if (localDayKey(new Date(event.ts)) !== this.day) return;
+    this.agg.apply(event);
+    if (event.kind === 'outcome' && event.outcome?.type === 'milestone') this.milestoneIds.add(event.eventId);
+  }
+
+  /** Milestones recorded today. */
+  milestones(now: Date = new Date()): number {
+    this.rollTo(now);
+    return this.milestoneIds.size;
   }
 
   /**
@@ -154,6 +164,7 @@ export class TodayAggregate {
 
   reset(): void {
     this.agg.reset();
+    this.milestoneIds.clear();
   }
 
   snapshot(now: Date = new Date()): AggregateSnapshot {
@@ -166,6 +177,7 @@ export class TodayAggregate {
     if (today !== this.day) {
       this.day = today;
       this.agg.reset();
+      this.milestoneIds.clear();
     }
   }
 }

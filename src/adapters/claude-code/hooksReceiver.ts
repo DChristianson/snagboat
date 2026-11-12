@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 import * as http from 'http';
 import * as path from 'path';
-import { AdapterContext } from '../../core/types';
+import { AdapterContext } from '@snagboat/schema';
 import { normalizeHookPayload } from './normalize';
 import { isWithinFolders } from '../../core/paths';
 
@@ -14,9 +14,14 @@ function tokensMatch(header: string | undefined, token: string): boolean {
 
 /**
  * The project dir the routing script routed on. Header values arrive as raw
- * bytes read as latin1, so re-decode them as UTF-8 for non-ASCII paths.
+ * bytes read as latin1, so re-decode them as UTF-8 for non-ASCII paths. On
+ * Windows the script sends it hex-encoded instead (X-Snagboat-Project-Dir-Hex):
+ * curl there takes its arguments in the ANSI code page, which mangles
+ * non-ASCII characters, while hex digits survive any encoding.
  */
-function projectDirHeader(value: string | string[] | undefined): string | undefined {
+export function projectDirHeader(value: string | string[] | undefined, hex: string | string[] | undefined): string | undefined {
+  const hexRaw = Array.isArray(hex) ? hex[0] : hex;
+  if (hexRaw !== undefined && /^([0-9a-f]{2})+$/i.test(hexRaw)) return Buffer.from(hexRaw, 'hex').toString('utf8');
   const raw = Array.isArray(value) ? value[0] : value;
   return raw === undefined ? undefined : Buffer.from(raw, 'latin1').toString('utf8');
 }
@@ -65,7 +70,7 @@ export class HooksReceiver {
         req.resume();
         return;
       }
-      const projectDir = projectDirHeader(req.headers['x-snagboat-project-dir']);
+      const projectDir = projectDirHeader(req.headers['x-snagboat-project-dir'], req.headers['x-snagboat-project-dir-hex']);
       if (!projectDir || !isWithinFolders(projectDir, this.workspaceFolders)) {
         res.writeHead(421).end(); // Misdirected Request: not this window's project
         req.resume();
@@ -85,7 +90,7 @@ export class HooksReceiver {
           console.warn(`snagboat: failed to parse hook payload as JSON (${raw.length} bytes)`);
           return;
         }
-        const event = normalizeHookPayload(payload, this.opts.turnFallback);
+        const event = normalizeHookPayload(payload, this.opts.turnFallback, undefined, this.ctx.captureContent());
         if (event && this.opts.ignoreSession?.(event.sessionId)) return;
         if (event) {
           this.ctx.publish(event);
@@ -114,7 +119,7 @@ export class HooksReceiver {
 }
 
 /** Identifies a hook payload for diagnostics by its event and tool names only, never its contents. */
-function describeHookPayload(payload: unknown): string {
+export function describeHookPayload(payload: unknown): string {
   if (typeof payload !== 'object' || payload === null) return typeof payload;
   const p = payload as Record<string, unknown>;
   const field = (key: string) => (typeof p[key] === 'string' ? (p[key] as string) : '?');

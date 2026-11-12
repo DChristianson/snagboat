@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { HooksReceiver } from '../../adapters/claude-code/hooksReceiver';
+import { buildHookCommand } from '../../adapters/claude-code/hooksConfig';
+import { sanitizeCwd } from '../../adapters/claude-code/workspace';
 import { isWithinFolders, withRealPaths } from '../../core/paths';
 import {
   installHookScript,
@@ -14,7 +16,13 @@ import {
   updateRoutes,
   writeRoutes,
 } from '../../adapters/claude-code/hookRoutes';
-import { AdapterContext, NormalizedEvent } from '../../core/types';
+import { AdapterContext, NormalizedEvent } from '@snagboat/schema';
+import { CoreService } from '../../core/service/server';
+import { coreRequest } from '../../core/service/coreFile';
+import { hookSpoolDir, ingestHookSpool } from '../../core/service/hooks';
+import { EventLog } from '../../core/eventLog';
+import { workspaceStoreDir } from '../../core/userStore';
+import { saveConfig } from '../../core/config';
 
 // End to end: the real generated sh script, run the way Claude Code runs a
 // hook command, delivering to a real HooksReceiver.
@@ -55,8 +63,8 @@ function run(cmd: string, args: string[], opts: { input?: string; env?: NodeJS.P
 }
 
 /** Runs the hook script as Claude Code would: payload on stdin, CLAUDE_PROJECT_DIR set. */
-function runHook(home: string, script: string, projectDir: string, body: unknown) {
-  return run('sh', [script], { input: JSON.stringify(body), env: { ...process.env, SNAGBOAT_HOME: home, CLAUDE_PROJECT_DIR: projectDir } });
+function runHook(home: string, script: string, projectDir: string, body: unknown, extraEnv: NodeJS.ProcessEnv = {}) {
+  return run('sh', [script], { input: JSON.stringify(body), env: { ...process.env, SNAGBOAT_HOME: home, CLAUDE_PROJECT_DIR: projectDir, ...extraEnv } });
 }
 
 function settle(ms = 150): Promise<void> {
@@ -122,7 +130,8 @@ async function main() {
 
   test('a route left by a dead window is skipped by the script and pruned on the next activation', async () => {
     const { home, script, projectA } = await setup();
-    const dead = childProcess.spawnSync('sh', ['-c', 'echo $$']).stdout.toString().trim();
+    // A pid the way the script names its files: under Git Bash its Windows pid, not the MSYS $$.
+      const dead = childProcess.spawnSync('sh', ['-c', 'me=$$; [ -r "/proc/$$/winpid" ] && read -r me < "/proc/$$/winpid"; echo $me']).stdout.toString().trim();
     writeRoutes(home, [projectA], { port: 9, token: 'x', pid: Number(dead) });
     assert.strictEqual((await runHook(home, script, projectA, payload(projectA))).status, 0);
     pruneStaleRoutes(home);
@@ -253,12 +262,186 @@ async function main() {
     assert.ok(fs.existsSync(path.join(home, 'routes', routeKey(projectB))));
   });
 
+  test('under Git Bash (MSYSTEM set) the project dir travels hex-encoded and still matches', async () => {
+    const { home, script, projectA } = await setup();
+    const unicode = path.join(projectA, 'naïve-日本');
+    fs.mkdirSync(unicode);
+    const w = await startWindow(home, [unicode]);
+    try {
+      await runHook(home, script, unicode, payload(unicode), { MSYSTEM: 'MINGW64' });
+      await settle();
+      assert.strictEqual(w.published.length, 1);
+    } finally {
+      w.receiver.stop();
+    }
+  });
+
+  test('a colon in the project path routes the same way the route file is named', async () => {
+    // Windows drive letters put a colon in every path; the script and routeKey must agree on it.
+    // Windows itself can't make a folder named x:y; there every other test here already routes through C:.
+    if (process.platform === 'win32') return;
+    const { home, script, projectA } = await setup();
+    const colon = path.join(projectA, 'x:y');
+    fs.mkdirSync(colon);
+    const w = await startWindow(home, [colon]);
+    try {
+      await runHook(home, script, colon, payload(colon));
+      await settle();
+      assert.strictEqual(w.published.length, 1);
+    } finally {
+      w.receiver.stop();
+    }
+  });
+
+  test('Windows paths: route names, transcript folder names and the hook command', () => {
+    assert.strictEqual(routeKey('C:\\Users\\dc\\proj'), 'C--Users-dc-proj');
+    assert.strictEqual(routeKey('C:/Users/dc/proj'), 'C--Users-dc-proj', 'cygpath -m spelling maps to the same name');
+    assert.strictEqual(sanitizeCwd('C:\\Users\\dc\\proj'), 'C--Users-dc-proj');
+    const home = os.homedir();
+    const scriptPath = path.join(home, '.snagboat', 'bin', 'snagboat-hook');
+    const win = buildHookCommand(scriptPath, 'win32');
+    assert.ok(win.startsWith('sh "$HOME/'), win);
+    assert.ok(!win.includes('\\'), 'no backslashes for Git Bash');
+    assert.ok(buildHookCommand(scriptPath, 'linux').startsWith('"$HOME'), 'POSIX command is unchanged');
+  });
+
   test('route and script files are private to the user', async () => {
     const { home, script, projectA } = await setup();
     writeRoutes(home, [projectA], { port: 1000, token: 't', pid: process.pid });
+    // Windows has no POSIX modes; there the files are private by living in the user's profile.
+    if (process.platform === 'win32') return;
     assert.strictEqual(fs.statSync(path.join(home, 'routes', routeKey(projectA))).mode & 0o777, 0o600);
     assert.strictEqual(fs.statSync(path.join(home, 'routes')).mode & 0o777, 0o700);
     assert.strictEqual(fs.statSync(script).mode & 0o777, 0o755);
+  });
+
+  // --- 3c-2b: the core, then the spool, after the window ---
+
+  /** A core in this process, knowing projectA as a workspace (as if a window registered it with a token). */
+  async function startCore(home: string, workspaces: string[]) {
+    const core = await CoreService.start({ home, version: 'test', idleMs: 0, ingestEveryMs: 60_000, collect: false });
+    await coreRequest(core.port, core.token, 'POST', '/tokens', { workspaces });
+    return core;
+  }
+  const storeEvents = (home: string, workspace: string) => new EventLog(workspaceStoreDir(home, workspace)).readAll();
+
+  test('with no window for the project, the hook goes to the core, which records it for the workspace containing it', async () => {
+    const { home, script, projectA } = await setup();
+    const core = await startCore(home, [projectA]);
+    try {
+      const deep = path.join(projectA, 'src', 'deep');
+      assert.strictEqual((await runHook(home, script, deep, { ...payload(deep), tool_use_id: 't1' })).status, 0);
+      const events = await storeEvents(home, projectA);
+      assert.deepStrictEqual(events.map((e) => [e.eventId, e.workspace, e.kind]), [['tool:t1', projectA, 'tool_call']]);
+      assert.deepStrictEqual(fs.readdirSync(hookSpoolDir(home)), [], 'nothing spooled');
+      assert.deepStrictEqual(fs.readdirSync(home).filter((n) => n.startsWith('.hook-in')), [], 'no payload copy left behind');
+    } finally {
+      await core.stop();
+    }
+  });
+
+  test('a live window still gets its hooks first; the core gets them when the window is gone or refuses', async () => {
+    const { home, script, projectA, projectB } = await setup();
+    const core = await startCore(home, [projectA, projectB]);
+    const a = await startWindow(home, [projectA]);
+    try {
+      await runHook(home, script, projectA, { ...payload(projectA), tool_use_id: 'w1' });
+      await settle();
+      assert.strictEqual(a.published.length, 1);
+      assert.strictEqual((await storeEvents(home, projectA)).length, 0, 'not recorded twice');
+
+      // A route-name collision: B's hook reaches A's window, which refuses it; the core takes it.
+      writeRoutes(home, [projectB], { port: a.port, token: a.token, pid: process.pid });
+      await runHook(home, script, projectB, { ...payload(projectB), tool_use_id: 'c1' });
+      assert.deepStrictEqual((await storeEvents(home, projectB)).map((e) => e.eventId), ['tool:c1']);
+
+      // The window's route left behind by a dead process: the core takes it.
+      // A pid the way the script names its files: under Git Bash its Windows pid, not the MSYS $$.
+      const dead = childProcess.spawnSync('sh', ['-c', 'me=$$; [ -r "/proc/$$/winpid" ] && read -r me < "/proc/$$/winpid"; echo $me']).stdout.toString().trim();
+      writeRoutes(home, [projectA], { port: 9, token: 'x', pid: Number(dead) });
+      await runHook(home, script, projectA, { ...payload(projectA), tool_use_id: 'd1' });
+      assert.deepStrictEqual((await storeEvents(home, projectA)).map((e) => e.eventId), ['tool:d1']);
+    } finally {
+      a.receiver.stop();
+      await core.stop();
+    }
+  });
+
+  test('without a core ever having run, nothing is spooled and nothing is left behind, as before', async () => {
+    const { home, script, projectA } = await setup();
+    assert.strictEqual((await runHook(home, script, projectA, payload(projectA))).status, 0);
+    assert.ok(!fs.existsSync(hookSpoolDir(home)), 'no spool');
+    assert.deepStrictEqual(fs.readdirSync(home).filter((n) => n.startsWith('.hook-in')), [], 'the payload copy is removed');
+  });
+
+  test('once a core has run, a hook with no core running is spooled (owner-only), and the next core records it with the time it ran', async () => {
+    const { home, script, projectA } = await setup();
+    await (await startCore(home, [])).stop(); // a core ran once: the spool folder exists
+    const before = Date.now();
+    assert.strictEqual((await runHook(home, script, projectA, { ...payload(projectA), tool_use_id: 's1' })).status, 0);
+    const spooled = fs.readdirSync(hookSpoolDir(home));
+    assert.strictEqual(spooled.length, 1, spooled.join());
+    assert.match(spooled[0], /^\d+-\d+\.hook$/);
+    const text = fs.readFileSync(path.join(hookSpoolDir(home), spooled[0]), 'utf8');
+    assert.strictEqual(text.split('\n')[0], projectA, 'the project dir on the first line');
+    if (process.platform !== 'win32') {
+      assert.strictEqual(fs.statSync(path.join(hookSpoolDir(home), spooled[0])).mode & 0o777, 0o600);
+      assert.strictEqual(fs.statSync(hookSpoolDir(home)).mode & 0o777, 0o700);
+    }
+    await new Promise((r) => setTimeout(r, 1100)); // so "recorded at ingest time" would show
+    const core = await startCore(home, [projectA]);
+    try {
+      const deadline = Date.now() + 5000;
+      while ((await storeEvents(home, projectA)).length === 0 && Date.now() < deadline) await settle(50);
+      const [event] = await storeEvents(home, projectA);
+      assert.strictEqual(event?.eventId, 'tool:s1');
+      const ts = Date.parse(event.ts);
+      assert.ok(ts >= Math.floor(before / 1000) * 1000 && ts <= before + 1000, `timestamped when it ran, not when ingested: ${event.ts}`);
+      assert.deepStrictEqual(fs.readdirSync(hookSpoolDir(home)), [], 'spool emptied');
+    } finally {
+      await core.stop();
+    }
+  });
+
+  test('the core records a project no window knows, under its own folder, unless collect.unopened is off', async () => {
+    const { home, script, projectA, projectB } = await setup();
+    const core = await startCore(home, [projectA]);
+    try {
+      await runHook(home, script, projectB, { ...payload(projectB), tool_use_id: 'u1' });
+      assert.deepStrictEqual((await storeEvents(home, projectB)).map((e) => [e.eventId, e.workspace]), [['tool:u1', projectB]]);
+      saveConfig(home, { version: 1, defaults: { 'collect.unopened': false }, projects: {} });
+      const other = path.join(path.dirname(projectB), 'c');
+      fs.mkdirSync(other);
+      await runHook(home, script, other, payload(other));
+      assert.ok(!fs.existsSync(workspaceStoreDir(home, other)), 'not recorded with collect.unopened off');
+      await runHook(home, script, projectA, { ...payload(projectA), tool_use_id: 'k1' });
+      assert.deepStrictEqual((await storeEvents(home, projectA)).map((e) => e.eventId), ['tool:k1'], 'a known workspace is still recorded');
+      assert.deepStrictEqual(fs.readdirSync(hookSpoolDir(home)), [], 'nothing spooled');
+    } finally {
+      await core.stop();
+    }
+  });
+
+  test('the hook token in core.route posts hooks and nothing else; a payload file a dead script left is cleaned up', async () => {
+    const { home, projectA } = await setup();
+    const core = await startCore(home, [projectA]);
+    try {
+      const [port, hookToken, pid] = fs.readFileSync(path.join(home, 'core.route'), 'utf8').trim().split(/\s+/);
+      assert.deepStrictEqual([Number(port), Number(pid)], [core.port, process.pid]);
+      if (process.platform !== 'win32') assert.strictEqual(fs.statSync(path.join(home, 'core.route')).mode & 0o777, 0o600);
+      assert.strictEqual((await coreRequest(core.port, hookToken, 'GET', '/sessions')).status, 401);
+      assert.strictEqual((await coreRequest(core.port, 'wrong', 'POST', '/hook', payload(projectA))).status, 401);
+      // A pid the way the script names its files: under Git Bash its Windows pid, not the MSYS $$.
+      const dead = childProcess.spawnSync('sh', ['-c', 'me=$$; [ -r "/proc/$$/winpid" ] && read -r me < "/proc/$$/winpid"; echo $me']).stdout.toString().trim();
+      fs.writeFileSync(path.join(home, `.hook-in.${dead}`), '{"partial');
+      fs.writeFileSync(path.join(hookSpoolDir(home), `.${dead}.tmp`), '/w\n{"partial');
+      await ingestHookSpool(home, async () => undefined);
+      assert.deepStrictEqual(fs.readdirSync(hookSpoolDir(home)), []);
+      assert.ok(!fs.existsSync(path.join(home, `.hook-in.${dead}`)));
+    } finally {
+      await core.stop();
+    }
+    assert.ok(!fs.existsSync(path.join(home, 'core.route')), 'core.route removed on stop');
   });
 
   test('isWithinFolders and withRealPaths', () => {

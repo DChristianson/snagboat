@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { eventDay } from './eventDay';
-import { NormalizedEvent } from './types';
+import { eventDay } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 
 // eventDay lives in its own fs-free module (the session index and the web
 // demo use it); it's still available from here.
@@ -23,9 +23,20 @@ export class EventLog implements EventLogReader {
   // every append and delete so routing decisions (EventSink) can be made
   // synchronously as events arrive.
   private knownDays = new Set<string>();
+  private readonly workspace: string | undefined;
 
-  constructor(storageDir: string) {
+  /**
+   * With `workspace` (the per-user store), every event written gets that
+   * NormalizedEvent.workspace unless it already has one. A VS Code window's own
+   * storage holds only that window's events and leaves the field off.
+   */
+  constructor(storageDir: string, opts: { workspace?: string } = {}) {
     this.eventsDir = path.join(storageDir, 'events');
+    this.workspace = opts.workspace;
+  }
+
+  private tagged(event: NormalizedEvent): NormalizedEvent {
+    return this.workspace && !event.workspace ? { ...event, workspace: this.workspace } : event;
   }
 
   /** The folder the daily files are in. */
@@ -42,7 +53,7 @@ export class EventLog implements EventLogReader {
   append(event: NormalizedEvent): void {
     const day = eventDay(event);
     this.knownDays.add(day);
-    const line = JSON.stringify(event) + '\n';
+    const line = JSON.stringify(this.tagged(event)) + '\n';
     const filePath = path.join(this.eventsDir, `${day}.jsonl`);
     this.enqueue(() => fs.promises.appendFile(filePath, line, 'utf8'), 'failed to append event log line');
   }
@@ -132,7 +143,7 @@ export class EventLog implements EventLogReader {
     const file = path.join(this.eventsDir, `${day}.jsonl`);
     const op = this.writeQueue.then(async () => {
       if (!fs.existsSync(file) && !opts.create) return;
-      const events = transform(await this.readDay(day));
+      const events = transform(await this.readDay(day)).map((e) => this.tagged(e));
       if (events.length === 0 && !fs.existsSync(file)) return;
       this.knownDays.add(day);
       const temp = `${file}.${process.pid}.tmp`;

@@ -1,5 +1,5 @@
 import { currentTurnsIn } from '../core/turns';
-import { NormalizedEvent } from '../core/types';
+import { NormalizedEvent } from '@snagboat/schema';
 import { Heuristic, Finding, HeuristicContext } from './types';
 import { positiveNumberOr } from './settings';
 

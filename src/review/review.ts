@@ -1,6 +1,6 @@
-import { isConversationEvent } from '../core/sessions';
-import { baseCategory, categoryLabel } from '../core/toolCategory';
-import { NormalizedEvent } from '../core/types';
+import { isConversationEvent } from '@snagboat/schema';
+import { baseCategory, categoryLabel } from '@snagboat/schema';
+import { NormalizedEvent } from '@snagboat/schema';
 import { DiscoveryResult } from '../discovery/discover';
 import { compactTokens } from '../heuristics/settings';
 import { Provenance } from '../heuristics/ruleStore';
@@ -8,6 +8,7 @@ import { ResponseEpisode, ResponseStats } from '../heuristics/responses';
 import { Heuristic } from '../heuristics/types';
 import { heuristicEffectiveness } from './effectiveness';
 import { CheckResult, momentsFrom, presentationChecks, snapshotAt, UiSnapshot } from './presentation';
+import { AdvisorReport, reportLines } from '../advisor/report';
 
 /**
  * The periodic review without a model: what a week of agent work cost, which
@@ -65,6 +66,8 @@ export interface Review {
   thresholds: Array<{ detail: string }>;
   /** The moments looked at, as snapshots (latest first, for the advisor), and the fixed checks over them. */
   presentation: { moments: number; snapshots: UiSnapshot[]; checks: CheckResult[] };
+  /** Each advisor's measures this week against the week before (RFC step 4c), when the caller adds them. */
+  advisors?: AdvisorReport[];
 }
 
 /** Snapshots kept for the advisor's review. */
@@ -193,6 +196,11 @@ export function renderReview(r: Review): string {
       );
     }
     out.push('', 'Episodes are replayed from the log with your current settings; responses are what you did when they were live.', '');
+  }
+
+  if (r.advisors && r.advisors.length > 0) {
+    out.push('## Advisors', '', "Each advisor's measures for these 7 days, against the 7 before. Counts and rates only.", '');
+    for (const a of r.advisors) out.push('```', ...reportLines(a, 7, { redact: true }), '```', '');
   }
 
   out.push('## Rules', '');

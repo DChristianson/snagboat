@@ -1,0 +1,22 @@
+#!/bin/sh
+# The Snagboat CLI bundled with this plugin (dist/snagboat.js), run with
+# Node.js 24 or later: `node` on PATH, or SNAGBOAT_NODE set to one. Claude
+# Code doesn't ship Node, so this says what's missing instead of failing
+# silently. On the Bash tool's PATH while the plugin is enabled.
+root=$(cd "$(dirname "$0")/.." && pwd)
+node="${SNAGBOAT_NODE:-node}"
+if ! command -v "$node" >/dev/null 2>&1; then
+  echo "snagboat: needs Node.js 24 or later; install it (https://nodejs.org), or set SNAGBOAT_NODE to one" >&2
+  exit 127
+fi
+major=$("$node" -p 'process.versions.node.split(".")[0]' 2>/dev/null)
+case "$major" in '' | *[!0-9]*) major=0 ;; esac
+if [ "$major" -lt 24 ]; then
+  echo "snagboat: needs Node.js 24 or later; $node is $("$node" --version 2>/dev/null)" >&2
+  exit 1
+fi
+if [ ! -f "$root/dist/snagboat.js" ]; then
+  echo "snagboat: this plugin wasn't built (dist/snagboat.js is missing); run npm run build:plugin in the Snagboat repository" >&2
+  exit 1
+fi
+exec "$node" "$root/dist/snagboat.js" "$@"

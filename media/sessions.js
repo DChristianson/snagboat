@@ -1,16 +1,15 @@
 // Snagboat Sessions tab: a session list, then one session as a turn tree
 // (icicle) above a context timeline. See docs/design/conversation-view.md.
-// The two drawings are the registered visualizers in media/viz/ (see
-// docs/design/visualization-explorer.md); this file is the tab's chrome
-// around them: the list, breadcrumb, buttons, prompt panel, and findings
+// The two drawings are media/drawings/turnTree.js and contextTimeline.js;
+// this file is the tab's chrome around them: the list, breadcrumb, buttons, prompt panel, and findings
 // table, with its own focus and selected turn mapped onto the shared
 // selection. Uses the helpers detail.js exposes on window.snagboat. Plain
 // DOM; all data is written with textContent, never innerHTML.
 (function () {
   const S = window.snagboat;
-  const viz = window.snagboatViz;
-  if (!S || !viz) return;
-  const { vscode, el, compact, fmt, formatTime, clip, persist, sessionsRoot, tooltip, showTip, hideTip, ms, short, duration, agentName, modelShort, findNode, pathTo } = S;
+  const drawings = window.snagboatDrawings;
+  if (!S || !drawings) return;
+  const { vscode, el, compact, fmt, formatTime, clip, persist, sessionsRoot, showTip, hideTip, ms, short, duration, agentName, modelShort, findNode, pathTo } = S;
   const saved = vscode.getState() || {};
 
   const ui = {
@@ -66,7 +65,7 @@
   ]);
   sessionsRoot.append(listSection, sessionSection);
 
-  // ---------- the two visualizers ----------
+  // ---------- the two drawings ----------
   // A tree click carries its focus; a prompt rule doesn't, and returns the
   // tree to the whole session with that prompt highlighted.
   function onSelect(sel) {
@@ -75,9 +74,9 @@
     if (sel.focusId) timeline.zoomTo(null);
     render();
   }
-  const ctx = { ...window.snagboatShared, tooltip, showTip, hideTip, select: onSelect };
-  const tree = viz.get('turn-tree').mount(treeHost, ctx);
-  const timeline = viz.get('context-timeline').mount(timelineHost, ctx);
+  const ctx = { ...window.snagboatKit, showTip, hideTip, select: onSelect };
+  const tree = drawings.turnTree(treeHost, ctx);
+  const timeline = drawings.contextTimeline(timelineHost, ctx);
 
   // ---------- helpers ----------
   const isLive = (s) => Date.now() - ms(s.lastTs) < 10 * 60 * 1000;
