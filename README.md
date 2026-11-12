@@ -14,9 +14,9 @@ Snagboat watches your AI coding agents (Claude Code and GitHub Copilot Chat) and
 
 | Where | What you get | How to get it |
 | --- | --- | --- |
-| VS Code | The status bar, a findings panel, and a detail view with your sessions, Explore and Suggestions; notifications, Explain, and a weekly review | Install the extension from a release ([Install](#install)) |
+| VS Code | The status bar, a findings panel, and a detail view with your sessions, Explore and Suggestions (with the per-user store on, sessions and Explore open in your browser instead); notifications, Explain, and a weekly review | Install the extension from a release ([Install](#install)) |
 | Claude Code (preview) | Your sessions recorded without VS Code, slash commands such as `/snagboat:findings`, read-only tools the agent can use to read findings and sessions, and a status line | Start Claude Code with the plugin ([Claude Code plugin](#claude-code-plugin-preview)); needs Node.js 24 |
-| Your browser (preview) | The advisor UI: each advisor's goal and live finding, your sessions and what came of them, Explore, Suggestions, and adding an advisor | `snagboat open`, `/snagboat:open` in Claude Code, or **Snagboat: Open Advisor UI** in VS Code with the per-user store on; each link works once ([usage](docs/usage.md#the-advisor-ui-preview)) |
+| Your browser (preview) | The advisor UI: each advisor's goal and live finding, your sessions and what came of them, Explore, Suggestions (with asking a model on this machine, after you approve what it's sent), and adding an advisor | `snagboat open`, `/snagboat:open` in Claude Code, or **Snagboat: Open Advisor UI** in VS Code with the per-user store on; each link works once ([usage](docs/usage.md#the-advisor-ui-preview)) |
 | Command line | Sessions, findings, advisors' measures and settings, as text or JSON | `snagboat` while the Claude Code plugin is enabled, or `node dist/snagboat.js` from a clone ([Command line](#command-line)); needs Node.js 24 |
 
 If you use VS Code alongside the others, turn on its per-user store preview (`snagboat.storage.perUserStore`), so it shows the same sessions and findings they do ([known limitations](#known-limitations)).
