@@ -143,6 +143,23 @@ Two keys exist only here, for the core service, which records every Claude Code 
 | `collect` | `true` | defaults, a project entry, or `.snagboat.json` | `false` stops Snagboat recording that project (its Claude Code transcripts and hooks, and its Copilot CLI sessions). |
 | `collect.unopened` | `true` | `config.json` `"defaults"` only | `false` records only projects inside a workspace Snagboat knows: one with a folder in `~/.snagboat/data`, one in `"projects"` here, or one a VS Code window registered. |
 
+### Dev container relays: `relay.allow`
+
+A top-level key of `~/.snagboat/config.json`, beside `defaults` and `projects`: the host folders whose dev container relay the core reads. A Snagboat core running inside a dev container leaves its events in `<folder>/.snagboat/relay/outbox/`, in the bind-mounted project folder, and the core on your machine records them, on its ingest tick every 30 seconds, only for folders listed here. `snagboat relay allow [folder]` and `snagboat relay deny [folder]` edit the list ([command line](cli.md#dev-container-relays)).
+
+```json
+{
+  "version": 1,
+  "defaults": {},
+  "projects": {},
+  "relay": { "allow": ["/Users/me/src/snagboat"] }
+}
+```
+
+It's read only from your `config.json`: never from a project's `.snagboat.json` or VS Code's settings, which an agent in the container can write. VS Code doesn't copy it and leaves it as it is. Entries must be absolute folder paths; others are ignored, and `snagboat config` says so.
+
+The relay folder is written by an agent in the container, possibly with its permissions off, so the core treats it as untrusted: it refuses symlinks anywhere from the allowed folder to each file, deletes files over 16 MB unread, skips lines over 1 MB or that aren't an event (logging counts, never contents), and keeps only the event schema's fields. An event's project is the container path mapped into the allowed folder (a path under `relay.json`'s `root` becomes the same path under the folder; anything else is the folder itself), then filed like any project on this machine, with its `collect` and `captureContent` settings. Each file is deleted once its events are written; events already recorded aren't counted twice.
+
 **`.snagboat.json` is shared with everyone who clones the project**, so it can set only team settings: heuristic thresholds, token budgets, `rules`, `toolCategories`, discovery and nudges. Privacy settings it can only make more private: turn `captureContent`, `copilot.captureStructure` or `claudeCode.configureHooks` off, shorten retention, or set `"collect": false`. Anything else in it is ignored, and `snagboat config` says why.
 
 ```json

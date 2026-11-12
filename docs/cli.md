@@ -26,6 +26,18 @@ node dist/snagboat.js sessions --all --store user   # read the per-user store
 
 With `snagboat.storage.perUserStore` on, VS Code starts the core and each window becomes its client. The core collects and writes, and a window shows its own workspace from it ([handoff](design/handoff-3c.md)).
 
+## Dev container relays
+
+Claude Code sessions inside a dev container don't reach the core on your machine: the container keeps its own `~/.claude`. A core inside the container can relay them instead, through `.snagboat/relay/` in the bind-mounted project folder, and the core here records them for folders you allow:
+
+```sh
+snagboat relay allow [folder]   # read folder's relay (default: the current folder, as its real path)
+snagboat relay deny [folder]    # stop reading it
+snagboat relay status           # each allowed folder: relay.json's root and host, files waiting, the last ingest
+```
+
+`allow` and `deny` change `relay.allow` in `~/.snagboat/config.json` and print what they changed. The allow list lives only there, never in the project ([settings](settings.md#dev-container-relays-relayallow)). The core reads each allowed folder's outbox every 30 seconds while it runs (not with `--no-collect`), and deletes each file once its events are recorded.
+
 ## Migrating to the per-user store
 
 `migrate` is for the per-user store preview (`snagboat.storage.perUserStore`). It copies, and never moves or deletes. Running it again copies only what's new. To check a migration, save `sessions --all --json` to a file before migrating, then run `migrate --verify <file>`. Every session in it must be in the per-user store with the same prompt, tool-call and token counts.

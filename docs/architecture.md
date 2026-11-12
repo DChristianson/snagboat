@@ -139,6 +139,7 @@ The core's modules, in [src/core/service](../src/core/service/):
 | `sessionPages.ts` | The advisor UI's sessions: the list with outcome counts, a session's view (built as VS Code's Sessions tab builds it, findings replayed with the workspace's own heuristics) with its outcomes |
 | `claudeCollector.ts` | Tails every project folder under `~/.claude/projects` with the window's `TranscriptTailer` |
 | `copilotCollector.ts` | Reads every Copilot CLI session under `~/.copilot/session-state` and files it by the folder it started in |
+| `relayIngest.ts` | On each ingest tick (30 seconds), reads the dev container relay outboxes of the folders in `config.json`'s `relay.allow` (the folder's contract is [core/relay.ts](../src/core/relay.ts)): refuses symlinks and oversized files and lines, maps the container's project paths to the host folder, files each project as `workspaces.ts` does, writes through the store writer and deletes each file once written |
 | `workspaces.ts` | Which workspace a project belongs to (the nearest known workspace folder, else its repository, else the folder itself), and whether to record it at all |
 | `claims.ts` | `writer.json` in a workspace's folder: a window that writes the folder itself, or holds it briefly, claims it so the core doesn't write there too |
 | `hooks.ts` | Maps hook payloads to events, and reads the hook spool on start |

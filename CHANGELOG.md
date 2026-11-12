@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Dev container relays (host side):** the core records events a dev container relays through `<folder>/.snagboat/relay/` for folders you allow with `snagboat relay allow` (`relay.allow` in `~/.snagboat/config.json`); `snagboat relay status` shows each one. See [cli.md](https://github.com/DChristianson/snagboat/blob/main/docs/cli.md#dev-container-relays).
+
 ## 0.0.3
 
 - **Requirements:** VS Code 1.145 or later (was 1.119), and Node 24 for the `snagboat` CLI.
