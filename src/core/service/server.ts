@@ -33,7 +33,7 @@ import { builtInHeuristics } from '../../heuristics';
 import { RuleStore } from '../../heuristics/ruleStore';
 import { AdvisorReport, advisorReports, buckets, eventsIn, periods } from '../../advisor/report';
 import { advisorBrief } from '../../advisor/brief';
-import { beadsAhead } from '../../advisor/ahead';
+import { navigatorAhead } from '../../advisor/ahead';
 import { HEURISTICS_INTERVAL_MS } from '../../heuristics/engine';
 
 const STREAM_BATCH = 500;
@@ -564,7 +564,7 @@ export class CoreService {
   async deliverHook(projectDir: string, payload: unknown, receivedAt: string) {
     const workspace = this.workspaceFor(projectDir);
     if (!workspace) return { recorded: false, reason: "the project's settings say not to record it" };
-    const event = hookEvent(payload, receivedAt);
+    const event = hookEvent(payload, receivedAt, this.settingsFor(projectDir).captureContent !== false);
     if (!event) return { recorded: false, reason: 'not a hook Snagboat records' };
     return { recorded: true, ...(await this.writer.write([{ ...event, workspace }])) };
   }
@@ -705,7 +705,8 @@ export class CoreService {
       const findingsNow = await this.findings.current(workspace);
       const live = findingsNow.findings;
       const notified = new Set(currentEvents.filter((e) => e.kind === 'outcome' && e.outcome?.type === 'notified' && Date.parse(e.ts) > now.getTime() - 2 * 3_600_000).map((e) => e.outcome!.heuristicId!));
-      const ahead = stores[0].folder && reports.some((r) => r.id === 'navigator') ? await beadsAhead(stores[0].folder, now.getTime()) : undefined;
+      // Beads first, the agent's plan (its todo list) as fallback.
+      const ahead = reports.some((r) => r.id === 'navigator') ? await navigatorAhead(stores[0].folder, currentEvents, now.getTime()) : undefined;
       for (const r of reports) r.brief = advisorBrief(r, live, notified, r.id === 'navigator' ? ahead : undefined, findingsNow.responses);
     }
     return { days, workspaces: stores.map((s) => s.workspace), advisors: reports, problems };

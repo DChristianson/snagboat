@@ -23,6 +23,7 @@ function validate(schema: Schema, value: unknown, at = '$'): string[] {
     const actual = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
     if (actual !== schema.type) problems.push(`${at}: expected ${schema.type}, got ${actual}`);
   }
+  if (schema.items && Array.isArray(value)) value.forEach((v, i) => problems.push(...validate(schema.items, v, `${at}[${i}]`)));
   if (schema.anyOf && !schema.anyOf.some((s: Schema) => validate(s, value, at).length === 0)) problems.push(`${at}: matches none of anyOf`);
   if (schema.type === 'object' && value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
@@ -118,9 +119,22 @@ async function main() {
       assert.deepStrictEqual(validate(schema, JSON.parse(JSON.stringify(normalizeHookPayload(payload)))), [], payload.hook_event_name);
     }
     assert.ok(validate(schema, { ...green, outcome: { type: 'approval', decision: 'maybe' } }).length > 0);
-    assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in v2.properties)), ['outcome']);
+    assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in v2.properties)).sort(), ['outcome', 'todos']);
     assert.deepStrictEqual(Object.keys(v2.properties).filter((k) => !(k in props)), []);
     for (const e of syntheticEvents()) assert.deepStrictEqual(validate(v2, JSON.parse(JSON.stringify(e))), [], e.eventId);
+  });
+
+  test("version 3 adds todos: a TodoWrite call's list, counts always, items' text only with capture", () => {
+    const payload = { session_id: 's', hook_event_name: 'PostToolUse', tool_use_id: 'toolu_t', tool_name: 'TodoWrite', tool_input: { todos: [{ content: 'Write it', status: 'in_progress', activeForm: 'Writing it' }, { content: 'Test it', status: 'pending' }] } };
+    for (const capture of [true, false]) {
+      const e = JSON.parse(JSON.stringify(normalizeHookPayload(payload, undefined, undefined, capture)));
+      assert.ok(e.todos, 'has its list');
+      assert.deepStrictEqual(validate(schema, e), [], `capture ${capture}`);
+    }
+    const ok = { eventId: 'e', sessionId: 's', agent: 'claude-code', ts: '2026-11-09T00:00:00Z', kind: 'tool_call', status: 'success', raw: { adapter: 'a', ref: 'r' } };
+    assert.ok(validate(schema, { ...ok, todos: { pending: 1, inProgress: 0, completed: 0, items: [{ text: 'x', status: 'later' }] } }).length > 0);
+    assert.ok(validate(schema, { ...ok, todos: { pending: 1, inProgress: 0, completed: 0, items: [{ text: 'x', status: 'pending', activeForm: 'y' }] } }).length > 0);
+    assert.ok(validate(schema, { ...ok, todos: { pending: 1 } }).length > 0);
   });
 
   test("every event in the web demo's synthetic sessions is valid", () => {

@@ -58,7 +58,7 @@ export function advisorBrief(report: AdvisorReport, findings: Finding[], notifie
 
   const worst = [...worse].sort((a, b) => change(b) - change(a))[0];
   let watching: string | undefined;
-  if (ahead?.firstBlocked) {
+  if (ahead?.source === 'beads' && ahead.firstBlocked) {
     const on = ahead.firstBlocked.blockedBy.length ? ` on ${ahead.firstBlocked.blockedBy.join(', ')}` : '';
     watching = `${ahead.firstBlocked.id} "${ahead.firstBlocked.title}" is blocked${on}, so nothing behind it can start${worst ? `; then ${phrase(worst)}` : ''}.`;
   } else if (worst) watching = `${worst.label}: ${phrase(worst).replace(lower(worst.label) + ' ', '')}.`;

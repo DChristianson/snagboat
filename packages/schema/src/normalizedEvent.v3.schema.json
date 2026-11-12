@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/DChristianson/snagboat/schema/normalized-event/v3",
   "title": "NormalizedEvent",
-  "description": "One line of Snagboat's daily event log (docs/schema.md). Version 3 adds the outcome kind and the outcome field, for outcome signals Snagboat works out; version 2 added workspace. Every version 1 and 2 event is a valid version 3 event. It matches the NormalizedEvent type in types.ts; a unit test and a compile-time check keep them in step.",
+  "description": "One line of Snagboat's daily event log (docs/schema.md). Version 3 adds the outcome kind and the outcome field, for outcome signals Snagboat works out, and the todos field, the agent's todo list; version 2 added workspace. Every version 1 and 2 event is a valid version 3 event. It matches the NormalizedEvent type in types.ts; a unit test and a compile-time check keep them in step.",
   "type": "object",
   "required": [
     "eventId",
@@ -132,6 +132,50 @@
     },
     "contextLimit": {
       "type": "number"
+    },
+    "todos": {
+      "description": "tool_call events for the agent's todo tool: how many items are in each state, and their text when capture is on.",
+      "type": "object",
+      "required": [
+        "pending",
+        "inProgress",
+        "completed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "pending": {
+          "type": "number"
+        },
+        "inProgress": {
+          "type": "number"
+        },
+        "completed": {
+          "type": "number"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "text",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed"
+                ]
+              }
+            }
+          }
+        }
+      }
     },
     "compaction": {
       "type": "object",

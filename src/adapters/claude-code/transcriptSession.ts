@@ -2,7 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { classifyTool } from '@snagboat/schema';
 import { NormalizedEvent } from '@snagboat/schema';
-import { normalizeTranscriptChunk, SeenMessages, TurnTracker } from './normalize';
+import { EventTodos } from '@snagboat/schema';
+import { normalizeTranscriptChunk, SeenMessages, TurnTracker, todosOf } from './normalize';
 
 /**
  * Reads a whole Claude Code session from its transcripts in one pass, for the
@@ -32,7 +33,7 @@ export function mainTranscriptOf(file: string): string {
 
 /** A tool call from its tool_use block, with status and time from its tool_result when there is one. */
 function toolCallEvent(
-  use: { id?: string; name?: string; input?: { file_path?: unknown; command?: unknown }; sessionId?: string; agentId?: string; ts: string; fallbackId: string },
+  use: { id?: string; name?: string; input?: { file_path?: unknown; command?: unknown }; todos?: EventTodos; sessionId?: string; agentId?: string; ts: string; fallbackId: string },
   result: { failed: boolean; ts: string } | undefined,
   file: string,
   turnId: string | undefined
@@ -53,6 +54,7 @@ function toolCallEvent(
     toolCategory: classifyTool(use.name, command),
     raw: { adapter: 'claude-code', ref: `${file}#tool` },
   };
+  if (use.todos) event.todos = use.todos;
   if (turnId) event.turnId = turnId;
   if (use.agentId) event.agentId = use.agentId;
   return event;
@@ -65,22 +67,24 @@ function toolCallEvent(
  * both are on, whichever comes first counts and the other is dropped; where
  * the project has no hooks (the core collects every project, VS Code adds
  * hooks only to those it opens), this is where its tool calls come from. Only
- * a call's name, file path or command are kept while it waits; one whose
+ * a call's name, file path or command (and a TodoWrite call's todo list, its
+ * text only with capture on) are kept while it waits; one whose
  * result comes after a restart is lost.
  */
 export class LiveToolCalls {
-  private readonly pending = new Map<string, { name?: string; input: { file_path?: unknown; command?: unknown }; sessionId?: string; agentId?: string; ts: string; turnId?: string }>();
+  private readonly pending = new Map<string, { name?: string; input: { file_path?: unknown; command?: unknown }; todos?: EventTodos; sessionId?: string; agentId?: string; ts: string; turnId?: string }>();
 
   constructor(private readonly maxPending = 2_000) {}
 
   /** The tool calls this transcript line completes. */
-  observe(line: any, file: string, turnId: string | undefined): NormalizedEvent[] {
+  observe(line: any, file: string, turnId: string | undefined, captureContent = false): NormalizedEvent[] {
     if (!Array.isArray(line?.message?.content)) return [];
     if (line.type === 'assistant') {
       for (const b of line.message.content) {
         if (b?.type !== 'tool_use' || !b.id) continue;
         const input = b.input ?? {};
-        this.pending.set(b.id, { name: b.name, input: { file_path: input.file_path, command: input.command }, sessionId: line.sessionId, agentId: line.agentId, ts: line.timestamp, turnId });
+        const todos = todosOf(b.name, input, captureContent);
+        this.pending.set(b.id, { name: b.name, input: { file_path: input.file_path, command: input.command }, ...(todos ? { todos } : {}), sessionId: line.sessionId, agentId: line.agentId, ts: line.timestamp, turnId });
         if (this.pending.size > this.maxPending) this.pending.delete(this.pending.keys().next().value!);
       }
       return [];
@@ -99,7 +103,7 @@ export class LiveToolCalls {
 }
 
 /** Tool calls rebuilt from tool_use blocks, with status and time from the matching tool_result. */
-export function transcriptToolCalls(lines: any[], file: string, turns: TurnTracker): NormalizedEvent[] {
+export function transcriptToolCalls(lines: any[], file: string, turns: TurnTracker, captureContent = false): NormalizedEvent[] {
   const results = new Map<string, { failed: boolean; ts: string }>();
   for (const d of lines) {
     if (d?.type !== 'user' || !Array.isArray(d.message?.content)) continue;
@@ -114,7 +118,8 @@ export function transcriptToolCalls(lines: any[], file: string, turns: TurnTrack
     d.message.content.forEach((b: any, index: number) => {
       if (b?.type !== 'tool_use') return;
       const result = b.id ? results.get(b.id) : undefined;
-      events.push(toolCallEvent({ id: b.id, name: b.name, input: b.input, sessionId: d.sessionId, agentId: d.agentId, ts: d.timestamp, fallbackId: `tool:${d.uuid}:${index}` }, result, file, turnId));
+      const todos = todosOf(b.name, b.input, captureContent);
+      events.push(toolCallEvent({ id: b.id, name: b.name, input: b.input, ...(todos ? { todos } : {}), sessionId: d.sessionId, agentId: d.agentId, ts: d.timestamp, fallbackId: `tool:${d.uuid}:${index}` }, result, file, turnId));
     });
   }
   return events;
@@ -135,7 +140,7 @@ export function normalizeTranscriptSession(files: Array<{ file: string; lines: s
         return undefined;
       }
     });
-    events.push(...transcriptToolCalls(parsed, file, turns));
+    events.push(...transcriptToolCalls(parsed, file, turns, opts.captureContent));
   }
   return events.filter((e) => !Number.isNaN(Date.parse(e.ts))).sort((a, b) => a.ts.localeCompare(b.ts));
 }

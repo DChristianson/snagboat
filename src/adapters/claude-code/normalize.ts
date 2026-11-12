@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
-import { NormalizedEvent } from '@snagboat/schema';
-import { makeExcerpt, makePromptText, redactSecrets } from '../../core/excerpt';
+import { EventTodos, NormalizedEvent, TodoStatus } from '@snagboat/schema';
+import { makeExcerpt, makePromptText, makeTodoText, redactSecrets } from '../../core/excerpt';
 import { sessionNameId } from '../../core/sessionNames';
 import { classifyTool } from '@snagboat/schema';
 
@@ -35,6 +35,37 @@ interface ClaudeTranscriptLine {
 }
 
 /** Parses a line, keeping only token-bearing assistant entries (everything else in the transcript is ignored). */
+/** The most todo items whose text is kept from one list; counts cover them all. */
+const MAX_TODO_ITEMS = 50;
+const TODO_STATUSES: Record<string, TodoStatus> = { pending: 'pending', in_progress: 'in_progress', completed: 'completed' };
+
+/**
+ * The todo list a TodoWrite call sets (`input.todos: [{ content, status, activeForm? }]`):
+ * how many items are pending, in progress and completed, and, only with
+ * captureContent, each item's text (redacted, capped). Items with a status it
+ * doesn't know are left out. Undefined for any other tool, or input without a list.
+ */
+export function todosOf(toolName: unknown, input: unknown, captureContent: boolean | undefined): EventTodos | undefined {
+  if (toolName !== 'TodoWrite') return undefined;
+  const list = (input as { todos?: unknown } | undefined)?.todos;
+  if (!Array.isArray(list)) return undefined;
+  const todos: EventTodos = { pending: 0, inProgress: 0, completed: 0 };
+  const items: NonNullable<EventTodos['items']> = [];
+  for (const item of list) {
+    const status = TODO_STATUSES[String((item as { status?: unknown })?.status)];
+    if (!status) continue;
+    if (status === 'pending') todos.pending += 1;
+    else if (status === 'in_progress') todos.inProgress += 1;
+    else todos.completed += 1;
+    if (!captureContent || items.length >= MAX_TODO_ITEMS) continue;
+    const content = (item as { content?: unknown }).content;
+    const text = typeof content === 'string' ? makeTodoText(content) : undefined;
+    if (text) items.push({ text, status });
+  }
+  if (captureContent) todos.items = items;
+  return todos;
+}
+
 function parseAssistantLine(rawLine: string): ClaudeTranscriptLine | undefined {
   let parsed: ClaudeTranscriptLine;
   try {
@@ -264,7 +295,7 @@ export function normalizeTranscriptChunk(
   rawLines: string[],
   filePath: string,
   chunkStartOffset: number,
-  opts: { captureContent?: boolean; seen: SeenMessages; turns?: TurnTracker; toolCalls?: { observe(line: unknown, file: string, turnId: string | undefined): NormalizedEvent[] } }
+  opts: { captureContent?: boolean; seen: SeenMessages; turns?: TurnTracker; toolCalls?: { observe(line: unknown, file: string, turnId: string | undefined, captureContent?: boolean): NormalizedEvent[] } }
 ): NormalizedEvent[] {
   const turns = opts.turns ?? new TurnTracker();
   const events: NormalizedEvent[] = [];
@@ -310,7 +341,7 @@ export function normalizeTranscriptChunk(
     }
     const turnId = turns.observe(filePath, line);
     // Tool calls this line completes (LiveToolCalls, transcriptSession.ts): a tool_result for an earlier tool_use.
-    if (opts.toolCalls) events.push(...opts.toolCalls.observe(line, filePath, turnId));
+    if (opts.toolCalls) events.push(...opts.toolCalls.observe(line, filePath, turnId, opts.captureContent));
 
     if (isUserPrompt(line)) {
       flushGroup();
@@ -453,7 +484,7 @@ interface ClaudeHookPayload {
   tool_use_id?: string;
   hook_event_name?: string;
   tool_name?: string;
-  tool_input?: { file_path?: string; command?: string };
+  tool_input?: { file_path?: string; command?: string; todos?: unknown };
   tool_response?: { error?: unknown };
   /** PostToolUseFailure: the failure's text (for Bash, "Exit code N" then its output). */
   error?: unknown;
@@ -484,7 +515,8 @@ function isClaudeHookPayload(value: unknown): value is ClaudeHookPayload {
 export function normalizeHookPayload(
   payload: unknown,
   turnFallback?: (sessionId: string) => string | undefined,
-  receivedAt: string = new Date().toISOString()
+  receivedAt: string = new Date().toISOString(),
+  captureContent = false
 ): NormalizedEvent | undefined {
   if (!isClaudeHookPayload(payload)) return undefined;
 
@@ -501,6 +533,7 @@ export function normalizeHookPayload(
     const target = payload.tool_input?.file_path ?? payload.tool_input?.command;
     const failed = payload.hook_event_name === 'PostToolUseFailure';
     const status: NormalizedEvent['status'] = failed ? (payload.is_interrupt ? 'unknown' : 'failure') : payload.tool_response?.error ? 'failure' : 'success';
+    const todos = todosOf(payload.tool_name, payload.tool_input, captureContent);
     return {
       // Keyed by the call's tool_use_id, as tool calls rebuilt from transcripts are, so the two never both count.
       eventId: payload.tool_use_id ? `tool:${payload.tool_use_id}` : crypto.randomUUID(),
@@ -512,6 +545,7 @@ export function normalizeHookPayload(
       status,
       toolName: payload.tool_name,
       toolCategory: classifyTool(payload.tool_name, payload.tool_input?.command),
+      ...(todos ? { todos } : {}),
       ...attribution,
       raw: { adapter: 'claude-code', ref: `hook:${payload.hook_event_name}:${payload.tool_name ?? 'unknown'}` },
     };

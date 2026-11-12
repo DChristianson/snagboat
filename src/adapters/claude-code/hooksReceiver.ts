@@ -90,7 +90,7 @@ export class HooksReceiver {
           console.warn(`snagboat: failed to parse hook payload as JSON (${raw.length} bytes)`);
           return;
         }
-        const event = normalizeHookPayload(payload, this.opts.turnFallback);
+        const event = normalizeHookPayload(payload, this.opts.turnFallback, undefined, this.ctx.captureContent());
         if (event && this.opts.ignoreSession?.(event.sessionId)) return;
         if (event) {
           this.ctx.publish(event);

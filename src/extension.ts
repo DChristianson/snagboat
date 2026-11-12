@@ -1079,8 +1079,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     vscode.commands.registerCommand('snagboat.removeCapturedText', async () => {
       const turnOff = 'Remove and Turn Off Capture';
       const choice = await vscode.window.showWarningMessage(
-        "Remove all captured prompts and reply excerpts from this workspace's event log?",
-        { modal: true, detail: 'Every event is kept; only its prompt text and reply excerpt are removed. Session names are kept. This cannot be undone.' },
+        "Remove all captured prompts, reply excerpts and todo items from this workspace's event log?",
+        { modal: true, detail: 'Every event is kept; only its prompt text, reply excerpt and todo item text are removed. Session names and todo counts are kept. This cannot be undone.' },
         'Remove',
         turnOff
       );

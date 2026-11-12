@@ -2,7 +2,7 @@
 
 The types below live in [packages/schema/src/types.ts](../packages/schema/src/types.ts), in the `@snagboat/schema` workspace package that Snagboat and Factory Clock share ([design/architecture-rfc.md](design/architecture-rfc.md)). The same shape is published as JSON Schema in [normalizedEvent.v3.schema.json](../packages/schema/src/normalizedEvent.v3.schema.json); a compile-time check keeps its field list equal to the type's, and `normalizedEventSchema.unit.test.ts` validates real events against it.
 
-**Versions.** Version 3 adds the `outcome` kind and the `outcome` field (below); version 2 added `workspace`. Each version only adds, so every version 1 and 2 event is a valid version 3 event, a reader takes all three, and older logs need no conversion. A reader that switches on `kind` should ignore kinds it doesn't know. Versions 1 and 2 stay published as [normalizedEvent.v1.schema.json](../packages/schema/src/normalizedEvent.v1.schema.json) (`normalizedEventSchemaV1`) and [normalizedEvent.v2.schema.json](../packages/schema/src/normalizedEvent.v2.schema.json) (`normalizedEventSchemaV2`). Version 3 is unreleased: it may still gain outcome types and fields before the `refactor` branch ships. The package imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`).
+**Versions.** Version 3 adds the `outcome` kind and the `outcome` field (below), and `todos`; version 2 added `workspace`. Each version only adds, so every version 1 and 2 event is a valid version 3 event, a reader takes all three, and older logs need no conversion. A reader that switches on `kind` should ignore kinds it doesn't know. Versions 1 and 2 stay published as [normalizedEvent.v1.schema.json](../packages/schema/src/normalizedEvent.v1.schema.json) (`normalizedEventSchemaV1`) and [normalizedEvent.v2.schema.json](../packages/schema/src/normalizedEvent.v2.schema.json) (`normalizedEventSchemaV2`). Version 3 is unreleased: it may still gain outcome types and fields before the `refactor` branch ships. The package imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`).
 
 ## `NormalizedEvent`
 
@@ -35,6 +35,10 @@ interface NormalizedEvent {
   toolName?: string;     // tool calls: the tool's name as reported
   toolCategory?: 'file-read' | 'file-edit' | 'search' | 'script' | 'tests-builds'
     | 'version-control' | 'shell' | 'web' | 'mcp' | 'subagent' | 'other';
+  todos?: {             // v3, tool calls to the agent's todo tool (TodoWrite)
+    pending: number; inProgress: number; completed: number;
+    items?: Array<{ text: string; status: 'pending' | 'in_progress' | 'completed' }>;  // capture on only
+  };
   compaction?: { trigger: 'auto' | 'manual' | 'unknown'; preTokens?: number; postTokens?: number };
   channel?: 'inline';    // model calls from editor features, not agent turns
   contextLimit?: number; // the model's prompt budget for this call, when reported
@@ -95,6 +99,7 @@ Every adapter should document how each raw signal maps into the shared schema.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `PostToolUse` and `PostToolUseFailure` hook payloads | Claude Code | `tool_call` | `tool_input.file_path` or `.command` | `success` from `PostToolUse` (`failure` if `tool_response.error`); `failure` from `PostToolUseFailure` (a failed call, or a Bash command exiting non-zero), `unknown` if `is_interrupt` | — | — | Hooks provide structure but not usage. |
 | `tool_use` block, then its `tool_result` | Claude Code JSONL | `tool_call` | `input.file_path` or `.command` | `failure` if the result `is_error`, else `success` | — | — | Built when the result arrives (backfill builds the same from whole transcripts), with id `tool:<tool_use_id>` like the hooks', so a call both report counts once. How projects without Snagboat's hooks get tool calls; a call whose result comes after a restart is lost. |
+| `TodoWrite` tool call (hook's `tool_input.todos`, or the transcript's `tool_use` input) | Claude Code | Decorates the `tool_call` with `todos` | — | — | — | Each item's `content` in `todos.items` when `snagboat.captureContent` is on, up to 50 items of 200 characters, redacted | Counts of `pending`, `in_progress` and `completed` items always; `activeForm` and unknown statuses are dropped. The latest list in a session is Navigator's plan when the workspace has no Beads. |
 | `Stop` hook payload | Claude Code | `turn_stop` with `endsTurn` | — | `unknown` | — | — | Marks the end of a turn. |
 | `PermissionRequest` and `PermissionDenied` hook payloads | Claude Code | `outcome` (`approval`, `decision` `asked` or `denied`) | — | `unknown` | — | — | Only `tool_name` (as `toolName`), and `tool_use_id` (in `refs`, PermissionDenied only); `tool_input` and `reason` are dropped. Registered with `"async": true`, so Claude Code doesn't wait for them and ignores their output: they never decide or delay a permission prompt. |
 | `prompt_id`, `agent_id` on any hook payload | Claude Code | Decorates the hook's event | — | — | — | — | Become `turnId` and `agentId`. Payloads without `prompt_id` (older Claude Code) take the session's current turn from the transcript. |
@@ -127,7 +132,7 @@ This matrix is the adapter conformance spec. New adapters should not be accepted
 The schema is designed so sensitive content remains optional:
 
 - structural fields (`kind`, `status`, `target`, `tokens`) support most heuristics and reporting
-- `promptText` and `textExcerpt` are captured by default (`snagboat.captureContent`), redacted, and kept for `snagboat.retention.textDays` (default 30), after which they're removed from their events; `sessionName` stays with its session (see [PRIVACY.md](../PRIVACY.md#retention))
+- `promptText`, `textExcerpt` and `todos.items` are captured by default (`snagboat.captureContent`), redacted, and kept for `snagboat.retention.textDays` (default 30), after which they're removed from their events; `sessionName` stays with its session (see [PRIVACY.md](../PRIVACY.md#retention))
 - `session_name` and `outcome` events don't count as agent activity in totals or heuristics
 - `target` is structural for file paths but can carry sensitive content for shell commands, so it is a candidate for a shorter retention too
 - `raw.ref` points back to source material without copying entire payloads into the normalized record
