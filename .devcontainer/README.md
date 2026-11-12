@@ -10,9 +10,11 @@ container, that your editor runs your project *inside*. When VS Code (with the
 1. **Builds an image** from `Dockerfile`: the OS, tools and versions this
    project needs.
 2. **Starts a container** from that image with the options in
-   `devcontainer.json`, and **mounts your project folder into it** at
-   `/workspaces/snagboat`. It's the same files, not a copy: edits on either
-   side show up on the other.
+   `devcontainer.json`, and **mounts your project folder into it** at the
+   same path it has on your Mac (for example `/Users/you/code/snagboat`;
+   most dev containers use `/workspaces/snagboat` instead, see
+   [Snagboat and this container](#snagboat-and-this-container)). It's the
+   same files, not a copy: edits on either side show up on the other.
 3. **Runs setup hooks** (`postCreateCommand` once, `postStartCommand` on every
    start).
 4. **Moves VS Code's backend into the container.** The window still runs on
@@ -39,6 +41,7 @@ JetBrains and the `devcontainer` CLI read it too.
 | `post-create.sh` | Runs once at creation: prints tool versions, turns bd metrics off |
 | `init-project.sh` | Run once by hand: `git init` + `bd init --skip-hooks` |
 | `check-host-safety.sh` | Runs on every start: warns if git hooks have been configured (see below) |
+| `carry-transcripts.sh` | `start` runs on every start: moves Claude Code's transcripts from the old `/workspaces/snagboat` name to the project's new path. `save` is run once by hand before the first rebuild with the transcript mount (see below) |
 
 ## First use
 
@@ -70,6 +73,41 @@ and `~/.snagboat/`, which the container can't see: `snagboat stores` finds
 nothing in it. Back up stores, take baselines, and run the extension (F5)
 against real data on your Mac.
 
+## Snagboat and this container
+
+Snagboat on your Mac can't see Claude Code sessions run in here on its own:
+Claude Code keeps them in `~/.claude`, which is a Docker volume. So this
+container keeps just the transcripts, `~/.claude/projects`, in the project
+folder at `.snagboat/claude-projects/` (git ignores its contents), and Snagboat
+on your Mac reads them like your Mac's own. Nothing Snagboat runs in the
+container, and Claude's login and settings stay in the volume.
+
+The project is mounted at the same path as on your Mac, so a transcript's
+working folder names this project on both sides.
+
+To turn it on, on your Mac, with `snagboat.storage.perUserStore` on:
+
+```bash
+snagboat containers allow ~/code/snagboat    # your checkout's path
+snagboat containers status
+```
+
+Snagboat reads that folder only for projects you allow, and treats it as
+written by the container: it refuses symbolic links and files that aren't
+transcripts, and files sessions only under that project.
+
+**Moving to this setup from a container made before it.** The new mount hides
+the transcripts (and Claude Code's memory for this project) already in the
+volume, so copy them out first. In the old container, just before you rebuild:
+
+```bash
+bash .devcontainer/carry-transcripts.sh save
+```
+
+Then **Dev Containers: Rebuild Container**. On start, `carry-transcripts.sh
+start` renames this project's transcript folder from `/workspaces/snagboat`'s
+name to the new path's, so `claude --resume` and the memory carry over.
+
 ## Beads
 
 snagboat is already a git repo, so `init-project.sh`'s `git init` does
@@ -88,7 +126,7 @@ work through the queue.
   automatically on issue create/close) all run as an unprivileged user with
   no `sudo`, no Linux capabilities, and no way to gain privileges.
 - Claude's login and settings live in a Docker volume, not your Mac's
-  `~/.claude`.
+  `~/.claude`. Only its transcripts are kept in the project folder (above).
 - bd usage metrics are off (`BD_DISABLE_METRICS=1`, `DO_NOT_TRACK=1`), and
   their hostname is pointed at 127.0.0.1 as a backup.
 - Your Mac's SSH agent isn't passed in (`SSH_AUTH_SOCK` is cleared).
@@ -101,6 +139,10 @@ work through the queue.
   step up is an allowlist firewall; Anthropic's reference Claude Code dev
   container (github.com/anthropics/claude-code, `.devcontainer/`) has one
   you can adapt.
+- **Transcripts.** `.snagboat/claude-projects/` holds your prompts, the
+  agent's replies and tool output, in the project folder like everything else
+  here; git ignores it. Snagboat on your Mac reads it only after
+  `snagboat containers allow`, and treats it as untrusted input.
 - **Git hooks.** `.git/` is inside the shared folder. If anything in the
   container sets `core.hooksPath` or writes `.git/hooks/*`, **git on your
   Mac** runs those scripts the next time you commit or pull there.
