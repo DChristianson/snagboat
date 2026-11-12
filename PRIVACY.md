@@ -24,12 +24,14 @@ Each observed action becomes one normalized event (see [docs/schema.md](docs/sch
 | Copilot CLI session logs (Agent mode) | `target` | Like Claude Code: the tool's file path, or the **full shell command string** for shell tools |
 | Copilot CLI session logs (Agent mode) | `user_prompt`, model calls | When you sent each prompt, and each model call's model, token counts, and the model's prompt budget |
 | Claude Code transcript and hooks | `todos` on a `TodoWrite` tool call | How many items of the agent's todo list are pending, in progress and completed; not their text |
+| Claude Code transcript and hooks | `taskOp` on a `TaskCreate`, `TaskUpdate` or `TaskList` tool call | The task's id and status (or, for `TaskList`, every task's), which is how many tasks are pending, in progress and completed; not their subjects |
 | Edit tracker | `target`, `raw.ref` | The saved file's path and URI, not its contents |
 | Claude Code transcript, with text capture on (the default) | `promptText` | **Your prompt's text**, up to 2,000 characters, secrets redacted. Only what you typed: context Claude Code or the IDE adds (open files, selections, task notifications, command output) is left out; a slash command is kept as `/name args`. |
 | Copilot CLI session logs, with text capture on (the default) | `promptText` | **Your prompt's text** (`user.message` content), up to 2,000 characters, secrets redacted |
 | Claude Code transcript, with text capture on (the default) | `sessionName` | Claude Code's generated session title (`ai-title` lines), secrets redacted |
 | Copilot CLI session logs, with text capture on (the default) | `sessionName` | The session's name from the `workspace.yaml` beside its log: a generated title, or one you set |
 | Claude Code transcript and hooks, with text capture on (the default) | `todos.items` | The text and status of each item in the agent's todo list (`TodoWrite`), up to 50 items of 200 characters each, secrets redacted. Never the `activeForm` wording. |
+| Claude Code transcript and hooks, with text capture on (the default) | `taskOp.subject`, `taskOp.tasks[].subject` | The subject of each task the agent makes or renames with its task tools, and of a `TaskList`'s first 50 tasks, 200 characters each, secrets redacted. Never a task's `description`, `activeForm`, `owner` or `metadata`. |
 | Claude Code transcript, with text capture on (the default) | `textExcerpt` | The reply's `text` blocks, truncated to 500 characters, secrets redacted. Never thinking blocks or tool inputs. |
 | Copilot CLI session logs, with text capture on (the default) | `textExcerpt` | The reply's text (`assistant.message` content), truncated to 500 characters, secrets redacted. Never reasoning text, tool arguments, or tool results. |
 | Copilot OTel, with text capture on **and** Copilot's `github.copilot.chat.otel.captureContent` | `textExcerpt` | The assistant `text` parts of `gen_ai.output.messages`, truncated to 500 characters, secrets redacted. Never reasoning parts, prompts, tool arguments, or tool results. |
@@ -40,13 +42,13 @@ Snagboat reads subagent transcripts (`<session>/subagents/*.jsonl` under Claude 
 
 ### Captured text
 
-**`snagboat.captureContent` is on by default.** It stores four kinds of text: your prompts (`promptText`), reply excerpts (`textExcerpt`), session names (`sessionName`), and the items of the agent's todo list (`todos.items`). Prompts and replies give the Sessions tab and the verbal-hedge heuristic something to show; names make sessions recognizable; todo items are what Navigator's Ahead line shows when a workspace has no Beads. With capture off, a todo list is recorded as counts only. Earlier versions stored no prompt text and had this setting off by default; installs that never changed it start capturing text from this version on.
+**`snagboat.captureContent` is on by default.** It stores four kinds of text: your prompts (`promptText`), reply excerpts (`textExcerpt`), session names (`sessionName`), and the items of the agent's todo list (`todos.items`, or its tasks' subjects in `taskOp`). Prompts and replies give the Sessions tab and the verbal-hedge heuristic something to show; names make sessions recognizable; todo items are what Navigator's Ahead line shows when a workspace has no Beads. With capture off, a todo list is recorded as counts only, and tasks as ids and statuses. Earlier versions stored no prompt text and had this setting off by default; installs that never changed it start capturing text from this version on.
 
 Text is protected three ways instead of by an opt-in:
 
 - **Redaction.** Before anything is stored, common secret formats are replaced with a `[redacted …]` marker: private key blocks, AWS keys, GitHub, Anthropic, OpenAI, Stripe, Slack, and Google tokens, JWTs, bearer tokens, passwords in URLs, and `password=`/`token=`/`api_key=`-style values that look like secrets. It's a backstop for the common cases, not a guarantee: a secret in an unrecognized format is stored as is.
 - **Shorter retention.** Prompts, reply excerpts and todo items are kept for `snagboat.retention.textDays` (default 30 days, the same as Claude Code keeps its own transcripts), then removed from their events, which stay for `rawDays`. Session names stay with their session's events.
-- **Removal.** `Snagboat: Remove Captured Text` removes every stored prompt, reply excerpt and todo item now (a todo list's counts stay), and can turn capture off at the same time.
+- **Removal.** `Snagboat: Remove Captured Text` removes every stored prompt, reply excerpt and todo item now (a todo list's counts and a task's id and status stay), and can turn capture off at the same time.
 
 The text is stored **in the same event logs as everything else**, not in a separate store. Turning the setting off stops new capture of all four; text already stored stays until text retention removes it or you run Remove Captured Text. Token tracking and the behavioral heuristics never require it.
 

@@ -97,6 +97,26 @@ export interface EventTodos {
   items?: Array<{ text: string; status: TodoStatus }>;
 }
 
+/**
+ * One call to the agent's task tools (Claude Code's TaskCreate, TaskUpdate
+ * and TaskList), which keep its plan a task at a time instead of a whole list
+ * per call: the plan is what replaying a session's ops in order leaves. The
+ * subjects only when snagboat.captureContent is on (redacted; removed with the
+ * other captured text).
+ */
+export interface EventTaskOp {
+  /** create: a new task (pending); update: a task's status or subject; list: every task, replacing what came before. */
+  op: 'create' | 'update' | 'list';
+  /** create, update: the task's id. */
+  id?: string;
+  /** update: its new status; deleted removes it. */
+  status?: TodoStatus | 'deleted';
+  /** create, update: the task's subject (capture on only). */
+  subject?: string;
+  /** list: the tasks, in order (subject with capture on only). */
+  tasks?: Array<{ id: string; status: TodoStatus; subject?: string }>;
+}
+
 export interface NormalizedEvent {
   eventId: string;
   sessionId: string;
@@ -137,6 +157,8 @@ export interface NormalizedEvent {
   contextLimit?: number;
   /** tool_call events for the agent's todo tool (TodoWrite): the list it set. Item text only when snagboat.captureContent is on. */
   todos?: EventTodos;
+  /** tool_call events for the agent's task tools (TaskCreate, TaskUpdate, TaskList): the change each made to its plan. Subjects only when snagboat.captureContent is on. */
+  taskOp?: EventTaskOp;
   /** For compaction events. */
   compaction?: {
     trigger: 'auto' | 'manual' | 'unknown';

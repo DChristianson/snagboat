@@ -80,16 +80,31 @@ export function makeTodoText(text: string | undefined): string | undefined {
 
 /** Whether the event carries captured text that text retention and Remove Captured Text remove. */
 export function hasCapturedText(event: NormalizedEvent): boolean {
-  return event.textExcerpt !== undefined || event.promptText !== undefined || event.todos?.items !== undefined;
+  return (
+    event.textExcerpt !== undefined ||
+    event.promptText !== undefined ||
+    event.todos?.items !== undefined ||
+    event.taskOp?.subject !== undefined ||
+    event.taskOp?.tasks?.some((t) => t.subject !== undefined) === true
+  );
 }
 
-/** The event without its captured text (reply excerpt, prompt text, todo items' text; a todo list's counts stay). Session names are kept. */
+/**
+ * The event without its captured text (reply excerpt, prompt text, todo items'
+ * text, task subjects; a todo list's counts and a task's id and status stay).
+ * Session names are kept.
+ */
 export function withoutCapturedText(event: NormalizedEvent): NormalizedEvent {
   if (!hasCapturedText(event)) return event;
   const { textExcerpt: _reply, promptText: _prompt, ...rest } = event;
   if (rest.todos?.items) {
     const { items: _items, ...counts } = rest.todos;
     rest.todos = counts;
+  }
+  if (rest.taskOp) {
+    const { subject: _subject, ...op } = rest.taskOp;
+    if (op.tasks) op.tasks = op.tasks.map(({ subject: _s, ...t }) => t);
+    rest.taskOp = op;
   }
   return rest;
 }
