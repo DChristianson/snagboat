@@ -5,11 +5,16 @@ import * as path from 'path';
 import { NormalizedEvent } from '@snagboat/schema';
 import { sanitizeCwd } from '../../adapters/claude-code/workspace';
 import { runCli } from '../../cli/main';
-import { RELAY_CHECKPOINTS_DIR, RELAY_INFO_FILE, RELAY_OUTBOX_DIR, relayDir, RelayInfo } from '../../core/relay';
+import { loadConfig, saveConfig, withRelayFolder } from '../../core/config';
+import { EventLog } from '../../core/eventLog';
+import { RELAY_CHECKPOINTS_DIR, RELAY_INFO_FILE, RELAY_MAX_FILE_BYTES, RELAY_MAX_LINE_BYTES, RELAY_OUTBOX_DIR, relayDir, RelayInfo } from '../../core/relay';
+import { RelayIngest } from '../../core/service/relayIngest';
+import { StoreWriter } from '../../core/service/storeWriter';
+import { collectedWorkspace, knownWorkspaceFolders } from '../../core/service/workspaces';
 import { coreRequest, readCoreFile } from '../../core/service/coreFile';
-import { OutboxWriter, prepareRelayFolder } from '../../core/service/outbox';
+import { OUTBOX_FILE_TARGET_BYTES, OutboxWriter, prepareRelayFolder } from '../../core/service/outbox';
 import { CoreService } from '../../core/service/server';
-import { listUserStores, userDataDir } from '../../core/userStore';
+import { listUserStores, userDataDir, workspaceStoreDir } from '../../core/userStore';
 
 // Relay mode (bead snagboat-xe5, container side): a core inside a dev container, started with
 // SNAGBOAT_RELAY_ROOT, sends what it collects to <root>/.snagboat/relay/outbox for the host's
@@ -150,7 +155,7 @@ async function main() {
     await watching;
     assert.ok(seen > 0, 'the watcher saw files');
     const names = fs.readdirSync(m.outbox);
-    assert.strictEqual(names.length, 40, 'one file per write');
+    assert.strictEqual(names.length, 40, 'one file per small write');
     assert.ok(names.every((f) => OUTBOX_NAME.test(f) && f.includes(`-${process.pid}-`)), '<epoch ms>-<pid>-<seq>.jsonl, nothing left over');
     assert.strictEqual(outboxEvents(m.outbox).length, 120);
     assert.deepStrictEqual(results[0], { written: 3, duplicates: 0, spooled: 0, dropped: 0 });
@@ -242,6 +247,51 @@ async function main() {
     if (!stopped) await core.stop();
     assert.ok(stopped, 'stopped by itself');
     assert.strictEqual(readCoreFile(m.home), undefined);
+  });
+
+  test('a large batch is split across outbox files the host will read, and an oversized event is dropped', async () => {
+    const m = machine();
+    const writer = new OutboxWriter(prepareRelayFolder(m.root));
+    const batch = Array.from({ length: 250 }, () => ev(m.app)); // ~20 KB each: more than one file's worth
+    const huge = { ...ev(m.app), raw: { adapter: 'test', ref: 'huge', event: 'x'.repeat(RELAY_MAX_LINE_BYTES) } };
+    const result = await writer.write([...batch, huge]);
+    assert.deepStrictEqual(result, { written: 250, duplicates: 0, spooled: 0, dropped: 1 });
+    const names = fs.readdirSync(m.outbox);
+    assert.ok(names.length >= 2, `split into ${names.length} files`);
+    for (const name of names) assert.ok(fs.statSync(path.join(m.outbox, name)).size <= OUTBOX_FILE_TARGET_BYTES + RELAY_MAX_LINE_BYTES, `${name} is well under the host's limit`);
+    assert.ok(OUTBOX_FILE_TARGET_BYTES + RELAY_MAX_LINE_BYTES < RELAY_MAX_FILE_BYTES);
+    assert.deepStrictEqual(outboxEvents(m.outbox).map((e) => e.eventId), batch.map((e) => e.eventId), 'in order, none lost');
+  });
+
+  test('end to end: what a container core relays lands in the host store under the host path', async () => {
+    const m = machine();
+    transcript(m.projects, m.app, 'sc', 2);
+    const core = await start(m);
+    try {
+      await waitFor(() => outboxEvents(m.outbox).length === 4);
+    } finally {
+      await core.stop();
+    }
+    // The host sees the same folder at another path (the bind mount): /workspaces/proj in the container, ~/code/proj here.
+    const hostProject = path.join(m.base, 'mac', 'code', 'proj');
+    fs.mkdirSync(path.join(hostProject, '.git'), { recursive: true });
+    fs.cpSync(path.join(m.root, '.snagboat'), path.join(hostProject, '.snagboat'), { recursive: true });
+    const hostHome = path.join(m.base, 'mac', '.snagboat');
+    fs.mkdirSync(hostHome, { recursive: true });
+    saveConfig(hostHome, withRelayFolder(loadConfig(hostHome).config, hostProject, true));
+    const ingest = new RelayIngest({
+      home: hostHome,
+      writer: new StoreWriter(hostHome),
+      workspaceFor: (dir) => collectedWorkspace(hostHome, dir, knownWorkspaceFolders(hostHome)),
+      captureContent: () => true,
+      log: () => undefined,
+    });
+    await ingest.ingest();
+    const stored = await new EventLog(workspaceStoreDir(hostHome, hostProject)).readAll();
+    assert.strictEqual(stored.length, 4);
+    assert.ok(stored.every((e) => e.workspace === hostProject && e.sessionId === 'sc'), 'filed under the host folder, not /workspaces/proj');
+    assert.ok(stored.some((e) => e.kind === 'user_prompt' && e.promptText === 'please fix bug 1'));
+    assert.deepStrictEqual(fs.readdirSync(path.join(hostProject, '.snagboat', 'relay', RELAY_OUTBOX_DIR)), [], 'the host deleted what it read');
   });
 
   let failures = 0;
