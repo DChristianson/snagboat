@@ -20,7 +20,7 @@ import { TodayAggregate } from '../aggregate';
 import { FindingsService, WorkspaceFindings } from './findings';
 import { FindingState, Response } from './responses';
 import { SessionListItem, SessionPage, SessionPages } from './sessionPages';
-import { parseSuggestionAction, SuggestionsService } from './suggestions';
+import { NotWaiting, parseSuggestionAction, SuggestionsService } from './suggestions';
 import { SuggestionsView } from '../../discovery/suggestionsController';
 import { ExplorerState } from '@snagboat/viz';
 import { ASSET_FILES, EXPLORE_SESSION_CAP } from '@snagboat/viz';
@@ -729,7 +729,12 @@ export class CoreService {
     this.store(scope, workspace);
     const action = parseSuggestionAction(body);
     if (!action) throw new HttpError(400, 'no such action, or its fields are missing');
-    return this.suggestions.act(workspace, action);
+    try {
+      return await this.suggestions.act(workspace, action);
+    } catch (err) {
+      if (err instanceof NotWaiting) throw new HttpError(409, err.message);
+      throw err;
+    }
   }
 
   /**
