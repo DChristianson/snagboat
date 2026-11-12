@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { EventTodos, NormalizedEvent, TodoStatus } from '@snagboat/schema';
+import { EventTaskOp, EventTodos, NormalizedEvent, TodoStatus } from '@snagboat/schema';
 import { makeExcerpt, makePromptText, makeTodoText, redactSecrets } from '../../core/excerpt';
 import { sessionNameId } from '../../core/sessionNames';
 import { classifyTool } from '@snagboat/schema';
@@ -37,7 +37,8 @@ interface ClaudeTranscriptLine {
 /** Parses a line, keeping only token-bearing assistant entries (everything else in the transcript is ignored). */
 /** The most todo items whose text is kept from one list; counts cover them all. */
 const MAX_TODO_ITEMS = 50;
-const TODO_STATUSES: Record<string, TodoStatus> = { pending: 'pending', in_progress: 'in_progress', completed: 'completed' };
+// No prototype, so a status like "constructor" isn't mistaken for one.
+const TODO_STATUSES: Record<string, TodoStatus | undefined> = Object.assign(Object.create(null), { pending: 'pending', in_progress: 'in_progress', completed: 'completed' });
 
 /**
  * The todo list a TodoWrite call sets (`input.todos: [{ content, status, activeForm? }]`):
@@ -64,6 +65,83 @@ export function todosOf(toolName: unknown, input: unknown, captureContent: boole
   }
   if (captureContent) todos.items = items;
   return todos;
+}
+
+/** The most tasks one TaskList snapshot keeps (their ids and statuses; subjects for the first MAX_TODO_ITEMS). */
+const MAX_LISTED_TASKS = 200;
+export const TASK_TOOLS: ReadonlySet<unknown> = new Set(['TaskCreate', 'TaskUpdate', 'TaskList']);
+
+/** A task id as the task tools give it: a non-empty string (or a number, as a string). */
+function taskId(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+/** A tool's output as an object: the hook's tool_response or the transcript's toolUseResult, or a JSON string of one. */
+function outputObject(output: unknown): Record<string, any> | undefined {
+  if (typeof output === 'string') {
+    try {
+      output = JSON.parse(output);
+    } catch {
+      return undefined;
+    }
+  }
+  return typeof output === 'object' && output !== null && !Array.isArray(output) ? (output as Record<string, any>) : undefined;
+}
+
+/** The text of a tool's output, when it's a string or text content blocks. */
+function outputText(output: unknown): string {
+  if (typeof output === 'string') return output;
+  if (Array.isArray(output)) return output.map((b) => (typeof b?.text === 'string' ? b.text : '')).join('\n');
+  return '';
+}
+
+/**
+ * The change a call to the task tools made to the agent's plan (Claude Code's
+ * TaskCreate, TaskUpdate, TaskList; documented in the Agent SDK reference):
+ * - TaskCreate `{ subject, description, activeForm? }` makes a pending task;
+ *   its id is only in the output, `{ task: { id, subject } }`.
+ * - TaskUpdate `{ taskId, status?, subject?, ... }` (also `id` or `task_id`)
+ *   changes one; status `deleted` removes it.
+ * - TaskList's output `{ tasks: [{ id, subject, status }] }` is the whole list.
+ * Subjects only with captureContent (redacted, capped); never the description
+ * or activeForm. Undefined for any other tool, a failed call, or one missing
+ * what it needs (a create without its id, a list without its tasks), so an
+ * unexpected shape is skipped, not misread.
+ */
+export function taskOpOf(toolName: unknown, input: unknown, output: unknown, captureContent: boolean | undefined, failed = false): EventTaskOp | undefined {
+  if (typeof toolName !== 'string' || !TASK_TOOLS.has(toolName) || failed) return undefined;
+  const inp = (typeof input === 'object' && input !== null ? input : {}) as Record<string, any>;
+  const out = outputObject(output);
+  if (out?.success === false || out?.error) return undefined;
+  const subjectOf = (value: unknown) => (captureContent && typeof value === 'string' ? makeTodoText(value) : undefined);
+  if (toolName === 'TaskCreate') {
+    // The documented output, then other spellings, then the text Claude Code writes ("Task #3 created ...").
+    const id = taskId(out?.task?.id) ?? taskId(out?.taskId) ?? taskId(out?.id) ?? taskId(/\bTask #?([\w-]+) created/i.exec(outputText(output))?.[1]);
+    if (!id) return undefined;
+    const subject = subjectOf(inp.subject ?? out?.task?.subject);
+    return { op: 'create', id, ...(subject ? { subject } : {}) };
+  }
+  if (toolName === 'TaskUpdate') {
+    const id = taskId(inp.taskId) ?? taskId(inp.id) ?? taskId(inp.task_id) ?? taskId(out?.taskId);
+    if (!id) return undefined;
+    const raw = String(inp.status);
+    const status = raw === 'deleted' ? 'deleted' : TODO_STATUSES[raw];
+    const subject = subjectOf(inp.subject);
+    if (!status && !subject) return undefined;
+    return { op: 'update', id, ...(status ? { status } : {}), ...(subject ? { subject } : {}) };
+  }
+  if (!Array.isArray(out?.tasks)) return undefined;
+  const tasks: NonNullable<EventTaskOp['tasks']> = [];
+  for (const t of out!.tasks) {
+    const id = taskId(t?.id);
+    const status = TODO_STATUSES[String(t?.status)];
+    if (!id || !status) continue;
+    const subject = tasks.length < MAX_TODO_ITEMS ? subjectOf(t.subject) : undefined;
+    tasks.push({ id, status, ...(subject ? { subject } : {}) });
+    if (tasks.length >= MAX_LISTED_TASKS) break;
+  }
+  return { op: 'list', tasks };
 }
 
 function parseAssistantLine(rawLine: string): ClaudeTranscriptLine | undefined {
@@ -485,6 +563,7 @@ interface ClaudeHookPayload {
   hook_event_name?: string;
   tool_name?: string;
   tool_input?: { file_path?: string; command?: string; todos?: unknown };
+  /** PostToolUse: the tool's output (a task tool's new task id, or its list). */
   tool_response?: { error?: unknown };
   /** PostToolUseFailure: the failure's text (for Bash, "Exit code N" then its output). */
   error?: unknown;
@@ -534,6 +613,7 @@ export function normalizeHookPayload(
     const failed = payload.hook_event_name === 'PostToolUseFailure';
     const status: NormalizedEvent['status'] = failed ? (payload.is_interrupt ? 'unknown' : 'failure') : payload.tool_response?.error ? 'failure' : 'success';
     const todos = todosOf(payload.tool_name, payload.tool_input, captureContent);
+    const taskOp = taskOpOf(payload.tool_name, payload.tool_input, payload.tool_response, captureContent, status !== 'success');
     return {
       // Keyed by the call's tool_use_id, as tool calls rebuilt from transcripts are, so the two never both count.
       eventId: payload.tool_use_id ? `tool:${payload.tool_use_id}` : crypto.randomUUID(),
@@ -546,6 +626,7 @@ export function normalizeHookPayload(
       toolName: payload.tool_name,
       toolCategory: classifyTool(payload.tool_name, payload.tool_input?.command),
       ...(todos ? { todos } : {}),
+      ...(taskOp ? { taskOp } : {}),
       ...attribution,
       raw: { adapter: 'claude-code', ref: `hook:${payload.hook_event_name}:${payload.tool_name ?? 'unknown'}` },
     };

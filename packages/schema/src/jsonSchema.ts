@@ -6,8 +6,9 @@ import schemaV3 = require('./normalizedEvent.v3.schema.json');
 /**
  * JSON Schema (draft 2020-12) for one line of the event log, version 3:
  * version 2 plus the `outcome` kind and field, for outcome signals Snagboat
- * works out (tests going green, how you met a finding), and `todos`, the
- * agent's todo list on its todo tool calls. Version 2 added
+ * works out (tests going green, how you met a finding), `todos`, the
+ * agent's todo list on its todo tool calls, and `taskOp`, a change its task
+ * tools made to its plan. Version 2 added
  * `workspace`. Every version 1 and 2 event is a valid version 3 event, so
  * readers take all three.
  */
@@ -28,11 +29,11 @@ type MissingFromType = Exclude<SchemaFields, keyof NormalizedEvent>;
 const fieldsMatch: [MissingFromSchema, MissingFromType] extends [never, never] ? true : never = true;
 void fieldsMatch;
 
-// Version 2 is version 3 without `outcome` and `todos`.
+// Version 2 is version 3 without `outcome`, `todos` and `taskOp`.
 type V2Fields = keyof typeof schemaV2.properties;
 type AddedInV3 = Exclude<SchemaFields, V2Fields>;
 type RemovedInV3 = Exclude<V2Fields, SchemaFields>;
-const v2IsV3WithoutOutcome: [AddedInV3, RemovedInV3, 'outcome' | 'todos'] extends ['outcome' | 'todos', never, AddedInV3] ? true : never = true;
+const v2IsV3WithoutOutcome: [AddedInV3, RemovedInV3, 'outcome' | 'todos' | 'taskOp'] extends ['outcome' | 'todos' | 'taskOp', never, AddedInV3] ? true : never = true;
 void v2IsV3WithoutOutcome;
 
 // And version 1 is version 2 without `workspace`.

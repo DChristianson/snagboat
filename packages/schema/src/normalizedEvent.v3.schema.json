@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/DChristianson/snagboat/schema/normalized-event/v3",
   "title": "NormalizedEvent",
-  "description": "One line of Snagboat's daily event log (docs/schema.md). Version 3 adds the outcome kind and the outcome field, for outcome signals Snagboat works out, and the todos field, the agent's todo list; version 2 added workspace. Every version 1 and 2 event is a valid version 3 event. It matches the NormalizedEvent type in types.ts; a unit test and a compile-time check keep them in step.",
+  "description": "One line of Snagboat's daily event log (docs/schema.md). Version 3 adds the outcome kind and the outcome field, for outcome signals Snagboat works out, the todos field, the agent's todo list, and the taskOp field, a change to its task list; version 2 added workspace. Every version 1 and 2 event is a valid version 3 event. It matches the NormalizedEvent type in types.ts; a unit test and a compile-time check keep them in step.",
   "type": "object",
   "required": [
     "eventId",
@@ -171,6 +171,63 @@
                   "in_progress",
                   "completed"
                 ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "taskOp": {
+      "description": "tool_call events for the agent's task tools: the change each made to its plan (a new task, a task's new status or subject, or the whole list), subjects only when capture is on.",
+      "type": "object",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "create",
+            "update",
+            "list"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed",
+            "deleted"
+          ]
+        },
+        "subject": {
+          "type": "string"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed"
+                ]
+              },
+              "subject": {
+                "type": "string"
               }
             }
           }

@@ -119,7 +119,7 @@ async function main() {
       assert.deepStrictEqual(validate(schema, JSON.parse(JSON.stringify(normalizeHookPayload(payload)))), [], payload.hook_event_name);
     }
     assert.ok(validate(schema, { ...green, outcome: { type: 'approval', decision: 'maybe' } }).length > 0);
-    assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in v2.properties)).sort(), ['outcome', 'todos']);
+    assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in v2.properties)).sort(), ['outcome', 'taskOp', 'todos']);
     assert.deepStrictEqual(Object.keys(v2.properties).filter((k) => !(k in props)), []);
     for (const e of syntheticEvents()) assert.deepStrictEqual(validate(v2, JSON.parse(JSON.stringify(e))), [], e.eventId);
   });
@@ -135,6 +135,26 @@ async function main() {
     assert.ok(validate(schema, { ...ok, todos: { pending: 1, inProgress: 0, completed: 0, items: [{ text: 'x', status: 'later' }] } }).length > 0);
     assert.ok(validate(schema, { ...ok, todos: { pending: 1, inProgress: 0, completed: 0, items: [{ text: 'x', status: 'pending', activeForm: 'y' }] } }).length > 0);
     assert.ok(validate(schema, { ...ok, todos: { pending: 1 } }).length > 0);
+  });
+
+  test("version 3 adds taskOp: a task tool call's change to the plan, subjects only with capture", () => {
+    const payloads = [
+      { session_id: 's', hook_event_name: 'PostToolUse', tool_use_id: 'toolu_c', tool_name: 'TaskCreate', tool_input: { subject: 'Write it', description: 'd' }, tool_response: { task: { id: '1', subject: 'Write it' } } },
+      { session_id: 's', hook_event_name: 'PostToolUse', tool_use_id: 'toolu_u', tool_name: 'TaskUpdate', tool_input: { taskId: '1', status: 'deleted' }, tool_response: { success: true, taskId: '1', updatedFields: ['status'] } },
+      { session_id: 's', hook_event_name: 'PostToolUse', tool_use_id: 'toolu_l', tool_name: 'TaskList', tool_input: {}, tool_response: { tasks: [{ id: '2', subject: 'Test it', status: 'pending', blockedBy: [] }] } },
+    ];
+    for (const payload of payloads) {
+      for (const capture of [true, false]) {
+        const e = JSON.parse(JSON.stringify(normalizeHookPayload(payload, undefined, undefined, capture)));
+        assert.ok(e.taskOp, `${payload.tool_name} has its op`);
+        assert.deepStrictEqual(validate(schema, e), [], `${payload.tool_name}, capture ${capture}`);
+      }
+    }
+    const ok = { eventId: 'e', sessionId: 's', agent: 'claude-code', ts: '2026-11-09T00:00:00Z', kind: 'tool_call', status: 'success', raw: { adapter: 'a', ref: 'r' } };
+    assert.ok(validate(schema, { ...ok, taskOp: { op: 'remove', id: '1' } }).length > 0);
+    assert.ok(validate(schema, { ...ok, taskOp: { id: '1' } }).length > 0);
+    assert.ok(validate(schema, { ...ok, taskOp: { op: 'list', tasks: [{ id: '1', status: 'deleted' }] } }).length > 0, 'a listed task is never deleted');
+    assert.ok(validate(schema, { ...ok, taskOp: { op: 'create', id: '1', description: 'd' } }).length > 0);
   });
 
   test("every event in the web demo's synthetic sessions is valid", () => {

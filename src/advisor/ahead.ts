@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { NormalizedEvent } from '@snagboat/schema';
+import type { EventTaskOp, EventTodos, NormalizedEvent, TodoStatus } from '@snagboat/schema';
 
 /**
  * Navigator's "Ahead" line (RFC step 5a, the design pass): the work still to
@@ -9,8 +9,8 @@ import type { NormalizedEvent } from '@snagboat/schema';
  * `bd` is installed. Read only: every command runs with --readonly (writes
  * blocked) and --sandbox (no Dolt auto-push), and Navigator never closes or
  * edits a bead. Plan as fallback: without Beads, the todo list the agent keeps
- * in its session (Claude Code's TodoWrite calls, as recorded). With neither,
- * the line is left out.
+ * in its session (Claude Code's TodoWrite calls, or its task tools, as
+ * recorded). With neither, the line is left out.
  */
 
 export interface Bead {
@@ -31,7 +31,7 @@ export interface BeadsAhead {
   closedThisWeek: number;
 }
 
-/** The work ahead from a session's todo list (its latest TodoWrite call). */
+/** The work ahead from a session's todo list (its latest TodoWrite call, or what its task tool calls left). */
 export interface PlanAhead {
   source: 'plan';
   sessionId: string;
@@ -103,14 +103,54 @@ export async function beadsAhead(folder: string, now = Date.now(), bd: BdRunner 
 }
 
 /**
+ * The task list a session's task tool calls (TaskCreate, TaskUpdate,
+ * TaskList) leave, replayed in order: a create adds a pending task, an update
+ * sets its status or subject (deleted removes it; one for a task not seen yet
+ * adds it, as its create may not have been recorded), and a list replaces
+ * everything with what it shows. In the same shape as a TodoWrite list: items
+ * (in the order the tasks were made) only when some subject was captured.
+ */
+export function replayTasks(ops: EventTaskOp[]): EventTodos {
+  const tasks = new Map<string, { status: TodoStatus; subject?: string }>();
+  for (const op of ops) {
+    if (op.op === 'list') {
+      tasks.clear();
+      for (const t of op.tasks ?? []) tasks.set(t.id, { status: t.status, ...(t.subject ? { subject: t.subject } : {}) });
+      continue;
+    }
+    if (!op.id) continue;
+    const task = tasks.get(op.id);
+    if (op.status === 'deleted') {
+      tasks.delete(op.id);
+      continue;
+    }
+    const next = { status: (op.op === 'update' ? op.status : undefined) ?? task?.status ?? 'pending', subject: op.subject ?? task?.subject };
+    tasks.set(op.id, next.subject ? next : { status: next.status });
+  }
+  const todos: EventTodos = { pending: 0, inProgress: 0, completed: 0 };
+  const items: NonNullable<EventTodos['items']> = [];
+  for (const t of tasks.values()) {
+    if (t.status === 'pending') todos.pending += 1;
+    else if (t.status === 'in_progress') todos.inProgress += 1;
+    else todos.completed += 1;
+    if (t.subject) items.push({ text: t.subject, status: t.status });
+  }
+  if (items.length) todos.items = items;
+  return todos;
+}
+
+/**
  * What's ahead in the agent's own plan: the todo list from the workspace's
- * most recent session that has one, a live session first. Its in-progress
- * items, the next pending one and how many are done; counts only when the
- * items' text wasn't captured. Undefined when no session has a todo list.
+ * most recent session that has one, a live session first. A session's list is
+ * its latest TodoWrite call's, or what its task tool calls left, whichever it
+ * used last. Its in-progress items, the next pending one and how many are
+ * done; counts only when the items' text wasn't captured. Undefined when no
+ * session has a todo list.
  */
 export function planAhead(events: NormalizedEvent[], now = Date.now()): PlanAhead | undefined {
   const lastActive = new Map<string, number>();
   const lastList = new Map<string, NormalizedEvent>();
+  const taskOps = new Map<string, NormalizedEvent[]>();
   const names = new Map<string, string>();
   for (const e of events) {
     const at = Date.parse(e.ts);
@@ -121,15 +161,26 @@ export function planAhead(events: NormalizedEvent[], now = Date.now()): PlanAhea
     }
     if (e.kind === 'outcome') continue; // not agent activity
     if (at > (lastActive.get(e.sessionId) ?? -Infinity)) lastActive.set(e.sessionId, at);
-    if (e.kind === 'tool_call' && e.todos) {
+    if (e.kind !== 'tool_call') continue;
+    if (e.todos) {
       const prev = lastList.get(e.sessionId);
       if (!prev || e.ts >= prev.ts) lastList.set(e.sessionId, e);
     }
+    if (e.taskOp) {
+      const ops = taskOps.get(e.sessionId) ?? [];
+      ops.push(e);
+      taskOps.set(e.sessionId, ops);
+    }
   }
   const live = (id: string) => now - (lastActive.get(id) ?? -Infinity) <= LIVE_MS;
-  const [sessionId] = [...lastList.keys()].sort((a, b) => Number(live(b)) - Number(live(a)) || (lastActive.get(b) ?? 0) - (lastActive.get(a) ?? 0));
+  const withPlan = new Set([...lastList.keys(), ...taskOps.keys()]);
+  const [sessionId] = [...withPlan].sort((a, b) => Number(live(b)) - Number(live(a)) || (lastActive.get(b) ?? 0) - (lastActive.get(a) ?? 0));
   if (sessionId === undefined) return undefined;
-  const todos = lastList.get(sessionId)!.todos!;
+  // The task tools change the list a call at a time, so their calls are replayed in order (a stable sort keeps the log's order for ties).
+  const ops = (taskOps.get(sessionId) ?? []).slice().sort((a, b) => a.ts.localeCompare(b.ts));
+  const list = lastList.get(sessionId);
+  const lastOp = ops[ops.length - 1];
+  const todos = lastOp && (!list || lastOp.ts >= list.ts) ? replayTasks(ops.map((e) => e.taskOp!)) : list!.todos!;
   const items = todos.items;
   const name = names.get(sessionId);
   return {
