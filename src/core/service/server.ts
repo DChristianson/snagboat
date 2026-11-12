@@ -416,6 +416,7 @@ export class CoreService {
     for (const t of this.timers) clearInterval(t);
     this.collector?.stop();
     this.copilot?.stop();
+    this.suggestions.dispose();
     await this.findings.dispose().catch(() => undefined);
     removeCoreRoute(this.opts.home, process.pid);
     removeCoreFile(this.opts.home, process.pid);

@@ -4,6 +4,8 @@
 !dist/extension.js
 # The CLI, which the extension also runs as the core service (snagboat serve).
 !dist/snagboat.js
+# Its discovery worker, which must sit beside it.
+!dist/discoveryWorker.js
 !media/**
 # The Factory Clock package's page files, which the detail webview and the
 # core's advisor UI load from packages/viz at runtime (the visualizers, the

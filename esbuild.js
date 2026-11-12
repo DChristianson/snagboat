@@ -56,7 +56,25 @@ const cli = {
   define: { SNAGBOAT_VERSION: JSON.stringify(require('./package.json').version) },
 };
 
-const builds = webOnly ? [web] : [extension, web, cli];
+/**
+ * The core's discovery worker (src/discovery/discoveryWorker.ts): a worker thread
+ * the core runs discovery in, so its event loop keeps answering meanwhile. It
+ * must sit beside dist/snagboat.js (offThread.ts finds it there), in the VSIX
+ * and in the Claude Code plugin.
+ */
+/** @type {import('esbuild').BuildOptions} */
+const discoveryWorker = {
+  entryPoints: ['src/discovery/discoveryWorker.ts'],
+  bundle: true,
+  outfile: 'dist/discoveryWorker.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+  minify: false,
+};
+
+const builds = webOnly ? [web] : [extension, web, cli, discoveryWorker];
 
 async function run() {
   if (watch) {
