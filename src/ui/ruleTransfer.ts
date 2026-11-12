@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { buildRuleSet, Rule } from '../heuristics/rule';
 import { Provenance, RuleStore } from '../heuristics/ruleStore';
 import { Score } from '../discovery/discover';
-import { parseRulesFile } from './suggestionsController';
+import { parseRulesFile } from '../discovery/suggestionsController';
 
 /** Snagboat: Export Rules: writes saved rules and categories, with their provenance, to a JSON file you choose. */
 export async function exportRules(store: RuleStore): Promise<void> {

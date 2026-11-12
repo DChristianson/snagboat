@@ -228,6 +228,31 @@ export function configHost(home: string, projectDir: string): Host {
  * not where its data lives (storage.*) or the advisor's (advisor.*, advisors),
  * which stays with VS Code until the advisor moves into the core.
  */
+/** A synced setting changed in config.json by something other than VS Code (the core's advisor UI, an edit). */
+export interface ExternalChange {
+  /** Your user settings, or a folder's. */
+  scope: 'user' | { folder: string };
+  key: string;
+  /** Undefined: removed. */
+  value: unknown;
+}
+
+/**
+ * The synced settings that differ between what a VS Code window last wrote to config.json and
+ * what's there now (RFC step 5c-2): changes made elsewhere, for the window to take into its own
+ * settings, so its next sync doesn't undo them. Only its own folders' entries are compared.
+ */
+export function externalChanges(lastWritten: SnagboatConfig, now: SnagboatConfig, syncedKeys: string[], folders: string[]): ExternalChange[] {
+  const keys = syncedKeys.filter(isSyncedSetting);
+  const out: ExternalChange[] = [];
+  const diff = (scope: ExternalChange['scope'], before: Record<string, unknown>, after: Record<string, unknown>) => {
+    for (const key of keys) if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) out.push({ scope, key, value: after[key] });
+  };
+  diff('user', lastWritten.defaults, now.defaults);
+  for (const folder of folders) diff({ folder }, lastWritten.projects[folder] ?? {}, now.projects[folder] ?? {});
+  return out;
+}
+
 export function isSyncedSetting(key: string): boolean {
   return !key.startsWith('storage.') && !key.startsWith('advisor.') && key !== 'advisors';
 }

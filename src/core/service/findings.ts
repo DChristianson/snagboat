@@ -8,7 +8,7 @@ import { EventStore } from '../eventStore';
 import { userDataDir, workspaceInfoOf, workspaceStoreDir } from '../userStore';
 import { builtInHeuristics, heuristicSettingsSection } from '../../heuristics';
 import { EVENT_STORE_MAX_EVENTS, EVENT_STORE_WINDOW_MS, HeuristicsEngine } from '../../heuristics/engine';
-import { buildRuleSet, RuleSource } from '../../heuristics/rule';
+import { buildRuleSet, Rule, RuleSource } from '../../heuristics/rule';
 import { ruleHeuristic } from '../../heuristics/ruleHeuristic';
 import { RuleStore } from '../../heuristics/ruleStore';
 import { FindingReplay } from '../../heuristics/replay';
@@ -75,6 +75,8 @@ interface Watch {
   lastActivity: number;
   /** Its heuristics and their settings, as last built, for replaying a session (newReplay). */
   heuristics?: Heuristic[];
+  /** The rules among them, as data (discovery's worker builds its heuristics from them). */
+  rules?: Rule[];
   settingsFor?: (id: string) => Record<string, unknown>;
 }
 
@@ -192,11 +194,23 @@ export class FindingsService {
    */
   async forSessions(workspace: string): Promise<{ current: WorkspaceFindings; newReplay: () => FindingReplay }> {
     const current = await this.current(workspace);
+    const { heuristics, settingsFor, contextLimit } = await this.heuristicsFor(workspace, false);
+    return { current, newReplay: () => new FindingReplay(heuristics, settingsFor, contextLimit) };
+  }
+
+  /**
+   * The workspace's heuristics (built-ins and its rules) with its own settings, as last built, for
+   * discovery (step 5c-2) and session replays. Evaluated first unless the caller just did.
+   */
+  async heuristicsFor(workspace: string, evaluate = true): Promise<{ heuristics: Heuristic[]; rules: Rule[]; settingsFor: (id: string) => Record<string, unknown>; contextLimit: (model: string | undefined) => number | undefined }> {
+    if (evaluate) await this.current(workspace);
     const watch = await this.watch(workspace);
-    const heuristics = watch.heuristics ?? builtInHeuristics();
-    const settingsFor = watch.settingsFor ?? (() => ({}));
-    const limit = (model: string | undefined) => (model ? this.contextLimits.get(model)?.limit : undefined);
-    return { current, newReplay: () => new FindingReplay(heuristics, settingsFor, limit) };
+    return {
+      heuristics: watch.heuristics ?? builtInHeuristics(),
+      rules: watch.heuristics ? (watch.rules ?? []) : [],
+      settingsFor: watch.settingsFor ?? (() => ({})),
+      contextLimit: (model) => (model ? this.contextLimits.get(model)?.limit : undefined),
+    };
   }
 
   /** What the core has learned of each model's context (the timelines' marks). */
@@ -348,6 +362,7 @@ export class FindingsService {
     watch.heuristicIds = new Set(heuristics.map((h) => h.id));
     const settingsFor = (id: string) => (id.includes(':') ? {} : host.section(heuristicSettingsSection(id)));
     watch.heuristics = heuristics;
+    watch.rules = ruleSet.rules;
     watch.settingsFor = settingsFor;
     watch.engine = new HeuristicsEngine(heuristics, watch.store, settingsFor, (model) => (model ? this.contextLimits.get(model)?.limit : undefined));
     watch.built = built;

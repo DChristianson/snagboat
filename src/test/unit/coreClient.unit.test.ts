@@ -68,6 +68,23 @@ async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
   const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
 
+  test('each request to the core opens its own connection, so none goes out on one the core is closing', async () => {
+    // The core closes an idle kept-alive connection after 5 seconds; a busy core closed one just as a client
+    // reused it (ECONNRESET on a slow CI machine). A connection per request can't race that.
+    let connections = 0;
+    const server = http.createServer((_req, res) => res.end('{}'));
+    server.on('connection', () => (connections += 1));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as { port: number }).port;
+    try {
+      for (let i = 0; i < 3; i++) assert.strictEqual((await coreRequest(port, 't', 'GET', '/health')).status, 200);
+      assert.strictEqual(connections, 3);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((r) => server.close(r));
+    }
+  });
+
   test("a window's feed carries what's written to its workspace, and nothing of another's", async () => {
     const { home, a, b } = machine();
     const core = await start(home);
