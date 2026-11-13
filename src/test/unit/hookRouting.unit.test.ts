@@ -379,6 +379,8 @@ async function main() {
     await (await startCore(home, [])).stop(); // a core ran once: the spool folder exists
     const before = Date.now();
     assert.strictEqual((await runHook(home, script, projectA, { ...payload(projectA), tool_use_id: 's1' })).status, 0);
+    // The hook may take over a second to start (Git Bash on Windows), so "when it ran" is between before and here.
+    const ran = Date.now();
     const spooled = fs.readdirSync(hookSpoolDir(home));
     assert.strictEqual(spooled.length, 1, spooled.join());
     assert.match(spooled[0], /^\d+-\d+\.hook$/);
@@ -396,7 +398,7 @@ async function main() {
       const [event] = await storeEvents(home, projectA);
       assert.strictEqual(event?.eventId, 'tool:s1');
       const ts = Date.parse(event.ts);
-      assert.ok(ts >= Math.floor(before / 1000) * 1000 && ts <= before + 1000, `timestamped when it ran, not when ingested: ${event.ts}`);
+      assert.ok(ts >= Math.floor(before / 1000) * 1000 && ts <= ran, `timestamped when it ran, not when ingested: ${event.ts}`);
       assert.deepStrictEqual(fs.readdirSync(hookSpoolDir(home)), [], 'spool emptied');
     } finally {
       await core.stop();
