@@ -112,12 +112,14 @@ async function main() {
   });
 
   test("a transcript's project is its cwd inside the allowed folder, else the folder itself", () => {
-    const folder = '/Users/me/src/proj';
+    // Built with path, so the same check holds where an absolute path gets a drive letter (Windows).
+    const folder = path.resolve('/Users/me/src/proj');
+    const app = path.join(folder, 'pkg', 'app');
     assert.strictEqual(containerProjectFor(folder, folder), folder);
-    assert.strictEqual(containerProjectFor(folder, `${folder}/pkg/app`), `${folder}/pkg/app`);
+    assert.strictEqual(containerProjectFor(folder, app), app);
     assert.strictEqual(containerProjectFor(folder, '/workspaces/proj'), folder);
     assert.strictEqual(containerProjectFor(folder, `${folder}/../other`), folder);
-    assert.strictEqual(containerProjectFor(folder, '/Users/me/src/proj-other'), folder);
+    assert.strictEqual(containerProjectFor(folder, path.resolve('/Users/me/src/proj-other')), folder);
     assert.strictEqual(containerProjectFor(folder, 'relative/path'), folder);
   });
 
@@ -252,10 +254,13 @@ async function main() {
 
   test('openBelow refuses a FIFO and a file outside the folder', () => {
     const m = machine();
-    const fifo = path.join(m.folder, 'pipe.jsonl');
-    require('child_process').execFileSync('mkfifo', [fifo]);
-    const r = openBelow(m.folder, fifo);
-    assert.ok('problem' in r && /isn't a regular file/.test(r.problem));
+    // Named pipes (mkfifo) exist only on macOS and Linux.
+    if (process.platform !== 'win32') {
+      const fifo = path.join(m.folder, 'pipe.jsonl');
+      require('child_process').execFileSync('mkfifo', [fifo]);
+      const r = openBelow(m.folder, fifo);
+      assert.ok('problem' in r && /isn't a regular file/.test(r.problem));
+    }
     const outside = path.join(m.outside, 'x.jsonl');
     fs.writeFileSync(outside, '{}\n');
     const o = openBelow(m.folder, outside);
