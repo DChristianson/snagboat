@@ -4,6 +4,7 @@ import { DetailState, DetailTab, isDetailMessage, resolveTargetFile } from './de
 import { SessionController } from './sessionController';
 import { SuggestionsController } from '../discovery/suggestionsController';
 import { Capability, ExplainRequest } from '../vscode/advisor';
+import { hostFileUri } from '../vscode/hostUri';
 
 const UPDATE_DEBOUNCE_MS = 500;
 
@@ -248,7 +249,7 @@ export class DetailPanel implements vscode.Disposable {
         // resolves to an existing file, never a directory or arbitrary URI.
         const file = resolveTargetFile(message.target, workspaceRoots());
         if (file) {
-          await vscode.window.showTextDocument(vscode.Uri.file(file), { preview: true, viewColumn: vscode.ViewColumn.One });
+          await vscode.window.showTextDocument(hostFileUri(file), { preview: true, viewColumn: vscode.ViewColumn.One });
         } else {
           void vscode.window.showWarningMessage(`Snagboat: ${message.target} is no longer on disk.`);
         }

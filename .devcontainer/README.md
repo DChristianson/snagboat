@@ -86,6 +86,16 @@ container, and Claude's login and settings stay in the volume.
 The project is mounted at the same path as on the host, so a transcript's
 working folder names this project on both sides.
 
+**The Snagboat panel in this window.** With Snagboat installed on the host,
+it shows up in this container window too: VS Code runs it on the host
+(`extensionKind` "ui"), where it reads the host's stores, so you see the same
+sessions as in a local window, this container's included once allowed below.
+Files it opens, such as reviews and advisor prompts, come from the host's
+disk. Its Claude Code hook entry in `.claude/settings.json` runs a script
+under the host's `~/.snagboat`, which doesn't exist in here, so in the
+container it does nothing; Snagboat follows this container's sessions from
+their transcripts instead, a few seconds behind.
+
 To turn it on, on the host, with `snagboat.storage.perUserStore` on:
 
 ```bash
