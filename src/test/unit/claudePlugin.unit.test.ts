@@ -22,11 +22,21 @@ const sh = (script: string, args: string[], opts: { env?: NodeJS.ProcessEnv; inp
   spawnSync('sh', [script, ...args], { env: { ...process.env, ...opts.env }, input: opts.input ?? '', encoding: 'utf8' });
 
 let n = 0;
+/**
+ * minAgo minutes ago, squeezed after local midnight when that's less than 30 minutes back,
+ * so "today" checks hold whenever the test runs (it once failed at 00:22). Order is kept.
+ */
+const ago = (minAgo: number): string => {
+  const now = Date.now();
+  const midnight = new Date(now).setHours(0, 0, 0, 0);
+  const span = Math.min(30 * 60_000, now - midnight);
+  return new Date(now - Math.round((Math.min(minAgo, 30) / 30) * span)).toISOString();
+};
 const ev = (workspace: string, minAgo: number, extra: Partial<NormalizedEvent> = {}): NormalizedEvent => ({
   eventId: `e${(n += 1)}`,
   sessionId: 's-1',
   agent: 'claude-code',
-  ts: new Date(Date.now() - minAgo * 60_000).toISOString(),
+  ts: ago(minAgo),
   kind: 'turn_stop',
   status: 'success',
   model: 'claude-opus-5-5',
