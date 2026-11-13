@@ -52,7 +52,7 @@
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   // Runs every time the container starts: checks that nothing has set up git
   // hooks that would run on your Mac.
-  "postStartCommand": "bash .devcontainer/check-host-safety.sh; bash .devcontainer/carry-transcripts.sh start",
+  "postStartCommand": "git config --global --get-all safe.directory 2>/dev/null | grep -qxF \"${containerWorkspaceFolder}\" || git config --global --add safe.directory \"${containerWorkspaceFolder}\"; bash .devcontainer/check-host-safety.sh; bash .devcontainer/carry-transcripts.sh start",
 
   "customizations": {
     "vscode": {

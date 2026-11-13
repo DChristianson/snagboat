@@ -41,6 +41,7 @@ JetBrains and the `devcontainer` CLI read it too.
 | `post-create.sh` | Runs once at creation: prints tool versions, turns bd metrics off |
 | `init-project.sh` | Run once by hand: `git init` + `bd init --skip-hooks` |
 | `check-host-safety.sh` | Runs on every start: warns if git hooks have been configured (see below) |
+| `postStartCommand` | Also marks the project folder as a git `safe.directory` on every start: the folder is mounted from the host, so its owner isn't the container's user, and git, `gh` and `bd` would otherwise refuse to use it ("detected dubious ownership") |
 | `carry-transcripts.sh` | `start` runs on every start: moves Claude Code's transcripts from the old `/workspaces/snagboat` name to the project's new path. `save` is run once by hand before the first rebuild with the transcript mount (see below) |
 
 ## First use
