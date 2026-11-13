@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Dev container windows show Snagboat:** the extension runs on the host in a remote window (`extensionKind` "ui"), so its panel and status bar appear there too, reading the host's stores. Files it opens (reviews, advisor prompts) come from the host's disk, and files in the workspace open through the window's folder.
+- **Dev container windows show Snagboat:** the extension runs on the host in a remote window (`extensionKind` "ui"), so its panel and status bar appear there too, reading the host's stores. It reads the same workspace as a local window on that folder, sessions from the container included (`snagboat containers allow`). Files it opens (reviews, advisor prompts) come from the host's disk, and files in the workspace open through the window's folder.
 - **CLI reads the per-user store by default:** `sessions`, `session` and `advisors` read `~/.snagboat/data` once it has events, so they show what the core records (dev containers' sessions included) without `--store user`. `--store vscode` reads VS Code's stores for each window, as the default did before.
 - **Dev containers:** the core reads the Claude Code transcripts a dev container keeps in `<folder>/.snagboat/claude-projects/` (its `~/.claude/projects`, bind-mounted there) for folders you allow with `snagboat containers allow` (`containers.allow` in `~/.snagboat/config.json`); `snagboat containers status` shows each one. See [cli.md](https://github.com/DChristianson/snagboat/blob/main/docs/cli.md#dev-containers).
 

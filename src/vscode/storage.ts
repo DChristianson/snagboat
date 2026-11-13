@@ -5,7 +5,7 @@ import { WORKSPACE_NO_FOLDER } from '@snagboat/schema';
 import { migrate } from '../core/migrate';
 import { claimWorkspace, releaseClaim } from '../core/service/claims';
 import { CoreClient } from '../core/service/client';
-import { openWorkspaceStore, snagboatHome, userDataDir, WORKSPACE_MARKER, WorkspaceInfo, WorkspaceMarker, workspaceOfVsCodeStore } from '../core/userStore';
+import { chooseWorkspace, openWorkspaceStore, snagboatHome, userDataDir, WORKSPACE_MARKER, WorkspaceInfo, WorkspaceMarker, workspaceOfVsCodeStore } from '../core/userStore';
 
 /** Where this window keeps its data. */
 export interface StorageLocations {
@@ -32,17 +32,27 @@ export const PER_USER_STORE_SETTING = 'snagboat.storage.perUserStore';
 
 function thisWorkspace(legacyDir: string, global: boolean): WorkspaceInfo {
   const fromStorage = workspaceOfVsCodeStore(legacyDir, global);
-  if (fromStorage) return fromStorage;
-  const { workspaceFile, folder } = windowWorkspace() ?? {};
-  if (workspaceFile) return { workspace: workspaceFile, workspaceFile };
-  return folder ? { workspace: folder, folder } : { workspace: WORKSPACE_NO_FOLDER };
+  // A remote window's storage names it by a URI: then only paths on this disk count (chooseWorkspace).
+  return chooseWorkspace(fromStorage, windowWorkspace(fromStorage !== undefined));
 }
 
-/** This window's workspace as plain paths: its saved .code-workspace file, else its first folder. */
-function windowWorkspace(): WorkspaceMarker | undefined {
+/** A folder or file URI as a path on this disk: a file: URI, or in a remote window one whose path exists here too. */
+function onThisDisk(uri: vscode.Uri): string | undefined {
+  if (uri.scheme === 'file') return uri.fsPath;
+  return vscode.env.remoteName !== undefined && fs.existsSync(uri.fsPath) ? uri.fsPath : undefined;
+}
+
+/**
+ * This window's workspace as plain paths: its saved .code-workspace file, else
+ * its first folder. With onThisDiskOnly, only paths that name files on this
+ * disk (see onThisDisk).
+ */
+function windowWorkspace(onThisDiskOnly = false): WorkspaceMarker | undefined {
   const file = vscode.workspace.workspaceFile;
-  if (file?.scheme === 'file') return { workspaceFile: file.fsPath };
-  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const workspaceFile = file && (onThisDiskOnly ? onThisDisk(file) : file.scheme === 'file' ? file.fsPath : undefined);
+  if (workspaceFile) return { workspaceFile };
+  const first = vscode.workspace.workspaceFolders?.[0]?.uri;
+  const folder = first && (onThisDiskOnly ? onThisDisk(first) : first.fsPath);
   return folder ? { folder } : undefined;
 }
 
@@ -96,7 +106,7 @@ export async function resolveStorage(context: vscode.ExtensionContext): Promise<
     const perUser = { storageDir, sharedDir: userDataDir(home), rulesDir: home, workspace: info.workspace, perUser: true };
     try {
       // A saved multi-root workspace is named by its .code-workspace file; the core finds its projects by its folders.
-      const folders = info.workspaceFile ? (vscode.workspace.workspaceFolders ?? []).filter((f) => f.uri.scheme === 'file').map((f) => f.uri.fsPath) : undefined;
+      const folders = info.workspaceFile ? (vscode.workspace.workspaceFolders ?? []).flatMap((f) => onThisDisk(f.uri) ?? []) : undefined;
       const core = await CoreClient.connect({
         home,
         cliPath: path.join(context.extensionPath, 'dist', 'snagboat.js'),

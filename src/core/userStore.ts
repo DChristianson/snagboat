@@ -124,6 +124,22 @@ export function workspaceOfVsCodeStore(storeDir: string, global: boolean): Works
   return workspace ? { workspace, folder, workspaceFile } : undefined;
 }
 
+/**
+ * A window's workspace: what its VS Code storage says (workspaceOfVsCodeStore),
+ * else the window's own paths. A remote window's storage names it only by a URI
+ * (vscode-remote://…); when the window's folder or .code-workspace file is on
+ * this disk too (a dev container mounts the project at the same path), it's the
+ * same workspace as a local window on that path, so it reads the same store,
+ * where the core files the container's sessions.
+ */
+export function chooseWorkspace(fromStorage: WorkspaceInfo | undefined, onThisDisk: WorkspaceMarker | undefined): WorkspaceInfo {
+  const remoteOnly = fromStorage !== undefined && !fromStorage.folder && !fromStorage.workspaceFile && fromStorage.workspace !== WORKSPACE_NO_FOLDER;
+  if (fromStorage && !remoteOnly) return fromStorage;
+  if (onThisDisk?.workspaceFile) return { workspace: onThisDisk.workspaceFile, workspaceFile: onThisDisk.workspaceFile };
+  if (onThisDisk?.folder) return { workspace: onThisDisk.folder, folder: onThisDisk.folder };
+  return fromStorage ?? { workspace: WORKSPACE_NO_FOLDER };
+}
+
 /** WorkspaceInfo for an identity alone (no workspace.json to read): a .code-workspace file, a folder, or neither. */
 export function workspaceInfoOf(workspace: string): WorkspaceInfo {
   if (workspace === WORKSPACE_NO_FOLDER || /^[a-z][a-z0-9+.-]*:\/\//i.test(workspace)) return { workspace };
