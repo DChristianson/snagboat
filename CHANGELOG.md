@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Dev containers:** the core reads the Claude Code transcripts a dev container keeps in `<folder>/.snagboat/claude-projects/` (its `~/.claude/projects`, bind-mounted there) for folders you allow with `snagboat containers allow` (`containers.allow` in `~/.snagboat/config.json`); `snagboat containers status` shows each one. See [cli.md](https://github.com/DChristianson/snagboat/blob/main/docs/cli.md#dev-containers).
+
 ## 0.0.3
 
 - **Requirements:** VS Code 1.145 or later (was 1.119), and Node 24 for the `snagboat` CLI.

@@ -26,6 +26,18 @@ export interface SnagboatConfig {
   version: 1;
   defaults: Record<string, unknown>;
   projects: Record<string, Record<string, unknown>>;
+  /**
+   * Dev containers (core/containerTranscripts.ts): host folders whose .snagboat/claude-projects
+   * (a container's ~/.claude/projects, bind-mounted there) the core reads. Only ever read from
+   * here, never from a project's .snagboat.json or VS Code's settings, which a container can
+   * write. Not a setting: VS Code neither copies nor removes it.
+   */
+  containers?: ContainersConfig;
+}
+
+export interface ContainersConfig {
+  /** Absolute host folders. */
+  allow: string[];
 }
 
 export const CONFIG_FILE = 'config.json';
@@ -93,7 +105,17 @@ export function loadConfig(home: string): { config: SnagboatConfig; problems: st
     const raw = JSON.parse(text) as Record<string, unknown>;
     const projects: Record<string, Record<string, unknown>> = {};
     if (isObject(raw.projects)) for (const [folder, settings] of Object.entries(raw.projects)) if (isObject(settings)) projects[folder] = settings;
-    return { config: { version: 1, defaults: isObject(raw.defaults) ? raw.defaults : {}, projects }, problems: [] };
+    const config: SnagboatConfig = { version: 1, defaults: isObject(raw.defaults) ? raw.defaults : {}, projects };
+    const problems: string[] = [];
+    if (raw.containers !== undefined) {
+      const allow = isObject(raw.containers) ? raw.containers.allow : undefined;
+      if (Array.isArray(allow)) {
+        const folders = allow.filter((f): f is string => typeof f === 'string' && path.isAbsolute(f));
+        if (folders.length < allow.length) problems.push(`${configPath(home)}: containers.allow entries that aren't absolute folders are ignored`);
+        config.containers = { allow: [...new Set(folders)] };
+      } else problems.push(`${configPath(home)}: containers is ignored; it should be {"allow": ["/absolute/folder", ...]}`);
+    }
+    return { config, problems };
   } catch (err) {
     return { config: empty, problems: [`${configPath(home)} isn't valid JSON, so it's ignored: ${err instanceof Error ? err.message : String(err)}`] };
   }
@@ -106,6 +128,19 @@ export function saveConfig(home: string, config: SnagboatConfig): void {
   const temp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(temp, JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
   fs.renameSync(temp, file);
+}
+
+/** The host folders whose dev container transcripts the core reads (config.json's containers.allow). */
+export function containersAllowed(config: SnagboatConfig): string[] {
+  return config.containers?.allow ?? [];
+}
+
+/** config with folder added to (allowed) or removed from containers.allow; the list is dropped when empty. */
+export function withContainerFolder(config: SnagboatConfig, folder: string, allowed: boolean): SnagboatConfig {
+  const current = containersAllowed(config);
+  const allow = allowed ? (current.includes(folder) ? current : [...current, folder]) : current.filter((f) => f !== folder);
+  const { containers: _containers, ...rest } = config;
+  return allow.length > 0 ? { ...rest, containers: { ...config.containers, allow } } : rest;
 }
 
 function isInside(dir: string, folder: string): boolean {
@@ -285,6 +320,7 @@ export function withVsCodeSettings(
     return out;
   };
   const result: SnagboatConfig = { version: 1, defaults: replace(config.defaults, user), projects: { ...config.projects } };
+  if (config.containers) result.containers = config.containers;
   for (const [folder, settings] of Object.entries(projects)) {
     const entry = replace(config.projects[folder] ?? {}, settings);
     if (Object.keys(entry).length > 0) result.projects[folder] = entry;

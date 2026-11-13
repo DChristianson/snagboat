@@ -139,6 +139,7 @@ The core's modules, in [src/core/service](../src/core/service/):
 | `sessionPages.ts` | The advisor UI's sessions: the list with outcome counts, a session's view (built as VS Code's Sessions tab builds it, findings replayed with the workspace's own heuristics) with its outcomes |
 | `claudeCollector.ts` | Tails every project folder under `~/.claude/projects` with the window's `TranscriptTailer` |
 | `copilotCollector.ts` | Reads every Copilot CLI session under `~/.copilot/session-state` and files it by the folder it started in |
+| `containerCollectors.ts` | Dev containers' Claude Code transcripts: one `ClaudeCollector` per folder in `config.json`'s `containers.allow`, reading `<folder>/.snagboat/claude-projects` through the guard in [core/containerTranscripts.ts](../src/core/containerTranscripts.ts) (no symlinks, regular files only, capped lines) with checkpoints of its own. Each ingest tick (30 seconds) starts and stops them as the list changes. A transcript's cwd outside the folder is filed under the folder |
 | `workspaces.ts` | Which workspace a project belongs to (the nearest known workspace folder, else its repository, else the folder itself), and whether to record it at all |
 | `claims.ts` | `writer.json` in a workspace's folder: a window that writes the folder itself, or holds it briefly, claims it so the core doesn't write there too |
 | `hooks.ts` | Maps hook payloads to events, and reads the hook spool on start |

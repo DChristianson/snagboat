@@ -1,5 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { promisify } from 'util';
+
+const readFd = promisify(fs.read);
+const fstatFd = promisify(fs.fstat);
+const closeFd = promisify(fs.close);
 
 /**
  * Backup scan interval. fs.watch is fast but can occasionally miss or coalesce
@@ -21,7 +26,20 @@ export interface LineTailerOptions {
   onWatchError?(err: Error): void;
   /** Override for tests. */
   rescanIntervalMs?: number;
+  /**
+   * For a folder whose contents can't be trusted (a dev container's transcripts):
+   * opens a file in place of a plain open, returning its descriptor, or undefined
+   * to leave it unread. The file is then read at most maxLineBytes at a time, and
+   * a line longer than that is skipped (onSkippedLine), never held in memory whole.
+   */
+  open?(filePath: string): number | undefined;
+  /** With open: the longest line read (default 8 MB). */
+  maxLineBytes?: number;
+  onSkippedLine?(filePath: string): void;
 }
+
+/** The longest line read from an untrusted folder, by default. */
+export const DEFAULT_MAX_LINE_BYTES = 8 * 1024 * 1024;
 
 /**
  * Watches a folder of growing text files and delivers newly appended,
@@ -37,6 +55,8 @@ export class LineTailer {
   private readonly inFlight = new Set<string>();
   // Files that changed again while being read; read once more when that read finishes.
   private readonly rerun = new Set<string>();
+  // Files whose read position is inside a line too long to read (open mode): skipped to its end.
+  private readonly skipping = new Set<string>();
 
   constructor(private readonly options: LineTailerOptions) {}
 
@@ -114,6 +134,10 @@ export class LineTailer {
     }
     this.inFlight.add(filePath);
     try {
+      if (this.options.open) {
+        await this.processGuarded(filePath, this.options.open);
+        return;
+      }
       const stat = await fs.promises.stat(filePath).catch(() => undefined);
       if (stat?.isFile()) {
         const fromOffset = this.options.getOffset(filePath);
@@ -130,6 +154,58 @@ export class LineTailer {
     } finally {
       this.inFlight.delete(filePath);
       if (this.rerun.delete(filePath)) void this.processFile(filePath);
+    }
+  }
+
+  /** processFile for an untrusted folder: the file as opened by open(), read in bounded chunks. */
+  private async processGuarded(filePath: string, open: (filePath: string) => number | undefined): Promise<void> {
+    const fd = open(filePath);
+    if (fd === undefined) return; // refused or gone; open() said why
+    const max = this.options.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES;
+    try {
+      for (;;) {
+        if (this.stopped) return;
+        const { size } = await fstatFd(fd);
+        const from = this.options.getOffset(filePath);
+        if (size <= from) break;
+        const want = Math.min(size - from, max);
+        const data = Buffer.alloc(want);
+        const { bytesRead } = await readFd(fd, data, 0, want, from);
+        if (bytesRead === 0) break;
+        const chunk = data.subarray(0, bytesRead);
+        const full = bytesRead === max;
+        let start = 0;
+        if (this.skipping.has(filePath)) {
+          // The rest of a line too long to read.
+          const newline = chunk.indexOf(10);
+          if (newline === -1) {
+            if (!full) break; // still being written
+            this.options.setOffset(filePath, from + bytesRead);
+            continue;
+          }
+          start = newline + 1;
+          this.skipping.delete(filePath);
+          this.options.onSkippedLine?.(filePath);
+        }
+        const last = chunk.lastIndexOf(10);
+        if (last < start) {
+          if (start > 0) {
+            this.options.setOffset(filePath, from + start);
+            continue;
+          }
+          if (!full) break; // no complete line yet
+          // A line longer than max: skip to its end, which a later chunk holds.
+          this.skipping.add(filePath);
+          this.options.setOffset(filePath, from + bytesRead);
+          continue;
+        }
+        const lines = chunk.subarray(start, last + 1).toString('utf8').split('\n').filter((line) => line.length > 0);
+        if (lines.length > 0) this.options.onLines(filePath, lines, from + start);
+        this.options.setOffset(filePath, from + last + 1);
+      }
+      this.options.onReadResult?.(filePath, undefined);
+    } finally {
+      await closeFd(fd).catch(() => undefined);
     }
   }
 }

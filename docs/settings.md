@@ -143,6 +143,25 @@ Two keys exist only here, for the core service, which records every Claude Code 
 | `collect` | `true` | defaults, a project entry, or `.snagboat.json` | `false` stops Snagboat recording that project (its Claude Code transcripts and hooks, and its Copilot CLI sessions). |
 | `collect.unopened` | `true` | `config.json` `"defaults"` only | `false` records only projects inside a workspace Snagboat knows: one with a folder in `~/.snagboat/data`, one in `"projects"` here, or one a VS Code window registered. |
 
+### Dev containers: `containers.allow`
+
+A top-level key of `~/.snagboat/config.json`, beside `defaults` and `projects`: the host folders whose dev container's Claude Code transcripts the core reads. A dev container keeps its own `~/.claude`, so its sessions never reach `~/.claude/projects` on your machine. Instead the container bind-mounts its `~/.claude/projects` to `<folder>/.snagboat/claude-projects/`, and the core reads that folder as it reads your own, only for folders listed here. Nothing Snagboat runs in the container. `snagboat containers allow [folder]` and `snagboat containers deny [folder]` edit the list ([command line](cli.md#dev-containers)); the core picks up a change on its next ingest tick (every 30 seconds), without a restart.
+
+```json
+{
+  "version": 1,
+  "defaults": {},
+  "projects": {},
+  "containers": { "allow": ["/Users/me/src/snagboat"] }
+}
+```
+
+It's read only from your `config.json`: never from a project's `.snagboat.json` or VS Code's settings, which an agent in the container can write. VS Code doesn't copy it and leaves it as it is. Entries must be absolute folder paths; others are ignored, and `snagboat config` says so.
+
+The container should mount the project at the same path as on your machine, so its transcripts' `cwd` is already a path here. A transcript whose `cwd` is the allowed folder or inside it is filed like any project on this machine, with that project's `collect` and `captureContent` settings. Any other `cwd` (such as `/workspaces/<name>` from sessions before the same-path mount) is filed under the allowed folder itself, so a container's sessions never land in a workspace outside it.
+
+`claude-projects` is written by agents in the container, possibly with their permissions off, so the core treats it as untrusted: it refuses symlinks anywhere from the allowed folder down to each project folder, session and `subagents` folder, and transcript, opens each transcript without following links and only if it's a regular file, skips lines over 8 MB, and reads only Claude Code's transcript layout (a project's `memory/` and anything else is ignored). It logs counts and paths, never contents. Its read positions are kept apart from those for `~/.claude/projects`, so nothing is read twice.
+
 **`.snagboat.json` is shared with everyone who clones the project**, so it can set only team settings: heuristic thresholds, token budgets, `rules`, `toolCategories`, discovery and nudges. Privacy settings it can only make more private: turn `captureContent`, `copilot.captureStructure` or `claudeCode.configureHooks` off, shorten retention, or set `"collect": false`. Anything else in it is ignored, and `snagboat config` says why.
 
 ```json
