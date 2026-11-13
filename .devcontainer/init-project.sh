@@ -2,7 +2,7 @@
 # One-time project setup, run inside the container:
 #   bash .devcontainer/init-project.sh
 # Creates the git repo (if needed) and the beads database, without letting
-# bd install git hooks (those would also run on your Mac; see README).
+# bd install git hooks (those would also run on the host; see README).
 set -euo pipefail
 
 if [ ! -d .git ]; then

@@ -38,7 +38,7 @@ case "${1:-}" in
     # -u: a file already there is replaced only by a newer copy (transcripts only grow), so running
     # this again just before the rebuild brings over what the current session wrote since; -P: links aren't followed.
     cp -R -P -p -u "$projects/." "$keep/" || exit 0
-    # Claude Code writes no symbolic links there; Snagboat on your Mac refuses them, so don't carry any.
+    # Claude Code writes no symbolic links there; Snagboat on the host refuses them, so don't carry any.
     find "$keep" -type l -exec rm -f {} + 2>/dev/null
     echo "carry-transcripts: copied $(find "$projects" -name '*.jsonl' | wc -l | tr -d ' ') transcript file(s) to $keep. Now rebuild the container."
     ;;
