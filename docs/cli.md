@@ -15,7 +15,7 @@ node dist/snagboat.js mcp                 # an MCP server with read-only tools (
 node dist/snagboat.js statusline          # one line for Claude Code's status line
 node dist/snagboat.js migrate --dry-run   # what migrate would copy into ~/.snagboat/data
 node dist/snagboat.js migrate             # copy every store into the per-user store
-node dist/snagboat.js sessions --all --store user   # read the per-user store
+node dist/snagboat.js sessions --all --store vscode   # read VS Code's stores, not the per-user store
 ```
 
 ## The core service
@@ -40,11 +40,11 @@ snagboat containers status           # each allowed folder: whether claude-proje
 
 ## Migrating to the per-user store
 
-`migrate` is for the per-user store preview (`snagboat.storage.perUserStore`). It copies, and never moves or deletes. Running it again copies only what's new. To check a migration, save `sessions --all --json` to a file before migrating, then run `migrate --verify <file>`. Every session in it must be in the per-user store with the same prompt, tool-call and token counts.
+`migrate` is for the per-user store preview (`snagboat.storage.perUserStore`). It copies, and never moves or deletes. Running it again copies only what's new. To check a migration, save `sessions --all --json --store vscode` to a file before migrating, then run `migrate --verify <file>`. Every session in it must be in the per-user store with the same prompt, tool-call and token counts.
 
 ## Which stores it reads
 
-By default a command reads only the store of the workspace that contains the current folder. `--all` is the explicit way to read across workspaces. It finds stores written by VS Code and its forks (Insiders, VSCodium, Cursor, Windsurf), including their servers in a dev container or over Remote-SSH (`~/.vscode-server` and the like; run the CLI on that side), or one store named by `SNAGBOAT_STORE`.
+By default a command reads only the store of the workspace that contains the current folder. `--all` is the explicit way to read across workspaces. Once the per-user store (`~/.snagboat/data`) has events, commands read it; until then, or with `--store vscode`, they read the stores written by VS Code and its forks (Insiders, VSCodium, Cursor, Windsurf), including their servers in a dev container or over Remote-SSH (`~/.vscode-server` and the like; run the CLI on that side). `SNAGBOAT_STORE` names one store to read instead.
 
 The server doesn't record which workspace a store belongs to, so Snagboat writes it in the store (`snagboat-workspace.json`) when a window opens it. A server store from before that has no record until its folder is opened again. Until then only `--all` reads it, and `migrate` skips it.
 

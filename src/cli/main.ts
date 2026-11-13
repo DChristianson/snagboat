@@ -64,7 +64,8 @@ options:
   --all               read every workspace's store, not just the one containing the current folder
   --days <n>          only sessions active in the last n days (sessions); the period measured (advisors, default 7)
   --cwd <dir>         treat dir as the current folder
-  --store <kind>      vscode (VS Code's storage, the default) or user (the per-user store)
+  --store <kind>      user (the per-user store, ~/.snagboat/data; the default once it has events)
+                      or vscode (VS Code's storage for each window; the default until then)
   --port <n>          serve: listen on this port instead of a free one
   --no-collect        serve, core start: don't read Claude Code transcripts or Copilot CLI sessions
                       (only accept events and hooks)
@@ -72,7 +73,7 @@ options:
   --no-open           open: print the link instead of opening a browser
   --dry-run           migrate: count what would be copied, and write nothing
   --verify <file>     migrate: don't copy; check the per-user store against a baseline saved
-                      with \`snagboat sessions --all --json\` before migrating
+                      with \`snagboat sessions --all --json --store vscode\` before migrating
 `;
 
 export interface CliIo {
@@ -138,9 +139,15 @@ async function summaries(stores: Store[]): Promise<Array<SessionSummary & { stor
   return all.sort((a, b) => b.lastTs.localeCompare(a.lastTs));
 }
 
-/** The stores --store picks: VS Code's (the default) or the per-user store's. SNAGBOAT_STORE overrides both. */
+/**
+ * The stores --store picks. Without it, the per-user store's once it has events
+ * (where the core and windows with snagboat.storage.perUserStore write, dev
+ * containers' sessions included), else VS Code's. SNAGBOAT_STORE overrides both.
+ */
 function storesOf(kind: Options['store']): Store[] {
-  return kind === 'user' && !process.env.SNAGBOAT_STORE ? findUserStores() : findStores();
+  if (process.env.SNAGBOAT_STORE || kind === 'vscode') return findStores();
+  const user = findUserStores();
+  return kind === 'user' || user.length > 0 ? user : findStores();
 }
 
 function storeLabel(s: Store): string {
