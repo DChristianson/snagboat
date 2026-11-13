@@ -63,7 +63,7 @@ export function compareToBaseline(baseline: SessionCounts[], current: SessionCou
 /** Reads a baseline file's sessions; throws with a readable message if it isn't one. */
 export function parseBaseline(text: string): SessionCounts[] {
   const data: unknown = JSON.parse(text);
-  if (!Array.isArray(data)) throw new Error('the baseline should be the JSON array `snagboat sessions --all --json` prints');
+  if (!Array.isArray(data)) throw new Error('the baseline should be the JSON array `snagboat sessions --all --json --store vscode` prints');
   return data.map((s, i) => {
     const ok = s && typeof s.sessionId === 'string' && FIELDS.every((f) => typeof s[f] === 'number');
     if (!ok) throw new Error(`baseline entry ${i} has no sessionId, prompts, toolCalls and tokens`);

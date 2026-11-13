@@ -218,6 +218,32 @@ async function main() {
     }
   });
 
+  test('sessions reads the per-user store by default once it has events; --store vscode reads VS Code\'s', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-cli-default-'));
+    const a = path.join(home, 'src', 'alpha');
+    const now = Date.now();
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    process.env.APPDATA = path.join(home, 'AppData');
+    delete process.env.XDG_CONFIG_HOME;
+    delete process.env.VSCODE_AGENT_FOLDER;
+    process.env.SNAGBOAT_HOME = path.join(home, '.snagboat');
+    delete process.env.SNAGBOAT_STORE;
+    try {
+      const before = capture();
+      assert.strictEqual(await runCli(['sessions', '--all', '--json'], { ...before.io, cwd: a, now: new Date(now) }, 'test'), 1, 'no per-user store yet: VS Code\'s (none here)');
+      const events = syntheticEvents();
+      await new StoreWriter(process.env.SNAGBOAT_HOME).write([{ ...events[1], sessionId: 'su', eventId: 'eu', ts: new Date(now).toISOString(), workspace: a }]);
+      const after = capture();
+      assert.strictEqual(await runCli(['sessions', '--all', '--json'], { ...after.io, cwd: a, now: new Date(now) }, 'test'), 0, after.get().err);
+      assert.deepStrictEqual((JSON.parse(after.get().out) as Array<{ sessionId: string }>).map((s) => s.sessionId), ['su']);
+      const vscode = capture();
+      assert.strictEqual(await runCli(['sessions', '--all', '--json', '--store', 'vscode'], { ...vscode.io, cwd: a, now: new Date(now) }, 'test'), 1, vscode.get().out);
+    } finally {
+      restoreEnv();
+    }
+  });
+
   test('isInside', () => {
     assert.ok(isInside('/w/a/b', '/w/a', 'linux'));
     assert.ok(!isInside('/w/ab', '/w/a', 'linux'));

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **CLI reads the per-user store by default:** `sessions`, `session` and `advisors` read `~/.snagboat/data` once it has events, so they show what the core records (dev containers' sessions included) without `--store user`. `--store vscode` reads VS Code's stores for each window, as the default did before.
 - **Dev containers:** the core reads the Claude Code transcripts a dev container keeps in `<folder>/.snagboat/claude-projects/` (its `~/.claude/projects`, bind-mounted there) for folders you allow with `snagboat containers allow` (`containers.allow` in `~/.snagboat/config.json`); `snagboat containers status` shows each one. See [cli.md](https://github.com/DChristianson/snagboat/blob/main/docs/cli.md#dev-containers).
 
 ## 0.0.3
