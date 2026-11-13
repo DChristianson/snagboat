@@ -3,10 +3,11 @@
 # beside them) over to the transcript folder this container now keeps in the
 # project: .snagboat/claude-projects/, mounted at ~/.claude/projects.
 #
-#   save   Run once in a container from before that mount, just before you
+#   save   Run once in the container's terminal (never on the host), in a container from before that mount, just before you
 #          rebuild: copies ~/.claude/projects (in the Docker volume, which the
 #          new mount hides) into .snagboat/claude-projects/. Copies; never
-#          deletes or overwrites.
+#          deletes, and replaces a file only with a newer copy, so it can be
+#          run again as the last thing before the rebuild.
 #   start  Runs on every container start (postStartCommand): when the project
 #          used to be at /workspaces/<name>, moves that transcript folder to the
 #          name Claude Code uses for the project's new path, so `claude
@@ -23,14 +24,20 @@ key() { printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
 
 case "${1:-}" in
   save)
+    # Only inside the container: on the host, ~/.claude/projects is your own machine's, which belongs nowhere in the project.
+    if [ ! -e /.dockerenv ] && [ "${REMOTE_CONTAINERS:-}" != true ]; then
+      echo "carry-transcripts: run this in the dev container's terminal, not on the host; nothing copied."
+      exit 0
+    fi
     if [ "$(cd "$projects" 2>/dev/null && pwd -P)" = "$(cd "$keep" 2>/dev/null && pwd -P)" ]; then
       echo "carry-transcripts: ~/.claude/projects is already the project's folder; nothing to save."
       exit 0
     fi
     [ -d "$projects" ] || { echo "carry-transcripts: no ~/.claude/projects here."; exit 0; }
     mkdir -p "$keep"
-    # -n: never overwrite a file already there; -R without following links.
-    cp -R -P -p -n "$projects/." "$keep/" || exit 0
+    # -u: a file already there is replaced only by a newer copy (transcripts only grow), so running
+    # this again just before the rebuild brings over what the current session wrote since; -P: links aren't followed.
+    cp -R -P -p -u "$projects/." "$keep/" || exit 0
     # Claude Code writes no symbolic links there; Snagboat on your Mac refuses them, so don't carry any.
     find "$keep" -type l -exec rm -f {} + 2>/dev/null
     echo "carry-transcripts: copied $(find "$projects" -name '*.jsonl' | wc -l | tr -d ' ') transcript file(s) to $keep. Now rebuild the container."
