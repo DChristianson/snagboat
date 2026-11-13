@@ -11,22 +11,22 @@ container, that your editor runs your project *inside*. When VS Code (with the
    project needs.
 2. **Starts a container** from that image with the options in
    `devcontainer.json`, and **mounts your project folder into it** at the
-   same path it has on your Mac (for example `/Users/you/code/snagboat`;
+   same path it has on the host (for example `/Users/you/code/snagboat`;
    most dev containers use `/workspaces/snagboat` instead, see
    [Snagboat and this container](#snagboat-and-this-container)). It's the
    same files, not a copy: edits on either side show up on the other.
 3. **Runs setup hooks** (`postCreateCommand` once, `postStartCommand` on every
    start).
 4. **Moves VS Code's backend into the container.** The window still runs on
-   your Mac, but the terminal, extensions, language servers and Claude Code
+   the host, but the terminal, extensions, language servers and Claude Code
    all run inside the container.
 
 This gives you two things:
 
 - **Reproducibility.** Anyone (or any future you) gets the same toolchain by
-  opening the folder. Nothing is installed on your Mac.
+  opening the folder. Nothing is installed on the host.
 - **Containment.** Code running in the container can only reach your
-  project folder and the network. It can't reach the rest of your Mac's
+  project folder and the network. It can't reach the rest of the host's
   files, keychain, SSH keys or `~/.claude`.
 
 `devcontainer.json` is an open spec (containers.dev). GitHub Codespaces,
@@ -69,24 +69,24 @@ container has no screen, so run it under `xvfb-run`, as CI does. A
 `Failed to connect to the bus` line in the output is harmless.
 
 **Your real Snagboat data isn't in here.** The extension's stores live in
-VS Code's storage on your Mac (`~/Library/Application Support/<app>/User/`)
+VS Code's storage on the host (on macOS, `~/Library/Application Support/<app>/User/`)
 and `~/.snagboat/`, which the container can't see: `snagboat stores` finds
 nothing in it. Back up stores, take baselines, and run the extension (F5)
-against real data on your Mac.
+against real data on the host.
 
 ## Snagboat and this container
 
-Snagboat on your Mac can't see Claude Code sessions run in here on its own:
+Snagboat on the host can't see Claude Code sessions run in here on its own:
 Claude Code keeps them in `~/.claude`, which is a Docker volume. So this
 container keeps just the transcripts, `~/.claude/projects`, in the project
 folder at `.snagboat/claude-projects/` (git ignores its contents), and Snagboat
-on your Mac reads them like your Mac's own. Nothing Snagboat runs in the
+on the host reads them like the host's own. Nothing Snagboat runs in the
 container, and Claude's login and settings stay in the volume.
 
-The project is mounted at the same path as on your Mac, so a transcript's
+The project is mounted at the same path as on the host, so a transcript's
 working folder names this project on both sides.
 
-To turn it on, on your Mac, with `snagboat.storage.perUserStore` on:
+To turn it on, on the host, with `snagboat.storage.perUserStore` on:
 
 ```bash
 snagboat containers allow ~/code/snagboat    # your checkout's path
@@ -126,11 +126,11 @@ work through the queue.
 - Claude Code, `bd`, and any scripts in `.beads/hooks/` (which `bd` runs
   automatically on issue create/close) all run as an unprivileged user with
   no `sudo`, no Linux capabilities, and no way to gain privileges.
-- Claude's login and settings live in a Docker volume, not your Mac's
+- Claude's login and settings live in a Docker volume, not the host's
   `~/.claude`. Only its transcripts are kept in the project folder (above).
 - bd usage metrics are off (`BD_DISABLE_METRICS=1`, `DO_NOT_TRACK=1`), and
   their hostname is pointed at 127.0.0.1 as a backup.
-- Your Mac's SSH agent isn't passed in (`SSH_AUTH_SOCK` is cleared).
+- The host's SSH agent isn't passed in (`SSH_AUTH_SOCK` is cleared).
 
 **Not contained:**
 - **The project folder.** Anything in the container can read, change or
@@ -142,26 +142,26 @@ work through the queue.
   you can adapt.
 - **Transcripts.** `.snagboat/claude-projects/` holds your prompts, the
   agent's replies and tool output, in the project folder like everything else
-  here; git ignores it. Snagboat on your Mac reads it only after
+  here; git ignores it. Snagboat on the host reads it only after
   `snagboat containers allow`, and treats it as untrusted input.
 - **Git hooks.** `.git/` is inside the shared folder. If anything in the
-  container sets `core.hooksPath` or writes `.git/hooks/*`, **git on your
-  Mac** runs those scripts the next time you commit or pull there.
+  container sets `core.hooksPath` or writes `.git/hooks/*`, **git on the
+  host** runs those scripts the next time you commit or pull there.
   `init-project.sh` uses `--skip-hooks`, and `check-host-safety.sh` warns on
-  each start. Run it on your Mac too before using git there:
+  each start. Run it on the host too before using git there:
   `bash .devcontainer/check-host-safety.sh`.
 - **Agent hook files in the repo.** `bd init` writes `.claude/settings.json`
   (and Codex/Cursor equivalents) that run `bd prime` at session start. If you
-  run Claude Code on your Mac in this folder, that command runs on your Mac.
+  run Claude Code on the host in this folder, that command runs on the host.
   It's harmless when `bd` isn't installed there, but treat these files as code.
 
 ## Pushing to GitHub
 
-VS Code normally forwards your Mac's git credentials into the container, which
+VS Code normally forwards the host's git credentials into the container, which
 would let anything in it push to **every** repo you can access. Choose one:
 
-- **Push from your Mac** (simplest): commit in the container, then
-  `git push` in a Mac terminal. Run `check-host-safety.sh` first.
+- **Push from the host** (simplest): commit in the container, then
+  `git push` in a host terminal. Run `check-host-safety.sh` first.
 - **Push from the container with a narrow token:** turn off credential
   forwarding in your VS Code *user* settings
   (`"dev.containers.gitCredentialHelperConfigLocation": "none"`), then use a

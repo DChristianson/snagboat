@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The project folder is shared with your Mac. Git hooks configured in it run
-# on your Mac the next time you use git there. This script warns if any
-# appear. It runs on every container start and can be run by hand (on the Mac
+# The project folder is shared with the host. Git hooks configured in it run
+# on the host the next time you use git there. This script warns if any
+# appear. It runs on every container start and can be run by hand (on the host
 # too: `bash .devcontainer/check-host-safety.sh`).
 set -uo pipefail
 
@@ -12,14 +12,14 @@ problems=0
 hooks_path="$(git config --local --get core.hooksPath 2>/dev/null || true)"
 if [ -n "$hooks_path" ]; then
   echo "WARNING: this repo sets core.hooksPath=$hooks_path"
-  echo "         Git on your Mac will run the scripts there. Remove with:"
+  echo "         Git on the host will run the scripts there. Remove with:"
   echo "         git config --local --unset core.hooksPath"
   problems=1
 fi
 
 active_hooks="$(find .git/hooks -maxdepth 1 -type f ! -name '*.sample' 2>/dev/null)"
 if [ -n "$active_hooks" ]; then
-  echo "WARNING: active git hooks found (these run on your Mac too):"
+  echo "WARNING: active git hooks found (these run on the host too):"
   echo "$active_hooks" | sed 's/^/         /'
   problems=1
 fi
