@@ -1,0 +1,4 @@
+# Claude Code transcripts from the dev container (see .devcontainer/README.md).
+# The folder is committed so the mount has somewhere to go; its contents never are.
+*
+!.gitignore

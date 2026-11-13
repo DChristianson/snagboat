@@ -19,10 +19,21 @@
     "--add-host=gastownhall-eventsapi.com=::1"
   ],
 
+  // The project is mounted at the same path as on your Mac (not
+  // /workspaces/<name>), so paths in Claude Code's transcripts name the same
+  // folder on both sides and Snagboat on your Mac files them under this project.
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
+  "workspaceFolder": "${localWorkspaceFolder}",
+
   // Claude Code's login and settings live in a Docker volume, NOT your Mac's
   // ~/.claude. It survives container rebuilds; each project gets its own.
+  // Only its transcripts (~/.claude/projects) are kept in the project folder
+  // instead, in .snagboat/claude-projects/ (ignored by git), so Snagboat on your
+  // Mac can read them once you run `snagboat containers allow` there. Nothing
+  // Snagboat runs in the container. See README "Snagboat and this container".
   "mounts": [
-    "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume"
+    "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
+    "source=${localWorkspaceFolder}/.snagboat/claude-projects,target=/home/vscode/.claude/projects,type=bind"
   ],
 
   "containerEnv": {
@@ -41,7 +52,7 @@
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   // Runs every time the container starts: checks that nothing has set up git
   // hooks that would run on your Mac.
-  "postStartCommand": "bash .devcontainer/check-host-safety.sh",
+  "postStartCommand": "bash .devcontainer/check-host-safety.sh; bash .devcontainer/carry-transcripts.sh start",
 
   "customizations": {
     "vscode": {
