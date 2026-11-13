@@ -3,7 +3,7 @@
 # beside them) over to the transcript folder this container now keeps in the
 # project: .snagboat/claude-projects/, mounted at ~/.claude/projects.
 #
-#   save   Run once in a container from before that mount, just before you
+#   save   Run once in the container's terminal (never on the host), in a container from before that mount, just before you
 #          rebuild: copies ~/.claude/projects (in the Docker volume, which the
 #          new mount hides) into .snagboat/claude-projects/. Copies; never
 #          deletes, and replaces a file only with a newer copy, so it can be
@@ -24,6 +24,11 @@ key() { printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
 
 case "${1:-}" in
   save)
+    # Only inside the container: on the host, ~/.claude/projects is your own machine's, which belongs nowhere in the project.
+    if [ ! -e /.dockerenv ] && [ "${REMOTE_CONTAINERS:-}" != true ]; then
+      echo "carry-transcripts: run this in the dev container's terminal, not on the host; nothing copied."
+      exit 0
+    fi
     if [ "$(cd "$projects" 2>/dev/null && pwd -P)" = "$(cd "$keep" 2>/dev/null && pwd -P)" ]; then
       echo "carry-transcripts: ~/.claude/projects is already the project's folder; nothing to save."
       exit 0
