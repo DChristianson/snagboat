@@ -71,6 +71,7 @@ import { setShellSubCategories } from '@snagboat/schema';
 import { runDiscovery } from './discovery/discover';
 import { SuggestionsController } from './discovery/suggestionsController';
 import { exportRules, importRules } from './ui/ruleTransfer';
+import { hostFileUri } from './vscode/hostUri';
 
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
 /** A finding that passed unanswered in less time than this isn't recorded as an outcome: it flickered. */
@@ -775,13 +776,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       await fs.promises.appendFile(written.file, advisorSection(title, asked.completion.text, Advisor.label(asked), warning || undefined));
       appended = true;
     }
-    if (appended) await vscode.window.showTextDocument(vscode.Uri.file(written.file), { preview: false });
+    if (appended) await vscode.window.showTextDocument(hostFileUri(written.file), { preview: false });
   };
   /** Offers the advisor's review of a written one; another advisor can be asked when several offer it. */
   const offerAdvisorReview = async (written: { file: string; review: Review }, message: string) => {
     const several = REVIEW_ABILITIES.some(({ ability }) => advisor.offering(ability).length > 1);
     const choice = await vscode.window.showInformationMessage(message, 'Open', 'Ask the Advisor', ...(several ? ['Ask Another Advisor'] : []));
-    if (choice === 'Open') await vscode.window.showTextDocument(vscode.Uri.file(written.file), { preview: false });
+    if (choice === 'Open') await vscode.window.showTextDocument(hostFileUri(written.file), { preview: false });
     else if (choice === 'Ask the Advisor') await askReview(written);
     else if (choice === 'Ask Another Advisor') {
       const id = await pickReviewAdvisor();
@@ -952,7 +953,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         void vscode.window.showInformationMessage(`Snagboat: no events have been logged yet (the event log folder is ${dir}).`);
         return;
       }
-      await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
+      await vscode.commands.executeCommand('revealFileInOS', hostFileUri(dir));
     }),
     vscode.commands.registerCommand('snagboat.previewDigest', async () => {
       const sessionId = await pickSession('Preview the advisor digest of a session (most recent first)');
@@ -997,7 +998,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     vscode.commands.registerCommand('snagboat.writeAdvisorPrompts', () => advisor.writeDefaultPrompts()),
     vscode.commands.registerCommand('snagboat.writeReview', async () => {
       const written = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Snagboat: writing the review…' }, () => writeReview());
-      await vscode.window.showTextDocument(vscode.Uri.file(written.file), { preview: false });
+      await vscode.window.showTextDocument(hostFileUri(written.file), { preview: false });
       void offerAdvisorReview(written, 'Snagboat: wrote the review.');
     })
   );

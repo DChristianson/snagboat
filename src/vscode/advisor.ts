@@ -9,6 +9,7 @@ import { defaultPromptFiles, promptDir, PromptLayers, resolvePrompts } from '../
 import { ModelTiers, proposeTacticsMessages } from '../advisor/proposeTactics';
 import { SessionFocus, summarizeSessionMessages } from '../advisor/summarizeSession';
 import { ChatMessage, complete, completionBody, Completion, FetchLike, listModels, promptWasCut } from '../advisor/providers';
+import { hostFileUri } from './hostUri';
 
 export const APPROVED_KEY = 'snagboat.advisor.approved';
 const secretKey = (id: string) => `snagboat.advisor.key.${id}`;
@@ -138,7 +139,7 @@ export class Advisor {
     await fs.promises.mkdir(dir, { recursive: true });
     for (const f of write) await fs.promises.writeFile(path.join(dir, f.name), f.text);
     void vscode.window.showInformationMessage(`Snagboat: wrote ${write.length ? write.map((f) => f.name).join(', ') : 'nothing'} to ${dir}. Edit them; Snagboat reads them on each request.`);
-    await vscode.window.showTextDocument(vscode.Uri.file(path.join(dir, 'persona.md')), { preview: false });
+    await vscode.window.showTextDocument(hostFileUri(path.join(dir, 'persona.md')), { preview: false });
   }
 
   /** Lets you pick among the advisors offering an ability; undefined when there's nothing to choose or you didn't. */
