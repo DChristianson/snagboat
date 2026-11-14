@@ -7,6 +7,7 @@ import { loadAdvisorGoals } from './advisor/goals';
 import { snagboatHome } from './core/userStore';
 import { findCore } from './core/service/lifecycle';
 import { coreRequest } from './core/service/coreFile';
+import { openInBrowser } from './core/openInBrowser';
 import { advisorReports, eventsIn, periods } from './advisor/report';
 import { EventLog } from './core/eventLog';
 import { Aggregate, AggregateSnapshot, TodayAggregate } from './core/aggregate';
@@ -436,6 +437,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     const info = await findCore(snagboatHome());
     if (!info) {
       void vscode.window.showWarningMessage('Snagboat: the core service isn\'t answering; reload the window to start it again.');
+      return;
+    }
+    // Running on the host side of a remote window (extensionKind ui, as in a dev container window), the core is on
+    // this machine too. VS Code would still tunnel a 127.0.0.1 address into the remote, through asExternalUri and
+    // openExternal alike, where no core listens: open the core's own address with the OS's opener instead.
+    if (vscode.env.remoteName && context.extension.extensionKind === vscode.ExtensionKind.UI) {
+      const res = await coreRequest(info.port, info.token, 'POST', '/ui-links', storage.workspace ? { workspace: storage.workspace } : {});
+      if (res.status !== 200) {
+        void vscode.window.showErrorMessage(`Snagboat: the core couldn't open the advisor UI: ${JSON.stringify(res.body)}`);
+        return;
+      }
+      const { url } = res.body as { url: string };
+      const then = target.sessionId ? `&session=${encodeURIComponent(target.sessionId)}` : target.view ? `&view=${target.view}` : '';
+      if (!(await openInBrowser(`${url}${then}`))) void vscode.window.showErrorMessage('Snagboat: couldn\'t start a browser to open the advisor UI.');
       return;
     }
     // In a remote window (dev container, SSH, Codespaces) VS Code forwards the core's port, and the browser reaches
