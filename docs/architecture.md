@@ -63,7 +63,7 @@ Each VS Code window runs one extension host with all of this; two windows on dif
 
 ## Data flow
 
-Inside Snagboat, from each source to the views.
+Inside Snagboat, from each source to the views. [data-sources.md](data-sources.md) compares the sources by where you chat: what each captures, how live it is, and what it can recover.
 
 ```mermaid
 flowchart LR

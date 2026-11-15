@@ -79,4 +79,4 @@ Underneath is one event log. Claude Code and Copilot activity is normalized into
 
 Early but working: version `0.0.3`, [MIT license](LICENSE). macOS and Linux. Windows isn't supported.
 
-More docs: [usage](docs/usage.md) · [settings](docs/settings.md) · [heuristics](docs/heuristics.md) · [CLI](docs/cli.md) · [architecture](docs/architecture.md) · [privacy](PRIVACY.md) · [security](SECURITY.md) · [roadmap](docs/roadmap.md) · [changelog](CHANGELOG.md)
+More docs: [usage](docs/usage.md) · [settings](docs/settings.md) · [heuristics](docs/heuristics.md) · [CLI](docs/cli.md) · [data sources](docs/data-sources.md) · [architecture](docs/architecture.md) · [privacy](PRIVACY.md) · [security](SECURITY.md) · [roadmap](docs/roadmap.md) · [changelog](CHANGELOG.md)

@@ -8,6 +8,8 @@ Snagboat keeps everything it observes on the developer's machine, and there is n
 
 **Git history.** The core service also reads the git history of the projects it records, read-only (`git log`, `git show`, `git blame`, with git's optional locks off so it never gets in your way), to learn what became of commits made during a session: whether each was kept or reverted after 7 days, how many of the lines it added are still there after 7 and 30 days, and whether it came after the session's tests last passed. It reads only repositories of projects with recorded sessions, about commits that touch files a session's agent edited, and stores only commit ids, counts and times, never code or commit messages. `snagboat.outcomes.git` (or `"outcomes.git": false` in `config.json` or a project's `.snagboat.json`) turns it off.
 
+[docs/data-sources.md](docs/data-sources.md) compares where this comes from for each place you chat, and what a project's committed files mean for collaborators.
+
 Each observed action becomes one normalized event (see [docs/schema.md](docs/schema.md)). Most fields are structural (kind, status, timestamps, session id, model, token counts), but some carry details of what the agent did:
 
 | Source | Field | What it holds |
