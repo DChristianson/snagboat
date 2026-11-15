@@ -119,6 +119,24 @@ Then **Dev Containers: Rebuild Container**. On start, `carry-transcripts.sh
 start` renames this project's transcript folder from `/workspaces/snagboat`'s
 name to the new path's, so `claude --resume` and the memory carry over.
 
+**Setting up another project's dev container.** On the host, from this
+checkout (after `npm install` and `npm run build`):
+
+```sh
+node scripts/devcontainerSetup.js ../other-project --dry-run
+node scripts/devcontainerSetup.js ../other-project
+```
+
+It adds the same-path and transcript mounts and the `safe.directory` step to
+that project's `devcontainer.json`, creates `.snagboat/claude-projects/`, and
+runs `snagboat containers allow`. It also carries Claude Code's history in, so
+`claude --resume` in the rebuilt container still lists it. That covers the
+container's earlier transcripts (copied out of its Docker volume, before or
+after the rebuild) and this machine's own sessions in that project. It copies
+and never links: a link from `~/.claude/projects` into the project would let
+the container write what Claude Code on the host reads. Then rebuild that
+container.
+
 ## Beads
 
 snagboat is already a git repo, so `init-project.sh`'s `git init` does
