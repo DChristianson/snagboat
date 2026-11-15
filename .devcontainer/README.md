@@ -127,15 +127,34 @@ node scripts/devcontainerSetup.js ../other-project --dry-run
 node scripts/devcontainerSetup.js ../other-project
 ```
 
-It adds the same-path and transcript mounts and the `safe.directory` step to
-that project's `devcontainer.json`, creates `.snagboat/claude-projects/`, and
-runs `snagboat containers allow`. It also carries Claude Code's history in, so
-`claude --resume` in the rebuilt container still lists it. That covers the
-container's earlier transcripts (copied out of its Docker volume, before or
-after the rebuild) and this machine's own sessions in that project. It copies
-and never links: a link from `~/.claude/projects` into the project would let
-the container write what Claude Code on the host reads. Then rebuild that
-container.
+By default it leaves the project's committed files alone. It writes a
+**personal config**, `.devcontainer/snagboat/devcontainer.json`: the project's
+own config plus the same-path and transcript mounts and the `safe.directory`
+step, with the Dockerfile and build context still pointing at the shared ones.
+Git ignores it, and `.snagboat/`, in your clone only (`.git/info/exclude`).
+Committed, those changes would apply to everyone who opens the container,
+whether they use Snagboat or not: their container needs the folder to start,
+their transcripts move into the project, and its path changes.
+
+Dev Containers has no per-user file that merges into a committed config, so
+the personal one is a copy. Rerun the script when the shared config changes;
+it notices, and regenerates the copy unless you've edited it by hand (then it
+stops, and `--force` replaces it). `--in-place` edits the shared
+`devcontainer.json` instead, and adds `.snagboat/` to `.gitignore`, for a
+repository only you use.
+
+It also creates `.snagboat/claude-projects/`, runs `snagboat containers
+allow`, and carries Claude Code's history in, so `claude --resume` in the new
+container still lists it. That covers the folder's containers' earlier
+transcripts, copied out of their Docker volumes before or after a rebuild, and
+this machine's own sessions in that project. It copies and never links: a link
+from `~/.claude/projects` into the project would let the container write what
+Claude Code on the host reads.
+
+Then run **Dev Containers: Reopen in Container** and pick the config named
+"<name> (Snagboat)", or with `--in-place` rebuild the container. The personal
+config makes a new container with a Claude Code login of its own, so log in
+once.
 
 ## Beads
 

@@ -3,14 +3,23 @@
  * Sets up a project's dev container so Snagboat on this machine sees the Claude Code sessions run
  * inside it (a stopgap for snagboat-05p, until `snagboat containers allow` offers this itself):
  *
- *   1. devcontainer.json: mounts the project at the same path as on the host, bind-mounts the
- *      container's ~/.claude/projects to <folder>/.snagboat/claude-projects, and marks the project
- *      folder as a git safe.directory on start. Edited with jsonc-parser, so comments survive.
- *   2. Creates .snagboat/claude-projects (Docker won't start with a missing bind source) and adds
- *      .snagboat/ to .gitignore.
+ *   1. A personal dev container config, .devcontainer/snagboat/devcontainer.json: the project's own
+ *      config, plus the project mounted at the same path as on the host, the container's
+ *      ~/.claude/projects bind-mounted to <folder>/.snagboat/claude-projects, and the project folder
+ *      marked as a git safe.directory on start. Paths relative to the config (Dockerfile, build
+ *      context, local features) are rewritten to point at the shared ones. Made with jsonc-parser,
+ *      so comments survive. Dev Containers has no per-user override that merges into a committed
+ *      config, so this is a copy: it records a fingerprint of the shared config, and rerunning the
+ *      script regenerates it, unless it was edited by hand (then only with --force).
+ *      Committed, these changes would apply to everyone who opens the container, Snagboat or not.
+ *      --in-place makes them in the shared devcontainer.json instead, for a repository only you use.
+ *   2. Creates .snagboat/claude-projects (Docker won't start with a missing bind source) and has git
+ *      ignore it and the personal config in this clone only (.git/info/exclude), or with --in-place
+ *      adds .snagboat/ to .gitignore.
  *   3. Carries Claude Code's history into .snagboat/claude-projects, so `claude --resume` in the
  *      rebuilt container still lists it (the new mount hides what was there):
- *        - the container's own transcripts, copied out of its Docker volume (which outlives a rebuild,
+ *        - each of the folder's containers' own transcripts (the shared config's and the personal
+ *          one's are different containers), copied out of its Docker volume (which outlives a rebuild,
  *          so this works before or after one), in a throwaway container from its image, with no network;
  *        - those saved under the project's old path (/workspaces/<name>) moved to its new path's name;
  *        - this machine's own sessions in the project (~/.claude/projects/<key>), copied in.
@@ -20,11 +29,12 @@
  *   4. Runs `snagboat containers allow <folder>` with this repo's built CLI.
  *
  * Run it on the host (not in a container), from anywhere:
- *   node scripts/devcontainerSetup.js <folder> [--dry-run] [--no-allow] [--no-save] [--no-host-sessions] [--force]
+ *   node scripts/devcontainerSetup.js <folder> [--dry-run] [--in-place] [--no-allow] [--no-save] [--no-host-sessions] [--force]
  *
  * --dry-run prints the changes and writes nothing. --force replaces a workspaceMount that isn't
- * the same-path one (otherwise it stops). --no-save skips the container's transcripts, and
- * --no-host-sessions this machine's. Rebuild the container afterwards.
+ * the same-path one, and a personal config edited by hand (otherwise it stops). --no-save skips
+ * the containers' transcripts, and --no-host-sessions this machine's. Then reopen in the container,
+ * picking "<name> (Snagboat)", or with --in-place rebuild it.
  */
 'use strict';
 const fs = require('fs');
@@ -36,9 +46,9 @@ const jsonc = require('jsonc-parser');
 const args = process.argv.slice(2);
 const flags = new Set(args.filter((a) => a.startsWith('--')));
 const positional = args.filter((a) => !a.startsWith('--'));
-const known = new Set(['--dry-run', '--no-allow', '--no-save', '--no-host-sessions', '--force']);
+const known = new Set(['--dry-run', '--in-place', '--no-allow', '--no-save', '--no-host-sessions', '--force']);
 for (const f of flags) if (!known.has(f)) fail(`unknown option ${f}`);
-if (positional.length !== 1) fail('usage: node scripts/devcontainerSetup.js <folder> [--dry-run] [--no-allow] [--no-save] [--no-host-sessions] [--force]');
+if (positional.length !== 1) fail('usage: node scripts/devcontainerSetup.js <folder> [--dry-run] [--in-place] [--no-allow] [--no-save] [--no-host-sessions] [--force]');
 const dryRun = flags.has('--dry-run');
 
 function fail(msg) {
@@ -50,6 +60,16 @@ const folder = fs.realpathSync(path.resolve(positional[0]));
 const candidates = [path.join(folder, '.devcontainer', 'devcontainer.json'), path.join(folder, '.devcontainer.json')];
 const configPath = candidates.find((p) => fs.existsSync(p));
 if (!configPath) fail(`no devcontainer.json in ${folder} (looked for ${candidates.map((p) => path.relative(folder, p)).join(', ')})`);
+
+// By default the changes go in a personal config beside the shared one, which git is told to ignore in this clone only
+// (.git/info/exclude): a committed change would apply to everyone who opens the container. --in-place edits the shared one.
+const inPlace = flags.has('--in-place');
+const personalPath = path.join(folder, '.devcontainer', 'snagboat', 'devcontainer.json');
+const outPath = inPlace ? configPath : personalPath;
+const posix = (p) => p.split(path.sep).join('/');
+const crypto = require('crypto');
+const fingerprint = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
+const HEADER_MARK = '// snagboat-personal-config';
 
 const original = fs.readFileSync(configPath, 'utf8');
 const errors = [];
@@ -79,6 +99,39 @@ const changes = [];
 const set = (jsonPath, value) => {
   text = jsonc.applyEdits(text, jsonc.modify(text, jsonPath, value, fmt));
 };
+
+// 0. A personal config lives one folder down, so paths that are relative to the config file are rewritten to point at the
+// same files, and it gets a name of its own for VS Code's "which configuration" prompt.
+if (!inPlace) {
+  const baseDir = path.dirname(configPath);
+  const outDir = path.dirname(outPath);
+  const rebase = (p) => {
+    const r = posix(path.relative(outDir, path.resolve(baseDir, p)));
+    return r === '' ? '.' : r;
+  };
+  const name = typeof config.name === 'string' && config.name ? config.name : path.basename(folder);
+  set(['name'], `${name} (Snagboat)`);
+  changes.push(`name: "${name} (Snagboat)", to pick it out when reopening in the container`);
+  if (config.build && typeof config.build === 'object') {
+    if (typeof config.build.dockerfile === 'string') set(['build', 'dockerfile'], rebase(config.build.dockerfile));
+    // The build context defaults to the config's own folder, so it's always set explicitly here.
+    set(['build', 'context'], rebase(typeof config.build.context === 'string' ? config.build.context : '.'));
+    changes.push('build: dockerfile and context point at the shared config\'s');
+  }
+  if (typeof config.dockerFile === 'string') {
+    set(['dockerFile'], rebase(config.dockerFile));
+    set(['context'], rebase(typeof config.context === 'string' ? config.context : '.'));
+    changes.push('dockerFile and context point at the shared config\'s');
+  }
+  if (config.features && typeof config.features === 'object') {
+    for (const [id, options] of Object.entries(config.features)) {
+      if (!id.startsWith('./') && !id.startsWith('../')) continue;
+      set(['features', id], undefined);
+      set(['features', rebase(id).replace(/^(?!\.)/, './')], options);
+      changes.push(`features: local feature ${id} at its new relative path`);
+    }
+  }
+}
 
 // 1. Same-path workspace mount.
 if (config.workspaceMount !== SAME_PATH_MOUNT) {
@@ -115,24 +168,77 @@ if (post === undefined || typeof post === 'string') {
   process.stdout.write(`note: postStartCommand isn't a string; add this to it yourself:\n  ${SAFE_DIRECTORY}\n`);
 }
 
-// Show what changed.
+// The personal config starts with a header recording the shared config it was made from, and a fingerprint of what was
+// generated: a rerun after the shared config changes regenerates it, but never overwrites edits made by hand (without --force).
 const rel = path.relative(folder, configPath);
-if (changes.length) {
-  process.stdout.write(`${rel}:\n${changes.map((c) => `  + ${c}`).join('\n')}\n\n`);
+const outRel = path.relative(folder, outPath);
+const eol = fmt.formattingOptions.eol;
+let previous;
+if (!inPlace) {
+  const header = [
+    `// Personal dev container config for Snagboat, made from ${posix(path.relative(path.dirname(outPath), configPath))} by snagboat's scripts/devcontainerSetup.js.`,
+    '// Only in this clone: git ignores it here (.git/info/exclude), so it never reaches collaborators. Rerun the script',
+    '// after the shared config changes to bring this one up to date.',
+    `${HEADER_MARK} base=${fingerprint(original)} generated=${fingerprint(text)}`,
+  ].join(eol);
+  text = `${header}${eol}${text}`;
+  if (fs.existsSync(outPath)) {
+    previous = fs.readFileSync(outPath, 'utf8');
+    const mark = new RegExp(`^${HEADER_MARK} base=(\\w+) generated=(\\w+)\\r?$`, 'm').exec(previous);
+    const body = mark ? previous.slice(previous.indexOf('\n', mark.index) + 1) : undefined;
+    if (!mark || fingerprint(body) !== mark[2]) {
+      if (!flags.has('--force')) fail(`${outRel} has been edited since it was made (or wasn't made by this script). Rerun with --force to replace it.`);
+      process.stdout.write(`--force: replacing ${outRel}, edits and all\n`);
+    } else if (mark[1] !== fingerprint(original)) {
+      process.stdout.write(`${rel} changed since ${outRel} was made: regenerating it\n`);
+    }
+  }
+}
+
+// Show what changed: the shared config against what's written.
+const compareWith = inPlace ? configPath : previous !== undefined ? outPath : configPath;
+const unchanged = inPlace ? !changes.length : previous === text;
+if (!unchanged) {
+  process.stdout.write(`${outRel}${inPlace ? '' : ` (from ${rel})`}:\n${changes.map((c) => `  + ${c}`).join('\n')}\n\n`);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devcontainer-setup-'));
   const after = path.join(tmp, 'devcontainer.json');
   fs.writeFileSync(after, text);
-  const diff = spawnSync('diff', ['-u', '--label', `a/${rel}`, '--label', `b/${rel}`, configPath, after], { encoding: 'utf8' });
+  const diff = spawnSync('diff', ['-u', '--label', `a/${path.relative(folder, compareWith)}`, '--label', `b/${outRel}`, compareWith, after], { encoding: 'utf8' });
   process.stdout.write(diff.stdout || '(diff not available)\n');
   fs.rmSync(tmp, { recursive: true, force: true });
 } else {
-  process.stdout.write(`${rel}: already set up\n`);
+  process.stdout.write(`${outRel}: already set up\n`);
 }
 
 const transcripts = path.join(folder, '.snagboat', 'claude-projects');
-const gitignore = path.join(folder, '.gitignore');
-const ignoreText = fs.existsSync(gitignore) ? fs.readFileSync(gitignore, 'utf8') : '';
-const ignored = ignoreText.split(/\r?\n/).some((l) => ['.snagboat', '.snagboat/', '/.snagboat', '/.snagboat/'].includes(l.trim()));
+const ignorePatterns = ['.snagboat', '.snagboat/', '/.snagboat', '/.snagboat/'];
+const hasLine = (file, patterns) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '').split(/\r?\n/).some((l) => patterns.includes(l.trim()));
+const appendLines = (file, lines) => {
+  const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${before}${before && !before.endsWith('\n') ? '\n' : ''}${lines.map((l) => `${l}\n`).join('')}`);
+};
+
+// What git should ignore, and where: .gitignore (committed) for --in-place, else this clone's .git/info/exclude.
+let ignoreFile;
+let ignoreLines = [];
+if (inPlace) {
+  ignoreFile = path.join(folder, '.gitignore');
+  if (!hasLine(ignoreFile, ignorePatterns)) ignoreLines = ['.snagboat/'];
+} else {
+  const gitPath = spawnSync('git', ['-C', folder, 'rev-parse', '--git-path', 'info/exclude'], { encoding: 'utf8' });
+  if (gitPath.status === 0 && gitPath.stdout.trim()) {
+    ignoreFile = path.resolve(folder, gitPath.stdout.trim());
+    if (!hasLine(ignoreFile, ignorePatterns) && !hasLine(path.join(folder, '.gitignore'), ignorePatterns)) ignoreLines.push('/.snagboat/');
+    const personalPatterns = ['/.devcontainer/snagboat/', '.devcontainer/snagboat/', '/.devcontainer/snagboat', '.devcontainer/snagboat'];
+    if (!hasLine(ignoreFile, personalPatterns)) ignoreLines.push('/.devcontainer/snagboat/');
+    const tracked = spawnSync('git', ['-C', folder, 'ls-files', '--', '.devcontainer/snagboat', '.snagboat'], { encoding: 'utf8' });
+    if (tracked.stdout?.trim()) process.stdout.write(`note: git already tracks some of these, which an exclude doesn't hide:\n${tracked.stdout}`);
+  } else {
+    process.stdout.write(`note: ${folder} isn't a git repository, so nothing was set to be ignored\n`);
+  }
+}
+const ignoreRel = ignoreFile ? (ignoreFile.startsWith(folder + path.sep) ? path.relative(folder, ignoreFile) : ignoreFile) : '';
 
 // The transcripts folder must be a real folder in the project: a link would hand the container somewhere else on this machine.
 for (const p of [path.join(folder, '.snagboat'), transcripts]) {
@@ -145,13 +251,17 @@ for (const p of [path.join(folder, '.snagboat'), transcripts]) {
   if (!st.isDirectory()) fail(`${p} is a link or a file, not a folder: replace it with a real folder first`);
 }
 
+const ignoreNote = ignoreLines.length ? `; added ${ignoreLines.join(' and ')} to ${ignoreRel}` : '';
 if (dryRun) {
-  process.stdout.write(`\n--dry-run: would also create ${path.relative(folder, transcripts)}/${ignored ? '' : ', add .snagboat/ to .gitignore'}${flags.has('--no-allow') ? '' : ' and run snagboat containers allow'}.\n`);
+  process.stdout.write(`\n--dry-run: would write ${outRel}, create ${path.relative(folder, transcripts)}/${ignoreNote.replace('; added', ', add')}${flags.has('--no-allow') ? '' : ' and run snagboat containers allow'}.\n`);
 } else {
-  if (changes.length) fs.writeFileSync(configPath, text);
+  if (!unchanged) {
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, text);
+  }
   fs.mkdirSync(transcripts, { recursive: true });
-  if (!ignored) fs.writeFileSync(gitignore, `${ignoreText}${ignoreText && !ignoreText.endsWith('\n') ? '\n' : ''}.snagboat/\n`);
-  process.stdout.write(`\ncreated ${path.relative(folder, transcripts)}/${ignored ? '' : '; added .snagboat/ to .gitignore'}\n`);
+  if (ignoreLines.length) appendLines(ignoreFile, ignoreLines);
+  process.stdout.write(`\n${unchanged ? '' : `wrote ${outRel}; `}created ${path.relative(folder, transcripts)}/${ignoreNote}\n`);
 }
 
 // 4-6. Carry Claude Code's history into the transcripts folder, so `claude --resume` in the rebuilt container lists it.
@@ -209,44 +319,53 @@ const oldPaths = new Set([`/workspaces/${path.basename(folder)}`]);
 if (flags.has('--no-save')) {
   say('\n--no-save: not copying the container\'s transcripts from its Docker volume');
 } else {
+  // Every container made for this folder: the shared config's and the personal one's are different containers, each
+  // with a Claude volume of its own (named after its id), and both may hold sessions.
   const ps = spawnSync('docker', ['ps', '-a', '--filter', `label=devcontainer.local_folder=${folder}`, '--format', '{{.ID}}'], { encoding: 'utf8' });
   const ids = ps.status === 0 ? ps.stdout.split('\n').filter(Boolean) : [];
-  const inspect = ids.length ? spawnSync('docker', ['inspect', ids[0]], { encoding: 'utf8' }) : undefined;
-  let info;
-  try {
-    info = inspect?.status === 0 ? JSON.parse(inspect.stdout)[0] : undefined;
-  } catch {
-    info = undefined;
+  const infos = [];
+  for (const id of ids) {
+    const inspect = spawnSync('docker', ['inspect', id], { encoding: 'utf8' });
+    try {
+      if (inspect.status === 0) infos.push(JSON.parse(inspect.stdout)[0]);
+    } catch {
+      // A container that went away between ps and inspect.
+    }
   }
+  const within = (dir) => projectsTarget === dir.replace(/\/+$/, '') || projectsTarget.startsWith(`${dir.replace(/\/+$/, '')}/`);
+  const done = new Set();
   if (ps.error || ps.status !== 0) {
     say('\nnote: docker isn\'t available here, so the container\'s earlier transcripts weren\'t saved. Rerun this with Docker running.');
-  } else if (!info) {
+  } else if (!infos.length) {
     say('\nno dev container for this folder yet: no earlier container transcripts to save');
-  } else {
+  }
+  for (const info of infos) {
     const mounts = Array.isArray(info.Mounts) ? info.Mounts : [];
     for (const m of mounts) if (m.Type === 'bind' && m.Destination !== folder && realOrSelf(m.Source) === folder) oldPaths.add(m.Destination);
-    const within = (dir) => projectsTarget === dir.replace(/\/+$/, '') || projectsTarget.startsWith(`${dir.replace(/\/+$/, '')}/`);
     const volume = mounts.filter((m) => m.Type === 'volume' && m.Name && within(m.Destination)).sort((a, b) => b.Destination.length - a.Destination.length)[0];
+    const label = `container ${String(info.Id ?? '').slice(0, 12)}`;
     if (!volume) {
-      say(`\nno Docker volume holds ${projectsTarget} in the container: no earlier container transcripts to save`);
-    } else {
-      const sub = path.posix.relative(volume.Destination, projectsTarget);
-      const from = `${volume.Name}:/${sub}`;
-      if (dryRun) {
-        say(`\n--dry-run: would copy the container's transcripts (Docker volume ${from}) into ${path.relative(folder, transcripts)}/`);
-      } else {
-        // Run as the container's user, who owns the files, in the container's own image (nothing to pull).
-        // -u: replace only with a newer copy; an image whose cp has no -u falls back to -n (never replace).
-        const copy = 'src="/v/$1"; [ -d "$src" ] || exit 0; cp -R -P -p -u "$src/." /out/ 2>/dev/null || cp -R -P -p -n "$src/." /out/';
-        const r = spawnSync(
-          'docker',
-          ['run', '--rm', '--network', 'none', '--entrypoint', 'sh', '--user', info.Config?.User || user, '-v', `${volume.Name}:/v:ro`, '-v', `${transcripts}:/out`, info.Image, '-c', copy, 'sh', sub],
-          { encoding: 'utf8' }
-        );
-        if (r.status === 0) say(`\nsaved the container's transcripts (Docker volume ${from}) into ${path.relative(folder, transcripts)}/`);
-        else say(`\nnote: couldn't copy the container's transcripts from Docker volume ${from}: ${(r.stderr || r.error?.message || '').trim()}`);
-      }
+      say(`\n${label}: no Docker volume holds ${projectsTarget}, so no earlier transcripts to save`);
+      continue;
     }
+    if (done.has(volume.Name)) continue;
+    done.add(volume.Name);
+    const sub = path.posix.relative(volume.Destination, projectsTarget);
+    const from = `${volume.Name}:/${sub}`;
+    if (dryRun) {
+      say(`\n--dry-run: would copy ${label}'s transcripts (Docker volume ${from}) into ${path.relative(folder, transcripts)}/`);
+      continue;
+    }
+    // Run as the container's user, who owns the files, in the container's own image (nothing to pull).
+    // -u: replace only with a newer copy; an image whose cp has no -u falls back to -n (never replace).
+    const copy = 'src="/v/$1"; [ -d "$src" ] || exit 0; cp -R -P -p -u "$src/." /out/ 2>/dev/null || cp -R -P -p -n "$src/." /out/';
+    const r = spawnSync(
+      'docker',
+      ['run', '--rm', '--network', 'none', '--entrypoint', 'sh', '--user', info.Config?.User || user, '-v', `${volume.Name}:/v:ro`, '-v', `${transcripts}:/out`, info.Image, '-c', copy, 'sh', sub],
+      { encoding: 'utf8' }
+    );
+    if (r.status === 0) say(`\nsaved ${label}'s transcripts (Docker volume ${from}) into ${path.relative(folder, transcripts)}/`);
+    else say(`\nnote: couldn't copy ${label}'s transcripts from Docker volume ${from}: ${(r.stderr || r.error?.message || '').trim()}`);
   }
 }
 
@@ -319,6 +438,11 @@ if (!flags.has('--no-allow')) {
 }
 
 process.stdout.write(
-  `\nNext: rebuild the container (Dev Containers: Rebuild Container). The window reopens at ${folder}.\n` +
-    `Then, after a Claude session in it, run snagboat containers status here: the folder should list session files.\n`
+  inPlace
+    ? `\nNext: rebuild the container (Dev Containers: Rebuild Container). The window reopens at ${folder}.\n` +
+        `Then, after a Claude session in it, run snagboat containers status here: the folder should list session files.\n`
+    : `\nNext: in VS Code, run Dev Containers: Reopen in Container (or Rebuild Container) and pick "${jsonc.parse(text)?.name}".\n` +
+        `It's a new container with its own Claude Code login: log in once. The window reopens at ${folder}.\n` +
+        `Then, after a Claude session in it, run snagboat containers status here: the folder should list session files.\n` +
+        `Rerun this script after the shared ${rel} changes, then rebuild.\n`
 );
