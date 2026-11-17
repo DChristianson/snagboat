@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 355" width="960" height="355" role="img" aria-labelledby="t d">
+<title id="t">Goal tracking lifecycle</title>
+<desc id="d">Lifecycle: you set a goal; the advisor prepares a brief; you review the brief (a counter goes back to the brief); the experiment runs; a report is triggered by schedule or by request; the advisor prepares the report; you review the experiment (a counter goes back to the report), and accepting a proposal or keeping going returns to the running experiment. Changing the goal means a new advisor, outside the loop.</desc>
+<style>
+  svg { --sb-surface:#ffffff; --sb-ink:#3b3b3b; --sb-ink-muted:#6b6b6b; --sb-rule:#d4d4d4; --sb-panel:#f6f7f9;
+        --sb-accent:#005fb8; --sb-amber:#b07400; --sb-mark-new:#1b7f55; --sb-mark-chg:#005fb8;
+        --sb-new-soft:rgba(27,127,85,0.10); --sb-chg-soft:rgba(0,95,184,0.08); color:var(--sb-ink); }
+  @media (prefers-color-scheme: dark) {
+    svg { --sb-surface:#1f1f1f; --sb-ink:#cccccc; --sb-ink-muted:#9d9d9d; --sb-rule:#3a3a3a; --sb-panel:#262728;
+          --sb-accent:#4daafc; --sb-amber:#e0a92e; --sb-mark-new:#5cc98f; --sb-mark-chg:#4daafc;
+          --sb-new-soft:rgba(92,201,143,0.14); --sb-chg-soft:rgba(77,170,252,0.12); }
+  }
+</style>
+<rect width="960" height="355" fill="var(--sb-surface)"/>
+<defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+          <marker id="ahA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--sb-amber)"/></marker>
+        </defs>
+        <g font-family="-apple-system, Segoe UI, system-ui, sans-serif" font-size="13" fill="currentColor">
+          <g stroke="currentColor" stroke-width="1.3" fill="none">
+            <rect x="20" y="60" width="120" height="62" rx="4" stroke-dasharray="4 3"/>
+            <rect x="170" y="60" width="160" height="62" rx="4"/>
+            <rect x="370" y="60" width="160" height="62" rx="4" stroke="var(--sb-amber)" stroke-width="2"/>
+            <rect x="620" y="60" width="170" height="62" rx="4" stroke="var(--sb-accent)" stroke-width="2"/>
+            <rect x="780" y="230" width="160" height="62" rx="4"/>
+            <rect x="570" y="230" width="170" height="62" rx="4"/>
+            <rect x="370" y="230" width="160" height="62" rx="4" stroke="var(--sb-amber)" stroke-width="2"/>
+          </g>
+          <g text-anchor="middle" font-weight="600">
+            <text x="80" y="87">You set a goal</text>
+            <text x="250" y="87">Prepare brief</text>
+            <text x="450" y="87">Review brief</text>
+            <text x="705" y="87">Experiment</text>
+            <text x="860" y="257">Report triggered</text>
+            <text x="655" y="257">Prepare report</text>
+            <text x="450" y="257">Experiment review</text>
+          </g>
+          <g text-anchor="middle" font-size="11.5" fill="var(--sb-ink-muted)">
+            <text x="80" y="106">persona.md</text>
+            <text x="250" y="106">advisor · from history</text>
+            <text x="450" y="106">you · first proposal</text>
+            <text x="705" y="106">running, measured</text>
+            <text x="860" y="276">core snapshots measures</text>
+            <text x="655" y="276">advisor · verdict + proposals</text>
+            <text x="450" y="276">you decide</text>
+          </g>
+          <g text-anchor="middle" font-size="11" fill="var(--sb-ink-muted)">
+            <text x="80" y="146">a new goal is</text>
+            <text x="80" y="160">a new advisor,</text>
+            <text x="80" y="174">outside the loop</text>
+          </g>
+          <g stroke="currentColor" stroke-width="1.3" fill="none" marker-end="url(#ah)">
+            <line x1="140" y1="91" x2="168" y2="91" stroke-dasharray="4 3"/>
+            <line x1="330" y1="91" x2="368" y2="91"/>
+            <line x1="530" y1="91" x2="618" y2="91" stroke-width="1.6"/>
+            <path d="M745,122 L745,170 L860,170 L860,228"/>
+            <line x1="780" y1="261" x2="742" y2="261"/>
+            <line x1="570" y1="261" x2="532" y2="261"/>
+            <path d="M450,230 L450,170 L665,170 L665,124" stroke-width="1.6"/>
+          </g>
+          <g font-size="11.5" text-anchor="middle">
+            <text x="574" y="82" font-weight="600">accept</text>
+            <text x="818" y="162" fill="var(--sb-ink-muted)" font-size="11">by schedule or request</text>
+            <text x="557" y="162" font-weight="600">accept a proposal or keep going</text>
+          </g>
+          <!-- counters -->
+          <path d="M450,60 C450,16 250,16 250,58" stroke="var(--sb-amber)" stroke-width="1.6" fill="none" marker-end="url(#ahA)"/>
+          <text x="350" y="16" text-anchor="middle" font-size="11.5" fill="var(--sb-amber)" font-weight="600">counter: your note → revised brief</text>
+          <path d="M450,292 C450,336 655,336 655,294" stroke="var(--sb-amber)" stroke-width="1.6" fill="none" marker-end="url(#ahA)"/>
+          <text x="552" y="350" text-anchor="middle" font-size="11.5" fill="var(--sb-amber)" font-weight="600">counter: your note → revised report</text>
+        </g>
+</svg>
