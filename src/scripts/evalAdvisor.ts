@@ -267,7 +267,7 @@ async function evalPerformanceReport(runs: Run[]): Promise<string[]> {
   for (const advisor of advisors) {
     const report = job.get(advisor.id)!;
     const before = report.previous ? job.get(advisor.id, report.previous) : undefined;
-    const lastRound = before?.revisions?.length ? proposals.forReport(advisor.id, before.id, before.revisions.length) : [];
+    const lastRound = before?.revisions?.length ? proposals.byIds(advisor.id, before.revisions[before.revisions.length - 1].proposals) : [];
     const input = { advisor, report, experiments: [], lastRound, discarded: proposals.discarded(advisor.id) };
     out.push(`## ${advisor.name}: ${report.id}`, '', report.summary, '');
     for (const run of runs) {

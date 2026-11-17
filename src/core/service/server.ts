@@ -29,7 +29,7 @@ import { ADVISOR_PERIODS, loadAdvisorGoals } from '../../advisor/goals';
 import { MEASURES } from '../../advisor/measures';
 import { CoreAdvisors } from './advisorModels';
 import { PERIOD_CHECK_MS, PeriodJob } from './periodJob';
-import { AdvisorReports } from './advisorReports';
+import { AdvisorReports, ReviewError } from './advisorReports';
 import { ProposalStore } from '../proposals';
 import { advisorTemplates, checkNewAdvisor, CUE_COLORS, CUE_ICONS, writeNewAdvisor } from '../../advisor/newAdvisor';
 import { builtInHeuristics } from '../../heuristics';
@@ -92,6 +92,9 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *   GET  /today?workspace=w     today's tokens, cache rate and milestones, and how many findings are showing (step 5d)
  *   GET  /advisors/:id/report  an advisor's latest period report (?id= for another) and the list of them;
  *                              POST asks for one now (admin or reader: reports cover every workspace)
+ *   POST /proposals/:id        { mark: accept | discard | revise, note }: your mark, switchable until sent
+ *   POST /advisors/:id/report/:rev  send that revision back (?id= for an older report): Accept report, or
+ *                              Revise report when a proposal is marked revise (the model answers in the background)
  *   GET  /advisor-form         the + form's choices: measures, rules an advisor can speak for, templates (step 5c)
  *   POST /advisors             a new advisor from the form: ~/.snagboat/advisors/<id>/persona.md, never
  *                              overwriting one (any token, a reader's included: advisors are yours)
@@ -555,6 +558,9 @@ export class CoreService {
       if (route === 'GET /suggestions') return send(200, await this.suggestionsView(scope, url.searchParams.get('workspace')));
       if (route === 'POST /suggestions') return send(200, await this.suggestionsAct(scope, await this.readBody(req, 4096)));
       if (route === 'GET /today') return send(200, await this.today(scope, url.searchParams.get('workspace')));
+      const sendMatch = req.method === 'POST' ? /^\/advisors\/([^/]+)\/report\/(\d+)$/.exec(url.pathname) : null;
+      if (sendMatch) return send(200, await this.sendReport(scope, decodeURIComponent(sendMatch[1]), url.searchParams.get('id'), Number(sendMatch[2])));
+      if (req.method === 'POST' && url.pathname.startsWith('/proposals/')) return send(200, await this.markProposal(scope, decodeURIComponent(url.pathname.slice('/proposals/'.length)), await this.readBody(req, 8192)));
       if (url.pathname.startsWith('/advisors/') && url.pathname.endsWith('/report')) {
         const id = decodeURIComponent(url.pathname.slice('/advisors/'.length, -'/report'.length));
         if (req.method === 'GET') return send(200, this.periodReport(scope, id, url.searchParams.get('id')));
@@ -841,10 +847,37 @@ export class CoreService {
     return { ...view, reports: all.map((r) => ({ id: r.id, label: r.label, from: r.from, to: r.to, trigger: r.trigger })) };
   }
 
+  /** POST /proposals/:id { mark: accept | discard | revise, note }: your mark on a proposal, switchable until its revision is sent. */
+  private markProposal(scope: Scope, id: string, body: unknown) {
+    if (!readsAll(scope)) throw new HttpError(403, 'proposals are yours across every workspace; this token reads only its own');
+    const b = (body ?? {}) as { mark?: unknown; note?: unknown };
+    if (b.mark !== 'accept' && b.mark !== 'discard' && b.mark !== 'revise') throw new HttpError(400, 'mark is accept, discard or revise');
+    try {
+      return { proposal: this.reports.mark(id, b.mark, typeof b.note === 'string' ? b.note : undefined) };
+    } catch (err) {
+      if (err instanceof ReviewError) throw new HttpError(err.status, err.message);
+      throw err;
+    }
+  }
+
+  /** POST /advisors/:id/report/:rev[?id=<report id>]: Accept report, or Revise report when a proposal is marked revise. */
+  private async sendReport(scope: Scope, advisor: string, reportId: string | null, rev: number) {
+    if (!readsAll(scope)) throw new HttpError(403, 'period reports cover every workspace; this token reads only its own');
+    try {
+      const { as, view } = await this.reports.send(advisor, reportId ?? undefined, rev);
+      return { sent: as, ...view };
+    } catch (err) {
+      if (err instanceof ReviewError) throw new HttpError(err.status, err.message);
+      throw err;
+    }
+  }
+
   /** POST /advisors/:id/report: a report now, from the advisor's last one to now (admin or reader: advisors are yours). */
   private async requestReport(scope: Scope, advisor: string) {
     if (!readsAll(scope)) throw new HttpError(403, "period reports cover every workspace; this token reads only its own");
     try {
+      // Periods that closed first are written and answered as the timer would.
+      for (const r of await this.reports.job.runDue()) this.reports.answerLater(r.advisor, r.id);
       const report = await this.reports.job.request(advisor);
       // The model answers in the background (it may wait for your approval); GET shows its revision once it has.
       this.reports.answerLater(advisor, report.id);

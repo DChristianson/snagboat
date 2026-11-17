@@ -79,9 +79,10 @@ export class ProposalStore {
     return this.list(advisor).find((p) => p.id === id);
   }
 
-  /** The proposals in one revision of a report. */
-  forReport(advisor: string, report: string, rev: number): Proposal[] {
-    return this.list(advisor).filter((p) => p.report === report && p.rev === rev);
+  /** Proposals by id, in the order given (a report revision's list, which carries accepted ones over). */
+  byIds(advisor: string, ids: string[]): Proposal[] {
+    const all = new Map(this.list(advisor).map((p) => [p.id, p]));
+    return ids.map((id) => all.get(id)).filter((p): p is Proposal => !!p);
   }
 
   /** Every change you discarded, so the advisor never suggests it again. */
@@ -95,7 +96,7 @@ export class ProposalStore {
     const lines: ProposalEvent[] = drafts.map((d, i) => ({
       version: 1,
       at,
-      proposal: `${report}-r${rev}-p${i + 1}`,
+      proposal: `${advisor}-${report}-r${rev}-p${i + 1}`,
       advisor,
       type: 'proposed',
       report,
