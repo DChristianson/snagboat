@@ -10,6 +10,8 @@ node dist/snagboat.js stores              # where the logs are
 node dist/snagboat.js config              # the settings that apply here, and where each comes from
 node dist/snagboat.js findings            # this workspace's findings, from the running core
 node dist/snagboat.js advisors            # each advisor's goal and measures, this week against last
+node dist/snagboat.js experiments         # every experiment: its change, baseline and tracked measure now
+node dist/snagboat.js experiments revert <id>   # put back what it changed (keep, accept: keep it going, accept its result)
 node dist/snagboat.js open                # the advisor UI in your browser (a one-time link)
 node dist/snagboat.js mcp                 # an MCP server with read-only tools (the Claude Code plugin runs it)
 node dist/snagboat.js statusline          # one line for Claude Code's status line

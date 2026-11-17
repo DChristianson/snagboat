@@ -2,7 +2,9 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { experimentSchema, PeriodReport, Proposal } from '@snagboat/schema';
+import { Experiment, experimentSchema, PeriodReport, Proposal } from '@snagboat/schema';
+import { runCli } from '../../cli/main';
+import { CoreService } from '../../core/service/server';
 import { loadConfig, saveConfig } from '../../core/config';
 import { ExperimentStore } from '../../core/experiments';
 import { RuleStore } from '../../heuristics/ruleStore';
@@ -89,6 +91,40 @@ async function main() {
     assert.deepStrictEqual(second.change, { kind: 'setting', key: 'heuristics.contextPressure.percent', before: 85, after: 80 }, 'its before is what the replaced one set');
     assert.deepStrictEqual(third.overlaps, [second.id]);
     assert.deepStrictEqual(store.get(second.id)!.overlaps, [third.id], 'both are flagged');
+  });
+
+  test('snagboat experiments lists them with baseline and now, as text and JSON, and reverts one', async () => {
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-exp-cli-')));
+    saveConfig(home, { version: 1, defaults: { 'heuristics.cacheThrash.minTokens': 50000 }, projects: {} });
+    const store = new ExperimentStore(home, () => new Date(2026, 10, 16, 9));
+    const [x] = await store.start(report, [proposal({ title: 'Catch smaller cache rewrites' })]);
+    const core = await CoreService.start({ home, version: 'test', idleMs: 0, collect: false, periodEveryMs: 0 });
+    const saved = process.env.SNAGBOAT_HOME;
+    process.env.SNAGBOAT_HOME = home;
+    let out = '';
+    let err = '';
+    const io = { out: (t: string) => (out += t), err: (t: string) => (err += t), cwd: home, now: new Date() };
+    try {
+      assert.strictEqual(await runCli(['experiments'], io, 'test'), 0, err);
+      assert.match(out, /Catch smaller cache rewrites \(purser, running, review 2026-11-2\d\)/);
+      assert.match(out, /heuristics\.cacheThrash\.minTokens 50000 → 30000  \[global\]/);
+      assert.match(out, /cache_hit_rate: 61 at the start, — now/);
+      out = '';
+      assert.strictEqual(await runCli(['experiments', '--json'], io, 'test'), 0, err);
+      const body = JSON.parse(out) as { experiments: Experiment[] };
+      for (const e of body.experiments) validate(experimentSchema as Record<string, any>, e);
+      out = '';
+      assert.strictEqual(await runCli(['experiments', 'revert', x.id], io, 'test'), 0, err);
+      assert.match(out, /Catch smaller cache rewrites: reverted/);
+      assert.strictEqual(loadConfig(home).config.defaults['heuristics.cacheThrash.minTokens'], 50000);
+      assert.strictEqual(await runCli(['experiments', 'revert', x.id], io, 'test'), 1);
+      assert.match(err, /already ended/);
+      assert.strictEqual(await runCli(['experiments', 'maybe'], io, 'test'), 2);
+    } finally {
+      if (saved === undefined) delete process.env.SNAGBOAT_HOME;
+      else process.env.SNAGBOAT_HOME = saved;
+      await core.stop();
+    }
   });
 
   let failures = 0;

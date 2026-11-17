@@ -873,7 +873,17 @@ export class CoreService {
     const advisors = (q.get('advisor') ?? '').split(',').filter(Boolean);
     const status = q.get('status');
     if (status !== null && status !== 'running' && status !== 'ended') throw new HttpError(400, 'status is running or ended');
-    return { experiments: this.experiments.list().filter((x) => (!advisors.length || advisors.includes(x.advisor)) && (status === null || x.status === status)) };
+    const experiments = this.experiments.list().filter((x) => (!advisors.length || advisors.includes(x.advisor)) && (status === null || x.status === status));
+    // Each one's tracked measure now: from its advisor's latest report, in its scope.
+    const now: Record<string, { report: string; value?: number }> = {};
+    for (const x of experiments) {
+      const r = this.reports.job.get(x.advisor);
+      if (!r) continue;
+      const measures = x.scope === 'global' ? r.measures : r.workspaces.find((w) => w.workspace === (x.scope as { workspace: string }).workspace)?.measures ?? [];
+      const value = measures.find((m) => m.id === x.baseline.measure)?.value;
+      now[x.id] = { report: r.id, ...(value !== undefined ? { value } : {}) };
+    }
+    return { experiments, now };
   }
 
   /**
