@@ -278,3 +278,11 @@ table.xp td.num.up { color: var(--sb-ok); }
 table.xp td.num.down { color: var(--sb-error); }
 .pill.run { background: color-mix(in srgb, var(--sb-link) 12%, transparent); color: var(--sb-link); font-weight: 600; }
 .pill.ended { border: 1px solid var(--sb-rule); color: var(--sb-ink-muted); }
+
+/* Nothing widens the page: a column takes the window's width, not its widest content (a long workspace name
+   in the select, the experiments table), so long content wraps or scrolls in its own box. */
+.main { grid-template-columns: minmax(0, 1fr); }
+.main > section:not([hidden]), .panel, .report, .prop, .review-acts { grid-template-columns: minmax(0, 1fr); }
+.bar .left { min-width: 0; max-width: 100%; }
+.bar select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+.table-scroll { min-width: 0; max-width: 100%; }
