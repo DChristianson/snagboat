@@ -488,6 +488,76 @@
     if (rv.state === 'revising') return 'Sent back to revise; the advisor is answering your notes.';
     return `${rv.marked} of ${rv.marked + rv.unmarked} marked${rv.toRevise ? ` · ${rv.toRevise} to revise` : ''}`;
   }
+  // --- The experiments page (snagboat-79f.7.9) ------------------------------------------------------------
+  // One table of every experiment, across workspaces: the change, its review date, and its tracked measure
+  // against the baseline, filtered by project, advisor, a search, and status.
+  let experimentsData = null;
+  let experimentsWired = false;
+  function fmtDate(iso) {
+    return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  }
+  function experimentRows() {
+    const { experiments, now } = experimentsData;
+    const project = $('x-project').value;
+    const advisor = $('x-advisor').value;
+    const status = $('x-status').value;
+    const q = $('x-search').value.trim().toLowerCase();
+    const shown = experiments.filter((x) => (!project || scopeText(x.scope) === project) && (!advisor || x.advisor === advisor) && (!status || x.status === status) && (!q || `${x.title} ${changeText(x.change)}`.toLowerCase().includes(q)));
+    $('x-count').textContent = `${shown.length} of ${experiments.length} experiment${experiments.length === 1 ? '' : 's'}`;
+    const head = el('thead', {}, [el('tr', {}, ['Experiment', 'Advisor', 'Project', 'Change', 'Started', 'Review', 'Measure', 'Baseline', 'Now', 'Status', ''].map((h) => el('th', { text: h })))]);
+    const body = el('tbody', {}, shown.map((x) => {
+      const n = now[x.id] || {};
+      const unit = n.unit || '';
+      const moved = n.value === undefined || x.baseline.value === undefined || n.value === x.baseline.value ? 'flat' : (n.value < x.baseline.value) === (n.better === 'lower') ? 'up' : 'down';
+      const review = x.status === 'running' ? `${fmtDate(x.reviewAt)}${x.keptGoing ? ` · kept going ${x.keptGoing === 1 ? 'once' : `${x.keptGoing} times`}` : ''}` : '';
+      const ended = { accepted: 'Ended · accepted', reverted: 'Ended · reverted', replaced: 'Ended · replaced' };
+      const revert = el('button', { class: 'btn', type: 'button', text: 'Revert', title: 'Put back what this change replaced, and end the experiment' });
+      revert.addEventListener('click', () => void (async () => {
+        $('x-error').textContent = '';
+        try {
+          await api(`/experiments/${encodeURIComponent(x.id)}`, { method: 'POST', body: JSON.stringify({ action: 'revert' }) });
+        } catch (err) {
+          if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core.');
+          $('x-error').textContent = err.message;
+          return;
+        }
+        await renderExperiments();
+      })());
+      return el('tr', {}, [
+        el('td', {}, [el('b', { text: x.title }), x.overlaps && x.overlaps.length && x.status === 'running' ? el('span', { class: 'small muted', text: ' · overlaps another experiment', title: x.overlaps.join(', ') }) : null]),
+        el('td', { text: x.advisor }),
+        el('td', {}, [el('span', { class: 'pill scope', text: scopeText(x.scope) })]),
+        el('td', { class: 'mono', text: changeText(x.change) }),
+        el('td', { text: fmtDate(x.startedAt) }),
+        el('td', { text: review }),
+        el('td', { text: n.label || x.baseline.measure }),
+        el('td', { class: 'num', text: x.baseline.value === undefined ? '—' : format(x.baseline.value, unit) }),
+        el('td', { class: `num ${moved}`, text: n.value === undefined ? '—' : format(n.value, unit) }),
+        el('td', {}, [el('span', { class: `pill ${x.status === 'running' ? 'run' : 'ended'}`, text: x.status === 'running' ? 'Running' : ended[x.ended && x.ended.how] || 'Ended' })]),
+        el('td', {}, [x.status === 'running' ? revert : null]),
+      ]);
+    }));
+    $('x-table').replaceChildren(head, body);
+    if (!experiments.length) $('x-table').replaceChildren(el('caption', { class: 'empty', text: "No experiments yet. When you accept an advisor's report, each accepted proposal is applied and tracked here." }));
+  }
+  async function renderExperiments() {
+    experimentsData = await api('/experiments');
+    const keep = (id, values, label) => {
+      const was = $(id).value;
+      $(id).replaceChildren(el('option', { value: '', text: `${label}: All` }), ...values.map((v) => el('option', { value: v, text: `${label}: ${v}` })));
+      $(id).value = values.includes(was) ? was : '';
+    };
+    keep('x-project', [...new Set(experimentsData.experiments.map((x) => scopeText(x.scope)))].sort(), 'Project');
+    keep('x-advisor', [...new Set(experimentsData.experiments.map((x) => x.advisor))].sort(), 'Advisor');
+    $('count-experiments').textContent = String(experimentsData.experiments.filter((x) => x.status === 'running').length || '');
+    if (!experimentsWired) {
+      experimentsWired = true;
+      for (const id of ['x-project', 'x-advisor', 'x-status']) $(id).addEventListener('change', () => experimentsData && experimentRows());
+      $('x-search').addEventListener('input', () => experimentsData && experimentRows());
+    }
+    experimentRows();
+  }
+
   // --- The review on the advisor page (snagboat-79f.7.13) ------------------------------------------------
   // Mark each proposal, switch until you send, then Accept report or Revise report. The page only calls
   // the core's routes; the same review works from an agent session through MCP.
@@ -566,12 +636,12 @@
     $('problems').hidden = !problems || problems.length === 0;
     $('problems').textContent = problems && problems.length ? `Problems in your advisors' persona.md files: ${problems.join('; ')}` : '';
   }
-  const VIEWS = ['advisors', 'advisor', 'add', 'sessions', 'session', 'suggestions'];
+  const VIEWS = ['advisors', 'advisor', 'add', 'sessions', 'session', 'suggestions', 'experiments'];
   function showView(name) {
     for (const v of VIEWS) $(`view-${v}`).hidden = v !== name;
     // The nav marks the section you're in: an advisor's page is under Advisors, a session's under Sessions.
     const section = { advisor: 'advisors', add: 'advisors', session: 'sessions' }[name] || name;
-    for (const n of ['advisors', 'sessions', 'suggestions']) {
+    for (const n of ['advisors', 'sessions', 'suggestions', 'experiments']) {
       $(`nav-${n}`).classList.toggle('on', n === section);
       if (n === section) $(`nav-${n}`).setAttribute('aria-current', 'page');
       else $(`nav-${n}`).removeAttribute('aria-current');
@@ -585,7 +655,7 @@
     const f = fragment();
     if (f.get('advisor')) return ['advisor', f.get('advisor')];
     if (f.get('session')) return ['session', f.get('session')];
-    if (['sessions', 'add', 'suggestions'].includes(f.get('view'))) return [f.get('view')];
+    if (['sessions', 'add', 'suggestions', 'experiments'].includes(f.get('view'))) return [f.get('view')];
     return ['advisors'];
   }
 
@@ -997,6 +1067,7 @@
       else if (view === 'sessions') await renderSessions();
       else if (view === 'add') await renderAdd();
       else if (view === 'suggestions') await renderSuggestions();
+      else if (view === 'experiments') await renderExperiments();
       else await renderAdvisors();
     } catch (err) {
       if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core: the core restarted, or the link was already used.');

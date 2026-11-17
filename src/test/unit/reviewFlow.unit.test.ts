@@ -137,7 +137,8 @@ async function main() {
   });
 
   test('Accept report starts an experiment per accepted proposal, changing exactly those settings; revert puts them back', async () => {
-    const list = (await call('GET', '/experiments')).body as { experiments: Experiment[] };
+    const list = (await call('GET', '/experiments')).body as { experiments: Experiment[]; now: Record<string, { report: string; label?: string; better?: string }> };
+    assert.deepStrictEqual(Object.values(list.now).map((n) => [n.label, n.better]).sort(), [['Cache hit rate', 'higher'], ['Tokens per milestone', 'lower']], 'the page colours now against the baseline');
     assert.deepStrictEqual(list.experiments.map((x) => [x.title, x.status]).sort(), [['Cap a session\'s spend', 'running'], ['Catch smaller cache rewrites', 'running']]);
     const { config } = loadConfig(home);
     assert.strictEqual(config.defaults['heuristics.cacheThrash.minTokens'], 30000);
