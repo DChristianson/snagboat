@@ -25,6 +25,8 @@ body {
 
   --sb-accent: var(--vscode-focusBorder);
   --sb-link: var(--vscode-textLink-foreground);
+  --sb-amber: var(--vscode-charts-orange, #b07400);
+  --sb-amber-soft: var(--vscode-inputValidation-warningBackground, rgba(237, 161, 0, 0.14));
   --sb-error: var(--vscode-errorForeground);
   --sb-warn: var(--vscode-editorWarning-foreground, #bf8803);
   --sb-info: var(--vscode-editorInfo-foreground, #3794ff);

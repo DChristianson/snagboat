@@ -232,3 +232,28 @@ a.btn { text-decoration: none; display: inline-block; }
 .advice { gap: 8px; border-left: 3px solid var(--sb-accent); }
 .advice h2 { font-size: 14px; }
 .advice .payload { margin: 0; max-height: 360px; overflow: auto; font: 11.5px/1.45 var(--sb-mono); background: var(--sb-panel); border: 1px solid var(--sb-rule); border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* An advisor's period report (goal tracking lifecycle) */
+.report { display: grid; gap: 10px; }
+.report .sum { margin: 0; font-size: 13px; }
+.report h3 { margin: 6px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--sb-ink-muted); }
+.pill { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 999px; white-space: nowrap; text-decoration: none; }
+.pill.amber { background: var(--sb-amber-soft); color: var(--sb-amber); font-weight: 600; }
+.pill.scope { border: 1px solid var(--sb-rule); color: var(--sb-ink-muted); font-family: var(--sb-mono); font-size: 10.5px; }
+.pill.met { color: var(--sb-ok); border: 1px solid var(--sb-ok); }
+.pill.not-met { color: var(--sb-error); border: 1px solid var(--sb-error); }
+.pill.too-early, .pill.confounded { color: var(--sb-ink-muted); border: 1px solid var(--sb-rule); }
+.verdict { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
+.prop { border: 1px solid var(--sb-rule); border-radius: 6px; padding: 10px; display: grid; gap: 6px; background: var(--sb-panel); }
+.prop.old { background: transparent; border-style: dashed; }
+.prop.old .change { text-decoration: line-through; color: var(--sb-ink-muted); }
+.prop-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.prop .kind { font: 600 10.5px/1.3 var(--sb-mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--sb-ink-muted); }
+.prop .change { font-family: var(--sb-mono); font-size: 12px; overflow-wrap: anywhere; }
+.prop .why { font-size: 12px; }
+.prop .pred { font-size: 12px; border-left: 2px solid var(--sb-link); padding-left: 8px; }
+.prop .pred b { display: block; font-size: 11px; color: var(--sb-link); }
+.prop .note { border-left: 2px solid var(--sb-rule); padding-left: 8px; font-size: 11.5px; color: var(--sb-ink-muted); }
+.prop .mark { font-size: 11px; color: var(--sb-ink-muted); }
+.prop .mark.accepted, .prop .mark.kept { color: var(--sb-ok); }
+.report .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--sb-rule); flex-wrap: wrap; }

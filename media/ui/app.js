@@ -269,6 +269,7 @@
       el('div', { class: 'adv-head' }, [
         el('span', { class: 'glyph' }, [glyph(cueOf(a)[0])]),
         el('div', { class: 'who' }, [el('b', { text: a.name }), el('span', { class: 'status-line', text: a.status, title: `goal: ${a.goal}` })]),
+        a.review && a.review.unmarked ? el('a', { class: 'pill amber', href: `#${new URLSearchParams({ days: String(state.days), advisor: a.id }).toString()}`, text: `${a.review.unmarked} proposal${a.review.unmarked === 1 ? '' : 's'}`, title: `waiting in the ${a.review.label} report` }) : null,
         el('span', { class: `cap${max > 0 && used >= max ? ' full' : ''}`, text: cap }),
       ])
     );
@@ -281,7 +282,7 @@
       card.append(el('div', { class: 'brief' }, [el('p', { class: 'sum', text: b.summary }), dl]));
     }
     const open = el('a', { href: `#${new URLSearchParams({ days: String(state.days), advisor: a.id }).toString()}`, text: 'Measures and detail' });
-    card.append(el('div', { class: 'adv-foot' }, [el('span', { text: `${a.source === 'built-in' ? 'built in' : 'your persona.md'} · no model` }), open]));
+    card.append(el('div', { class: 'adv-foot' }, [el('span', { text: `${a.source === 'built-in' ? 'built in' : 'your persona.md'} · ${a.model ? `model ${a.model}` : 'no model'} · reports ${a.period || 'weekly'}` }), open]));
     return card;
   }
 
@@ -391,7 +392,9 @@
       el('dt', { text: 'Notifies' }),
       el('dd', { text: max === undefined ? 'no limit' : max === 0 ? 'never' : `at most ${max} an hour · ${a.notify.lastHour || 0} this hour` }),
       el('dt', { text: 'Model' }),
-      el('dd', { text: 'none: it measures and surfaces without one' })
+      el('dd', { text: a.model ? `${a.model} (snagboat.advisors) writes its reports` : 'none: its reports carry the numbers only' }),
+      el('dt', { text: 'Reports' }),
+      el('dd', { text: a.period || 'weekly' })
     );
     $('voice').textContent = a.voice || '';
     $('measures-note').textContent = `· last ${state.days} days against the ${state.days} before`;
@@ -408,7 +411,78 @@
       })
     );
     showProblems(daily.problems);
+    await renderReport(a);
   }
+
+  // --- An advisor's period report (goal tracking lifecycle, snagboat-79f.7.5) ---------------------------
+  // The latest report from the core: where the goal stands, verdicts on running experiments, and its
+  // proposed rule changes with how you've marked them.
+  const MARKS = { open: 'Not marked', accepted: 'Accepted', discarded: 'Discarded', revised: 'To revise', kept: 'Kept going', closed: 'Closed' };
+  const num = (v) => (typeof v === 'number' ? v.toLocaleString() : String(v));
+  function changeText(c) {
+    return c.kind === 'setting' ? `${c.key} ${c.before === undefined ? 'unset' : num(c.before)} → ${num(c.after)}` : `${c.before ? 'changed rule' : 'new rule'} ${c.rule.id}`;
+  }
+  function scopeText(scope) {
+    return scope === 'global' ? 'global' : scope.workspace.split(/[\\/]/).filter(Boolean).pop() || scope.workspace;
+  }
+  function kindText(c) {
+    return c.kind === 'setting' ? `Rule change · ${c.key}` : c.before ? `Rule change · ${c.rule.title || c.rule.id}` : `New rule · ${c.rule.title || c.rule.id}`;
+  }
+  function proposalCard(p, actions) {
+    return el('article', { class: `prop${p.status === 'revised' && actions === null ? ' old' : ''}`, 'aria-label': p.title }, [
+      el('div', { class: 'prop-head' }, [el('b', { text: p.title }), el('span', { class: 'pill scope', text: scopeText(p.scope) })]),
+      el('span', { class: 'kind', text: kindText(p.change) }),
+      el('span', { class: 'change', text: changeText(p.change) }),
+      el('span', { class: 'why', text: `${p.what} Why: ${p.why}` }),
+      el('div', { class: 'pred' }, [el('b', { text: 'Prediction, tracked once accepted' }), document.createTextNode(p.prediction.text)]),
+      p.note ? el('div', { class: 'note', text: `Your note: ${p.note}` }) : null,
+      actions || el('span', { class: `mark ${p.status}`, text: MARKS[p.status] || p.status }),
+    ]);
+  }
+  function verdictLine(v) {
+    const RESULTS = { met: 'Met', 'not-met': 'Not met', 'too-early': 'Too early', confounded: 'Mixed up' };
+    return el('div', { class: 'verdict' }, [el('span', { class: `pill ${v.result}`, text: RESULTS[v.result] || v.result }), el('span', { text: v.text })]);
+  }
+  /** The report panel; `act` (snagboat-79f.7.13) adds the review's buttons. */
+  async function renderReport(a) {
+    let view;
+    try {
+      view = await api(`/advisors/${encodeURIComponent(a.id)}/report`);
+    } catch (err) {
+      if (err instanceof Unauthorized) throw err;
+      $('report-meta').textContent = '';
+      $('report').replaceChildren(el('p', { class: 'small muted', text: `No report yet. The core writes one when the ${a.period || 'weekly'} period closes.` }));
+      return;
+    }
+    const r = view.report;
+    const latest = r.revisions && r.revisions.length ? r.revisions[r.revisions.length - 1] : null;
+    $('report-meta').textContent = `· ${r.label}${r.trigger === 'request' ? ' (asked for)' : ''}${latest ? ` · revision ${latest.rev}` : ''}`;
+    const parts = [el('p', { class: 'sum', text: latest ? latest.summary : r.summary })];
+    parts.push(el('span', { class: 'small muted', text: `${r.from.slice(0, 10)} to ${r.to.slice(0, 10)}${r.previous ? `, against ${r.previous}` : ''} · all workspaces` }));
+    parts.push(
+      el('div', { class: 'measures' }, r.measures.map((m) => {
+        if (m.note) return el('div', { class: 'm notyet' }, [el('span', { text: m.label }), el('span', { class: 'note', text: m.note })]);
+        const d = delta(m);
+        return el('div', { class: `m${m.value === undefined ? ' notyet' : ''}` }, [el('span', { text: m.label }), el('span', { class: 'v', text: m.value === undefined ? 'nothing yet' : format(m.value, m.unit) }), el('span', { class: `d ${d.cls}`, text: d.text }), el('span')]);
+      }))
+    );
+    const verdicts = latest && latest.verdicts.length ? latest.verdicts : r.verdicts || [];
+    if (verdicts.length) parts.push(el('h3', { text: 'Experiments' }), ...verdicts.map(verdictLine));
+    if (!latest) parts.push(el('p', { class: 'small muted', text: a.model ? 'Waiting for its model to answer.' : 'No model is set in its persona.md, so this report has the numbers only.' }));
+    else if (!view.proposals.length) parts.push(el('p', { class: 'small muted', text: 'No changes proposed.' }));
+    else parts.push(el('h3', { text: 'Proposed changes' }), ...view.proposals.map((p) => proposalCard(p, reportActions ? reportActions(view, p) : null)));
+    parts.push(el('div', { class: 'foot', id: 'report-foot' }, reportFoot ? reportFoot(a, view) : [el('span', { class: 'small muted', text: reviewText(view.review) })]));
+    $('report').replaceChildren(...parts);
+  }
+  function reviewText(rv) {
+    if (rv.state === 'numbers-only') return '';
+    if (rv.state === 'accepted') return 'Accepted: the accepted changes are running as experiments.';
+    if (rv.state === 'revising') return 'Sent back to revise; the advisor is answering your notes.';
+    return `${rv.marked} of ${rv.marked + rv.unmarked} marked${rv.toRevise ? ` · ${rv.toRevise} to revise` : ''}`;
+  }
+  // The review's actions (snagboat-79f.7.13) plug in here.
+  let reportActions = null;
+  let reportFoot = null;
 
   function showProblems(problems) {
     $('problems').hidden = !problems || problems.length === 0;

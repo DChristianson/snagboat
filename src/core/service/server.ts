@@ -788,6 +788,18 @@ export class CoreService {
       const ahead = reports.some((r) => r.id === 'navigator') ? await navigatorAhead(stores[0].folder, currentEvents, now.getTime()) : undefined;
       for (const r of reports) r.brief = advisorBrief(r, live, notified, r.id === 'navigator' ? ahead : undefined, findingsNow.responses);
     }
+    // Each advisor's latest period report, for tokens that read every workspace (reports cover them all).
+    if (readsAll(scope)) {
+      for (const r of reports) {
+        const v = this.reports.view(r.id);
+        if (!v) continue;
+        r.review = { report: v.report.id, label: v.report.label, rev: v.review.rev, state: v.review.state, unmarked: v.review.unmarked, proposals: v.proposals.length };
+        // Proposals waiting take "To surface" when there's no live finding to show.
+        if (v.review.unmarked && r.brief && (r.brief.surface.kind === 'suggest' || r.brief.surface.kind === 'none')) {
+          r.brief.surface = { kind: 'suggest', label: 'Proposals', text: `${v.review.unmarked} proposal${v.review.unmarked === 1 ? '' : 's'} waiting in the ${v.report.label} report.` };
+        }
+      }
+    }
     return { days, workspaces: stores.map((s) => s.workspace), advisors: reports, problems };
   }
 

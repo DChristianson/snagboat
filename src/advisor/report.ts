@@ -28,6 +28,11 @@ export interface AdvisorReport {
   problems: string[];
   /** The card's brief (brief.ts), when the caller asks for one workspace's. */
   brief?: import('./brief').Brief;
+  /** How often it reports, and the model advisor that answers its reports (goal tracking lifecycle). */
+  period?: AdvisorPeriod;
+  model?: string;
+  /** Its latest period report's review, for tokens that read every workspace. */
+  review?: { report: string; label: string; rev: number; state: 'numbers-only' | 'open' | 'revising' | 'accepted'; unmarked: number; proposals: number };
 }
 
 export interface Period {
@@ -95,6 +100,8 @@ export function advisorReports(advisors: AdvisorGoal[], current: NormalizedEvent
       version: a.version,
       source: a.source,
       ...(a.cue ? { cue: a.cue } : {}),
+      period: a.period,
+      ...(a.model ? { model: a.model } : {}),
       notify: { ...a.notify, ...(lastHour !== undefined ? { lastHour } : {}) },
       measures,
       problems,

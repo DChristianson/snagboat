@@ -10,6 +10,7 @@ import { writeApprovals } from '../../core/advisorApprovals';
 import { configHost, loadConfig, saveConfig } from '../../core/config';
 import { CoreAdvisors } from '../../core/service/advisorModels';
 import { ReportView } from '../../core/service/advisorReports';
+import { AdvisorReport } from '../../advisor/report';
 import { coreRequest, readCoreFile } from '../../core/service/coreFile';
 import { CoreService } from '../../core/service/server';
 import { StoreWriter } from '../../core/service/storeWriter';
@@ -70,6 +71,17 @@ async function main() {
     assert.deepStrictEqual(statuses(v.proposals), [['Catch smaller cache rewrites', 'open'], ['Warn earlier on context', 'open'], ['Flag stalls sooner', 'open']]);
     assert.deepStrictEqual(v.review, { rev: 1, state: 'open', marked: 0, unmarked: 3, toRevise: 0 });
     assert.strictEqual((await call('POST', '/advisors/purser/report/1?id=' + v.report.id)).status, 400, 'every proposal must be marked first');
+  });
+
+  test("the advisors' cards show the review: proposals waiting, the model, the period", async () => {
+    const res = (await call('GET', `/advisors?workspace=${encodeURIComponent(w)}`)).body as { advisors: AdvisorReport[] };
+    const purser = res.advisors.find((a) => a.id === 'purser')!;
+    assert.deepStrictEqual([purser.model, purser.period, purser.review?.unmarked, purser.review?.state], ['local', 'weekly', 3, 'open']);
+    assert.deepStrictEqual(purser.brief!.surface.text, `3 proposals waiting in the ${purser.review!.label} report.`);
+    assert.strictEqual(res.advisors.find((a) => a.id === 'navigator')!.review?.state, 'numbers-only');
+    const minted = await call('POST', '/tokens', { workspaces: [w] });
+    const own = (await coreRequest(info.port, (minted.body as { token: string }).token, 'GET', '/advisors')).body as { advisors: AdvisorReport[] };
+    assert.strictEqual(own.advisors[0].review, undefined, "a workspace token doesn't see reports, which cover every workspace");
   });
 
   test('marks are checked and switchable until you send; Revise needs a note', async () => {
