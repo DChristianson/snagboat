@@ -36,6 +36,8 @@ export interface ReportView {
   report: PeriodReport;
   /** The latest revision's proposals, accepted ones carried over included. */
   proposals: Proposal[];
+  /** The proposals those revised ones replace, with your notes. */
+  replaced: Proposal[];
   /** What you can do with the latest revision now. */
   review: { rev: number; state: 'numbers-only' | 'open' | 'revising' | 'accepted'; marked: number; unmarked: number; toRevise: number; send?: 'accept' | 'revise' };
 }
@@ -64,12 +66,13 @@ export class AdvisorReports {
     const report = this.job.get(advisor, id);
     if (!report) return undefined;
     const latest = report.revisions?.[report.revisions.length - 1];
-    if (!latest) return { report, proposals: [], review: { rev: 0, state: 'numbers-only', marked: 0, unmarked: 0, toRevise: 0 } };
+    if (!latest) return { report, proposals: [], replaced: [], review: { rev: 0, state: 'numbers-only', marked: 0, unmarked: 0, toRevise: 0 } };
     const proposals = this.proposalsOf(advisor, report, latest.rev);
     const unmarked = proposals.filter((p) => p.status === 'open').length;
     const toRevise = proposals.filter((p) => p.status === 'revised').length;
     const state = latest.sent?.as === 'accept' ? 'accepted' : latest.sent?.as === 'revise' ? 'revising' : 'open';
-    return { report, proposals, review: { rev: latest.rev, state, marked: proposals.length - unmarked, unmarked, toRevise, ...(state === 'open' && !unmarked ? { send: toRevise ? ('revise' as const) : ('accept' as const) } : {}) } };
+    const replaced = this.proposals.byIds(advisor, proposals.map((p) => p.replaces).filter((id): id is string => !!id));
+    return { report, proposals, replaced, review: { rev: latest.rev, state, marked: proposals.length - unmarked, unmarked, toRevise, ...(state === 'open' && !unmarked ? { send: toRevise ? ('revise' as const) : ('accept' as const) } : {}) } };
   }
 
   /** The advisor a proposal belongs to, found by its id (which starts with the advisor's). */

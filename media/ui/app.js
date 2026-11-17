@@ -451,7 +451,7 @@
     } catch (err) {
       if (err instanceof Unauthorized) throw err;
       $('report-meta').textContent = '';
-      $('report').replaceChildren(el('p', { class: 'small muted', text: `No report yet. The core writes one when the ${a.period || 'weekly'} period closes.` }));
+      $('report').replaceChildren(el('p', { class: 'small muted', text: `No report yet. The core writes one when the ${a.period || 'weekly'} period closes.` }), el('div', { class: 'foot' }, reportFoot(a, { review: { state: 'numbers-only' }, proposals: [] })));
       return;
     }
     const r = view.report;
@@ -470,7 +470,15 @@
     if (verdicts.length) parts.push(el('h3', { text: 'Experiments' }), ...verdicts.map(verdictLine));
     if (!latest) parts.push(el('p', { class: 'small muted', text: a.model ? 'Waiting for its model to answer.' : 'No model is set in its persona.md, so this report has the numbers only.' }));
     else if (!view.proposals.length) parts.push(el('p', { class: 'small muted', text: 'No changes proposed.' }));
-    else parts.push(el('h3', { text: 'Proposed changes' }), ...view.proposals.map((p) => proposalCard(p, reportActions ? reportActions(view, p) : null)));
+    else {
+      parts.push(el('h3', { text: 'Proposed changes' }));
+      for (const p of view.proposals) {
+        // A revised proposal follows the one it replaces, struck through, with your note.
+        const old = p.replaces && (view.replaced || []).find((x) => x.id === p.replaces);
+        if (old) parts.push(proposalCard(old, null));
+        parts.push(proposalCard(p, reportActions ? reportActions(view, p) : null));
+      }
+    }
     parts.push(el('div', { class: 'foot', id: 'report-foot' }, reportFoot ? reportFoot(a, view) : [el('span', { class: 'small muted', text: reviewText(view.review) })]));
     $('report').replaceChildren(...parts);
   }
@@ -480,9 +488,79 @@
     if (rv.state === 'revising') return 'Sent back to revise; the advisor is answering your notes.';
     return `${rv.marked} of ${rv.marked + rv.unmarked} marked${rv.toRevise ? ` · ${rv.toRevise} to revise` : ''}`;
   }
-  // The review's actions (snagboat-79f.7.13) plug in here.
-  let reportActions = null;
-  let reportFoot = null;
+  // --- The review on the advisor page (snagboat-79f.7.13) ------------------------------------------------
+  // Mark each proposal, switch until you send, then Accept report or Revise report. The page only calls
+  // the core's routes; the same review works from an agent session through MCP.
+  let reviewing = null; // the advisor whose report is shown
+  let reviewPoll = null;
+  async function act(fn) {
+    $('report-error') && ($('report-error').textContent = '');
+    try {
+      await fn();
+    } catch (err) {
+      if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core.');
+      if ($('report-error')) $('report-error').textContent = err.message;
+      return;
+    }
+    if (reviewing) await renderReport(reviewing);
+  }
+  function mark(p, m, note) {
+    return act(() => api(`/proposals/${encodeURIComponent(p.id)}`, { method: 'POST', body: JSON.stringify({ mark: m, ...(note !== undefined ? { note } : {}) }) }));
+  }
+  function reportActions(view, p) {
+    const open = view.review.state === 'open';
+    const carried = p.rev < view.review.rev && p.status === 'accepted';
+    if (!open || carried) return el('span', { class: `mark ${p.status}`, text: carried && open ? 'Accepted · kept from the last revision' : MARKS[p.status] || p.status });
+    const button = (m, label, on) => {
+      const b = el('button', { class: `btn${on ? ' on' : ''}`, type: 'button', text: label, 'aria-pressed': on ? 'true' : 'false' });
+      b.addEventListener('click', () => (m === 'revise' ? showNote() : void mark(p, m)));
+      return b;
+    };
+    const noteId = `note-${p.id}`;
+    const box = el('div', { class: 'note-edit', hidden: p.status !== 'revised' ? '' : null }, [
+      el('label', { class: 'sr-only', for: noteId, text: `What to change in "${p.title}"` }),
+      el('textarea', { id: noteId, rows: '2', maxlength: '1000', placeholder: 'What should change? Your note goes back to the advisor.' }),
+      el('button', { class: 'btn', type: 'button', text: 'Save note' }),
+    ]);
+    if (p.status !== 'revised') box.hidden = true;
+    const area = box.querySelector('textarea');
+    area.value = p.note || '';
+    box.querySelector('button').addEventListener('click', () => void mark(p, 'revise', area.value));
+    function showNote() {
+      box.hidden = false;
+      area.focus();
+    }
+    return el('div', { class: 'review-acts' }, [
+      el('div', { class: 'btns' }, [button('accept', 'Accept proposal', p.status === 'accepted'), button('discard', 'Discard proposal', p.status === 'discarded'), button('revise', 'Revise (with note)', p.status === 'revised')]),
+      box,
+    ]);
+  }
+  function reportFoot(a, view) {
+    reviewing = a;
+    clearTimeout(reviewPoll);
+    const rv = view.review;
+    const ask = el('button', { class: 'btn ghost', type: 'button', text: 'Ask for a report now', title: 'A report from the last one to now' });
+    ask.addEventListener('click', () => void act(() => api(`/advisors/${encodeURIComponent(a.id)}/report`, { method: 'POST' })));
+    const err = el('span', { class: 'err', id: 'report-error', role: 'alert' });
+    if (rv.state === 'revising') {
+      // The advisor is answering your notes; look again shortly.
+      reviewPoll = setTimeout(() => {
+        if (reviewing === a && !$('view-advisor').hidden) void renderReport(a);
+      }, 3000);
+      return [el('span', { class: 'small muted', text: 'Sent back to revise; the advisor is answering your notes.' }), err];
+    }
+    if (rv.state === 'open') {
+      const accepted = view.proposals.filter((p) => p.status === 'accepted').length;
+      const summary = rv.unmarked ? `${rv.marked} of ${rv.marked + rv.unmarked} marked` : `${accepted} accepted${rv.toRevise ? ` · ${rv.toRevise} to revise` : ''}${view.proposals.length - accepted - rv.toRevise ? ` · ${view.proposals.length - accepted - rv.toRevise} discarded` : ''}`;
+      const send = el('button', { class: 'btn primary', type: 'button', text: rv.toRevise ? 'Revise report' : 'Accept report', disabled: rv.send ? null : '' });
+      if (!rv.send) send.disabled = true;
+      send.title = rv.send ? (rv.send === 'accept' ? 'Applies the accepted changes and tracks each as an experiment' : 'Sends your notes back to the advisor') : 'Mark every proposal first';
+      send.addEventListener('click', () => void act(() => api(`/advisors/${encodeURIComponent(a.id)}/report/${rv.rev}?id=${encodeURIComponent(view.report.id)}`, { method: 'POST' })));
+      return [el('span', { class: 'small muted', text: `${summary}. You can switch a choice until you send.` }), el('div', { class: 'btns' }, [err, send])];
+    }
+    const done = rv.state === 'accepted' ? [el('span', { class: 'small muted' }, [document.createTextNode('Accepted: the accepted changes are running as '), el('a', { href: '#view=experiments', text: 'experiments' }), document.createTextNode('.')])] : [];
+    return [...done, el('div', { class: 'btns' }, [err, ask])];
+  }
 
   function showProblems(problems) {
     $('problems').hidden = !problems || problems.length === 0;

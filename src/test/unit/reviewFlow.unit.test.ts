@@ -115,6 +115,7 @@ async function main() {
     assert.deepStrictEqual(statuses(v.proposals), [['Catch smaller cache rewrites', 'accepted'], ["Cap a session's spend", 'open']], 'the discarded stalls change and the repeat of the accepted one are dropped');
     assert.strictEqual(v.proposals[0].id, before.proposals[0].id, 'the accepted proposal carries over as itself');
     assert.strictEqual(v.proposals[1].replaces, before.proposals[1].id);
+    assert.deepStrictEqual(v.replaced.map((p) => [p.id, p.note]), [[before.proposals[1].id, 'The RFC sessions need long context. Try a session budget.']], 'the page shows what each revised proposal replaced, with your note');
     assert.strictEqual(v.report.revisions![1].summary, 'Cache hits fell 7 points.', 'a revision keeps the summary when the model gives none');
     assert.deepStrictEqual(v.report.revisions![0].sent?.as, 'revise');
     assert.strictEqual((await mark(v.proposals[0].id, 'discard')).status, 409, 'a carried-over accepted proposal stays accepted');

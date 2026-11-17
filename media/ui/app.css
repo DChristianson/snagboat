@@ -257,3 +257,10 @@ a.btn { text-decoration: none; display: inline-block; }
 .prop .mark { font-size: 11px; color: var(--sb-ink-muted); }
 .prop .mark.accepted, .prop .mark.kept { color: var(--sb-ok); }
 .report .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--sb-rule); flex-wrap: wrap; }
+.review-acts { display: grid; gap: 6px; }
+.btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.btn.on { background: var(--sb-active-bg); color: var(--sb-active-ink); }
+.btn.on::before { content: "✓ "; }
+.btn.primary:disabled { background: var(--sb-button-bg, var(--sb-panel)); color: var(--sb-ink-muted); }
+.note-edit { display: grid; gap: 6px; justify-items: start; }
+.note-edit textarea { width: 100%; font: inherit; font-size: 12px; padding: 6px 8px; border: 1px solid var(--sb-rule); border-radius: 4px; background: var(--sb-surface, transparent); color: inherit; }
