@@ -8,6 +8,8 @@ export interface Provenance {
   addedAt: string;
   /** The workspace whose history it was discovered in or scored against; discovery reads only the current workspace's. */
   workspace?: string;
+  /** The experiment that added it (docs/design/goal-tracking-lifecycle.md), reverted with it. */
+  experiment?: string;
   /** Replay over your history at acceptance: episodes it would have raised, in how many sessions. */
   replay?: { episodes: number; sessions: number };
 }

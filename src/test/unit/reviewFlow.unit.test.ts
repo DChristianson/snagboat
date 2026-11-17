@@ -2,12 +2,12 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { Proposal } from '@snagboat/schema';
+import { Experiment, Proposal } from '@snagboat/schema';
 import { approvalKey } from '../../advisor/advisors';
 import { DEFAULT_PERSONAS } from '../../advisor/goals';
 import { FetchLike } from '../../advisor/providers';
 import { writeApprovals } from '../../core/advisorApprovals';
-import { saveConfig } from '../../core/config';
+import { configHost, loadConfig, saveConfig } from '../../core/config';
 import { CoreAdvisors } from '../../core/service/advisorModels';
 import { ReportView } from '../../core/service/advisorReports';
 import { coreRequest, readCoreFile } from '../../core/service/coreFile';
@@ -121,6 +121,25 @@ async function main() {
     const numbersOnly = await call('POST', '/advisors/navigator/report/1');
     assert.deepStrictEqual([numbersOnly.status, (numbersOnly.body as { error: string }).error], [409, 'this report has the numbers only; there is nothing to send'], 'navigator has no model');
     assert.strictEqual((await call('POST', '/advisors/nobody/report/1')).status, 404);
+  });
+
+  test('Accept report starts an experiment per accepted proposal, changing exactly those settings; revert puts them back', async () => {
+    const list = (await call('GET', '/experiments')).body as { experiments: Experiment[] };
+    assert.deepStrictEqual(list.experiments.map((x) => [x.title, x.status]).sort(), [['Cap a session\'s spend', 'running'], ['Catch smaller cache rewrites', 'running']]);
+    const { config } = loadConfig(home);
+    assert.strictEqual(config.defaults['heuristics.cacheThrash.minTokens'], 30000);
+    assert.deepStrictEqual(config.projects[w], { 'tokenBudget.session': 600000 });
+    assert.strictEqual(configHost(home, w).get('snagboat.heuristics.cacheThrash', 'minTokens', 50000), 30000, 'what the running heuristics read');
+    assert.strictEqual(((await call('GET', '/experiments?advisor=navigator')).body as { experiments: unknown[] }).experiments.length, 0);
+    assert.strictEqual((await call('GET', '/experiments?status=maybe')).status, 400);
+    const budget = list.experiments.find((x) => x.change.kind === 'setting' && x.change.key === 'tokenBudget.session')!;
+    const reverted = await call('POST', `/experiments/${budget.id}`, { action: 'revert' });
+    assert.deepStrictEqual([reverted.status, (reverted.body as { experiment: Experiment }).experiment.ended?.how], [200, 'reverted']);
+    assert.deepStrictEqual(loadConfig(home).config.projects[w], {});
+    assert.strictEqual((await call('POST', `/experiments/${budget.id}`, { action: 'revert' })).status, 409);
+    assert.strictEqual((await call('POST', '/experiments/nope', { action: 'revert' })).status, 404);
+    const minted = await call('POST', '/tokens', { workspaces: [w] });
+    assert.strictEqual((await coreRequest(info.port, (minted.body as { token: string }).token, 'GET', '/experiments')).status, 403);
   });
 
   let failures = 0;

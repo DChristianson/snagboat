@@ -30,6 +30,7 @@ import { MEASURES } from '../../advisor/measures';
 import { CoreAdvisors } from './advisorModels';
 import { PERIOD_CHECK_MS, PeriodJob } from './periodJob';
 import { AdvisorReports, ReviewError } from './advisorReports';
+import { ExperimentStore } from '../experiments';
 import { ProposalStore } from '../proposals';
 import { advisorTemplates, checkNewAdvisor, CUE_COLORS, CUE_ICONS, writeNewAdvisor } from '../../advisor/newAdvisor';
 import { builtInHeuristics } from '../../heuristics';
@@ -93,6 +94,8 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *   GET  /advisors/:id/report  an advisor's latest period report (?id= for another) and the list of them;
  *                              POST asks for one now (admin or reader: reports cover every workspace)
  *   POST /proposals/:id        { mark: accept | discard | revise, note }: your mark, switchable until sent
+ *   GET  /experiments          every experiment (?advisor=a,b&status=running|ended); POST /experiments/:id
+ *                              { action: revert } puts back what its change replaced
  *   POST /advisors/:id/report/:rev  send that revision back (?id= for an older report): Accept report, or
  *                              Revise report when a proposal is marked revise (the model answers in the background)
  *   GET  /advisor-form         the + form's choices: measures, rules an advisor can speak for, templates (step 5c)
@@ -252,6 +255,7 @@ export class CoreService {
   private readonly sessionPages: SessionPages;
   private readonly suggestions: SuggestionsService;
   private readonly reports: AdvisorReports;
+  private readonly experiments: ExperimentStore;
   /** Streams that want findings, told of each change. */
   private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
@@ -301,7 +305,20 @@ export class CoreService {
     this.sessionPages = new SessionPages(opts.home, this.findings);
     // One set of model advisors, so a request waiting for your approval is the same one wherever it shows.
     const models = new CoreAdvisors(opts.home, opts.fetchImpl, (line) => this.log(line));
-    this.reports = new AdvisorReports(new PeriodJob(opts.home, opts.now, (line) => this.log(line)), new ProposalStore(opts.home, opts.now), models, undefined, opts.now, (line) => this.log(line));
+    // An applied or reverted change reaches the running heuristics on their next run; run them now.
+    this.experiments = new ExperimentStore(opts.home, opts.now, () => this.findings.tick());
+    this.reports = new AdvisorReports(
+      new PeriodJob(opts.home, opts.now, (line) => this.log(line)),
+      new ProposalStore(opts.home, opts.now),
+      models,
+      () => this.experiments.list(),
+      opts.now,
+      (line) => this.log(line),
+      async (_advisor, report, accepted) => {
+        const started = await this.experiments.start(report, accepted);
+        for (const x of started) this.log(`experiment ${x.id} started: ${x.title}`);
+      }
+    );
     this.suggestions = new SuggestionsService(opts.home, this.findings, (line) => this.log(line), { workerIdleMs: opts.discoveryWorkerIdleMs, advisors: models });
     // Outcomes (RFC step 4): tests going green, worked out from what's written and written back.
     const testsGreen = new TestsGreen();
@@ -558,6 +575,8 @@ export class CoreService {
       if (route === 'GET /suggestions') return send(200, await this.suggestionsView(scope, url.searchParams.get('workspace')));
       if (route === 'POST /suggestions') return send(200, await this.suggestionsAct(scope, await this.readBody(req, 4096)));
       if (route === 'GET /today') return send(200, await this.today(scope, url.searchParams.get('workspace')));
+      if (route === 'GET /experiments') return send(200, this.listExperiments(scope, url.searchParams));
+      if (req.method === 'POST' && url.pathname.startsWith('/experiments/')) return send(200, await this.actOnExperiment(scope, decodeURIComponent(url.pathname.slice('/experiments/'.length)), await this.readBody(req, 4096)));
       const sendMatch = req.method === 'POST' ? /^\/advisors\/([^/]+)\/report\/(\d+)$/.exec(url.pathname) : null;
       if (sendMatch) return send(200, await this.sendReport(scope, decodeURIComponent(sendMatch[1]), url.searchParams.get('id'), Number(sendMatch[2])));
       if (req.method === 'POST' && url.pathname.startsWith('/proposals/')) return send(200, await this.markProposal(scope, decodeURIComponent(url.pathname.slice('/proposals/'.length)), await this.readBody(req, 8192)));
@@ -845,6 +864,28 @@ export class CoreService {
     if (!view) throw new HttpError(404, reportId === null ? `${advisor} has no report yet` : `${advisor} has no report ${reportId}`);
     const all = this.reports.job.list(advisor);
     return { ...view, reports: all.map((r) => ({ id: r.id, label: r.label, from: r.from, to: r.to, trigger: r.trigger })) };
+  }
+
+  /** GET /experiments[?advisor=a,b][&status=running|ended]: every experiment, newest first. */
+  private listExperiments(scope: Scope, q: URLSearchParams) {
+    if (!readsAll(scope)) throw new HttpError(403, 'experiments are yours across every workspace; this token reads only its own');
+    const advisors = (q.get('advisor') ?? '').split(',').filter(Boolean);
+    const status = q.get('status');
+    if (status !== null && status !== 'running' && status !== 'ended') throw new HttpError(400, 'status is running or ended');
+    return { experiments: this.experiments.list().filter((x) => (!advisors.length || advisors.includes(x.advisor)) && (status === null || x.status === status)) };
+  }
+
+  /** POST /experiments/:id { action: revert }: puts back what the change replaced, and ends the experiment. */
+  private async actOnExperiment(scope: Scope, id: string, body: unknown) {
+    if (!readsAll(scope)) throw new HttpError(403, 'experiments are yours across every workspace; this token reads only its own');
+    const action = (body as { action?: unknown } | undefined)?.action;
+    if (action !== 'revert') throw new HttpError(400, 'action is revert');
+    if (!this.experiments.get(id)) throw new HttpError(404, `no experiment ${id}`);
+    try {
+      return { experiment: await this.experiments.revert(id) };
+    } catch (err) {
+      throw new HttpError(409, err instanceof Error ? err.message : String(err));
+    }
   }
 
   /** POST /proposals/:id { mark: accept | discard | revise, note }: your mark on a proposal, switchable until its revision is sent. */
