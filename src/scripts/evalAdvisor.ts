@@ -3,7 +3,7 @@
  * models or advisors, and writes their answers side by side, so default
  * models and prompts are picked from real use. Dev tooling only; never shipped.
  *
- *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--base-url <url>] [--ability summarize-session|propose-tactics|propose-heuristics] [--prompts both|on|off] [--sessions 2] [--all-projects | <session.jsonl> ...]
+ *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--base-url <url>] [--ability summarize-session|propose-tactics|propose-heuristics|performance-report] [--prompts both|on|off] [--sessions 2] [--all-projects | <session.jsonl> ...]
  *   npm run eval:advisor -- --advisor spend,risk [--settings <settings.json>] [--ability ...] ...
  *
  * --models asks each model at --base-url (Ollama on this machine by default)
@@ -18,6 +18,11 @@
  * the sessions and asks each run to name its candidates, propose rules, and
  * group shell commands, through the Suggestions tab's own controller, so
  * what's kept or dropped is exactly what the tab would show.
+ *
+ * --ability performance-report asks each run for the goal advisors' latest period reports, from the
+ * per-user store (~/.snagboat, or SNAGBOAT_HOME), as the core would, and checks each answer against the
+ * advisor contract (performanceReport.ts): what was kept and what was dropped, and why. It reads the
+ * store and writes nothing to it; the running experiments and last round come from it too.
  *
  * --prompts (summarize-session only; default both) runs each case with and
  * without the turns' prompt text, so the gain from prompts is measured, not
@@ -40,6 +45,9 @@ import { Capability } from '../advisor/advisors';
 import { buildDigest, digestForReading, DigestFinding, DigestPolicy, HOSTED_POLICY, LOCAL_POLICY, SessionDigest } from '../advisor/digest';
 import { PromptLayers } from '../advisor/prompts';
 import { proposeHeuristicsMessages, weakAction } from '../advisor/proposeHeuristics';
+import { parseReportAnswer, performanceReportMessages } from '../advisor/performanceReport';
+import { ProposalStore } from '../core/proposals';
+import { PeriodJob } from '../core/service/periodJob';
 import { heuristicEffectiveness } from '../review/effectiveness';
 import { proposeTacticsMessages } from '../advisor/proposeTactics';
 import { complete, Completion, FetchLike, isLocalUrl, promptWasCut, ProviderConfig } from '../advisor/providers';
@@ -245,6 +253,46 @@ async function evalPropose(events: NormalizedEvent[], runs: Run[]): Promise<stri
   return report;
 }
 
+/** Each goal advisor's latest period report, asked of each run and checked against the advisor contract. */
+async function evalPerformanceReport(runs: Run[]): Promise<string[]> {
+  const home = process.env.SNAGBOAT_HOME ?? path.join(os.homedir(), '.snagboat');
+  const job = new PeriodJob(home);
+  const proposals = new ProposalStore(home);
+  const out = [`# Advisor evaluation: performance report`, '', `${new Date().toISOString()} · store ${home} · runs: ${runs.map((r) => r.label).join(', ')}`, ''];
+  const advisors = job.advisors().filter((a) => job.get(a.id));
+  if (!advisors.length) {
+    console.error(`No period reports in ${home} yet: the core writes one per advisor once a period closes, or POST /advisors/<id>/report.`);
+    return [...out, 'No period reports yet.'];
+  }
+  for (const advisor of advisors) {
+    const report = job.get(advisor.id)!;
+    const before = report.previous ? job.get(advisor.id, report.previous) : undefined;
+    const lastRound = before?.revisions?.length ? proposals.forReport(advisor.id, before.id, before.revisions.length) : [];
+    const input = { advisor, report, experiments: [], lastRound, discarded: proposals.discarded(advisor.id) };
+    out.push(`## ${advisor.name}: ${report.id}`, '', report.summary, '');
+    for (const run of runs) {
+      const policy = run.policy('propose-heuristics');
+      if (!policy) {
+        console.log(`${advisor.id.padEnd(12)} ${run.label.padEnd(30)} doesn't offer propose-heuristics`);
+        continue;
+      }
+      const messages = performanceReportMessages({ ...input, policy });
+      const started = Date.now();
+      try {
+        const completion = await complete({ ...run.provider }, messages, run.apiKey, fetch as unknown as FetchLike, true);
+        const parsed = parseReportAnswer(completion.text, input);
+        const secs = ((Date.now() - started) / 1000).toFixed(1);
+        console.log(`${advisor.id.padEnd(12)} ${run.label.padEnd(30)} ${secs.padStart(6)}s  ${parsed.proposals.length} kept, ${parsed.problems.length} dropped${promptWasCut(completion, messages) ? ', PROMPT CUT' : ''}`);
+        out.push(`### ${run.label} (${secs}s)`, '', `**Summary:** ${parsed.summary || '(none)'}`, '', '**Proposals kept**', '', ...(parsed.proposals.length ? parsed.proposals.map((p) => `- **${p.title}** (${p.scope === 'global' ? 'global' : 'one workspace'}): ${JSON.stringify(p.change)}. ${p.what} Why: ${p.why} Prediction: ${p.prediction.text}`) : ['- none']), '', '**Dropped**', '', ...(parsed.problems.length ? parsed.problems.map((p) => `- ${p}`) : ['- nothing']), '', '<details><summary>Raw answer</summary>', '', '```', completion.text, '```', '', '</details>', '');
+      } catch (err) {
+        console.log(`${advisor.id.padEnd(12)} ${run.label.padEnd(30)} error: ${err instanceof Error ? err.message : String(err)}`);
+        out.push(`### ${run.label}`, '', `Error: ${err instanceof Error ? err.message : String(err)}`, '');
+      }
+    }
+  }
+  return out;
+}
+
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
   const models = (arg(args, '--models') ?? '').split(',').map((m) => m.trim()).filter(Boolean);
@@ -265,6 +313,16 @@ async function main(): Promise<number> {
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     return 1;
+  }
+
+  if (ability === 'performance-report') {
+    const report = await evalPerformanceReport(runs);
+    const outDir = path.join(process.cwd(), 'out', 'eval');
+    fs.mkdirSync(outDir, { recursive: true });
+    const file = path.join(outDir, `report-${new Date().toISOString().replace(/[:.]/g, '-')}.md`);
+    fs.writeFileSync(file, report.join('\n') + '\n');
+    console.log(`\nReport: ${file}`);
+    return 0;
   }
 
   const files = args.length > 0 ? args : defaultSessions(allProjects);

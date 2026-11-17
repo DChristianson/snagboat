@@ -29,6 +29,8 @@ import { ADVISOR_PERIODS, loadAdvisorGoals } from '../../advisor/goals';
 import { MEASURES } from '../../advisor/measures';
 import { CoreAdvisors } from './advisorModels';
 import { PERIOD_CHECK_MS, PeriodJob } from './periodJob';
+import { AdvisorReports } from './advisorReports';
+import { ProposalStore } from '../proposals';
 import { advisorTemplates, checkNewAdvisor, CUE_COLORS, CUE_ICONS, writeNewAdvisor } from '../../advisor/newAdvisor';
 import { builtInHeuristics } from '../../heuristics';
 import { RuleStore } from '../../heuristics/ruleStore';
@@ -133,6 +135,8 @@ export interface CoreOptions {
   gitOutcomesEveryMs?: number;
   /** How often advisors' period reports are checked for being due; default hourly, the first a minute after start (0: never). */
   periodEveryMs?: number;
+  /** fetch for the core's model requests (tests). */
+  fetchImpl?: import('../../advisor/providers').FetchLike;
   /** The clock period reports use (tests). */
   now?: () => Date;
   /** How often followed workspaces' heuristics run with no new events; default 30 seconds. */
@@ -244,7 +248,7 @@ export class CoreService {
   private readonly findings: FindingsService;
   private readonly sessionPages: SessionPages;
   private readonly suggestions: SuggestionsService;
-  private readonly periodReports: PeriodJob;
+  private readonly reports: AdvisorReports;
   /** Streams that want findings, told of each change. */
   private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
@@ -292,8 +296,10 @@ export class CoreService {
     });
     this.writer.onWritten((workspace, events) => this.findings.ingest(workspace, events));
     this.sessionPages = new SessionPages(opts.home, this.findings);
-    this.periodReports = new PeriodJob(opts.home, opts.now, (line) => this.log(line));
-    this.suggestions = new SuggestionsService(opts.home, this.findings, (line) => this.log(line), { workerIdleMs: opts.discoveryWorkerIdleMs });
+    // One set of model advisors, so a request waiting for your approval is the same one wherever it shows.
+    const models = new CoreAdvisors(opts.home, opts.fetchImpl, (line) => this.log(line));
+    this.reports = new AdvisorReports(new PeriodJob(opts.home, opts.now, (line) => this.log(line)), new ProposalStore(opts.home, opts.now), models, undefined, opts.now, (line) => this.log(line));
+    this.suggestions = new SuggestionsService(opts.home, this.findings, (line) => this.log(line), { workerIdleMs: opts.discoveryWorkerIdleMs, advisors: models });
     // Outcomes (RFC step 4): tests going green, worked out from what's written and written back.
     const testsGreen = new TestsGreen();
     this.writer.onWritten((workspace, events) => {
@@ -358,7 +364,11 @@ export class CoreService {
     // Advisors' period reports (goal tracking lifecycle): catch up on start, then check hourly.
     const periodEveryMs = opts.periodEveryMs ?? PERIOD_CHECK_MS;
     if (periodEveryMs > 0) {
-      const runPeriods = () => void core.periodReports.runDue().catch((err) => core.log(`period reports failed: ${err instanceof Error ? err.message : String(err)}`));
+      const runPeriods = () =>
+        void core.reports.job
+          .runDue()
+          .then((written) => written.forEach((r) => core.reports.answerLater(r.advisor, r.id)))
+          .catch((err) => core.log(`period reports failed: ${err instanceof Error ? err.message : String(err)}`));
       const firstPeriods = setTimeout(runPeriods, Math.min(60_000, periodEveryMs));
       core.timers.push(firstPeriods as unknown as NodeJS.Timeout);
       core.timers.push(setInterval(runPeriods, periodEveryMs));
@@ -825,17 +835,20 @@ export class CoreService {
   private periodReport(scope: Scope, advisor: string, reportId: string | null) {
     if (!readsAll(scope)) throw new HttpError(403, "period reports cover every workspace; this token reads only its own");
     if (!/^[a-z][a-z0-9-]*$/.test(advisor)) throw new HttpError(400, 'no such advisor');
-    const all = this.periodReports.list(advisor);
-    const report = reportId === null ? all[all.length - 1] : all.find((r) => r.id === reportId);
-    if (!report) throw new HttpError(404, reportId === null ? `${advisor} has no report yet` : `${advisor} has no report ${reportId}`);
-    return { report, reports: all.map((r) => ({ id: r.id, label: r.label, from: r.from, to: r.to, trigger: r.trigger })) };
+    const view = this.reports.view(advisor, reportId ?? undefined);
+    if (!view) throw new HttpError(404, reportId === null ? `${advisor} has no report yet` : `${advisor} has no report ${reportId}`);
+    const all = this.reports.job.list(advisor);
+    return { ...view, reports: all.map((r) => ({ id: r.id, label: r.label, from: r.from, to: r.to, trigger: r.trigger })) };
   }
 
   /** POST /advisors/:id/report: a report now, from the advisor's last one to now (admin or reader: advisors are yours). */
   private async requestReport(scope: Scope, advisor: string) {
     if (!readsAll(scope)) throw new HttpError(403, "period reports cover every workspace; this token reads only its own");
     try {
-      return { report: await this.periodReports.request(advisor) };
+      const report = await this.reports.job.request(advisor);
+      // The model answers in the background (it may wait for your approval); GET shows its revision once it has.
+      this.reports.answerLater(advisor, report.id);
+      return { report };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new HttpError(/^no advisor/.test(message) ? 404 : 500, message);

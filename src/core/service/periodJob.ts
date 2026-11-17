@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { ReportRevision } from '@snagboat/schema';
 import { AdvisorGoal, loadAdvisorGoals } from '../../advisor/goals';
 import { buildPeriodReport, eventsIn, nextPeriod, periodLabel, PeriodReport, periodStart, previousPeriod, RulesInForce } from '../../advisor/report';
 import { RuleStore } from '../../heuristics/ruleStore';
@@ -10,7 +11,8 @@ import { listUserStores } from '../userStore';
 /**
  * Period reports in the core (docs/design/goal-tracking-lifecycle.md, snagboat-79f.7.2). Each advisor
  * reports once a period, or when you ask; the core writes each report once, to
- * ~/.snagboat/advisors/<id>/periods/<report id>.json, and never rewrites it. There's no job runner: the
+ * ~/.snagboat/advisors/<id>/periods/<report id>.json. Its measures and rules are frozen: the only later
+ * changes are the model's answers, added as revisions (addRevision), and how each was sent back. There's no job runner: the
  * core checks hourly while it's up, and on start it catches up the periods that closed while it was
  * down (at most MAX_CATCH_UP of them per advisor).
  *
@@ -60,7 +62,37 @@ export class PeriodJob {
     return id === undefined ? all[all.length - 1] : all.find((r) => r.id === id);
   }
 
-  private advisors(): AdvisorGoal[] {
+  /** Adds the model's answer to a report as its next revision. Nothing else in the report changes. */
+  addRevision(advisor: string, id: string, revision: ReportRevision): PeriodReport {
+    const report = this.readFile(advisor, id);
+    const revisions = report.revisions ?? [];
+    if (revision.rev !== revisions.length + 1) throw new Error(`${advisor} ${id} is at revision ${revisions.length}; can't add ${revision.rev}`);
+    return this.replaceFile(advisor, id, { ...report, revisions: [...revisions, revision] });
+  }
+
+  /** Records how a revision was sent back: accept report, or revise report (snagboat-79f.7.7). */
+  markSent(advisor: string, id: string, rev: number, sent: NonNullable<ReportRevision['sent']>): PeriodReport {
+    const report = this.readFile(advisor, id);
+    const revisions = (report.revisions ?? []).map((r) => (r.rev === rev ? { ...r, sent } : r));
+    if (!revisions.some((r) => r.rev === rev)) throw new Error(`${advisor} ${id} has no revision ${rev}`);
+    return this.replaceFile(advisor, id, { ...report, revisions });
+  }
+
+  private readFile(advisor: string, id: string): PeriodReport {
+    if (!REPORT_ID.test(id)) throw new Error(`no report ${id}`);
+    return JSON.parse(fs.readFileSync(path.join(this.dir(advisor), `${id}.json`), 'utf8')) as PeriodReport;
+  }
+
+  private replaceFile(advisor: string, id: string, report: PeriodReport): PeriodReport {
+    const file = path.join(this.dir(advisor), `${id}.json`);
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, file);
+    return report;
+  }
+
+  /** The goal advisors: the built-ins and your persona.md files. */
+  advisors(): AdvisorGoal[] {
     const { advisors, problems } = loadAdvisorGoals(path.join(this.home, 'advisors'));
     for (const p of problems) this.log(`advisor: ${p}`);
     return advisors;
