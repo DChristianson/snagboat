@@ -90,6 +90,19 @@ async function main() {
     assert.ok(parseFrontMatter('---\nid: x\ngoal: y\n  stray: z\n---\n').problems.length === 1, 'indented under a key with a value');
   });
 
+  test('period and model: weekly and none when absent, checked when given', () => {
+    const base = '---\nid: q\ngoal: g\n';
+    const plain = parseAdvisor(base + '---\nvoice\n', 'x').advisor!;
+    assert.deepStrictEqual([plain.period, plain.model], ['weekly', undefined]);
+    const set = parseAdvisor(base + 'period: monthly\nmodel: local-qwen\n---\n', 'x').advisor!;
+    assert.deepStrictEqual([set.period, set.model], ['monthly', 'local-qwen']);
+    const bad = parseAdvisor(base + 'period: hourly\nmodel: Big Model\n---\n', 'x');
+    assert.deepStrictEqual([bad.advisor!.period, bad.advisor!.model], ['weekly', undefined]);
+    assert.ok(bad.problems.some((p) => /"period" is one of daily, weekly, monthly/.test(p)), bad.problems.join(' | '));
+    assert.ok(bad.problems.some((p) => /"model" is the id of an advisor/.test(p)), bad.problems.join(' | '));
+    for (const text of Object.values(DEFAULT_PERSONAS)) assert.strictEqual(parseAdvisor(text, 'built-in').advisor!.period, 'weekly');
+  });
+
   test('the four are built in; a persona.md with front matter replaces or adds one; one without only gives a voice', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-advisors-'));
     assert.deepStrictEqual(loadAdvisorGoals(dir).advisors.map((a) => a.id), ['purser', 'navigator', 'bosun', 'lookout']);

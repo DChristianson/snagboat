@@ -120,6 +120,16 @@
           <input id="add-max" type="number" min="0" max="20" step="1" value="2">
           <span class="hint small muted">0: it never notifies.</span>
         </div>
+        <div class="field">
+          <label for="add-period">Reports</label>
+          <select id="add-period"></select>
+          <span class="hint small muted">How often it reports on its goal. You can always ask for a report.</span>
+        </div>
+        <div class="field">
+          <label for="add-model">Model</label>
+          <select id="add-model"><option value="">None: numbers only</option></select>
+          <span class="hint small muted">The model that writes its reports, from your advisor settings (snagboat.advisors).</span>
+        </div>
         <fieldset class="field">
           <legend>Look</legend>
           <div class="swatches" id="add-colors"></div>

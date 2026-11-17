@@ -635,6 +635,8 @@
     $('add-status').value = t ? t.status : '';
     $('add-goal').value = t ? t.goal : '';
     $('add-max').value = String(t ? t.maxPerHour : 2);
+    $('add-period').value = t ? t.period : 'weekly';
+    $('add-model').value = t && t.model && addForm.models.some((m) => m.id === t.model) ? t.model : '';
     $('add-voice').value = t ? t.voice : '';
     for (const box of document.querySelectorAll('#add-measures input')) box.checked = !!t && t.measures.includes(box.value);
     for (const box of document.querySelectorAll('#add-rules input')) box.checked = !!t && t.rules.includes(box.value);
@@ -647,6 +649,8 @@
     $('add-template').replaceChildren(el('option', { value: '', text: 'A blank advisor' }), ...addForm.templates.map((t) => el('option', { value: t.from, text: `A copy of ${t.name}` })));
     $('add-measures').replaceChildren(...addForm.measures.map((m) => checkbox('measure', m.id, m.label, m.notYet ? 'not measured yet' : '')));
     $('add-rules').replaceChildren(...addForm.rules.map((r) => checkbox('rule', r.id, r.title ? `${r.id}: ${r.title}` : r.id)));
+    $('add-period').replaceChildren(...addForm.periods.map((p) => el('option', { value: p, text: p[0].toUpperCase() + p.slice(1) })));
+    $('add-model').replaceChildren(el('option', { value: '', text: 'None: numbers only' }), ...addForm.models.map((m) => el('option', { value: m.id, text: m.model ? `${m.label} (${m.model})` : m.label })));
     $('add-colors').replaceChildren(...addForm.colors.map((c) => radio('color', c, [el('span', { class: `glyph cue-${c}` }, [glyph('default', 14)]), document.createTextNode(c)])));
     $('add-icons').replaceChildren(...addForm.icons.map((i) => radio('icon', i, [el('span', { class: 'glyph' }, [glyph(i, 16)]), document.createTextNode(i)])));
     fillAdd(null);
@@ -663,6 +667,8 @@
         measures: picked('#add-measures input'),
         rules: picked('#add-rules input'),
         maxPerHour: Number($('add-max').value),
+        period: $('add-period').value,
+        model: $('add-model').value,
         color: picked('#add-colors input')[0],
         icon: picked('#add-icons input')[0],
         voice: $('add-voice').value,

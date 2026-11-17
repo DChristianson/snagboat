@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { AdvisorGoal, DEFAULT_PERSONAS, parseAdvisor } from './goals';
+import { ADVISOR_PERIODS, AdvisorGoal, AdvisorPeriod, DEFAULT_PERIOD, DEFAULT_PERSONAS, parseAdvisor } from './goals';
 import { MEASURES } from './measures';
 
 /**
@@ -24,6 +24,10 @@ export interface NewAdvisor {
   /** Heuristic or rule ids whose notifications it speaks for. */
   rules: string[];
   maxPerHour: number;
+  /** How often it reports. */
+  period: AdvisorPeriod;
+  /** The model advisor that writes its reports, if any. */
+  model?: string;
   color: (typeof CUE_COLORS)[number];
   icon: (typeof CUE_ICONS)[number];
   voice: string;
@@ -49,8 +53,8 @@ export function advisorId(name: string): string {
 const quoted = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 const oneLine = (s: unknown) => (typeof s === 'string' ? s.replace(/[\r\n\t]+/g, ' ').trim() : '');
 
-/** Checks the form; problems in plain words, or the cleaned spec. */
-export function checkNewAdvisor(input: unknown, knownRules: Iterable<string>): { spec?: NewAdvisor; problems: string[] } {
+/** Checks the form; problems in plain words, or the cleaned spec. knownModels: the model advisors it may name. */
+export function checkNewAdvisor(input: unknown, knownRules: Iterable<string>, knownModels: Iterable<string> = []): { spec?: NewAdvisor; problems: string[] } {
   const v = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
   const problems: string[] = [];
   const name = oneLine(v.name);
@@ -78,12 +82,16 @@ export function checkNewAdvisor(input: unknown, knownRules: Iterable<string>): {
   if (unknownRules.length) problems.push(`No such heuristic or rule: ${unknownRules.join(', ')}.`);
   const maxPerHour = Number(v.maxPerHour);
   if (!Number.isInteger(maxPerHour) || maxPerHour < 0 || maxPerHour > LIMITS.maxPerHour) problems.push(`Notifications an hour: a whole number from 0 to ${LIMITS.maxPerHour}.`);
+  const period = v.period === undefined || v.period === '' ? DEFAULT_PERIOD : ADVISOR_PERIODS.find((p) => p === v.period);
+  if (!period) problems.push(`How often it reports: ${ADVISOR_PERIODS.join(', ')}.`);
+  const model = typeof v.model === 'string' && v.model ? v.model : undefined;
+  if (model && ![...knownModels].includes(model)) problems.push(`No model advisor called ${model} in your settings (snagboat.advisors).`);
   const color = CUE_COLORS.find((c) => c === v.color);
   const icon = CUE_ICONS.find((c) => c === v.icon);
   if (!color) problems.push(`Pick a color: ${CUE_COLORS.join(', ')}.`);
   if (!icon) problems.push(`Pick an icon: ${CUE_ICONS.join(', ')}.`);
   if (problems.length) return { problems };
-  return { spec: { name, status, goal, measures, rules, maxPerHour, color: color!, icon: icon!, voice }, problems };
+  return { spec: { name, status, goal, measures, rules, maxPerHour, period: period!, ...(model ? { model } : {}), color: color!, icon: icon!, voice }, problems };
 }
 
 /** persona.md for a new advisor. */
@@ -97,6 +105,8 @@ export function personaText(spec: NewAdvisor): string {
     `measures: [${spec.measures.join(', ')}]`,
     'reads: [events, findings, outcomes]',
     'may_change: [rules]',
+    `period: ${spec.period}`,
+    ...(spec.model ? [`model: ${spec.model}`] : []),
     'notify:',
     `  rules: [${spec.rules.join(', ')}]`,
     `  max_per_hour: ${spec.maxPerHour}`,
@@ -140,6 +150,8 @@ export function advisorTemplates(builtIns: AdvisorGoal[]): Array<Omit<NewAdvisor
     measures: a.measures,
     rules: a.notify.rules,
     maxPerHour: a.notify.maxPerHour ?? 0,
+    period: a.period,
+    ...(a.model ? { model: a.model } : {}),
     color: (CUE_COLORS as readonly string[]).includes(a.cue?.color ?? '') ? (a.cue!.color as NewAdvisor['color']) : 'blue',
     icon: (CUE_ICONS as readonly string[]).includes(a.cue?.icon ?? '') ? (a.cue!.icon as NewAdvisor['icon']) : 'compass',
     voice: a.voice,

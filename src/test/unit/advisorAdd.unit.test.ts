@@ -40,6 +40,19 @@ async function main() {
     assert.ok(checkNewAdvisor(null, rules).problems.length > 0);
   });
 
+  test('the form sets how often it reports and which model writes the reports', () => {
+    assert.strictEqual(checkNewAdvisor(form, rules).spec!.period, 'weekly', 'weekly when not given');
+    assert.strictEqual(checkNewAdvisor(form, rules).spec!.model, undefined);
+    const spec = checkNewAdvisor({ ...form, period: 'daily', model: 'local' }, rules, ['local']).spec!;
+    assert.deepStrictEqual([spec.period, spec.model], ['daily', 'local']);
+    const bad = checkNewAdvisor({ ...form, period: 'hourly', model: 'gpt' }, rules, ['local']).problems;
+    for (const re of [/daily, weekly, monthly/, /No model advisor called gpt/]) assert.ok(bad.some((p) => re.test(p)), `${re} in ${bad.join(' | ')}`);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-add-'));
+    writeNewAdvisor(dir, spec);
+    const a = loadAdvisorGoals(dir).advisors.find((x) => x.id === 'quartermaster')!;
+    assert.deepStrictEqual([a.period, a.model], ['daily', 'local']);
+  });
+
   test('persona.md reads back as the advisor the form describes, quotes and # included', () => {
     const spec = checkNewAdvisor(form, rules).spec!;
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-add-'));

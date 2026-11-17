@@ -25,8 +25,9 @@ import { NotWaiting, parseSuggestionAction, SuggestionsService } from './suggest
 import { SuggestionsView } from '../../discovery/suggestionsController';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
-import { loadAdvisorGoals } from '../../advisor/goals';
+import { ADVISOR_PERIODS, loadAdvisorGoals } from '../../advisor/goals';
 import { MEASURES } from '../../advisor/measures';
+import { CoreAdvisors } from './advisorModels';
 import { advisorTemplates, checkNewAdvisor, CUE_COLORS, CUE_ICONS, writeNewAdvisor } from '../../advisor/newAdvisor';
 import { builtInHeuristics } from '../../heuristics';
 import { RuleStore } from '../../heuristics/ruleStore';
@@ -795,6 +796,11 @@ export class CoreService {
     return [...out].map(([id, title]) => ({ id, ...(title ? { title } : {}) }));
   }
 
+  /** The local model advisors in your user settings, which a goal advisor's `model` may name. */
+  private modelAdvisors() {
+    return new CoreAdvisors(this.opts.home, undefined, this.log).advisors();
+  }
+
   /** GET /advisor-form: what the + form offers: measures, the rules an advisor can speak for, the built-ins as templates. */
   private async advisorForm() {
     const { advisors } = loadAdvisorGoals(path.join(this.opts.home, 'advisors'), () => undefined);
@@ -802,6 +808,8 @@ export class CoreService {
       measures: Object.entries(MEASURES).map(([id, m]) => ({ id, label: m.label, unit: m.unit, ...(m.notYet ? { notYet: m.notYet } : {}) })),
       rules: await this.knownRules(),
       templates: advisorTemplates(advisors),
+      periods: ADVISOR_PERIODS,
+      models: this.modelAdvisors().map((a) => ({ id: a.id, label: a.label, ...(a.model ? { model: a.model } : {}) })),
       colors: CUE_COLORS,
       icons: CUE_ICONS,
     };
@@ -813,7 +821,7 @@ export class CoreService {
    * as advisors are yours, not a workspace's.
    */
   private async addAdvisor(body: unknown): Promise<{ advisor: { id: string; name: string } }> {
-    const { spec, problems } = checkNewAdvisor(body, (await this.knownRules()).map((r) => r.id));
+    const { spec, problems } = checkNewAdvisor(body, (await this.knownRules()).map((r) => r.id), this.modelAdvisors().map((a) => a.id));
     if (!spec) throw new HttpError(400, problems.join(' '));
     try {
       const a = writeNewAdvisor(path.join(this.opts.home, 'advisors'), spec);
