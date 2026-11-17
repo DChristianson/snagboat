@@ -167,11 +167,13 @@ The components diagram here has one box the reviewed plan did not: the schema pa
 ## Open questions
 
 - Does the review flow live in the advisor UI in the browser, or in an agent terminal (VS Code Agent Mode)? Both get built, as clients of the same core routes (`snagboat-79f.7.13` and `.6`), and neither blocks the experiment store. What is left to decide, once both can be tried: whether to keep both, and whether an agent should be able to accept a rule change for you.
-- `server.ts` holds every route (about 1,000 lines) and hands most work to the service modules. Should the new advisor routes go in their own module instead of growing it? Needed for `snagboat-79f.7.2`.
 - An advisor with no model set up can still produce a report from the numbers alone: measures, trends and findings, with no written summary. Should that report also turn discovery's mined rule candidates into proposals, so the loop works without a model, or show the numbers only? Needed for `snagboat-79f.7.4`.
 - Which outcome sources should reports have before this ships? Built today: tests going green, finding responses, approvals and notifications, and from git: milestones, commits kept or reverted, and code survival. Planned but not built: a Beads adapter for milestones (closed issues), and the phase 8 heartbeat that tells a stalled agent from a sleeping laptop.
 
 ## Decided
+
+- The new advisor routes stay in `server.ts` as one dispatch line each; their logic lives in its own modules (`periodJob.ts` first). Decided November 17, 2026, building `snagboat-79f.7.2`.
+- A report covers the time since the advisor's last report, so a report you ask for and the scheduled ones chain with no gap or overlap. Scheduled reports are named by their period (`2026-W46`), asked-for ones `2026-W47-asked-1`. Periods start at local midnight, Monday or the 1st. Reports cover every workspace, so only tokens that read every workspace (the admin token, the advisor UI's) can see them.
 
 - Reports are weekly by default. Each advisor can set its own period, and you can always ask for a report.
 - Experiments that affect the same measure in the same scope may run together. When one fires while another is running, the core flags the overlap as a problem, and the report says the two results may be confounded.

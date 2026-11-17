@@ -28,6 +28,7 @@ import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
 import { ADVISOR_PERIODS, loadAdvisorGoals } from '../../advisor/goals';
 import { MEASURES } from '../../advisor/measures';
 import { CoreAdvisors } from './advisorModels';
+import { PERIOD_CHECK_MS, PeriodJob } from './periodJob';
 import { advisorTemplates, checkNewAdvisor, CUE_COLORS, CUE_ICONS, writeNewAdvisor } from '../../advisor/newAdvisor';
 import { builtInHeuristics } from '../../heuristics';
 import { RuleStore } from '../../heuristics/ruleStore';
@@ -87,6 +88,8 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              saved rules (step 5c-2); POST /suggestions { workspace, action, ... } acts on it
  *                              (any token, a reader's included: accepted rules and thresholds are yours)
  *   GET  /today?workspace=w     today's tokens, cache rate and milestones, and how many findings are showing (step 5d)
+ *   GET  /advisors/:id/report  an advisor's latest period report (?id= for another) and the list of them;
+ *                              POST asks for one now (admin or reader: reports cover every workspace)
  *   GET  /advisor-form         the + form's choices: measures, rules an advisor can speak for, templates (step 5c)
  *   POST /advisors             a new advisor from the form: ~/.snagboat/advisors/<id>/persona.md, never
  *                              overwriting one (any token, a reader's included: advisors are yours)
@@ -128,6 +131,10 @@ export interface CoreOptions {
   idleMs?: number;
   /** How often git outcomes are read (when collecting); default 6 hours, the first a minute after start. */
   gitOutcomesEveryMs?: number;
+  /** How often advisors' period reports are checked for being due; default hourly, the first a minute after start (0: never). */
+  periodEveryMs?: number;
+  /** The clock period reports use (tests). */
+  now?: () => Date;
   /** How often followed workspaces' heuristics run with no new events; default 30 seconds. */
   heuristicsEveryMs?: number;
   /** How often to move spooled events of workspaces no longer claimed; default 30 seconds. */
@@ -237,6 +244,7 @@ export class CoreService {
   private readonly findings: FindingsService;
   private readonly sessionPages: SessionPages;
   private readonly suggestions: SuggestionsService;
+  private readonly periodReports: PeriodJob;
   /** Streams that want findings, told of each change. */
   private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
@@ -284,6 +292,7 @@ export class CoreService {
     });
     this.writer.onWritten((workspace, events) => this.findings.ingest(workspace, events));
     this.sessionPages = new SessionPages(opts.home, this.findings);
+    this.periodReports = new PeriodJob(opts.home, opts.now, (line) => this.log(line));
     this.suggestions = new SuggestionsService(opts.home, this.findings, (line) => this.log(line), { workerIdleMs: opts.discoveryWorkerIdleMs });
     // Outcomes (RFC step 4): tests going green, worked out from what's written and written back.
     const testsGreen = new TestsGreen();
@@ -346,6 +355,14 @@ export class CoreService {
       }
     };
     void ingest().then(retention);
+    // Advisors' period reports (goal tracking lifecycle): catch up on start, then check hourly.
+    const periodEveryMs = opts.periodEveryMs ?? PERIOD_CHECK_MS;
+    if (periodEveryMs > 0) {
+      const runPeriods = () => void core.periodReports.runDue().catch((err) => core.log(`period reports failed: ${err instanceof Error ? err.message : String(err)}`));
+      const firstPeriods = setTimeout(runPeriods, Math.min(60_000, periodEveryMs));
+      core.timers.push(firstPeriods as unknown as NodeJS.Timeout);
+      core.timers.push(setInterval(runPeriods, periodEveryMs));
+    }
     core.timers.push(setInterval(ingest, opts.ingestEveryMs ?? 30_000));
     core.timers.push(setInterval(retention, opts.retentionEveryMs ?? RETENTION_INTERVAL_MS));
     // Heuristics such as "stalled" fire on the absence of events, so followed workspaces are also evaluated on a timer.
@@ -528,6 +545,11 @@ export class CoreService {
       if (route === 'GET /suggestions') return send(200, await this.suggestionsView(scope, url.searchParams.get('workspace')));
       if (route === 'POST /suggestions') return send(200, await this.suggestionsAct(scope, await this.readBody(req, 4096)));
       if (route === 'GET /today') return send(200, await this.today(scope, url.searchParams.get('workspace')));
+      if (url.pathname.startsWith('/advisors/') && url.pathname.endsWith('/report')) {
+        const id = decodeURIComponent(url.pathname.slice('/advisors/'.length, -'/report'.length));
+        if (req.method === 'GET') return send(200, this.periodReport(scope, id, url.searchParams.get('id')));
+        if (req.method === 'POST') return send(201, await this.requestReport(scope, id));
+      }
       if (route === 'GET /advisor-form') return send(200, await this.advisorForm());
       if (route === 'POST /advisors') return send(201, await this.addAdvisor(await this.readBody(req, 8192)));
       if (route === 'POST /findings/respond') return send(200, await this.respond(scope, await this.readBody(req, 4096)));
@@ -794,6 +816,30 @@ export class CoreService {
       if (typeof d.id === 'string') out.set(d.id, typeof d.title === 'string' ? d.title : undefined);
     }
     return [...out].map(([id, title]) => ({ id, ...(title ? { title } : {}) }));
+  }
+
+  /**
+   * GET /advisors/:id/report[?id=<report id>]: an advisor's latest period report (or that one), and the list of
+   * its reports. Reports cover every workspace, so only tokens that read every workspace (admin, reader) see them.
+   */
+  private periodReport(scope: Scope, advisor: string, reportId: string | null) {
+    if (!readsAll(scope)) throw new HttpError(403, "period reports cover every workspace; this token reads only its own");
+    if (!/^[a-z][a-z0-9-]*$/.test(advisor)) throw new HttpError(400, 'no such advisor');
+    const all = this.periodReports.list(advisor);
+    const report = reportId === null ? all[all.length - 1] : all.find((r) => r.id === reportId);
+    if (!report) throw new HttpError(404, reportId === null ? `${advisor} has no report yet` : `${advisor} has no report ${reportId}`);
+    return { report, reports: all.map((r) => ({ id: r.id, label: r.label, from: r.from, to: r.to, trigger: r.trigger })) };
+  }
+
+  /** POST /advisors/:id/report: a report now, from the advisor's last one to now (admin or reader: advisors are yours). */
+  private async requestReport(scope: Scope, advisor: string) {
+    if (!readsAll(scope)) throw new HttpError(403, "period reports cover every workspace; this token reads only its own");
+    try {
+      return { report: await this.periodReports.request(advisor) };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new HttpError(/^no advisor/.test(message) ? 404 : 500, message);
+    }
   }
 
   /** The local model advisors in your user settings, which a goal advisor's `model` may name. */

@@ -1,7 +1,8 @@
 import { NormalizedEvent } from '@snagboat/schema';
 import { EventLogReader } from '../core/eventLog';
-import { AdvisorGoal } from './goals';
-import { measure, MeasureResult, riskyPatterns } from './measures';
+import { AdvisorGoal, AdvisorPeriod } from './goals';
+import { measure, MeasureResult, riskyPatterns, trendOf } from './measures';
+import { measureSummary } from './brief';
 
 /**
  * Each advisor's goal and its measures over a period against the period before
@@ -126,4 +127,139 @@ export function reportLines(r: AdvisorReport, days: number, opts: { redact?: boo
   if (!opts.redact) for (const p of r.problems) lines.push(`  problem: ${p}`);
   else if (r.problems.length > 0) lines.push(`  ${r.problems.length} problem(s) in its persona.md: see \`snagboat advisors\``);
   return lines;
+}
+
+// --- Period reports (docs/design/goal-tracking-lifecycle.md, snagboat-79f.7.2) -------------------------
+//
+// Each advisor reports once a period (its persona.md's `period`, weekly by default), or when you ask.
+// A report covers the time since the advisor's last report, so scheduled and asked-for reports chain
+// with no gap and no overlap, and "since last period" means since that stored report. Its measures and
+// the rules in force are frozen when it's written: a baseline outlives the raw events it came from.
+
+/** The start of the period holding `at`, in local time: midnight, Monday's midnight, or the 1st's. */
+export function periodStart(period: AdvisorPeriod, at: Date): Date {
+  const d = new Date(at.getFullYear(), at.getMonth(), period === 'monthly' ? 1 : at.getDate());
+  if (period === 'weekly') d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}
+
+/** The start of the period after the one starting at `start`. */
+export function nextPeriod(period: AdvisorPeriod, start: Date): Date {
+  const d = new Date(start);
+  if (period === 'daily') d.setDate(d.getDate() + 1);
+  else if (period === 'weekly') d.setDate(d.getDate() + 7);
+  else d.setMonth(d.getMonth() + 1);
+  return d;
+}
+
+/** The start of the period before the one starting at `start`. */
+export function previousPeriod(period: AdvisorPeriod, start: Date): Date {
+  const d = new Date(start);
+  if (period === 'daily') d.setDate(d.getDate() - 1);
+  else if (period === 'weekly') d.setDate(d.getDate() - 7);
+  else d.setMonth(d.getMonth() - 1);
+  return d;
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** A period's name: 2026-11-15, 2026-W46 (ISO week) or 2026-11. */
+export function periodLabel(period: AdvisorPeriod, start: Date): string {
+  if (period === 'daily') return `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
+  if (period === 'monthly') return `${start.getFullYear()}-${pad(start.getMonth() + 1)}`;
+  // ISO week: the week's Thursday decides its year.
+  const thursday = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 3 - ((start.getDay() + 6) % 7));
+  const jan4 = new Date(thursday.getFullYear(), 0, 4);
+  const week = 1 + Math.round(((thursday.getTime() - jan4.getTime()) / 86_400_000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+  return `${thursday.getFullYear()}-W${pad(week)}`;
+}
+
+/** The rules in force when a report was written: team settings (thresholds, rules, nudges) and saved rules. */
+export interface RulesInForce {
+  /** config.json defaults, team keys only. */
+  defaults: Record<string, unknown>;
+  /** config.json projects, team keys only, by folder. */
+  projects: Record<string, Record<string, unknown>>;
+  /** rules.json's saved rules, as written. */
+  saved: unknown[];
+}
+
+export interface PeriodReport {
+  version: 1;
+  /** 2026-W46 for a scheduled report; 2026-W47-asked-1 for the first you asked for in that period. */
+  id: string;
+  advisor: string;
+  /** The advisor's version (a hash of its persona.md) when the report was written. */
+  advisorVersion: string;
+  period: AdvisorPeriod;
+  /** The period it falls in: 2026-W46. */
+  label: string;
+  /** Start, inclusive (ISO): the last report's end, or the period's start for an advisor's first. */
+  from: string;
+  /** End, exclusive (ISO). */
+  to: string;
+  trigger: 'schedule' | 'request';
+  createdAt: string;
+  /** The report before it, whose measures are this one's "before". */
+  previous?: string;
+  /** All workspaces together; `previous` is the last report's value. */
+  measures: MeasureResult[];
+  /** Each workspace with events in the report's time, the same measures. */
+  workspaces: Array<{ workspace: string; measures: MeasureResult[] }>;
+  rules: RulesInForce;
+  /** Where the goal stands, in one line, from the numbers alone. */
+  summary: string;
+}
+
+/** Measures for the report's events, with the last report's values (or, for a first report, `before`'s) as "before". */
+function reportMeasures(a: AdvisorGoal, events: NormalizedEvent[], last: MeasureResult[] | undefined, before: NormalizedEvent[] | undefined): MeasureResult[] {
+  const { patterns } = riskyPatterns(a.riskyCommands);
+  const now = measure(a.measures, events, before ?? [], { risky: patterns });
+  if (!last) return before ? now : now.map(({ previous: _p, trend: _t, ...m }) => m);
+  return now.map((m) => {
+    const { previous: _p, trend: _t, ...rest } = m;
+    const prev = last.find((x) => x.id === m.id)?.value;
+    if (m.note) return rest;
+    const trend = trendOf(m.value, prev, m.better);
+    return { ...rest, ...(prev !== undefined ? { previous: prev } : {}), ...(trend ? { trend } : {}) };
+  });
+}
+
+/**
+ * One period report. `events`: every workspace's events in [from, to); `before`: for an advisor's first
+ * report, the events in the same length of time before it (later reports compare with `last`).
+ */
+export function buildPeriodReport(
+  a: AdvisorGoal,
+  w: { id: string; label: string; from: Date; to: Date; trigger: PeriodReport['trigger']; createdAt: Date },
+  events: NormalizedEvent[],
+  last: PeriodReport | undefined,
+  rules: RulesInForce,
+  before?: NormalizedEvent[]
+): PeriodReport {
+  const measures = reportMeasures(a, events, last?.measures, last ? undefined : before);
+  const byWorkspace = new Map<string, NormalizedEvent[]>();
+  for (const e of events) if (e.workspace) (byWorkspace.get(e.workspace) ?? byWorkspace.set(e.workspace, []).get(e.workspace)!).push(e);
+  const workspaces = [...byWorkspace.keys()].sort().map((workspace) => {
+    const lastHere = last?.workspaces.find((x) => x.workspace === workspace)?.measures;
+    const beforeHere = before?.filter((e) => e.workspace === workspace);
+    return { workspace, measures: reportMeasures(a, byWorkspace.get(workspace)!, last ? lastHere ?? [] : undefined, last ? undefined : beforeHere) };
+  });
+  return {
+    version: 1,
+    id: w.id,
+    advisor: a.id,
+    advisorVersion: a.version,
+    period: a.period,
+    label: w.label,
+    from: w.from.toISOString(),
+    to: w.to.toISOString(),
+    trigger: w.trigger,
+    createdAt: w.createdAt.toISOString(),
+    ...(last ? { previous: last.id } : {}),
+    measures,
+    workspaces,
+    rules,
+    summary: measureSummary(measures),
+  };
 }

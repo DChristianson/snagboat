@@ -190,10 +190,16 @@ export function measure(ids: string[], current: NormalizedEvent[], previous: Nor
     if (def.notYet) return { ...base, note: `not measured yet: ${def.notYet}` };
     const value = def.compute(current, ctx);
     const prev = def.compute(previous, ctx);
-    const trend =
-      value === undefined || prev === undefined ? undefined : Math.abs(value - prev) <= Math.max(1e-9, Math.abs(prev) * 0.05) ? 'same' : (value < prev) === (def.better === 'lower') ? 'better' : 'worse';
+    const trend = trendOf(value, prev, def.better);
     return { ...base, ...(value !== undefined ? { value } : {}), ...(prev !== undefined ? { previous: prev } : {}), ...(trend ? { trend } : {}) };
   });
+}
+
+/** better, worse or same (within 5%), when both values are there. */
+export function trendOf(value: number | undefined, prev: number | undefined, better: 'lower' | 'higher'): MeasureResult['trend'] {
+  if (value === undefined || prev === undefined) return undefined;
+  if (Math.abs(value - prev) <= Math.max(1e-9, Math.abs(prev) * 0.05)) return 'same';
+  return (value < prev) === (better === 'lower') ? 'better' : 'worse';
 }
 
 /** Risky-command patterns for an advisor: the built-in ones plus its own (invalid ones reported). */
