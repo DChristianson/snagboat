@@ -95,7 +95,7 @@ Use Beads for this plan's work items now, while nothing depends on it.
 | RFC | Engines: VS Code 1.145, Node 24 | none |
 | RFC | 4 Outcomes and advisors (outcome capture, `persona.md` front matter, four default advisors) | 3c-3 |
 | RFC | 5 Claude Code plugin and advisor UI (compact VS Code findings panel; full UI in a browser) | 3c-2 |
-| RFC | 6 Experiments: design first. Keep it simple; the design isn't settled (decided 2026-11-12). Gas City dropped. Revisit sources (HypAware, Beads events journal) | 4 |
+| RFC | 6 Experiments: the goal tracking lifecycle, designed 2026-11-16 ([goal-tracking-lifecycle.md](goal-tracking-lifecycle.md)); one child bead per code change, `79f.7.1` to `.12`. Gas City dropped. Revisit sources (HypAware, Beads events journal) | 4 |
 | Factory Clock | 3 Own the theme (`theme.css`) | none |
 | Factory Clock | 4 Move files into `packages/viz`; advisor UI loads them; VS Code drops the Explore tab | 3, RFC 5 |
 | Factory Clock | 5 Identity: README, contract docs, publish as Factory Clock | 4 |
