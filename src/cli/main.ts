@@ -52,9 +52,10 @@ commands:
   open                open the advisor UI in your browser (starts the core if it isn't running)
   statusline          one line for Claude Code's status line (findings, today's tokens); reads its
                       JSON on stdin, and never starts the core
-  mcp                 an MCP server over stdio with read-only tools (findings, sessions, session,
-                      advisors) for the workspace containing the current folder; the Claude Code
-                      plugin runs it
+  mcp                 an MCP server over stdio for the workspace containing the current folder:
+                      read-only tools (findings, sessions, session, advisors, proposals) and two
+                      that review an advisor's report (mark a proposal, send the report back);
+                      the Claude Code plugin runs it
   experiments         every experiment: an accepted proposal's change, its baseline and its
                       tracked measure now (from the core, which it starts if needed)
   experiments revert|keep|accept <id>
@@ -312,7 +313,7 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       const reads = async (): Promise<McpReads> => {
         const info = await ensureCore(home, __filename, { idleMinutes: parsed.idleMinutes });
         const workspace = selectStores(findUserStores(), cwd, false).find((st) => st.workspace)?.workspace;
-        return { workspace, get: (p) => coreRequest(info.port, info.token, 'GET', p, undefined, 30_000) };
+        return { workspace, get: (p) => coreRequest(info.port, info.token, 'GET', p, undefined, 30_000), post: (p, body) => coreRequest(info.port, info.token, 'POST', p, body, 30_000) };
       };
       await serveMcp(process.stdin, (line) => io.out(line + '\n'), reads, version);
       return 0;

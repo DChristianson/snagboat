@@ -13,7 +13,7 @@ node dist/snagboat.js advisors            # each advisor's goal and measures, th
 node dist/snagboat.js experiments         # every experiment: its change, baseline and tracked measure now
 node dist/snagboat.js experiments revert <id>   # put back what it changed (keep, accept: keep it going, accept its result)
 node dist/snagboat.js open                # the advisor UI in your browser (a one-time link)
-node dist/snagboat.js mcp                 # an MCP server with read-only tools (the Claude Code plugin runs it)
+node dist/snagboat.js mcp                 # an MCP server for agents: read-only tools, and two to review a report (the Claude Code plugin runs it)
 node dist/snagboat.js statusline          # one line for Claude Code's status line
 node dist/snagboat.js migrate --dry-run   # what migrate would copy into ~/.snagboat/data
 node dist/snagboat.js migrate             # copy every store into the per-user store
