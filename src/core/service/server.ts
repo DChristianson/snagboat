@@ -95,7 +95,8 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              POST asks for one now (admin or reader: reports cover every workspace)
  *   POST /proposals/:id        { mark: accept | discard | revise, note }: your mark, switchable until sent
  *   GET  /experiments          every experiment (?advisor=a,b&status=running|ended); POST /experiments/:id
- *                              { action: revert } puts back what its change replaced
+ *                              { action: revert | keep | accept }: put back what it replaced, keep going (judged a
+ *                              period later), or accept the result
  *   POST /advisors/:id/report/:rev  send that revision back (?id= for an older report): Accept report, or
  *                              Revise report when a proposal is marked revise (the model answers in the background)
  *   GET  /advisor-form         the + form's choices: measures, rules an advisor can speak for, templates (step 5c)
@@ -308,7 +309,7 @@ export class CoreService {
     // An applied or reverted change reaches the running heuristics on their next run; run them now.
     this.experiments = new ExperimentStore(opts.home, opts.now, () => this.findings.tick());
     this.reports = new AdvisorReports(
-      new PeriodJob(opts.home, opts.now, (line) => this.log(line)),
+      new PeriodJob(opts.home, opts.now, (line) => this.log(line), () => this.experiments.list()),
       new ProposalStore(opts.home, opts.now),
       models,
       () => this.experiments.list(),
@@ -875,14 +876,23 @@ export class CoreService {
     return { experiments: this.experiments.list().filter((x) => (!advisors.length || advisors.includes(x.advisor)) && (status === null || x.status === status)) };
   }
 
-  /** POST /experiments/:id { action: revert }: puts back what the change replaced, and ends the experiment. */
+  /**
+   * POST /experiments/:id { action }: revert (put back what the change replaced, and end it), keep (keep going:
+   * judged again a period later), or accept (the result: the change stays, and it ends).
+   */
   private async actOnExperiment(scope: Scope, id: string, body: unknown) {
     if (!readsAll(scope)) throw new HttpError(403, 'experiments are yours across every workspace; this token reads only its own');
     const action = (body as { action?: unknown } | undefined)?.action;
-    if (action !== 'revert') throw new HttpError(400, 'action is revert');
-    if (!this.experiments.get(id)) throw new HttpError(404, `no experiment ${id}`);
+    if (action !== 'revert' && action !== 'keep' && action !== 'accept') throw new HttpError(400, 'action is revert, keep or accept');
+    const x = this.experiments.get(id);
+    if (!x) throw new HttpError(404, `no experiment ${id}`);
     try {
-      return { experiment: await this.experiments.revert(id) };
+      if (action === 'revert') return { experiment: await this.experiments.revert(id) };
+      if (action === 'accept') return { experiment: this.experiments.accept(id) };
+      const period = this.reports.job.advisors().find((a) => a.id === x.advisor)?.period ?? 'weekly';
+      const kept = this.experiments.keep(id, period);
+      if (this.reports.proposals.get(x.advisor, x.proposal)) this.reports.proposals.mark(x.advisor, x.proposal, 'kept');
+      return { experiment: kept };
     } catch (err) {
       throw new HttpError(409, err instanceof Error ? err.message : String(err));
     }

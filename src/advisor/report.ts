@@ -1,4 +1,4 @@
-import { NormalizedEvent, PeriodReport, RulesInForce } from '@snagboat/schema';
+import { Experiment, NormalizedEvent, PeriodReport, RulesInForce, Verdict } from '@snagboat/schema';
 import { EventLogReader } from '../core/eventLog';
 import { AdvisorGoal, AdvisorPeriod } from './goals';
 import { measure, MeasureResult, riskyPatterns, trendOf } from './measures';
@@ -200,7 +200,8 @@ export function buildPeriodReport(
   events: NormalizedEvent[],
   last: PeriodReport | undefined,
   rules: RulesInForce,
-  before?: NormalizedEvent[]
+  before?: NormalizedEvent[],
+  experiments: Experiment[] = []
 ): PeriodReport {
   const measures = reportMeasures(a, events, last?.measures, last ? undefined : before);
   const byWorkspace = new Map<string, NormalizedEvent[]>();
@@ -226,5 +227,33 @@ export function buildPeriodReport(
     workspaces,
     rules,
     summary: measureSummary(measures),
+    ...(() => {
+      const verdicts = experimentVerdicts(experiments.filter((x) => x.advisor === a.id), measures, workspaces, w.to);
+      return verdicts.length ? { verdicts } : {};
+    })(),
   };
+}
+
+/**
+ * Each running experiment judged from the numbers (snagboat-79f.7.11): too early before its review date;
+ * confounded while another experiment on the same measure and scope runs beside it; otherwise met or not
+ * met, against the prediction's target, or else whether the measure moved the better way from its baseline.
+ */
+export function experimentVerdicts(experiments: Experiment[], measures: MeasureResult[], workspaces: PeriodReport['workspaces'], to: Date): Verdict[] {
+  const running = experiments.filter((x) => x.status === 'running' && Date.parse(x.startedAt) < to.getTime());
+  return running.map((x) => {
+    const inScope = x.scope === 'global' ? measures : workspaces.find((w) => w.workspace === (x.scope as { workspace: string }).workspace)?.measures ?? [];
+    const m = inScope.find((y) => y.id === x.baseline.measure);
+    const now = m?.value;
+    const base = x.baseline.value;
+    const nums = { experiment: x.id, measure: x.baseline.measure, ...(base !== undefined ? { baseline: base } : {}), ...(now !== undefined ? { now } : {}) };
+    const change = `${m?.label ?? x.baseline.measure} ${base === undefined ? 'not measured' : formatMeasure(base, m?.unit ?? '')} at the start, ${now === undefined ? 'nothing to measure now' : formatMeasure(now, m?.unit ?? '')} now`;
+    if (Date.parse(x.reviewAt) > to.getTime()) return { ...nums, result: 'too-early' as const, text: `${change}; reviewed ${x.reviewAt.slice(0, 10)}.` };
+    const others = (x.overlaps ?? []).filter((id) => running.some((y) => y.id === id));
+    if (others.length) return { ...nums, result: 'confounded' as const, text: `${change}; may be mixed up with ${others.join(', ')}, which changes the same measure in the same scope.` };
+    if (now === undefined || base === undefined) return { ...nums, result: 'too-early' as const, text: `${change}.` };
+    const t = x.prediction.target;
+    const met = t ? (t.direction === 'below' ? now < t.value : now > t.value) : m!.better === 'lower' ? now < base : now > base;
+    return { ...nums, result: met ? ('met' as const) : ('not-met' as const), text: `${change}; predicted: ${x.prediction.text}` };
+  });
 }

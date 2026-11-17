@@ -123,6 +123,8 @@ export interface PeriodReport {
   rules: RulesInForce;
   /** Where the goal stands, in one line, from the numbers alone. */
   summary: string;
+  /** Each of the advisor's experiments running when it was written, judged from the numbers alone. Frozen. */
+  verdicts?: Verdict[];
   /** The model's answers, oldest first; absent with no model. */
   revisions?: ReportRevision[];
 }

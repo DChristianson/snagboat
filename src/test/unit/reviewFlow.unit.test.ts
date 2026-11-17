@@ -138,6 +138,11 @@ async function main() {
     assert.deepStrictEqual(loadConfig(home).config.projects[w], {});
     assert.strictEqual((await call('POST', `/experiments/${budget.id}`, { action: 'revert' })).status, 409);
     assert.strictEqual((await call('POST', '/experiments/nope', { action: 'revert' })).status, 404);
+    const cacheX = list.experiments.find((x) => x.id !== budget.id)!;
+    const kept = (await call('POST', `/experiments/${cacheX.id}`, { action: 'keep' })).body as { experiment: Experiment };
+    assert.deepStrictEqual([kept.experiment.keptGoing, kept.experiment.reviewAt > cacheX.reviewAt], [1, true]);
+    assert.strictEqual((await view()).proposals.find((p) => p.id === cacheX.proposal)!.status, 'kept', 'the proposal log records it');
+    assert.strictEqual((await call('POST', `/experiments/${cacheX.id}`, { action: 'maybe' })).status, 400);
     const minted = await call('POST', '/tokens', { workspaces: [w] });
     assert.strictEqual((await coreRequest(info.port, (minted.body as { token: string }).token, 'GET', '/experiments')).status, 403);
   });

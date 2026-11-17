@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { ReportRevision } from '@snagboat/schema';
+import { Experiment, ReportRevision } from '@snagboat/schema';
 import { AdvisorGoal, loadAdvisorGoals } from '../../advisor/goals';
 import { buildPeriodReport, eventsIn, nextPeriod, periodLabel, PeriodReport, periodStart, previousPeriod, RulesInForce } from '../../advisor/report';
 import { RuleStore } from '../../heuristics/ruleStore';
@@ -29,7 +29,9 @@ export class PeriodJob {
   constructor(
     private readonly home: string,
     private readonly now: () => Date = () => new Date(),
-    private readonly log: (line: string) => void = () => undefined
+    private readonly log: (line: string) => void = () => undefined,
+    /** The experiments each report judges (snagboat-79f.7.11). */
+    private readonly experiments: () => Experiment[] = () => []
   ) {}
 
   private dir(advisor: string): string {
@@ -159,7 +161,7 @@ export class PeriodJob {
       id = `${w.label}-asked-${n}`;
     }
     if (!REPORT_ID.test(id)) throw new Error(`bad report id ${id}`);
-    const report = buildPeriodReport(a, { id, label: w.label, from: w.from, to: w.to, trigger: w.trigger, createdAt: this.now() }, events, last, await this.rulesInForce(), before);
+    const report = buildPeriodReport(a, { id, label: w.label, from: w.from, to: w.to, trigger: w.trigger, createdAt: this.now() }, events, last, await this.rulesInForce(), before, this.experiments());
     fs.mkdirSync(this.dir(a.id), { recursive: true, mode: 0o700 });
     // Written once: 'wx' fails rather than replace a report already there.
     fs.writeFileSync(path.join(this.dir(a.id), `${id}.json`), JSON.stringify(report, null, 2) + '\n', { mode: 0o600, flag: 'wx' });

@@ -231,6 +231,45 @@
     "summary": {
       "type": "string"
     },
+    "verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "experiment",
+          "measure",
+          "result",
+          "text"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "experiment": {
+            "type": "string"
+          },
+          "measure": {
+            "type": "string"
+          },
+          "baseline": {
+            "type": "number"
+          },
+          "now": {
+            "type": "number"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "met",
+              "not-met",
+              "too-early",
+              "confounded"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "revisions": {
       "type": "array",
       "items": {

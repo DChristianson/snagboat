@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { ChangeScope, Experiment, PeriodReport, Proposal, RuleChange } from '@snagboat/schema';
+import { AdvisorPeriod, ChangeScope, Experiment, PeriodReport, Proposal, RuleChange } from '@snagboat/schema';
 import { nextPeriod, periodStart } from '../advisor/report';
 import { RuleStore } from '../heuristics/ruleStore';
 import { loadConfig, saveConfig, SnagboatConfig } from './config';
@@ -106,11 +106,32 @@ export class ExperimentStore {
     return started;
   }
 
-  /** Reverts a running experiment: what was there before goes back, and it ends. */
-  async revert(id: string): Promise<Experiment> {
+  /** Keep going (at a review): the change stays and the next report judges it again, a period later. */
+  keep(id: string, period: AdvisorPeriod): Experiment {
+    const x = this.running(id);
+    const next: Experiment = { ...x, reviewAt: nextPeriod(period, periodStart(period, new Date(x.reviewAt))).toISOString(), keptGoing: x.keptGoing + 1 };
+    this.write(next);
+    return next;
+  }
+
+  /** Accept the result: the change stays, and the experiment ends. */
+  accept(id: string): Experiment {
+    const x = this.running(id);
+    const ended: Experiment = { ...x, status: 'ended', ended: { at: this.now().toISOString(), how: 'accepted' } };
+    this.write(ended);
+    return ended;
+  }
+
+  private running(id: string): Experiment {
     const x = this.get(id);
     if (!x) throw new Error(`no experiment ${id}`);
     if (x.status !== 'running') throw new Error(`${x.title} has already ended`);
+    return x;
+  }
+
+  /** Reverts a running experiment: what was there before goes back, and it ends. */
+  async revert(id: string): Promise<Experiment> {
+    const x = this.running(id);
     await this.undo(x.change, x.scope);
     const ended: Experiment = { ...x, status: 'ended', ended: { at: this.now().toISOString(), how: 'reverted' } };
     this.write(ended);
