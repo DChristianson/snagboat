@@ -1,8 +1,10 @@
-import { NormalizedEvent } from '@snagboat/schema';
+import { NormalizedEvent, PeriodReport, RulesInForce } from '@snagboat/schema';
 import { EventLogReader } from '../core/eventLog';
 import { AdvisorGoal, AdvisorPeriod } from './goals';
 import { measure, MeasureResult, riskyPatterns, trendOf } from './measures';
 import { measureSummary } from './brief';
+
+export type { PeriodReport, RulesInForce };
 
 /**
  * Each advisor's goal and its measures over a period against the period before
@@ -172,43 +174,6 @@ export function periodLabel(period: AdvisorPeriod, start: Date): string {
   const jan4 = new Date(thursday.getFullYear(), 0, 4);
   const week = 1 + Math.round(((thursday.getTime() - jan4.getTime()) / 86_400_000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
   return `${thursday.getFullYear()}-W${pad(week)}`;
-}
-
-/** The rules in force when a report was written: team settings (thresholds, rules, nudges) and saved rules. */
-export interface RulesInForce {
-  /** config.json defaults, team keys only. */
-  defaults: Record<string, unknown>;
-  /** config.json projects, team keys only, by folder. */
-  projects: Record<string, Record<string, unknown>>;
-  /** rules.json's saved rules, as written. */
-  saved: unknown[];
-}
-
-export interface PeriodReport {
-  version: 1;
-  /** 2026-W46 for a scheduled report; 2026-W47-asked-1 for the first you asked for in that period. */
-  id: string;
-  advisor: string;
-  /** The advisor's version (a hash of its persona.md) when the report was written. */
-  advisorVersion: string;
-  period: AdvisorPeriod;
-  /** The period it falls in: 2026-W46. */
-  label: string;
-  /** Start, inclusive (ISO): the last report's end, or the period's start for an advisor's first. */
-  from: string;
-  /** End, exclusive (ISO). */
-  to: string;
-  trigger: 'schedule' | 'request';
-  createdAt: string;
-  /** The report before it, whose measures are this one's "before". */
-  previous?: string;
-  /** All workspaces together; `previous` is the last report's value. */
-  measures: MeasureResult[];
-  /** Each workspace with events in the report's time, the same measures. */
-  workspaces: Array<{ workspace: string; measures: MeasureResult[] }>;
-  rules: RulesInForce;
-  /** Where the goal stands, in one line, from the numbers alone. */
-  summary: string;
 }
 
 /** Measures for the report's events, with the last report's values (or, for a first report, `before`'s) as "before". */

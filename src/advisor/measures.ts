@@ -1,4 +1,4 @@
-import { eventTokens, isConversationEvent, isShellTool, NormalizedEvent } from '@snagboat/schema';
+import { eventTokens, isConversationEvent, isShellTool, NormalizedEvent, MeasureResult } from '@snagboat/schema';
 
 /**
  * The measures advisors track (RFC step 4c), each worked out from a period's
@@ -164,22 +164,7 @@ export const MEASURES: Record<string, MeasureDef> = {
   },
 };
 
-export interface MeasureResult {
-  id: string;
-  label: string;
-  unit: string;
-  better: 'lower' | 'higher';
-  /** This period; undefined when there was nothing to measure. */
-  value?: number;
-  /** The period before, the same length. */
-  previous?: number;
-  /** better, worse or same, when both periods have a value. */
-  trend?: 'better' | 'worse' | 'same';
-  /** Why there's no value: not recorded yet, or an unknown measure id. */
-  note?: string;
-  /** One value per day of the period, oldest first (null: nothing to measure that day), when asked for. */
-  series?: Array<number | null>;
-}
+export type { MeasureResult } from '@snagboat/schema';
 
 /** Each measure for this period and the one before. */
 export function measure(ids: string[], current: NormalizedEvent[], previous: NormalizedEvent[], ctx: MeasureContext): MeasureResult[] {

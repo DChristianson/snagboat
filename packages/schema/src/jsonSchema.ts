@@ -1,7 +1,11 @@
 import type { NormalizedEvent } from './types';
+import type { Experiment, PeriodReport, ProposalEvent } from './advisorRecords';
 import schemaV1 = require('./normalizedEvent.v1.schema.json');
 import schemaV2 = require('./normalizedEvent.v2.schema.json');
 import schemaV3 = require('./normalizedEvent.v3.schema.json');
+import periodReportV1 = require('./periodReport.v1.schema.json');
+import proposalEventV1 = require('./proposalEvent.v1.schema.json');
+import experimentV1 = require('./experiment.v1.schema.json');
 
 /**
  * JSON Schema (draft 2020-12) for one line of the event log, version 3:
@@ -42,3 +46,21 @@ type AddedInV2 = Exclude<V2Fields, V1Fields>;
 type RemovedInV2 = Exclude<V1Fields, V2Fields>;
 const v1IsV2WithoutWorkspace: [AddedInV2, RemovedInV2, 'workspace'] extends ['workspace', never, AddedInV2] ? true : never = true;
 void v1IsV2WithoutWorkspace;
+
+/**
+ * The goal tracking lifecycle's records (advisorRecords.ts), version 1: an advisor's period report, one
+ * line of its proposal log, and an experiment. Types and a test-checked schema, as events have; nothing
+ * validates against them at run time.
+ */
+export const periodReportSchema = periodReportV1;
+export const proposalEventSchema = proposalEventV1;
+export const experimentSchema = experimentV1;
+
+// Compile-time check, as for events: each schema lists exactly its type's fields.
+type Same<A, B> = [Exclude<A, B>, Exclude<B, A>] extends [never, never] ? true : never;
+const reportFields: Same<keyof PeriodReport, keyof typeof periodReportV1.properties> = true;
+const proposalFields: Same<keyof ProposalEvent, keyof typeof proposalEventV1.properties> = true;
+const experimentFields: Same<keyof Experiment, keyof typeof experimentV1.properties> = true;
+void reportFields;
+void proposalFields;
+void experimentFields;

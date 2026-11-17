@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DChristianson/snagboat/schema/experiment/v1",
+  "title": "Experiment",
+  "description": "An accepted proposal, applied and tracked, ~/.snagboat/experiments/<id>.json (docs/design/goal-tracking-lifecycle.md). It matches the Experiment type in advisorRecords.ts; a unit test and a compile-time check keep them in step.",
+  "type": "object",
+  "required": [
+    "version",
+    "id",
+    "advisor",
+    "proposal",
+    "title",
+    "change",
+    "scope",
+    "baseline",
+    "prediction",
+    "startedAt",
+    "reviewAt",
+    "status",
+    "keptGoing"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "id": {
+      "type": "string"
+    },
+    "advisor": {
+      "type": "string"
+    },
+    "proposal": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "change": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "key",
+            "after"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "setting"
+            },
+            "key": {
+              "type": "string"
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "after": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "rule"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "rule"
+            },
+            "rule": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            },
+            "before": {
+              "type": "object"
+            }
+          }
+        }
+      ]
+    },
+    "scope": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "global"
+        },
+        {
+          "type": "object",
+          "required": [
+            "workspace"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "workspace": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "baseline": {
+      "type": "object",
+      "required": [
+        "report",
+        "measure"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "report": {
+          "type": "string"
+        },
+        "measure": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        }
+      }
+    },
+    "prediction": {
+      "type": "object",
+      "required": [
+        "measure",
+        "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "measure": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "target": {
+          "type": "object",
+          "required": [
+            "direction",
+            "value"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "direction": {
+              "type": "string",
+              "enum": [
+                "below",
+                "above"
+              ]
+            },
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "startedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+    },
+    "reviewAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "running",
+        "ended"
+      ]
+    },
+    "ended": {
+      "type": "object",
+      "required": [
+        "at",
+        "how"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+        },
+        "how": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "reverted",
+            "replaced"
+          ]
+        },
+        "by": {
+          "type": "string"
+        }
+      }
+    },
+    "keptGoing": {
+      "type": "number"
+    },
+    "overlaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

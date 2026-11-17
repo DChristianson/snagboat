@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { AdvisorPeriod } from '@snagboat/schema';
 
 /**
  * Advisors as goals (RFC step 4c, docs/design/architecture-rfc.md "Advisors
@@ -63,8 +64,8 @@ export interface AdvisorGoal {
   version: string;
 }
 
-export const ADVISOR_PERIODS = ['daily', 'weekly', 'monthly'] as const;
-export type AdvisorPeriod = (typeof ADVISOR_PERIODS)[number];
+export const ADVISOR_PERIODS: readonly AdvisorPeriod[] = ['daily', 'weekly', 'monthly'];
+export type { AdvisorPeriod };
 export const DEFAULT_PERIOD: AdvisorPeriod = 'weekly';
 
 type Value = string | number | boolean | Value[] | { [key: string]: Value };
