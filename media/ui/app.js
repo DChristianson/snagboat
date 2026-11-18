@@ -412,6 +412,7 @@
     );
     showProblems(daily.problems);
     await renderReport(a);
+    await renderSetupHistory(a);
   }
 
   // --- An advisor's period report (goal tracking lifecycle, snagboat-79f.7.5) ---------------------------
@@ -883,8 +884,10 @@
     $('session-findings').replaceChildren(...(v.findings.length ? sessionFindingRows(v.findings, page.responses) : [el('p', { class: 'empty', text: 'No findings in this session.' })]));
   }
 
-  // --- Adding an advisor (step 5c) ---------------------------------------------------------------------
-  // The form writes a new persona.md through the core (POST /advisors); the built-ins are templates.
+  // --- Adding an advisor (step 5c; by conversation, snagboat-79f.7.16) ------------------------------------
+  // The + page is a chat with a model you pick (the core's /advisor-setups routes): talk the goal through,
+  // then accept, revise or discard the advisor it proposes. The form stays as the fallback: it writes a new
+  // persona.md through the core (POST /advisors), with the built-ins, or the latest proposal, to start from.
   let addForm = null; // { measures, rules, templates, colors, icons } from GET /advisor-form
   let addWired = false; // the form's listeners, added once
   function checkbox(name, value, label, note) {
@@ -893,8 +896,9 @@
   function radio(name, value, children) {
     return el('label', {}, [el('input', { type: 'radio', name, value }), ...children]);
   }
-  function fillAdd(t) {
-    $('add-name').value = t ? `${t.name} (yours)` : '';
+  /** Fills the form from a template (a built-in, named "(yours)"), from a proposal (asIs), or blank. */
+  function fillAdd(t, asIs = false) {
+    $('add-name').value = t ? (asIs ? t.name : `${t.name} (yours)`) : '';
     $('add-status').value = t ? t.status : '';
     $('add-goal').value = t ? t.goal : '';
     $('add-max').value = String(t ? t.maxPerHour : 2);
@@ -907,6 +911,11 @@
     for (const r of document.querySelectorAll('#add-icons input')) r.checked = r.value === (t ? t.icon : addForm.icons[0]);
   }
   async function renderAdd() {
+    await renderAddForm();
+    showForm(false); // the conversation first; the form is a click away
+    await renderSetup();
+  }
+  async function renderAddForm() {
     if (addForm) return;
     addForm = await api('/advisor-form');
     $('add-template').replaceChildren(el('option', { value: '', text: 'A blank advisor' }), ...addForm.templates.map((t) => el('option', { value: t.from, text: `A copy of ${t.name}` })));
@@ -919,6 +928,7 @@
     fillAdd(null);
     if (addWired) return;
     addWired = true;
+    wireSetup();
     $('add-template').addEventListener('change', () => fillAdd(addForm.templates.find((t) => t.from === $('add-template').value) || null));
     $('add-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -950,6 +960,276 @@
         $('add-submit').disabled = false;
       }
     });
+  }
+
+  // --- The setup conversation (snagboat-79f.7.16) ------------------------------------------------------------
+  // A draft is named in the address (#view=add&setup=<id>), so a reload comes back to it. Nothing is sent
+  // before a model is picked; the picker stays, to switch on any turn. The model answers in the background
+  // (the first request waits for your approval, shown here), so the page looks again while it's asking.
+  let setupView = null; // GET /advisor-setups/:id, or null before your first message
+  let setupList = null; // GET /advisor-setups: drafts, and the models you can pick
+  let setupPoll = null;
+  function setupId() {
+    return fragment().get('setup') || '';
+  }
+  function modelName(models, m) {
+    if (!m) return 'the model';
+    const known = (models || []).find((x) => x.id === m.advisor);
+    return `${known ? known.label : m.advisor}${m.model ? ` (${m.model})` : ''}`;
+  }
+  /** A conversation's turns as chat bubbles, each answer naming the model that gave it. Read only. */
+  function setupTurns(setup, models) {
+    return setup.turns.map((t) => {
+      const switched = t.from === 'you' && t.model ? ` · switched to ${modelName(models, t.model)}` : '';
+      const who = t.from === 'model' ? modelName(models, t.model || setup.model) : `${t.revise ? 'Your note on the proposal' : 'You'}${switched}`;
+      return el('div', { class: `turn ${t.from}${t.revise ? ' revise' : ''}` }, [
+        el('span', { class: 'who small muted', text: who }),
+        t.text ? el('p', { text: t.text }) : el('p', { class: 'small muted', text: 'Asked this model to answer instead.' }),
+        t.from === 'model' && !t.proposal && t.problems && t.problems.length ? el('span', { class: 'small muted', text: `Snagboat couldn't use what it proposed: ${t.problems.join(' ')}` }) : null,
+      ]);
+    });
+  }
+  /** The latest proposal anywhere in the conversation, for the form to start from. */
+  function latestProposal(setup) {
+    for (let i = setup.turns.length - 1; i >= 0; i--) if (setup.turns[i].proposal) return setup.turns[i].proposal;
+    return null;
+  }
+  function measureLabel(id) {
+    const m = addForm && addForm.measures.find((x) => x.id === id);
+    return m ? m.label : id;
+  }
+  /** The proposed advisor as a card, like a report's proposals: Accept, Revise (with note) and Discard while it's open. */
+  function setupProposalCard(view) {
+    const { setup } = view;
+    const p = setup.proposal.spec;
+    const rows = [
+      el('div', { class: 'prop-head' }, [el('b', {}, [el('span', { class: `glyph cue-${p.color}` }, [glyph(p.icon, 14)]), document.createTextNode(` ${p.name}`)]), el('span', { class: 'pill scope', text: `reports ${p.period}` })]),
+      el('span', { class: 'kind', text: `New advisor · goal ${p.goal}` }),
+      el('span', { class: 'change', text: p.status }),
+      el('span', { class: 'why', text: `Measures: ${p.measures.map(measureLabel).join(', ')}.` }),
+      el('span', { class: 'why', text: `Speaks for ${p.rules.length ? p.rules.join(', ') : 'no rules'} · notifies ${p.maxPerHour === 0 ? 'never' : `at most ${p.maxPerHour} an hour`} · its reports are written by ${modelName(view.models, { advisor: p.model || setup.model.advisor })}` }),
+      el('div', { class: 'pred' }, [el('b', { text: 'Voice' }), document.createTextNode(p.voice || 'The default: it says plainly what it sees, with the numbers behind it.')]),
+    ];
+    if (setup.status !== 'open') return el('article', { class: 'prop', 'aria-label': p.name }, [...rows, el('span', { class: `mark ${setup.status === 'accepted' ? 'accepted' : ''}`, text: setup.status === 'accepted' ? 'Accepted' : 'Discarded' })]);
+    const accept = el('button', { class: 'btn primary', type: 'button', text: 'Accept', title: 'Writes its persona.md and opens its page' });
+    accept.addEventListener('click', () => void setupAct(async () => {
+      const r = await api(`/advisor-setups/${encodeURIComponent(setup.id)}/proposal`, { method: 'POST', body: JSON.stringify({ action: 'accept', turn: setup.proposal.turn }) });
+      if (!r.advisor) return true;
+      addForm = null; // fresh choices (the new advisor's name is taken) next time
+      location.hash = `#${new URLSearchParams({ days: String(state.days), advisor: r.advisor.id }).toString()}`;
+      return false;
+    }));
+    const noteId = `setup-note-${setup.proposal.turn}`;
+    const box = el('div', { class: 'note-edit' }, [
+      el('label', { class: 'sr-only', for: noteId, text: `What to change in ${p.name}` }),
+      el('textarea', { id: noteId, rows: '2', maxlength: '4000', placeholder: 'What should change? Your note goes back to the model, and the conversation goes on.' }),
+      el('button', { class: 'btn', type: 'button', text: 'Send note' }),
+    ]);
+    box.hidden = true;
+    const area = box.querySelector('textarea');
+    box.querySelector('button').addEventListener('click', () => void setupAct(async () => {
+      await api(`/advisor-setups/${encodeURIComponent(setup.id)}/proposal`, { method: 'POST', body: JSON.stringify({ action: 'revise', note: area.value, ...pickedModel(setup) }) });
+      return true;
+    }));
+    const revise = el('button', { class: 'btn', type: 'button', text: 'Revise (with note)' });
+    revise.addEventListener('click', () => {
+      box.hidden = false;
+      area.focus();
+    });
+    const discard = el('button', { class: 'btn', type: 'button', text: 'Discard', title: 'Drops this draft; its record is kept' });
+    discard.addEventListener('click', () => void discardSetup());
+    return el('article', { class: 'prop', 'aria-label': p.name }, [...rows, el('div', { class: 'review-acts' }, [el('div', { class: 'btns' }, [accept, revise, discard]), box])]);
+  }
+  /** The model to switch to, when the picker names another than the conversation's. */
+  function pickedModel(setup) {
+    const m = $('setup-model').value;
+    return m && (!setup || m !== setup.model.advisor) ? { model: m } : {};
+  }
+  /** Runs a setup action, then draws the conversation again (unless it returns false); shows what failed. */
+  async function setupAct(fn) {
+    $('setup-error').textContent = '';
+    let again = true;
+    try {
+      again = await fn();
+    } catch (err) {
+      if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core.');
+      $('setup-error').textContent = err.message;
+    }
+    if (again !== false) await renderSetup().catch((err) => ($('setup-error').textContent = err.message));
+  }
+  function discardSetup() {
+    const id = setupId();
+    if (!id) return Promise.resolve();
+    return setupAct(async () => {
+      await api(`/advisor-setups/${encodeURIComponent(id)}/proposal`, { method: 'POST', body: JSON.stringify({ action: 'discard' }) });
+      return true;
+    });
+  }
+  /** Where the model's answer to your last turn stands: asking (and the approval it waits for), failed, or not sent. */
+  function setupAskState(view) {
+    const { setup, ask } = view;
+    const again = (label) => {
+      const b = el('button', { class: 'btn', type: 'button', text: label });
+      b.addEventListener('click', () => void setupAct(async () => {
+        await api(`/advisor-setups/${encodeURIComponent(setup.id)}/messages`, { method: 'POST', body: JSON.stringify({ ...pickedModel(setup) }) });
+        return true;
+      }));
+      return b;
+    };
+    const lastYours = setup.status === 'open' && setup.turns.length > 0 && setup.turns[setup.turns.length - 1].from === 'you';
+    if (!ask) return lastYours ? [el('p', { class: 'small muted', text: 'Your last turn has no answer since the core started.' }), el('div', { class: 'btns' }, [again('Ask the model')])] : [];
+    if (ask.state === 'failed') return [el('p', { class: 'err', text: `The model couldn't answer: ${ask.error}` }), el('div', { class: 'btns' }, [again('Ask again')])];
+    if (ask.state === 'not-sent') return [el('p', { class: 'small muted', text: "The request wasn't sent: it was waiting for your approval and you didn't send it, or it timed out." }), el('div', { class: 'btns' }, [again('Ask again')])];
+    if (!ask.approval) return [el('p', { class: 'small muted', text: `Asking ${modelName(view.models, setup.model)}… a local model can take a minute or two.` })];
+    const ap = ask.approval;
+    const decide = (send) => () =>
+      void setupAct(async () => {
+        try {
+          await api(`/advisor-setups/${encodeURIComponent(setup.id)}/approval`, { method: 'POST', body: JSON.stringify({ id: ap.id, send }) });
+        } catch (err) {
+          if (!(err instanceof Refused)) throw err; // already answered elsewhere
+        }
+        return true;
+      });
+    const sendBtn = el('button', { class: 'btn primary', type: 'button', text: 'Send' });
+    sendBtn.addEventListener('click', decide(true));
+    const noBtn = el('button', { class: 'btn ghost', type: 'button', text: "Don't send" });
+    noBtn.addEventListener('click', decide(false));
+    return [
+      el('div', { class: 'approval' }, [
+        el('b', { text: `Send this to ${ap.advisor} (${ap.model})?` }),
+        el('span', { class: 'small muted', text: `${ap.ability ? `${ap.ability}. ` : ''}The first request with this model's address and sending rules waits for you to see exactly what it sends. Once you send it, later requests go without asking.` }),
+        el('details', {}, [el('summary', { text: 'The request, exactly as sent' }), el('pre', { class: 'payload', text: ap.payload })]),
+        el('div', { class: 'btns' }, [sendBtn, noBtn]),
+      ]),
+    ];
+  }
+  /** Draws the + page's conversation: the model picker, the turns, the proposal, and what you can do next. */
+  async function renderSetup() {
+    clearTimeout(setupPoll);
+    const id = setupId();
+    setupList = await api('/advisor-setups');
+    setupView = null;
+    if (id) {
+      try {
+        setupView = await api(`/advisor-setups/${encodeURIComponent(id)}`);
+      } catch (err) {
+        if (err instanceof Unauthorized) throw err;
+        setFragment({ view: 'add' }); // a draft that's gone: start afresh
+      }
+    }
+    const models = setupList.models;
+    const setup = setupView && setupView.setup;
+    const open = !setup || setup.status === 'open';
+    // The picker: what you picked, else the conversation's model; empty until you pick one.
+    const was = $('setup-model').value;
+    $('setup-model').replaceChildren(el('option', { value: '', text: 'Pick a model…' }), ...models.map((m) => el('option', { value: m.id, text: m.model ? `${m.label} (${m.model})` : m.label })));
+    $('setup-model').value = models.some((m) => m.id === was) ? was : setup && models.some((m) => m.id === setup.model.advisor) ? setup.model.advisor : '';
+    $('setup-model').disabled = !open || !models.length;
+    $('setup-model-hint').textContent = models.length
+      ? 'A model on this machine from your advisor settings (snagboat.advisors). You can switch at any turn to try another; each answer shows the model that gave it.'
+      : 'No model on this machine offers this. Run a local model (for example Ollama), or add one to snagboat.advisors in your user settings; or fill in the form instead.';
+    // An unfinished draft, when you haven't one open here.
+    const drafts = setupList.drafts.filter((d) => d.status === 'open' && d.turns.length && d.id !== id);
+    $('setup-drafts').hidden = !!setup || !drafts.length;
+    if (!setup && drafts.length) {
+      const first = drafts[0].turns[0].text || '';
+      $('setup-drafts').replaceChildren(
+        document.createTextNode(`You have an unfinished conversation from ${fmtDate(drafts[0].startedAt)} ("${first.length > 60 ? `${first.slice(0, 60)}…` : first}"). `),
+        el('a', { href: `#${new URLSearchParams({ view: 'add', setup: drafts[0].id }).toString()}`, text: 'Continue it' })
+      );
+    }
+    const parts = setup ? setupTurns(setup, models) : [el('p', { class: 'small muted', text: 'Pick a model, then say what you care about. It asks a question or two, settles a goal with you, and proposes an advisor for it.' })];
+    if (setup && setup.proposal) parts.push(setupProposalCard(setupView));
+    if (setup && setup.status === 'accepted') parts.push(el('p', { class: 'small' }, [document.createTextNode('Accepted: it made '), el('a', { href: `#${new URLSearchParams({ days: String(state.days), advisor: setup.advisor }).toString()}`, text: setup.advisor }), document.createTextNode('.')]));
+    if (setup && setup.status === 'discarded') parts.push(el('p', { class: 'small muted', text: 'Discarded. Its record is kept; start another to try again.' }));
+    $('setup-turns').replaceChildren(...parts);
+    $('setup-state').replaceChildren(...(setupView ? setupAskState(setupView) : []));
+    const asking = !!(setupView && setupView.ask && setupView.ask.state === 'asking');
+    $('setup-compose').hidden = !open;
+    setSendable(asking);
+    $('setup-discard').hidden = !setup || !open;
+    $('setup-new').hidden = !setup || open;
+    // Look again while the model is asking: often while it thinks, less often while it waits for your approval.
+    if (asking) {
+      setupPoll = setTimeout(() => {
+        if (route()[0] === 'add' && setupId() === id) void renderSetup().catch(() => undefined);
+      }, setupView.ask.approval ? 4000 : 1500);
+    }
+  }
+  /** No message before a model is picked, or while the model is answering. */
+  function setSendable(asking) {
+    const picked = !!$('setup-model').value;
+    $('setup-send').disabled = asking || !picked;
+    $('setup-send').title = !picked ? 'Pick a model first' : asking ? 'The model is still answering' : '';
+  }
+  function showForm(show) {
+    $('add-form').hidden = !show;
+    $('setup-panel').hidden = show;
+  }
+  /** The chat's listeners, added once with the form's. */
+  function wireSetup() {
+    $('setup-model').addEventListener('change', () => setSendable(!!(setupView && setupView.ask && setupView.ask.state === 'asking')));
+    $('setup-compose').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const model = $('setup-model').value;
+      const text = $('setup-text').value.trim();
+      if (!model) {
+        $('setup-error').textContent = 'Pick a model first.';
+        return;
+      }
+      if (!text) return;
+      $('setup-send').disabled = true;
+      void setupAct(async () => {
+        const setup = setupView && setupView.setup;
+        if (!setup) {
+          const v = await api('/advisor-setups', { method: 'POST', body: JSON.stringify({ model, text }) });
+          setFragment({ view: 'add', setup: v.setup.id });
+        } else {
+          await api(`/advisor-setups/${encodeURIComponent(setup.id)}/messages`, { method: 'POST', body: JSON.stringify({ text, ...pickedModel(setup) }) });
+        }
+        $('setup-text').value = '';
+        return true;
+      });
+    });
+    $('setup-text').addEventListener('keydown', (e) => {
+      // Enter sends; Shift+Enter is a new line.
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        $('setup-compose').requestSubmit();
+      }
+    });
+    $('setup-discard').addEventListener('click', () => void discardSetup());
+    $('setup-new').addEventListener('click', () => {
+      setFragment({ view: 'add' });
+      void setupAct(async () => true);
+    });
+    $('setup-form-link').addEventListener('click', () => {
+      // The form, filled in from the latest proposal when there is one.
+      const p = setupView && latestProposal(setupView.setup);
+      if (p) {
+        $('add-template').value = '';
+        fillAdd(p, true);
+      }
+      showForm(true);
+    });
+    $('add-chat').addEventListener('click', () => showForm(false));
+  }
+  /** On an advisor's page: the conversation it was set up with, read only, when it was set up by one. */
+  async function renderSetupHistory(a) {
+    let v;
+    try {
+      v = await api(`/advisor-setups?advisor=${encodeURIComponent(a.id)}`);
+    } catch (err) {
+      if (err instanceof Unauthorized) throw err;
+      $('setup-history').hidden = true;
+      return;
+    }
+    const s = v.setup;
+    const models = (setupList && setupList.models) || [];
+    $('setup-history').hidden = false;
+    $('setup-history-meta').textContent = `· ${fmtDate(s.startedAt)}, ${s.turns.length} turn${s.turns.length === 1 ? '' : 's'}`;
+    $('setup-history-turns').replaceChildren(...setupTurns(s, models), ...(s.proposal ? [setupProposalCard({ setup: s, models })] : []));
   }
 
   // --- Suggestions (step 5c-2) ------------------------------------------------------------------------
