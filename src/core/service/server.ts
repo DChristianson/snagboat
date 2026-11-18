@@ -85,7 +85,8 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              a workspace token's stream also carries them ("findings" messages)
  *   GET  /advisors[?workspace=w&days=n&series=1&weeks=n]  each advisor's goal and measures (and, for one
  *                              workspace, its card's brief), this period against
- *                              the one before (RFC step 4c)
+ *                              the one before (RFC step 4c); its latest report's review,
+ *                              or for a workspace token only how many proposals wait
  *   GET  /workspaces           the workspaces the token reads, most recently active first
  *   GET  /suggestions?workspace=w  the Suggestions view: discovery's candidates, thresholds, shell categories,
  *                              saved rules (step 5c-2); POST /suggestions { workspace, action, ... } acts on it
@@ -791,16 +792,19 @@ export class CoreService {
       const ahead = reports.some((r) => r.id === 'navigator') ? await navigatorAhead(stores[0].folder, currentEvents, now.getTime()) : undefined;
       for (const r of reports) r.brief = advisorBrief(r, live, notified, r.id === 'navigator' ? ahead : undefined, findingsNow.responses);
     }
-    // Each advisor's latest period report, for tokens that read every workspace (reports cover them all).
-    if (readsAll(scope)) {
-      for (const r of reports) {
-        const v = this.reports.view(r.id);
-        if (!v) continue;
-        r.review = { report: v.report.id, label: v.report.label, rev: v.review.rev, state: v.review.state, unmarked: v.review.unmarked, proposals: v.proposals.length };
-        // Proposals waiting take "To surface" when there's no live finding to show.
-        if (v.review.unmarked && r.brief && (r.brief.surface.kind === 'suggest' || r.brief.surface.kind === 'none')) {
-          r.brief.surface = { kind: 'suggest', label: 'Proposals', text: `${v.review.unmarked} proposal${v.review.unmarked === 1 ? '' : 's'} waiting in the ${v.report.label} report.` };
-        }
+    // Each advisor's latest period report: the review for tokens that read every workspace (reports cover them
+    // all), only how many proposals wait for a workspace token (VS Code's findings view and status bar).
+    for (const r of reports) {
+      const v = this.reports.view(r.id);
+      if (!v) continue;
+      if (!readsAll(scope)) {
+        if (v.review.unmarked) r.review = { unmarked: v.review.unmarked };
+        continue;
+      }
+      r.review = { report: v.report.id, label: v.report.label, rev: v.review.rev, state: v.review.state, unmarked: v.review.unmarked, proposals: v.proposals.length };
+      // Proposals waiting take "To surface" when there's no live finding to show.
+      if (v.review.unmarked && r.brief && (r.brief.surface.kind === 'suggest' || r.brief.surface.kind === 'none')) {
+        r.brief.surface = { kind: 'suggest', label: 'Proposals', text: `${v.review.unmarked} proposal${v.review.unmarked === 1 ? '' : 's'} waiting in the ${v.report.label} report.` };
       }
     }
     return { days, workspaces: stores.map((s) => s.workspace), advisors: reports, problems };

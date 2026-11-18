@@ -47,12 +47,12 @@ import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
 import { AgentAdapter, NormalizedEvent, NormalizedEventKind } from '@snagboat/schema';
 import { renderStatusBar } from './ui/statusBar';
-import { buildBreakdownLines, formatCount } from './ui/format';
+import { buildBreakdownLines, formatCount, WaitingLink, waitingText } from './ui/format';
 import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
 import { DetailPanel } from './ui/detailPanel';
 import { readDismissed, writeDismissed } from './core/suggestionsState';
 import { readApprovals, writeApprovals } from './core/advisorApprovals';
-import { FindingsView } from './ui/findingsView';
+import { CompactState, FindingsView } from './ui/findingsView';
 import { EditTrackerAdapter } from './vscode/editTracker';
 import { vscodeHost } from './vscode/host';
 import { resolveStorage, watchPerUserStoreSetting } from './vscode/storage';
@@ -129,6 +129,10 @@ export interface SnagboatTestApi {
   getFindings(): Finding[];
   /** VS Code's storage folder for this window (context.storageUri), whichever store the setting picks. */
   getVsCodeStorageDir(): string | undefined;
+  /** Asks the core now for the advisors with proposals waiting, as the findings view and status bar show them. */
+  checkWaitingProposals(): Promise<WaitingLink[]>;
+  /** What the findings view draws. */
+  getFindingsViewState(): CompactState;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<SnagboatTestApi | undefined> {
@@ -425,11 +429,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   }
   const advisor = new Advisor({ secrets: context.secrets, globalState: context.globalState, ...(storage.perUser ? { approvals: { get: () => readApprovals(snagboatHome()), set: (a: Record<string, string>) => writeApprovals(snagboatHome(), a) } } : {}), audit, output: outputChannel, digestInput });
 
+  /** Where the advisor UI lands after its one-time code: a session, a view, or an advisor's page. */
+  const advisorUiThen = (target: { sessionId?: string; view?: 'sessions'; advisor?: string }): string =>
+    target.sessionId ? `&session=${encodeURIComponent(target.sessionId)}` : target.view ? `&view=${target.view}` : target.advisor ? `&advisor=${encodeURIComponent(target.advisor)}` : '';
+
   /**
    * Opens the advisor UI (RFC step 5a) in the browser with a one-time link, optionally at a session or view
    * (step 5c: with the per-user store on, Sessions live there). It's served by the core.
    */
-  const openAdvisorUi = async (target: { sessionId?: string; view?: 'sessions' } = {}): Promise<void> => {
+  const openAdvisorUi = async (target: { sessionId?: string; view?: 'sessions'; advisor?: string } = {}): Promise<void> => {
     if (!core) {
       void vscode.window.showInformationMessage('Snagboat: the advisor UI is served by the core service, which runs with snagboat.storage.perUserStore on (User settings, then reload).');
       return;
@@ -449,7 +457,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         return;
       }
       const { url } = res.body as { url: string };
-      const then = target.sessionId ? `&session=${encodeURIComponent(target.sessionId)}` : target.view ? `&view=${target.view}` : '';
+      const then = advisorUiThen(target);
       if (!(await openInBrowser(`${url}${then}`))) void vscode.window.showErrorMessage('Snagboat: couldn\'t start a browser to open the advisor UI.');
       return;
     }
@@ -464,7 +472,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     }
     const { code } = res.body as { code: string };
     // Where to land after the code is used: the page reads #<code>&session=<id> or &view=<name>.
-    const then = target.sessionId ? `&session=${encodeURIComponent(target.sessionId)}` : target.view ? `&view=${target.view}` : '';
+    const then = advisorUiThen(target);
     await vscode.env.openExternal(external.with({ path: '/ui/', fragment: `${code}${then}` }));
   };
 
@@ -502,8 +510,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     return new Map(advisors.map((a) => [a.id, a.name]));
   };
   let namesCache: { at: number; names: Map<string, string> } | undefined;
-  const findingsView = new FindingsView(context.extensionUri, {
-    state: () => {
+  // Advisors with proposals waiting in their period reports (counts only, from the core): checked every few
+  // minutes and when the window comes back into focus; shown in the findings view and the status bar's tooltip.
+  let waitingProposals: WaitingLink[] = [];
+  const checkWaiting = async (): Promise<void> => {
+    if (!core) return;
+    const next = await core.waitingProposals();
+    if (JSON.stringify(next) === JSON.stringify(waitingProposals)) return;
+    waitingProposals = next;
+    refresh();
+  };
+  const findingsViewState = (): CompactState => {
       if (!namesCache || Date.now() - namesCache.at > 60_000) namesCache = { at: Date.now(), names: advisorNames() };
       const limits = { limits: limitsNow() };
       const today = todayAggregate.snapshot();
@@ -525,14 +542,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
             return { heuristicId: v.finding.heuristicId, severity: v.finding.severity, summary: v.finding.summary, ...(advisorName ? { advisor: advisorName } : {}), held: room.held, useful: v.useful, acknowledged: v.acknowledged };
           }),
         today: { tokens: today.totalTokens, ...(input > 0 ? { cacheRate: (100 * cacheRead) / input } : {}), milestones: todayAggregate.milestones() },
+        proposals: waitingProposals.map((p) => ({ ...p, text: waitingText(p) })),
         advisorUi: !!core,
       };
-    },
+  };
+  const findingsView = new FindingsView(context.extensionUri, {
+    state: findingsViewState,
     useful: (heuristicId) => respondTo(heuristicId, 'useful'),
-    openAdvisorUi: () => openAdvisorUi(),
+    openAdvisorUi: (advisorId) => openAdvisorUi(advisorId ? { advisor: advisorId } : {}),
     openDetail: () => detailPanel.show(),
   });
   context.subscriptions.push(findingsView, vscode.window.registerWebviewViewProvider(FindingsView.id, findingsView));
+  if (core) {
+    const every = setInterval(() => void checkWaiting(), 5 * 60_000);
+    const first = setTimeout(() => void checkWaiting(), 5_000);
+    context.subscriptions.push({ dispose: () => (clearInterval(every), clearTimeout(first)) }, vscode.window.onDidChangeWindowState((st) => st.focused && void checkWaiting()));
+  }
 
   const withAdvice = (list: Finding[]): Finding[] =>
     list.map((f) => {
@@ -540,7 +565,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       return a ? { ...f, suggestedAction: [f.suggestedAction, `advisor (model output, ${a.model}): ${a.line}`].filter(Boolean).join(' · ') } : f;
     });
   const refresh = () => {
-    renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), withAdvice(findings.visible()), findings.worst());
+    renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), withAdvice(findings.visible()), findings.worst(), waitingProposals);
     detailPanel.scheduleUpdate();
     findingsView.scheduleUpdate();
   };
@@ -1219,6 +1244,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     getSessions: () => sessions,
     getVsCodeStorageDir: () => context.storageUri?.fsPath,
     getStorageMode: () => (core ? 'core' : storage.perUser ? 'per-user' : 'vscode'),
+    checkWaitingProposals: async () => (await checkWaiting(), waitingProposals),
+    getFindingsViewState: () => findingsViewState(),
   };
 }
 

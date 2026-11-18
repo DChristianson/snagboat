@@ -1,12 +1,13 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
+import { WaitingLink } from './format';
 
 /**
  * The compact findings panel (RFC step 5c, screen 4 of the design pass): a
  * view in Snagboat's own sidebar with the findings now, each with the advisor
  * it falls under and whether that advisor's hourly limit is holding it back,
- * a Useful button, today's totals, and links to the advisor UI (with the
- * per-user store on) and the detail view. The state is pushed whole; the page
+ * a Useful button, today's totals, the advisors with proposals waiting, and
+ * links to the advisor UI (with the per-user store on) and the detail view. The state is pushed whole; the page
  * draws it with textContent only.
  */
 
@@ -24,24 +25,28 @@ export interface CompactFinding {
 
 export interface CompactState {
   findings: CompactFinding[];
+  /** Advisors with proposals waiting, each a link to its page in the advisor UI (text: waitingText). */
+  proposals: Array<WaitingLink & { text: string }>;
   today: { tokens: number; cacheRate?: number; milestones: number };
   /** The advisor UI is there to open (the window is the core's client). */
   advisorUi: boolean;
 }
 
-type ViewMessage = { type: 'ready' } | { type: 'useful'; heuristicId: string } | { type: 'openAdvisorUi' } | { type: 'openDetail' };
+type ViewMessage = { type: 'ready' } | { type: 'useful'; heuristicId: string } | { type: 'openAdvisorUi'; advisor?: string } | { type: 'openDetail' };
 
 function isViewMessage(m: unknown): m is ViewMessage {
   if (!m || typeof m !== 'object') return false;
   const v = m as Record<string, unknown>;
   if (v.type === 'useful') return typeof v.heuristicId === 'string';
+  if (v.type === 'openAdvisorUi') return v.advisor === undefined || (typeof v.advisor === 'string' && /^[a-z][a-z0-9-]*$/.test(v.advisor));
   return v.type === 'ready' || v.type === 'openAdvisorUi' || v.type === 'openDetail';
 }
 
 export interface FindingsViewHooks {
   state(): CompactState;
   useful(heuristicId: string): void;
-  openAdvisorUi(): Promise<void>;
+  /** Opens the advisor UI, at an advisor's page when one is named. */
+  openAdvisorUi(advisor?: string): Promise<void>;
   openDetail(): void;
 }
 
@@ -97,7 +102,7 @@ export class FindingsView implements vscode.WebviewViewProvider, vscode.Disposab
     else if (m.type === 'useful') {
       this.hooks.useful(m.heuristicId);
       this.post();
-    } else if (m.type === 'openAdvisorUi') await this.hooks.openAdvisorUi();
+    } else if (m.type === 'openAdvisorUi') await this.hooks.openAdvisorUi(m.advisor);
     else if (m.type === 'openDetail') this.hooks.openDetail();
   }
 
