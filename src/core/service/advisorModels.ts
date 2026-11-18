@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as os from 'os';
-import { AdvisorConfig, approvalKey, Capability, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from '../../advisor/advisors';
+import { AdvisorConfig, approvalFor, Capability, CAPABILITY_LABELS, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from '../../advisor/advisors';
 import { PromptLayers, resolvePrompts } from '../../advisor/prompts';
 import { ChatMessage, complete, completionBody, Completion, FetchLike, listModels } from '../../advisor/providers';
 import { DigestPolicy } from '../../advisor/digest';
@@ -28,6 +28,8 @@ export interface PendingApproval {
   id: string;
   advisor: string;
   model: string;
+  /** What it's asked for, in plain words ("Set up an advisor ..."). */
+  ability?: string;
   /** The exact request body, pretty-printed. */
   payload: string;
 }
@@ -138,7 +140,9 @@ export class CoreAdvisors {
     const messages = await build({ advisor: a, policy: a.abilities[ability]!.policy, prompts });
     if (!messages) return undefined;
     const body = completionBody(model, messages, opts.json);
-    if (readApprovals(this.home)[a.id] !== approvalKey(a)) {
+    // Most abilities share the advisor's one approval; setting up an advisor has its own (advisors.ts SEPARATELY_APPROVED).
+    const approval = approvalFor(a, ability);
+    if (readApprovals(this.home)[approval.name] !== approval.key) {
       if (this.pending) throw new Error('another request is waiting for your approval; answer it first');
       const send = await new Promise<boolean>((resolve) => {
         // Not sent if nobody answers (the tab was closed): a waiting request would hold up every other.
@@ -151,6 +155,7 @@ export class CoreAdvisors {
           id: String(nextId++),
           advisor: a.label,
           model,
+          ability: CAPABILITY_LABELS[ability],
           payload: JSON.stringify(JSON.parse(body), null, 2),
           decide: (yes) => {
             clearTimeout(timer);
@@ -159,7 +164,7 @@ export class CoreAdvisors {
         };
       });
       if (!send) return undefined;
-      writeApprovals(this.home, { ...readApprovals(this.home), [a.id]: approvalKey(a) });
+      writeApprovals(this.home, { ...readApprovals(this.home), [approval.name]: approval.key });
     }
     const advisor = { ...a, model };
     try {

@@ -1344,6 +1344,52 @@
                       }
                     ],
                     "description": "Suggest changes to model use and prompt tactics (Tactics on a session in the Sessions tab, Snagboat: Propose Tactics for Session..., and a section of the review)."
+                  },
+                  "set-up-advisor": {
+                    "oneOf": [
+                      {
+                        "type": "boolean",
+                        "description": "true: offered with the advisor's send rules; false: not offered."
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "send": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "description": "What it may receive for this ability, over the advisor's send rules.",
+                            "properties": {
+                              "prompts": {
+                                "type": "boolean",
+                                "description": "Your prompts' text (default: local yes, hosted no)."
+                              },
+                              "replies": {
+                                "type": "boolean",
+                                "description": "Agent reply excerpts (default: no)."
+                              },
+                              "sessionNames": {
+                                "type": "boolean",
+                                "description": "Session names (default: local yes, hosted no)."
+                              },
+                              "paths": {
+                                "type": "string",
+                                "enum": [
+                                  "relative",
+                                  "hashed"
+                                ],
+                                "description": "File paths relative to the workspace, or hashed (default: relative)."
+                              }
+                            }
+                          },
+                          "prompt": {
+                            "type": "string",
+                            "markdownDescription": "A file replacing Snagboat's instruction for this ability (`~` allowed). Without it, `~/.snagboat/advisors/<id>/set-up-advisor.md` is read when it exists."
+                          }
+                        }
+                      }
+                    ],
+                    "description": "Set up an advisor by talking your goal through (the + page of the advisor UI). It is sent only what you type in the conversation and Snagboat's lists of measures and rules, and has its own approval. Only local advisors are asked (the core holds no API keys)."
                   }
                 }
               }
@@ -1442,6 +1488,10 @@
             "propose-tactics": {
               "type": "string",
               "description": "Suggest changes to model use and prompt tactics (Tactics on a session in the Sessions tab, Snagboat: Propose Tactics for Session..., and a section of the review)."
+            },
+            "set-up-advisor": {
+              "type": "string",
+              "description": "Set up an advisor by talking your goal through (the + page of the advisor UI); the conversation also lets you pick or switch the model."
             }
           }
         },

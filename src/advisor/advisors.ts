@@ -11,9 +11,9 @@ import { ID_PATTERN, isObject, parseBaseUrl, parseProviders, ProviderConfig, sen
  */
 
 /** What an advisor can do. The code keeps the design's older word for it. */
-export type Capability = 'summarize-session' | 'summarize-week' | 'propose-heuristics' | 'propose-nudges' | 'propose-tactics';
+export type Capability = 'summarize-session' | 'summarize-week' | 'propose-heuristics' | 'propose-nudges' | 'propose-tactics' | 'set-up-advisor';
 
-export const CAPABILITIES: readonly Capability[] = ['summarize-session', 'summarize-week', 'propose-heuristics', 'propose-nudges', 'propose-tactics'];
+export const CAPABILITIES: readonly Capability[] = ['summarize-session', 'summarize-week', 'propose-heuristics', 'propose-nudges', 'propose-tactics', 'set-up-advisor'];
 
 export const CAPABILITY_LABELS: Record<Capability, string> = {
   'summarize-session': 'Summarize a session (Explain)',
@@ -21,7 +21,16 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   'propose-heuristics': 'Propose heuristics (Ask the advisor)',
   'propose-nudges': 'Propose nudges (in the review, and the live line)',
   'propose-tactics': 'Propose tactics',
+  'set-up-advisor': 'Set up an advisor (a conversation on the + page)',
 };
+
+/**
+ * Abilities approved on their own, not with the rest of the advisor (snagboat-79f.7.15, decided
+ * November 18, 2026). Setting up an advisor sends only what you type in the conversation, so it has its
+ * own sending rules and its own approval, and adding it left every existing approval (approvalKey) as it
+ * was. To fold it back into the advisor's one approval, remove it here.
+ */
+export const SEPARATELY_APPROVED: ReadonlySet<Capability> = new Set(['set-up-advisor']);
 
 /** The provider settings from before advisors, read as the default advisor for their ability. */
 export const LEGACY_DEFAULT_SETTINGS: Record<string, Capability> = {
@@ -158,8 +167,19 @@ function parseAbilities(value: unknown, policy: DigestPolicy, where: string, pro
  * approval document shows it).
  */
 export function approvalKey(a: AdvisorConfig): string {
-  const abilities = CAPABILITIES.filter((c) => a.abilities[c]).map((c) => [c, a.abilities[c]!.policy]);
+  const abilities = CAPABILITIES.filter((c) => a.abilities[c] && !SEPARATELY_APPROVED.has(c)).map((c) => [c, a.abilities[c]!.policy]);
   return crypto.createHash('sha256').update(JSON.stringify({ id: a.id, baseUrl: a.baseUrl, abilities })).digest('hex').slice(0, 16);
+}
+
+/**
+ * Where an approval to ask an advisor for an ability is kept, and what it covers: the advisor's one
+ * approval (its id, approvalKey), or, for an ability approved on its own, `<id>#<ability>` over the
+ * address and that ability's sending rules.
+ */
+export function approvalFor(a: AdvisorConfig, ability: Capability): { name: string; key: string } {
+  if (!SEPARATELY_APPROVED.has(ability)) return { name: a.id, key: approvalKey(a) };
+  const policy = a.abilities[ability]?.policy ?? a.policy;
+  return { name: `${a.id}#${ability}`, key: crypto.createHash('sha256').update(JSON.stringify({ id: a.id, baseUrl: a.baseUrl, ability, policy })).digest('hex').slice(0, 16) };
 }
 
 /** How an answer is labelled: the advisor, its kind, and its model. */

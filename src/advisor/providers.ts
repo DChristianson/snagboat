@@ -129,7 +129,7 @@ export function parseProviders(value: unknown): { providers: ProviderConfig[]; p
 }
 
 export interface ChatMessage {
-  role: 'system' | 'user';
+  role: 'system' | 'user' | 'assistant';
   content: string;
 }
 

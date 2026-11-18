@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { Experiment, experimentSchema, PeriodReport, periodReportSchema, ProposalEvent, proposalEventSchema, Verdict } from '@snagboat/schema';
+import { Experiment, experimentSchema, PeriodReport, periodReportSchema, ProposalEvent, proposalEventSchema, SetupEvent, setupEventSchema, Verdict } from '@snagboat/schema';
 import { PeriodJob } from '../../core/service/periodJob';
 import { StoreWriter } from '../../core/service/storeWriter';
 
@@ -127,6 +127,25 @@ async function main() {
     for (const p of proposals) ok(proposalEventSchema, p);
     ok(experimentSchema, experiment);
     ok(experimentSchema, { ...experiment, status: 'ended', ended: { at: '2026-11-30T09:00:00.000Z', how: 'replaced', by: 'x-2' }, keptGoing: 1, overlaps: ['x-0'] });
+  });
+
+  test('a setup conversation, from start to accepted, matches the schema', () => {
+    const types: Record<SetupEvent['type'], true> = { started: true, said: true, answered: true, revised: true, accepted: true, discarded: true };
+    assert.deepStrictEqual(sorted((setupEventSchema as Schema).properties.type.enum), sorted(Object.keys(types)));
+    const proposal = { name: 'Purser', status: 'Keeping token cost down', goal: 'token-cost-down', measures: ['tokens_per_milestone'], rules: ['cache-thrash'], maxPerHour: 2, period: 'weekly' as const, model: 'local', color: 'amber', icon: 'coin', voice: 'You watch what the work costs.' };
+    const lines: SetupEvent[] = [
+      { version: 1, at: '2026-11-18T09:00:00.000Z', setup: 's-20261118-abc123', type: 'started', model: { advisor: 'local', model: 'qwen3' } },
+      { version: 1, at: '2026-11-18T09:00:10.000Z', setup: 's-20261118-abc123', type: 'said', text: 'I spend too much on tokens.' },
+      { version: 1, at: '2026-11-18T09:00:30.000Z', setup: 's-20261118-abc123', type: 'answered', model: { advisor: 'local', model: 'qwen3' }, text: 'Per milestone, or per day?', problems: ['the answer was not the JSON asked for; kept as a reply'] },
+      { version: 1, at: '2026-11-18T09:01:00.000Z', setup: 's-20261118-abc123', type: 'said', text: 'Per milestone.', model: { advisor: 'other' } },
+      { version: 1, at: '2026-11-18T09:01:30.000Z', setup: 's-20261118-abc123', type: 'answered', model: { advisor: 'other' }, text: 'I propose Purser.', proposal },
+      { version: 1, at: '2026-11-18T09:02:00.000Z', setup: 's-20261118-abc123', type: 'revised', text: 'Also watch the cache.' },
+      { version: 1, at: '2026-11-18T09:03:00.000Z', setup: 's-20261118-abc123', type: 'accepted', advisor: 'purser' },
+      { version: 1, at: '2026-11-18T09:03:00.000Z', setup: 's-20261118-def456', type: 'discarded' },
+    ];
+    for (const l of lines) ok(setupEventSchema, l);
+    const problems = validate(setupEventSchema as Schema, { ...lines[4], proposal: { ...proposal, goal: 'Not An Id', mood: 'grand' } });
+    assert.ok(problems.some((p) => /goal: does not match/.test(p)) && problems.some((p) => /mood: not in schema/.test(p)), problems.join(' | '));
   });
 
   test('a field the schema does not know, or a wrong value, fails', () => {
