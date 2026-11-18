@@ -78,7 +78,8 @@ function tighter(key: keyof typeof PRIVACY_DEFAULTS, value: unknown, than: unkno
 const TEAM_PREFIXES = ['heuristics.', 'tokenBudget.', 'discovery.', 'nudges.'];
 const TEAM_KEYS = new Set(['rules', 'toolCategories']);
 
-function isTeamKey(key: string): boolean {
+/** A setting a project may share with its team: thresholds, rules, shell categories, discovery, nudges. */
+export function isTeamKey(key: string): boolean {
   return TEAM_KEYS.has(key) || TEAM_PREFIXES.some((p) => key.startsWith(p));
 }
 

@@ -1,4 +1,4 @@
-import { SessionSummary } from '@snagboat/schema';
+import { SessionSummary, Experiment } from '@snagboat/schema';
 import { storeSessions } from '../core/sessionSummaries';
 import { findGlobalDirs, findStores, findUserStores, selectStores, Store, userHome } from './stores';
 import { migrate, MigrationReport, MigrationSource } from '../core/migrate';
@@ -27,6 +27,20 @@ import { HOOK_SCRIPT } from '../adapters/claude-code/hookRoutes';
  * never moves or deletes), containers only its list in ~/.snagboat/config.json.
  */
 
+/** An experiment for the terminal: its status, change, scope, and the tracked measure from baseline to now. */
+export function experimentLines(x: Experiment, now: number | undefined): string {
+  const change = x.change.kind === 'setting' ? `${x.change.key} ${x.change.before ?? 'unset'} → ${x.change.after}` : `rule ${x.change.rule.id}${x.change.before ? ' (changed)' : ' (new)'}`;
+  const scope = x.scope === 'global' ? 'global' : x.scope.workspace;
+  const n = (v: number | undefined) => (v === undefined ? '—' : String(Math.round(v * 10) / 10));
+  const status = x.status === 'running' ? `running, review ${x.reviewAt.slice(0, 10)}${x.keptGoing ? `, kept going ${x.keptGoing}×` : ''}` : `ended, ${x.ended?.how ?? 'ended'}${x.ended?.by ? ` by ${x.ended.by}` : ''}`;
+  return [
+    `${x.title} (${x.advisor}, ${status})`,
+    `  ${change}  [${scope}]`,
+    `  ${x.baseline.measure}: ${n(x.baseline.value)} at the start, ${n(now)} now. Predicted: ${x.prediction.text}`,
+    `  id ${x.id}${x.overlaps?.length ? `; overlaps ${x.overlaps.join(', ')}` : ''}`,
+  ].join('\n');
+}
+
 const USAGE = `usage: snagboat <command> [options]
 
 commands:
@@ -38,9 +52,15 @@ commands:
   open                open the advisor UI in your browser (starts the core if it isn't running)
   statusline          one line for Claude Code's status line (findings, today's tokens); reads its
                       JSON on stdin, and never starts the core
-  mcp                 an MCP server over stdio with read-only tools (findings, sessions, session,
-                      advisors) for the workspace containing the current folder; the Claude Code
-                      plugin runs it
+  mcp                 an MCP server over stdio for the workspace containing the current folder:
+                      read-only tools (findings, sessions, session, advisors, proposals) and two
+                      that review an advisor's report (mark a proposal, send the report back);
+                      the Claude Code plugin runs it
+  experiments         every experiment: an accepted proposal's change, its baseline and its
+                      tracked measure now (from the core, which it starts if needed)
+  experiments revert|keep|accept <id>
+                      revert one (put back what it changed), keep it going a period, or accept
+                      its result
   config              the settings that apply to the current folder, and where each comes from
   containers allow [dir]
                       let the core read the Claude Code transcripts a dev container keeps in
@@ -293,7 +313,7 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       const reads = async (): Promise<McpReads> => {
         const info = await ensureCore(home, __filename, { idleMinutes: parsed.idleMinutes });
         const workspace = selectStores(findUserStores(), cwd, false).find((st) => st.workspace)?.workspace;
-        return { workspace, get: (p) => coreRequest(info.port, info.token, 'GET', p, undefined, 30_000) };
+        return { workspace, get: (p) => coreRequest(info.port, info.token, 'GET', p, undefined, 30_000), post: (p, body) => coreRequest(info.port, info.token, 'POST', p, body, 30_000) };
       };
       await serveMcp(process.stdin, (line) => io.out(line + '\n'), reads, version);
       return 0;
@@ -319,6 +339,39 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       // For the Claude Code plugin's build (scripts/buildPlugin.js): the hook forwarder every project runs.
       io.out(HOOK_SCRIPT);
       return 0;
+    case 'experiments': {
+      // The goal tracking lifecycle's experiments (snagboat-79f.7.10), from the core, which owns them.
+      const [action, id] = rest;
+      if (action !== undefined && (!['revert', 'keep', 'accept'].includes(action) || !id)) {
+        io.err(`experiments takes revert, keep or accept and an experiment id\n\n${USAGE}`);
+        return 2;
+      }
+      let info;
+      try {
+        info = await ensureCore(userHome(), __filename, { idleMinutes: parsed.idleMinutes });
+      } catch (err) {
+        io.err(`the core couldn't start: ${err instanceof Error ? err.message : String(err)}\n`);
+        return 1;
+      }
+      if (action) {
+        const res = await coreRequest(info.port, info.token, 'POST', `/experiments/${encodeURIComponent(id)}`, { action }, 30_000);
+        if (res.status !== 200) {
+          io.err(`${(res.body as { error?: string })?.error ?? `the core answered ${res.status}`}\n`);
+          return 1;
+        }
+        const x = (res.body as { experiment: Experiment }).experiment;
+        print(res.body, () => `${x.title}: ${action === 'revert' ? 'reverted' : action === 'accept' ? 'result accepted; the change stays' : `kept going; reviewed ${x.reviewAt.slice(0, 10)}`}\n`);
+        return 0;
+      }
+      const res = await coreRequest(info.port, info.token, 'GET', '/experiments', undefined, 30_000);
+      if (res.status !== 200) {
+        io.err(`the core answered ${res.status}: ${JSON.stringify(res.body)}\n`);
+        return 1;
+      }
+      const body = res.body as { experiments: Experiment[]; now: Record<string, { value?: number }> };
+      print(body, () => (body.experiments.length ? body.experiments.map((x) => experimentLines(x, body.now[x.id]?.value)).join('\n') + '\n' : 'no experiments yet: an advisor\'s accepted proposals become experiments\n'));
+      return 0;
+    }
     case 'findings': {
       // Worked out by the core (3c-3d), for the per-user store's workspace containing the folder.
       const home = userHome();

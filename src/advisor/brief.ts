@@ -43,18 +43,21 @@ function phrase(m: MeasureResult): string {
   return `${lower(m.label)} ${dir}${by ? ` ${by}` : ''} to ${value}`;
 }
 
+/** Where a goal stands, in one line, from its measures: "Improving: cache hit rate up 7 points to 68%, ...". */
+export function measureSummary(measures: MeasureResult[]): string {
+  const measured = measures.filter((m) => m.value !== undefined && !m.note);
+  if (measured.length === 0) return 'Nothing to measure yet in this period.';
+  const better = measured.filter((m) => m.trend === 'better').length;
+  const worse = measured.filter((m) => m.trend === 'worse').length;
+  const lead = worse > better ? 'Slipping' : better > worse ? 'Improving' : 'Steady';
+  const shown = [...measured].sort((a, b) => change(b) - change(a)).slice(0, 2);
+  return `${lead}: ${shown.map(phrase).join(', ')}.`;
+}
+
 export function advisorBrief(report: AdvisorReport, findings: Finding[], notifiedRecently: Set<string>, ahead?: Ahead, states: Record<string, FindingState> = {}): Brief {
   const measured = report.measures.filter((m) => m.value !== undefined && !m.note);
-  const better = measured.filter((m) => m.trend === 'better');
   const worse = measured.filter((m) => m.trend === 'worse');
-
-  let summary: string;
-  if (measured.length === 0) summary = 'Nothing to measure yet in this period.';
-  else {
-    const lead = worse.length > better.length ? 'Slipping' : better.length > worse.length ? 'Improving' : 'Steady';
-    const shown = [...measured].sort((a, b) => change(b) - change(a)).slice(0, 2);
-    summary = `${lead}: ${shown.map(phrase).join(', ')}.`;
-  }
+  const summary = measureSummary(report.measures);
 
   const worst = [...worse].sort((a, b) => change(b) - change(a))[0];
   let watching: string | undefined;

@@ -72,8 +72,9 @@ async function main() {
     assert.strictEqual(init.result.serverInfo.version, '9.9');
     assert.strictEqual(await handleMcp({ jsonrpc: '2.0', method: 'notifications/initialized' }, reads, 't'), undefined);
     const list = (await handleMcp({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, reads, 't')) as { result: { tools: Array<{ name: string; annotations: { readOnlyHint: boolean } }> } };
-    assert.deepStrictEqual(list.result.tools.map((t) => t.name), ['snagboat_findings', 'snagboat_sessions', 'snagboat_session', 'snagboat_advisors']);
-    assert.ok(list.result.tools.every((t) => t.annotations.readOnlyHint));
+    assert.deepStrictEqual(list.result.tools.map((t) => t.name), ['snagboat_findings', 'snagboat_sessions', 'snagboat_session', 'snagboat_proposals', 'snagboat_mark_proposal', 'snagboat_send_report', 'snagboat_advisors']);
+    // The review's two write tools say so; everything else is read only.
+    assert.deepStrictEqual(list.result.tools.filter((t) => !t.annotations.readOnlyHint).map((t) => t.name), ['snagboat_mark_proposal', 'snagboat_send_report']);
     assert.strictEqual(((await handleMcp({ jsonrpc: '2.0', id: 3, method: 'resources/list' }, reads, 't')) as { error: { code: number } }).error.code, -32601);
     assert.strictEqual(((await handleMcp({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'snagboat_write' } }, reads, 't')) as { error: { code: number } }).error.code, -32602);
   });

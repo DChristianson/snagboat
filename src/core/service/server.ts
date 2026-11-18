@@ -25,8 +25,13 @@ import { NotWaiting, parseSuggestionAction, SuggestionsService } from './suggest
 import { SuggestionsView } from '../../discovery/suggestionsController';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
-import { loadAdvisorGoals } from '../../advisor/goals';
+import { ADVISOR_PERIODS, loadAdvisorGoals } from '../../advisor/goals';
 import { MEASURES } from '../../advisor/measures';
+import { CoreAdvisors } from './advisorModels';
+import { PERIOD_CHECK_MS, PeriodJob } from './periodJob';
+import { AdvisorReports, ReviewError } from './advisorReports';
+import { ExperimentStore } from '../experiments';
+import { ProposalStore } from '../proposals';
 import { advisorTemplates, checkNewAdvisor, CUE_COLORS, CUE_ICONS, writeNewAdvisor } from '../../advisor/newAdvisor';
 import { builtInHeuristics } from '../../heuristics';
 import { RuleStore } from '../../heuristics/ruleStore';
@@ -86,6 +91,15 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              saved rules (step 5c-2); POST /suggestions { workspace, action, ... } acts on it
  *                              (any token, a reader's included: accepted rules and thresholds are yours)
  *   GET  /today?workspace=w     today's tokens, cache rate and milestones, and how many findings are showing (step 5d)
+ *   GET  /advisors/:id/report  an advisor's latest period report (?id= for another) and the list of them;
+ *                              POST asks for one now (admin or reader: reports cover every workspace)
+ *   POST /advisors/:id/report/answer  ask the advisor's model again for an unanswered report (?id= for an older one)
+ *   POST /proposals/:id        { mark: accept | discard | revise, note }: your mark, switchable until sent
+ *   GET  /experiments          every experiment (?advisor=a,b&status=running|ended); POST /experiments/:id
+ *                              { action: revert | keep | accept }: put back what it replaced, keep going (judged a
+ *                              period later), or accept the result
+ *   POST /advisors/:id/report/:rev  send that revision back (?id= for an older report): Accept report, or
+ *                              Revise report when a proposal is marked revise (the model answers in the background)
  *   GET  /advisor-form         the + form's choices: measures, rules an advisor can speak for, templates (step 5c)
  *   POST /advisors             a new advisor from the form: ~/.snagboat/advisors/<id>/persona.md, never
  *                              overwriting one (any token, a reader's included: advisors are yours)
@@ -127,6 +141,12 @@ export interface CoreOptions {
   idleMs?: number;
   /** How often git outcomes are read (when collecting); default 6 hours, the first a minute after start. */
   gitOutcomesEveryMs?: number;
+  /** How often advisors' period reports are checked for being due; default hourly, the first a minute after start (0: never). */
+  periodEveryMs?: number;
+  /** fetch for the core's model requests (tests). */
+  fetchImpl?: import('../../advisor/providers').FetchLike;
+  /** The clock period reports use (tests). */
+  now?: () => Date;
   /** How often followed workspaces' heuristics run with no new events; default 30 seconds. */
   heuristicsEveryMs?: number;
   /** How often to move spooled events of workspaces no longer claimed; default 30 seconds. */
@@ -236,6 +256,8 @@ export class CoreService {
   private readonly findings: FindingsService;
   private readonly sessionPages: SessionPages;
   private readonly suggestions: SuggestionsService;
+  private readonly reports: AdvisorReports;
+  private readonly experiments: ExperimentStore;
   /** Streams that want findings, told of each change. */
   private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
@@ -283,7 +305,23 @@ export class CoreService {
     });
     this.writer.onWritten((workspace, events) => this.findings.ingest(workspace, events));
     this.sessionPages = new SessionPages(opts.home, this.findings);
-    this.suggestions = new SuggestionsService(opts.home, this.findings, (line) => this.log(line), { workerIdleMs: opts.discoveryWorkerIdleMs });
+    // One set of model advisors, so a request waiting for your approval is the same one wherever it shows.
+    const models = new CoreAdvisors(opts.home, opts.fetchImpl, (line) => this.log(line));
+    // An applied or reverted change reaches the running heuristics on their next run; run them now.
+    this.experiments = new ExperimentStore(opts.home, opts.now, () => this.findings.tick());
+    this.reports = new AdvisorReports(
+      new PeriodJob(opts.home, opts.now, (line) => this.log(line), () => this.experiments.list()),
+      new ProposalStore(opts.home, opts.now),
+      models,
+      () => this.experiments.list(),
+      opts.now,
+      (line) => this.log(line),
+      async (_advisor, report, accepted) => {
+        const started = await this.experiments.start(report, accepted);
+        for (const x of started) this.log(`experiment ${x.id} started: ${x.title}`);
+      }
+    );
+    this.suggestions = new SuggestionsService(opts.home, this.findings, (line) => this.log(line), { workerIdleMs: opts.discoveryWorkerIdleMs, advisors: models });
     // Outcomes (RFC step 4): tests going green, worked out from what's written and written back.
     const testsGreen = new TestsGreen();
     this.writer.onWritten((workspace, events) => {
@@ -345,6 +383,18 @@ export class CoreService {
       }
     };
     void ingest().then(retention);
+    // Advisors' period reports (goal tracking lifecycle): catch up on start, then check hourly.
+    const periodEveryMs = opts.periodEveryMs ?? PERIOD_CHECK_MS;
+    if (periodEveryMs > 0) {
+      const runPeriods = () =>
+        void core.reports.job
+          .runDue()
+          .then((written) => written.forEach((r) => core.reports.answerLater(r.advisor, r.id)))
+          .catch((err) => core.log(`period reports failed: ${err instanceof Error ? err.message : String(err)}`));
+      const firstPeriods = setTimeout(runPeriods, Math.min(60_000, periodEveryMs));
+      core.timers.push(firstPeriods as unknown as NodeJS.Timeout);
+      core.timers.push(setInterval(runPeriods, periodEveryMs));
+    }
     core.timers.push(setInterval(ingest, opts.ingestEveryMs ?? 30_000));
     core.timers.push(setInterval(retention, opts.retentionEveryMs ?? RETENTION_INTERVAL_MS));
     // Heuristics such as "stalled" fire on the absence of events, so followed workspaces are also evaluated on a timer.
@@ -527,6 +577,18 @@ export class CoreService {
       if (route === 'GET /suggestions') return send(200, await this.suggestionsView(scope, url.searchParams.get('workspace')));
       if (route === 'POST /suggestions') return send(200, await this.suggestionsAct(scope, await this.readBody(req, 4096)));
       if (route === 'GET /today') return send(200, await this.today(scope, url.searchParams.get('workspace')));
+      if (route === 'GET /experiments') return send(200, this.listExperiments(scope, url.searchParams));
+      if (req.method === 'POST' && url.pathname.startsWith('/experiments/')) return send(200, await this.actOnExperiment(scope, decodeURIComponent(url.pathname.slice('/experiments/'.length)), await this.readBody(req, 4096)));
+      const answerMatch = req.method === 'POST' ? /^\/advisors\/([^/]+)\/report\/answer$/.exec(url.pathname) : null;
+      if (answerMatch) return send(202, this.askAgain(scope, decodeURIComponent(answerMatch[1]), url.searchParams.get('id')));
+      const sendMatch = req.method === 'POST' ? /^\/advisors\/([^/]+)\/report\/(\d+)$/.exec(url.pathname) : null;
+      if (sendMatch) return send(200, await this.sendReport(scope, decodeURIComponent(sendMatch[1]), url.searchParams.get('id'), Number(sendMatch[2])));
+      if (req.method === 'POST' && url.pathname.startsWith('/proposals/')) return send(200, await this.markProposal(scope, decodeURIComponent(url.pathname.slice('/proposals/'.length)), await this.readBody(req, 8192)));
+      if (url.pathname.startsWith('/advisors/') && url.pathname.endsWith('/report')) {
+        const id = decodeURIComponent(url.pathname.slice('/advisors/'.length, -'/report'.length));
+        if (req.method === 'GET') return send(200, this.periodReport(scope, id, url.searchParams.get('id')));
+        if (req.method === 'POST') return send(201, await this.requestReport(scope, id));
+      }
       if (route === 'GET /advisor-form') return send(200, await this.advisorForm());
       if (route === 'POST /advisors') return send(201, await this.addAdvisor(await this.readBody(req, 8192)));
       if (route === 'POST /findings/respond') return send(200, await this.respond(scope, await this.readBody(req, 4096)));
@@ -729,6 +791,18 @@ export class CoreService {
       const ahead = reports.some((r) => r.id === 'navigator') ? await navigatorAhead(stores[0].folder, currentEvents, now.getTime()) : undefined;
       for (const r of reports) r.brief = advisorBrief(r, live, notified, r.id === 'navigator' ? ahead : undefined, findingsNow.responses);
     }
+    // Each advisor's latest period report, for tokens that read every workspace (reports cover them all).
+    if (readsAll(scope)) {
+      for (const r of reports) {
+        const v = this.reports.view(r.id);
+        if (!v) continue;
+        r.review = { report: v.report.id, label: v.report.label, rev: v.review.rev, state: v.review.state, unmarked: v.review.unmarked, proposals: v.proposals.length };
+        // Proposals waiting take "To surface" when there's no live finding to show.
+        if (v.review.unmarked && r.brief && (r.brief.surface.kind === 'suggest' || r.brief.surface.kind === 'none')) {
+          r.brief.surface = { kind: 'suggest', label: 'Proposals', text: `${v.review.unmarked} proposal${v.review.unmarked === 1 ? '' : 's'} waiting in the ${v.report.label} report.` };
+        }
+      }
+    }
     return { days, workspaces: stores.map((s) => s.workspace), advisors: reports, problems };
   }
 
@@ -795,6 +869,118 @@ export class CoreService {
     return [...out].map(([id, title]) => ({ id, ...(title ? { title } : {}) }));
   }
 
+  /**
+   * GET /advisors/:id/report[?id=<report id>]: an advisor's latest period report (or that one), and the list of
+   * its reports. Reports cover every workspace, so only tokens that read every workspace (admin, reader) see them.
+   */
+  private periodReport(scope: Scope, advisor: string, reportId: string | null) {
+    if (!readsAll(scope)) throw new HttpError(403, "period reports cover every workspace; this token reads only its own");
+    if (!/^[a-z][a-z0-9-]*$/.test(advisor)) throw new HttpError(400, 'no such advisor');
+    const view = this.reports.view(advisor, reportId ?? undefined);
+    if (!view) throw new HttpError(404, reportId === null ? `${advisor} has no report yet` : `${advisor} has no report ${reportId}`);
+    const all = this.reports.job.list(advisor);
+    return { ...view, reports: all.map((r) => ({ id: r.id, label: r.label, from: r.from, to: r.to, trigger: r.trigger })) };
+  }
+
+  /** GET /experiments[?advisor=a,b][&status=running|ended]: every experiment, newest first. */
+  private listExperiments(scope: Scope, q: URLSearchParams) {
+    if (!readsAll(scope)) throw new HttpError(403, 'experiments are yours across every workspace; this token reads only its own');
+    const advisors = (q.get('advisor') ?? '').split(',').filter(Boolean);
+    const status = q.get('status');
+    if (status !== null && status !== 'running' && status !== 'ended') throw new HttpError(400, 'status is running or ended');
+    const experiments = this.experiments.list().filter((x) => (!advisors.length || advisors.includes(x.advisor)) && (status === null || x.status === status));
+    // Each one's tracked measure now: from its advisor's latest report, in its scope.
+    const now: Record<string, { report: string; value?: number; label?: string; unit?: string; better?: 'lower' | 'higher' }> = {};
+    for (const x of experiments) {
+      const r = this.reports.job.get(x.advisor);
+      if (!r) continue;
+      const measures = x.scope === 'global' ? r.measures : r.workspaces.find((w) => w.workspace === (x.scope as { workspace: string }).workspace)?.measures ?? [];
+      const m = measures.find((y) => y.id === x.baseline.measure) ?? r.measures.find((y) => y.id === x.baseline.measure);
+      const value = measures.find((y) => y.id === x.baseline.measure)?.value;
+      now[x.id] = { report: r.id, ...(value !== undefined ? { value } : {}), ...(m ? { label: m.label, unit: m.unit, better: m.better } : {}) };
+    }
+    return { experiments, now };
+  }
+
+  /**
+   * POST /experiments/:id { action }: revert (put back what the change replaced, and end it), keep (keep going:
+   * judged again a period later), or accept (the result: the change stays, and it ends).
+   */
+  private async actOnExperiment(scope: Scope, id: string, body: unknown) {
+    if (!readsAll(scope)) throw new HttpError(403, 'experiments are yours across every workspace; this token reads only its own');
+    const action = (body as { action?: unknown } | undefined)?.action;
+    if (action !== 'revert' && action !== 'keep' && action !== 'accept') throw new HttpError(400, 'action is revert, keep or accept');
+    const x = this.experiments.get(id);
+    if (!x) throw new HttpError(404, `no experiment ${id}`);
+    try {
+      if (action === 'revert') return { experiment: await this.experiments.revert(id) };
+      if (action === 'accept') return { experiment: this.experiments.accept(id) };
+      const period = this.reports.job.advisors().find((a) => a.id === x.advisor)?.period ?? 'weekly';
+      const kept = this.experiments.keep(id, period);
+      if (this.reports.proposals.get(x.advisor, x.proposal)) this.reports.proposals.mark(x.advisor, x.proposal, 'kept');
+      return { experiment: kept };
+    } catch (err) {
+      throw new HttpError(409, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** POST /advisors/:id/report/answer[?id=]: asks the advisor's model again for a report it hasn't answered (it failed, or you didn't send it). */
+  private askAgain(scope: Scope, advisor: string, reportId: string | null) {
+    if (!readsAll(scope)) throw new HttpError(403, 'period reports cover every workspace; this token reads only its own');
+    const view = this.reports.view(advisor, reportId ?? undefined);
+    if (!view) throw new HttpError(404, `${advisor} has no report ${reportId ?? 'yet'}`);
+    if (view.report.revisions?.length) throw new HttpError(409, 'its model has answered this report already');
+    if (!this.reports.job.advisors().find((a) => a.id === advisor)?.model) throw new HttpError(409, `${advisor} has no model: set "model" in its persona.md`);
+    this.reports.answerLater(advisor, view.report.id);
+    return { asking: true };
+  }
+
+  /** POST /proposals/:id { mark: accept | discard | revise, note }: your mark on a proposal, switchable until its revision is sent. */
+  private markProposal(scope: Scope, id: string, body: unknown) {
+    if (!readsAll(scope)) throw new HttpError(403, 'proposals are yours across every workspace; this token reads only its own');
+    const b = (body ?? {}) as { mark?: unknown; note?: unknown };
+    if (b.mark !== 'accept' && b.mark !== 'discard' && b.mark !== 'revise') throw new HttpError(400, 'mark is accept, discard or revise');
+    try {
+      return { proposal: this.reports.mark(id, b.mark, typeof b.note === 'string' ? b.note : undefined) };
+    } catch (err) {
+      if (err instanceof ReviewError) throw new HttpError(err.status, err.message);
+      throw err;
+    }
+  }
+
+  /** POST /advisors/:id/report/:rev[?id=<report id>]: Accept report, or Revise report when a proposal is marked revise. */
+  private async sendReport(scope: Scope, advisor: string, reportId: string | null, rev: number) {
+    if (!readsAll(scope)) throw new HttpError(403, 'period reports cover every workspace; this token reads only its own');
+    try {
+      const { as, view } = await this.reports.send(advisor, reportId ?? undefined, rev);
+      return { sent: as, ...view };
+    } catch (err) {
+      if (err instanceof ReviewError) throw new HttpError(err.status, err.message);
+      throw err;
+    }
+  }
+
+  /** POST /advisors/:id/report: a report now, from the advisor's last one to now (admin or reader: advisors are yours). */
+  private async requestReport(scope: Scope, advisor: string) {
+    if (!readsAll(scope)) throw new HttpError(403, "period reports cover every workspace; this token reads only its own");
+    try {
+      // Periods that closed first are written and answered as the timer would.
+      for (const r of await this.reports.job.runDue()) this.reports.answerLater(r.advisor, r.id);
+      const report = await this.reports.job.request(advisor);
+      // The model answers in the background (it may wait for your approval); GET shows its revision once it has.
+      this.reports.answerLater(advisor, report.id);
+      return { report };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new HttpError(/^no advisor/.test(message) ? 404 : 500, message);
+    }
+  }
+
+  /** The local model advisors in your user settings, which a goal advisor's `model` may name. */
+  private modelAdvisors() {
+    return new CoreAdvisors(this.opts.home, undefined, this.log).advisors();
+  }
+
   /** GET /advisor-form: what the + form offers: measures, the rules an advisor can speak for, the built-ins as templates. */
   private async advisorForm() {
     const { advisors } = loadAdvisorGoals(path.join(this.opts.home, 'advisors'), () => undefined);
@@ -802,6 +988,8 @@ export class CoreService {
       measures: Object.entries(MEASURES).map(([id, m]) => ({ id, label: m.label, unit: m.unit, ...(m.notYet ? { notYet: m.notYet } : {}) })),
       rules: await this.knownRules(),
       templates: advisorTemplates(advisors),
+      periods: ADVISOR_PERIODS,
+      models: this.modelAdvisors().map((a) => ({ id: a.id, label: a.label, ...(a.model ? { model: a.model } : {}) })),
       colors: CUE_COLORS,
       icons: CUE_ICONS,
     };
@@ -813,7 +1001,7 @@ export class CoreService {
    * as advisors are yours, not a workspace's.
    */
   private async addAdvisor(body: unknown): Promise<{ advisor: { id: string; name: string } }> {
-    const { spec, problems } = checkNewAdvisor(body, (await this.knownRules()).map((r) => r.id));
+    const { spec, problems } = checkNewAdvisor(body, (await this.knownRules()).map((r) => r.id), this.modelAdvisors().map((a) => a.id));
     if (!spec) throw new HttpError(400, problems.join(' '));
     try {
       const a = writeNewAdvisor(path.join(this.opts.home, 'advisors'), spec);

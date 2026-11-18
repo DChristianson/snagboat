@@ -10,7 +10,7 @@ The built-in advisors need no model: their measures and Snagboat's findings are 
 
 ## Local, hosted, and what is sent
 
-- **Local by default.** `snagboat.advisor.providers` starts with one provider: Ollama at `http://localhost:11434/v1`. Any OpenAI-compatible server on this machine works (LM Studio, llama.cpp). With no model set, Snagboat lists the server's models the first time you use it.
+- **Local by default.** `snagboat.advisor.providers` starts with one provider: Ollama at `http://localhost:11434/v1`, with `llama3.1:latest` (`ollama pull llama3.1`) and a 32,768-token context window, asked through Ollama's own chat endpoint since its OpenAI-compatible one can't set the window. Any OpenAI-compatible server on this machine works (LM Studio, llama.cpp). With no model set, Snagboat lists the server's models the first time you use it.
 - **Hosted only if you add one.** A provider at any other address must use https and needs your API key, set with **Snagboat: Set Advisor API Key...** and kept in VS Code's secret storage. Every request to it is recorded in a local audit log.
 - **Several advisors, if you like.** `snagboat.advisors` lists advisors with the abilities each offers (summarize a session or the week, propose heuristics, propose nudges) and what each may receive per ability. `snagboat.advisor.defaults` picks the one used, and **Ask another advisor** offers the rest. See [settings](settings.md#installed-advisors).
 - **The model sees a digest, not your log.** The digest is a summary built for one request:

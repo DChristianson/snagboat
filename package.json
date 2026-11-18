@@ -1070,6 +1070,7 @@
                 "type": "string",
                 "description": "Such as http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio), or https://api.openai.com/v1."
               },
+              "contextWindow": { "type": "integer", "minimum": 1024, "maximum": 1048576, "markdownDescription": "The context window to ask for, in tokens. For Ollama (port 11434), Snagboat then asks through Ollama's own chat endpoint with this `num_ctx`, since its OpenAI-compatible one can't set it; other servers ignore it." },
               "model": {
                 "type": "string",
                 "description": "Leave empty to pick from the provider's models on first use."
@@ -1356,7 +1357,8 @@
               "id": "local",
               "label": "Local (Ollama)",
               "baseUrl": "http://localhost:11434/v1",
-              "model": ""
+              "model": "llama3.1:latest",
+              "contextWindow": 32768
             }
           ],
           "markdownDescription": "The short form of an advisor: a model that offers every ability with one set of sending rules. An OpenAI-compatible chat completion endpoint; a provider whose `baseUrl` is on this machine (localhost) is local; any other is hosted, must use https, needs an API key (**Snagboat: Set Advisor API Key...**), and every request to it is recorded in the audit log. `send` sets what it may receive: by default local providers get prompts and session names, hosted ones neither, and neither gets reply excerpts. For abilities with their own rules, use `snagboat.advisors`.",
@@ -1380,6 +1382,7 @@
                 "type": "string",
                 "description": "Such as http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio), or https://api.openai.com/v1."
               },
+              "contextWindow": { "type": "integer", "minimum": 1024, "maximum": 1048576, "markdownDescription": "The context window to ask for, in tokens. For Ollama (port 11434), Snagboat then asks through Ollama's own chat endpoint with this `num_ctx`, since its OpenAI-compatible one can't set it; other servers ignore it." },
               "model": {
                 "type": "string",
                 "description": "Leave empty to pick from the provider's models on first use."

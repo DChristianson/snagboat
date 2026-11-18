@@ -23,6 +23,10 @@
       <a class="side-link" href="#view=sessions" id="nav-sessions">Sessions <span class="count" id="count-sessions"></span></a>
       <a class="side-link" href="#view=suggestions" id="nav-suggestions">Suggestions</a>
     </nav>
+    <nav class="navgroup" aria-label="Every workspace">
+      <div class="eyebrow">Every workspace</div>
+      <a class="side-link" href="#view=experiments" id="nav-experiments">Experiments <span class="count" id="count-experiments"></span></a>
+    </nav>
   </aside>
   <main class="main" id="main">
     <div class="bar">
@@ -75,9 +79,9 @@
         <h2>Measures <span class="muted small" id="measures-note"></span></h2>
         <div class="measures" id="detail-measures"></div>
       </div>
-      <div class="panel">
-        <h2>Proposed changes</h2>
-        <p class="small muted">Rule changes are proposed on the <a href="#view=suggestions">Suggestions</a> page: discovery from your history, and an advisor model on this machine that names the candidates and proposes rules, replayed over your history before you accept them.</p>
+      <div class="panel" id="report-panel">
+        <h2>Report <span class="muted small" id="report-meta"></span></h2>
+        <div class="report" id="report"></div>
       </div>
     </section>
 
@@ -119,6 +123,16 @@
           <label for="add-max">Notifications an hour, at most</label>
           <input id="add-max" type="number" min="0" max="20" step="1" value="2">
           <span class="hint small muted">0: it never notifies.</span>
+        </div>
+        <div class="field">
+          <label for="add-period">Reports</label>
+          <select id="add-period"></select>
+          <span class="hint small muted">How often it reports on its goal. You can always ask for a report.</span>
+        </div>
+        <div class="field">
+          <label for="add-model">Model</label>
+          <select id="add-model"><option value="">None: numbers only</option></select>
+          <span class="hint small muted">The model that writes its reports, from your advisor settings (snagboat.advisors).</span>
         </div>
         <fieldset class="field">
           <legend>Look</legend>
@@ -173,6 +187,30 @@
         <h2>Findings in this session</h2>
         <div class="flist" id="session-findings"></div>
       </div>
+    </section>
+
+    <section id="view-experiments" hidden aria-labelledby="experiments-h">
+      <div class="view-head">
+        <h1 id="experiments-h">Experiments</h1>
+        <p class="small muted">Every accepted proposal, applied and tracked against its baseline. Check in between reports, or revert one early.</p>
+      </div>
+      <div class="filters">
+        <label class="sr-only" for="x-project">Project</label>
+        <select id="x-project"><option value="">Project: All</option></select>
+        <label class="sr-only" for="x-advisor">Advisor</label>
+        <select id="x-advisor"><option value="">Advisor: All</option></select>
+        <label class="sr-only" for="x-search">Experiment</label>
+        <input id="x-search" type="search" placeholder="Experiment: search names or settings" autocomplete="off">
+        <label class="sr-only" for="x-status">Status</label>
+        <select id="x-status">
+          <option value="">Status: Running and ended</option>
+          <option value="running">Status: Running</option>
+          <option value="ended">Status: Ended</option>
+        </select>
+        <span class="small muted" id="x-count"></span>
+      </div>
+      <div class="table-scroll"><table class="xp" id="x-table"></table></div>
+      <span class="err" id="x-error" role="alert"></span>
     </section>
 
     <section id="view-suggestions" hidden aria-labelledby="suggestions-h">

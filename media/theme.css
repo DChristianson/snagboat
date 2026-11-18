@@ -26,6 +26,8 @@
   /* Focus, links and states. */
   --sb-accent: #005fb8;
   --sb-link: #005fb8;
+  --sb-amber: #b07400;
+  --sb-amber-soft: rgba(237, 161, 0, 0.14);
   --sb-error: #f85149;
   --sb-warn: #bf8803;
   --sb-info: #1a85ff;
@@ -84,6 +86,8 @@
 
     --sb-accent: #0078d4;
     --sb-link: #4daafc;
+    --sb-amber: #e0a92e;
+    --sb-amber-soft: rgba(237, 161, 0, 0.16);
     --sb-error: #f88070;
     --sb-warn: #cca700;
     --sb-info: #3794ff;

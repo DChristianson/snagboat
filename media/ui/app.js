@@ -269,6 +269,7 @@
       el('div', { class: 'adv-head' }, [
         el('span', { class: 'glyph' }, [glyph(cueOf(a)[0])]),
         el('div', { class: 'who' }, [el('b', { text: a.name }), el('span', { class: 'status-line', text: a.status, title: `goal: ${a.goal}` })]),
+        a.review && a.review.unmarked ? el('a', { class: 'pill amber', href: `#${new URLSearchParams({ days: String(state.days), advisor: a.id }).toString()}`, text: `${a.review.unmarked} proposal${a.review.unmarked === 1 ? '' : 's'}`, title: `waiting in the ${a.review.label} report` }) : null,
         el('span', { class: `cap${max > 0 && used >= max ? ' full' : ''}`, text: cap }),
       ])
     );
@@ -281,7 +282,7 @@
       card.append(el('div', { class: 'brief' }, [el('p', { class: 'sum', text: b.summary }), dl]));
     }
     const open = el('a', { href: `#${new URLSearchParams({ days: String(state.days), advisor: a.id }).toString()}`, text: 'Measures and detail' });
-    card.append(el('div', { class: 'adv-foot' }, [el('span', { text: `${a.source === 'built-in' ? 'built in' : 'your persona.md'} · no model` }), open]));
+    card.append(el('div', { class: 'adv-foot' }, [el('span', { text: `${a.source === 'built-in' ? 'built in' : 'your persona.md'} · ${a.model ? `model ${a.model}` : 'no model'} · reports ${a.period || 'weekly'}` }), open]));
     return card;
   }
 
@@ -391,7 +392,9 @@
       el('dt', { text: 'Notifies' }),
       el('dd', { text: max === undefined ? 'no limit' : max === 0 ? 'never' : `at most ${max} an hour · ${a.notify.lastHour || 0} this hour` }),
       el('dt', { text: 'Model' }),
-      el('dd', { text: 'none: it measures and surfaces without one' })
+      el('dd', { text: a.model ? `${a.model} (snagboat.advisors) writes its reports` : 'none: its reports carry the numbers only' }),
+      el('dt', { text: 'Reports' }),
+      el('dd', { text: a.period || 'weekly' })
     );
     $('voice').textContent = a.voice || '';
     $('measures-note').textContent = `· last ${state.days} days against the ${state.days} before`;
@@ -408,18 +411,278 @@
       })
     );
     showProblems(daily.problems);
+    await renderReport(a);
+  }
+
+  // --- An advisor's period report (goal tracking lifecycle, snagboat-79f.7.5) ---------------------------
+  // The latest report from the core: where the goal stands, verdicts on running experiments, and its
+  // proposed rule changes with how you've marked them.
+  const MARKS = { open: 'Not marked', accepted: 'Accepted', discarded: 'Discarded', revised: 'To revise', kept: 'Kept going', closed: 'Closed' };
+  const num = (v) => (typeof v === 'number' ? v.toLocaleString() : String(v));
+  function changeText(c) {
+    return c.kind === 'setting' ? `${c.key} ${c.before === undefined ? 'unset' : num(c.before)} → ${num(c.after)}` : `${c.before ? 'changed rule' : 'new rule'} ${c.rule.id}`;
+  }
+  function scopeText(scope) {
+    return scope === 'global' ? 'global' : scope.workspace.split(/[\\/]/).filter(Boolean).pop() || scope.workspace;
+  }
+  function kindText(c) {
+    return c.kind === 'setting' ? `Rule change · ${c.key}` : c.before ? `Rule change · ${c.rule.title || c.rule.id}` : `New rule · ${c.rule.title || c.rule.id}`;
+  }
+  function proposalCard(p, actions) {
+    return el('article', { class: `prop${p.status === 'revised' && actions === null ? ' old' : ''}`, 'aria-label': p.title }, [
+      el('div', { class: 'prop-head' }, [el('b', { text: p.title }), el('span', { class: 'pill scope', text: scopeText(p.scope) })]),
+      el('span', { class: 'kind', text: kindText(p.change) }),
+      el('span', { class: 'change', text: changeText(p.change) }),
+      el('span', { class: 'why', text: `${p.what} Why: ${p.why}` }),
+      el('div', { class: 'pred' }, [el('b', { text: 'Prediction, tracked once accepted' }), document.createTextNode(p.prediction.text)]),
+      p.note ? el('div', { class: 'note', text: `Your note: ${p.note}` }) : null,
+      actions || el('span', { class: `mark ${p.status}`, text: MARKS[p.status] || p.status }),
+    ]);
+  }
+  function verdictLine(v) {
+    const RESULTS = { met: 'Met', 'not-met': 'Not met', 'too-early': 'Too early', confounded: 'Mixed up' };
+    return el('div', { class: 'verdict' }, [el('span', { class: `pill ${v.result}`, text: RESULTS[v.result] || v.result }), el('span', { text: v.text })]);
+  }
+  /** The report panel; `act` (snagboat-79f.7.13) adds the review's buttons. */
+  async function renderReport(a) {
+    let view;
+    try {
+      view = await api(`/advisors/${encodeURIComponent(a.id)}/report`);
+    } catch (err) {
+      if (err instanceof Unauthorized) throw err;
+      $('report-meta').textContent = '';
+      $('report').replaceChildren(el('p', { class: 'small muted', text: `No report yet. The core writes one when the ${a.period || 'weekly'} period closes.` }), el('div', { class: 'foot' }, reportFoot(a, { review: { state: 'numbers-only' }, proposals: [] })));
+      return;
+    }
+    const r = view.report;
+    const latest = r.revisions && r.revisions.length ? r.revisions[r.revisions.length - 1] : null;
+    $('report-meta').textContent = `· ${r.label}${r.trigger === 'request' ? ' (asked for)' : ''}${latest ? ` · revision ${latest.rev}` : ''}`;
+    const parts = [el('p', { class: 'sum', text: latest ? latest.summary : r.summary })];
+    parts.push(el('span', { class: 'small muted', text: `${r.from.slice(0, 10)} to ${r.to.slice(0, 10)}${r.previous ? `, against ${r.previous}` : ''} · all workspaces` }));
+    parts.push(
+      el('div', { class: 'measures' }, r.measures.map((m) => {
+        if (m.note) return el('div', { class: 'm notyet' }, [el('span', { text: m.label }), el('span', { class: 'note', text: m.note })]);
+        const d = delta(m);
+        return el('div', { class: `m${m.value === undefined ? ' notyet' : ''}` }, [el('span', { text: m.label }), el('span', { class: 'v', text: m.value === undefined ? 'nothing yet' : format(m.value, m.unit) }), el('span', { class: `d ${d.cls}`, text: d.text }), el('span')]);
+      }))
+    );
+    const verdicts = latest && latest.verdicts.length ? latest.verdicts : r.verdicts || [];
+    if (verdicts.length) parts.push(el('h3', { text: 'Experiments' }), ...verdicts.map(verdictLine));
+    if (!latest) parts.push(...modelState(a, view));
+    else if (!view.proposals.length) parts.push(el('p', { class: 'small muted', text: 'No changes proposed.' }));
+    else {
+      parts.push(el('h3', { text: 'Proposed changes' }));
+      for (const p of view.proposals) {
+        // A revised proposal follows the one it replaces, struck through, with your note.
+        const old = p.replaces && (view.replaced || []).find((x) => x.id === p.replaces);
+        if (old) parts.push(proposalCard(old, null));
+        parts.push(proposalCard(p, reportActions ? reportActions(view, p) : null));
+      }
+    }
+    parts.push(el('div', { class: 'foot', id: 'report-foot' }, reportFoot ? reportFoot(a, view) : [el('span', { class: 'small muted', text: reviewText(view.review) })]));
+    $('report').replaceChildren(...parts);
+  }
+  /** Why a report has no model answer yet: asking, waiting for your approval, failed, not sent, or not asked. */
+  let askPoll = null;
+  function modelState(a, view) {
+    if (!a.model) return [el('p', { class: 'small muted', text: 'No model is set in its persona.md, so this report has the numbers only.' })];
+    clearTimeout(askPoll);
+    const again = (label) => {
+      const b = el('button', { class: 'btn', type: 'button', text: label });
+      b.addEventListener('click', () => void act(() => api(`/advisors/${encodeURIComponent(a.id)}/report/answer?id=${encodeURIComponent(view.report.id)}`, { method: 'POST' })));
+      return b;
+    };
+    const ask = view.ask;
+    if (!ask) return [el('p', { class: 'small muted', text: `${a.model} hasn't been asked about this report since the core started.` }), el('div', { class: 'btns' }, [again(`Ask ${a.model}`)])];
+    if (ask.state === 'failed') return [el('p', { class: 'err', text: `${a.model} couldn't answer: ${ask.error}` }), el('div', { class: 'btns' }, [again('Ask the model again')])];
+    if (ask.state === 'not-sent') return [el('p', { class: 'small muted', text: "The request wasn't sent: it was waiting for your approval and you didn't send it, or it timed out." }), el('div', { class: 'btns' }, [again('Ask the model again')])];
+    // Asking: look again shortly, while you approve or it answers.
+    askPoll = setTimeout(() => {
+      if (reviewing === a && !$('view-advisor').hidden) void renderReport(a);
+    }, 3000);
+    if (!ask.approval) return [el('p', { class: 'small muted', text: `Asking ${a.model}… a local model can take a minute or two.` })];
+    const ap = ask.approval;
+    const decide = (send) => () =>
+      void act(async () => {
+        try {
+          await api('/suggestions', { method: 'POST', body: JSON.stringify({ workspace: state.workspace, action: 'approve', id: ap.id, send }) });
+        } catch (err) {
+          if (!(err instanceof Refused)) throw err; // already answered elsewhere
+        }
+      });
+    const sendBtn = el('button', { class: 'btn primary', type: 'button', text: 'Send' });
+    sendBtn.addEventListener('click', decide(true));
+    const noBtn = el('button', { class: 'btn ghost', type: 'button', text: "Don't send" });
+    noBtn.addEventListener('click', decide(false));
+    return [
+      el('div', { class: 'approval' }, [
+        el('b', { text: `Send this to ${ap.advisor} (${ap.model})?` }),
+        el('span', { class: 'small muted', text: "The first request with this model's address and sending rules waits for you to see exactly what it sends. Once you send it, later requests go without asking." }),
+        el('details', {}, [el('summary', { text: 'The request, exactly as sent' }), el('pre', { class: 'payload', text: ap.payload })]),
+        el('div', { class: 'btns' }, [sendBtn, noBtn]),
+      ]),
+    ];
+  }
+  function reviewText(rv) {
+    if (rv.state === 'numbers-only') return '';
+    if (rv.state === 'accepted') return 'Accepted: the accepted changes are running as experiments.';
+    if (rv.state === 'revising') return 'Sent back to revise; the advisor is answering your notes.';
+    return `${rv.marked} of ${rv.marked + rv.unmarked} marked${rv.toRevise ? ` · ${rv.toRevise} to revise` : ''}`;
+  }
+  // --- The experiments page (snagboat-79f.7.9) ------------------------------------------------------------
+  // One table of every experiment, across workspaces: the change, its review date, and its tracked measure
+  // against the baseline, filtered by project, advisor, a search, and status.
+  let experimentsData = null;
+  let experimentsWired = false;
+  function fmtDate(iso) {
+    return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  }
+  function experimentRows() {
+    const { experiments, now } = experimentsData;
+    const project = $('x-project').value;
+    const advisor = $('x-advisor').value;
+    const status = $('x-status').value;
+    const q = $('x-search').value.trim().toLowerCase();
+    const shown = experiments.filter((x) => (!project || scopeText(x.scope) === project) && (!advisor || x.advisor === advisor) && (!status || x.status === status) && (!q || `${x.title} ${changeText(x.change)}`.toLowerCase().includes(q)));
+    $('x-count').textContent = `${shown.length} of ${experiments.length} experiment${experiments.length === 1 ? '' : 's'}`;
+    const head = el('thead', {}, [el('tr', {}, ['Experiment', 'Advisor', 'Project', 'Change', 'Started', 'Review', 'Measure', 'Baseline', 'Now', 'Status', ''].map((h) => el('th', { text: h })))]);
+    const body = el('tbody', {}, shown.map((x) => {
+      const n = now[x.id] || {};
+      const unit = n.unit || '';
+      const moved = n.value === undefined || x.baseline.value === undefined || n.value === x.baseline.value ? 'flat' : (n.value < x.baseline.value) === (n.better === 'lower') ? 'up' : 'down';
+      const review = x.status === 'running' ? `${fmtDate(x.reviewAt)}${x.keptGoing ? ` · kept going ${x.keptGoing === 1 ? 'once' : `${x.keptGoing} times`}` : ''}` : '';
+      const ended = { accepted: 'Ended · accepted', reverted: 'Ended · reverted', replaced: 'Ended · replaced' };
+      const revert = el('button', { class: 'btn', type: 'button', text: 'Revert', title: 'Put back what this change replaced, and end the experiment' });
+      revert.addEventListener('click', () => void (async () => {
+        $('x-error').textContent = '';
+        try {
+          await api(`/experiments/${encodeURIComponent(x.id)}`, { method: 'POST', body: JSON.stringify({ action: 'revert' }) });
+        } catch (err) {
+          if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core.');
+          $('x-error').textContent = err.message;
+          return;
+        }
+        await renderExperiments();
+      })());
+      return el('tr', {}, [
+        el('td', {}, [el('b', { text: x.title }), x.overlaps && x.overlaps.length && x.status === 'running' ? el('span', { class: 'small muted', text: ' · overlaps another experiment', title: x.overlaps.join(', ') }) : null]),
+        el('td', { text: x.advisor }),
+        el('td', {}, [el('span', { class: 'pill scope', text: scopeText(x.scope) })]),
+        el('td', { class: 'mono', text: changeText(x.change) }),
+        el('td', { text: fmtDate(x.startedAt) }),
+        el('td', { text: review }),
+        el('td', { text: n.label || x.baseline.measure }),
+        el('td', { class: 'num', text: x.baseline.value === undefined ? '—' : format(x.baseline.value, unit) }),
+        el('td', { class: `num ${moved}`, text: n.value === undefined ? '—' : format(n.value, unit) }),
+        el('td', {}, [el('span', { class: `pill ${x.status === 'running' ? 'run' : 'ended'}`, text: x.status === 'running' ? 'Running' : ended[x.ended && x.ended.how] || 'Ended' })]),
+        el('td', {}, [x.status === 'running' ? revert : null]),
+      ]);
+    }));
+    $('x-table').replaceChildren(head, body);
+    if (!experiments.length) $('x-table').replaceChildren(el('caption', { class: 'empty', text: "No experiments yet. When you accept an advisor's report, each accepted proposal is applied and tracked here." }));
+  }
+  async function renderExperiments() {
+    experimentsData = await api('/experiments');
+    const keep = (id, values, label) => {
+      const was = $(id).value;
+      $(id).replaceChildren(el('option', { value: '', text: `${label}: All` }), ...values.map((v) => el('option', { value: v, text: `${label}: ${v}` })));
+      $(id).value = values.includes(was) ? was : '';
+    };
+    keep('x-project', [...new Set(experimentsData.experiments.map((x) => scopeText(x.scope)))].sort(), 'Project');
+    keep('x-advisor', [...new Set(experimentsData.experiments.map((x) => x.advisor))].sort(), 'Advisor');
+    $('count-experiments').textContent = String(experimentsData.experiments.filter((x) => x.status === 'running').length || '');
+    if (!experimentsWired) {
+      experimentsWired = true;
+      for (const id of ['x-project', 'x-advisor', 'x-status']) $(id).addEventListener('change', () => experimentsData && experimentRows());
+      $('x-search').addEventListener('input', () => experimentsData && experimentRows());
+    }
+    experimentRows();
+  }
+
+  // --- The review on the advisor page (snagboat-79f.7.13) ------------------------------------------------
+  // Mark each proposal, switch until you send, then Accept report or Revise report. The page only calls
+  // the core's routes; the same review works from an agent session through MCP.
+  let reviewing = null; // the advisor whose report is shown
+  let reviewPoll = null;
+  async function act(fn) {
+    $('report-error') && ($('report-error').textContent = '');
+    try {
+      await fn();
+    } catch (err) {
+      if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core.');
+      if ($('report-error')) $('report-error').textContent = err.message;
+      return;
+    }
+    if (reviewing) await renderReport(reviewing);
+  }
+  function mark(p, m, note) {
+    return act(() => api(`/proposals/${encodeURIComponent(p.id)}`, { method: 'POST', body: JSON.stringify({ mark: m, ...(note !== undefined ? { note } : {}) }) }));
+  }
+  function reportActions(view, p) {
+    const open = view.review.state === 'open';
+    const carried = p.rev < view.review.rev && p.status === 'accepted';
+    if (!open || carried) return el('span', { class: `mark ${p.status}`, text: carried && open ? 'Accepted · kept from the last revision' : MARKS[p.status] || p.status });
+    const button = (m, label, on) => {
+      const b = el('button', { class: `btn${on ? ' on' : ''}`, type: 'button', text: label, 'aria-pressed': on ? 'true' : 'false' });
+      b.addEventListener('click', () => (m === 'revise' ? showNote() : void mark(p, m)));
+      return b;
+    };
+    const noteId = `note-${p.id}`;
+    const box = el('div', { class: 'note-edit', hidden: p.status !== 'revised' ? '' : null }, [
+      el('label', { class: 'sr-only', for: noteId, text: `What to change in "${p.title}"` }),
+      el('textarea', { id: noteId, rows: '2', maxlength: '1000', placeholder: 'What should change? Your note goes back to the advisor.' }),
+      el('button', { class: 'btn', type: 'button', text: 'Save note' }),
+    ]);
+    if (p.status !== 'revised') box.hidden = true;
+    const area = box.querySelector('textarea');
+    area.value = p.note || '';
+    box.querySelector('button').addEventListener('click', () => void mark(p, 'revise', area.value));
+    function showNote() {
+      box.hidden = false;
+      area.focus();
+    }
+    return el('div', { class: 'review-acts' }, [
+      el('div', { class: 'btns' }, [button('accept', 'Accept proposal', p.status === 'accepted'), button('discard', 'Discard proposal', p.status === 'discarded'), button('revise', 'Revise (with note)', p.status === 'revised')]),
+      box,
+    ]);
+  }
+  function reportFoot(a, view) {
+    reviewing = a;
+    clearTimeout(reviewPoll);
+    const rv = view.review;
+    const ask = el('button', { class: 'btn ghost', type: 'button', text: 'Ask for a report now', title: 'A report from the last one to now' });
+    ask.addEventListener('click', () => void act(() => api(`/advisors/${encodeURIComponent(a.id)}/report`, { method: 'POST' })));
+    const err = el('span', { class: 'err', id: 'report-error', role: 'alert' });
+    if (rv.state === 'revising') {
+      // The advisor is answering your notes; look again shortly.
+      reviewPoll = setTimeout(() => {
+        if (reviewing === a && !$('view-advisor').hidden) void renderReport(a);
+      }, 3000);
+      return [el('span', { class: 'small muted', text: 'Sent back to revise; the advisor is answering your notes.' }), err];
+    }
+    if (rv.state === 'open') {
+      const accepted = view.proposals.filter((p) => p.status === 'accepted').length;
+      const summary = rv.unmarked ? `${rv.marked} of ${rv.marked + rv.unmarked} marked` : `${accepted} accepted${rv.toRevise ? ` · ${rv.toRevise} to revise` : ''}${view.proposals.length - accepted - rv.toRevise ? ` · ${view.proposals.length - accepted - rv.toRevise} discarded` : ''}`;
+      const send = el('button', { class: 'btn primary', type: 'button', text: rv.toRevise ? 'Revise report' : 'Accept report', disabled: rv.send ? null : '' });
+      if (!rv.send) send.disabled = true;
+      send.title = rv.send ? (rv.send === 'accept' ? 'Applies the accepted changes and tracks each as an experiment' : 'Sends your notes back to the advisor') : 'Mark every proposal first';
+      send.addEventListener('click', () => void act(() => api(`/advisors/${encodeURIComponent(a.id)}/report/${rv.rev}?id=${encodeURIComponent(view.report.id)}`, { method: 'POST' })));
+      return [el('span', { class: 'small muted', text: `${summary}. You can switch a choice until you send.` }), el('div', { class: 'btns' }, [err, send])];
+    }
+    const done = rv.state === 'accepted' ? [el('span', { class: 'small muted' }, [document.createTextNode('Accepted: the accepted changes are running as '), el('a', { href: '#view=experiments', text: 'experiments' }), document.createTextNode('.')])] : [];
+    return [...done, el('div', { class: 'btns' }, [err, ask])];
   }
 
   function showProblems(problems) {
     $('problems').hidden = !problems || problems.length === 0;
     $('problems').textContent = problems && problems.length ? `Problems in your advisors' persona.md files: ${problems.join('; ')}` : '';
   }
-  const VIEWS = ['advisors', 'advisor', 'add', 'sessions', 'session', 'suggestions'];
+  const VIEWS = ['advisors', 'advisor', 'add', 'sessions', 'session', 'suggestions', 'experiments'];
   function showView(name) {
     for (const v of VIEWS) $(`view-${v}`).hidden = v !== name;
     // The nav marks the section you're in: an advisor's page is under Advisors, a session's under Sessions.
     const section = { advisor: 'advisors', add: 'advisors', session: 'sessions' }[name] || name;
-    for (const n of ['advisors', 'sessions', 'suggestions']) {
+    for (const n of ['advisors', 'sessions', 'suggestions', 'experiments']) {
       $(`nav-${n}`).classList.toggle('on', n === section);
       if (n === section) $(`nav-${n}`).setAttribute('aria-current', 'page');
       else $(`nav-${n}`).removeAttribute('aria-current');
@@ -433,7 +696,7 @@
     const f = fragment();
     if (f.get('advisor')) return ['advisor', f.get('advisor')];
     if (f.get('session')) return ['session', f.get('session')];
-    if (['sessions', 'add', 'suggestions'].includes(f.get('view'))) return [f.get('view')];
+    if (['sessions', 'add', 'suggestions', 'experiments'].includes(f.get('view'))) return [f.get('view')];
     return ['advisors'];
   }
 
@@ -635,6 +898,8 @@
     $('add-status').value = t ? t.status : '';
     $('add-goal').value = t ? t.goal : '';
     $('add-max').value = String(t ? t.maxPerHour : 2);
+    $('add-period').value = t ? t.period : 'weekly';
+    $('add-model').value = t && t.model && addForm.models.some((m) => m.id === t.model) ? t.model : '';
     $('add-voice').value = t ? t.voice : '';
     for (const box of document.querySelectorAll('#add-measures input')) box.checked = !!t && t.measures.includes(box.value);
     for (const box of document.querySelectorAll('#add-rules input')) box.checked = !!t && t.rules.includes(box.value);
@@ -647,6 +912,8 @@
     $('add-template').replaceChildren(el('option', { value: '', text: 'A blank advisor' }), ...addForm.templates.map((t) => el('option', { value: t.from, text: `A copy of ${t.name}` })));
     $('add-measures').replaceChildren(...addForm.measures.map((m) => checkbox('measure', m.id, m.label, m.notYet ? 'not measured yet' : '')));
     $('add-rules').replaceChildren(...addForm.rules.map((r) => checkbox('rule', r.id, r.title ? `${r.id}: ${r.title}` : r.id)));
+    $('add-period').replaceChildren(...addForm.periods.map((p) => el('option', { value: p, text: p[0].toUpperCase() + p.slice(1) })));
+    $('add-model').replaceChildren(el('option', { value: '', text: 'None: numbers only' }), ...addForm.models.map((m) => el('option', { value: m.id, text: m.model ? `${m.label} (${m.model})` : m.label })));
     $('add-colors').replaceChildren(...addForm.colors.map((c) => radio('color', c, [el('span', { class: `glyph cue-${c}` }, [glyph('default', 14)]), document.createTextNode(c)])));
     $('add-icons').replaceChildren(...addForm.icons.map((i) => radio('icon', i, [el('span', { class: 'glyph' }, [glyph(i, 16)]), document.createTextNode(i)])));
     fillAdd(null);
@@ -663,6 +930,8 @@
         measures: picked('#add-measures input'),
         rules: picked('#add-rules input'),
         maxPerHour: Number($('add-max').value),
+        period: $('add-period').value,
+        model: $('add-model').value,
         color: picked('#add-colors input')[0],
         icon: picked('#add-icons input')[0],
         voice: $('add-voice').value,
@@ -839,6 +1108,7 @@
       else if (view === 'sessions') await renderSessions();
       else if (view === 'add') await renderAdd();
       else if (view === 'suggestions') await renderSuggestions();
+      else if (view === 'experiments') await renderExperiments();
       else await renderAdvisors();
     } catch (err) {
       if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core: the core restarted, or the link was already used.');

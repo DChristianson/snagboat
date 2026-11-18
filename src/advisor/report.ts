@@ -1,7 +1,10 @@
-import { NormalizedEvent } from '@snagboat/schema';
+import { Experiment, NormalizedEvent, PeriodReport, RulesInForce, Verdict } from '@snagboat/schema';
 import { EventLogReader } from '../core/eventLog';
-import { AdvisorGoal } from './goals';
-import { measure, MeasureResult, riskyPatterns } from './measures';
+import { AdvisorGoal, AdvisorPeriod } from './goals';
+import { measure, MeasureResult, riskyPatterns, trendOf } from './measures';
+import { measureSummary } from './brief';
+
+export type { PeriodReport, RulesInForce };
 
 /**
  * Each advisor's goal and its measures over a period against the period before
@@ -25,6 +28,11 @@ export interface AdvisorReport {
   problems: string[];
   /** The card's brief (brief.ts), when the caller asks for one workspace's. */
   brief?: import('./brief').Brief;
+  /** How often it reports, and the model advisor that answers its reports (goal tracking lifecycle). */
+  period?: AdvisorPeriod;
+  model?: string;
+  /** Its latest period report's review, for tokens that read every workspace. */
+  review?: { report: string; label: string; rev: number; state: 'numbers-only' | 'open' | 'revising' | 'accepted'; unmarked: number; proposals: number };
 }
 
 export interface Period {
@@ -92,6 +100,8 @@ export function advisorReports(advisors: AdvisorGoal[], current: NormalizedEvent
       version: a.version,
       source: a.source,
       ...(a.cue ? { cue: a.cue } : {}),
+      period: a.period,
+      ...(a.model ? { model: a.model } : {}),
       notify: { ...a.notify, ...(lastHour !== undefined ? { lastHour } : {}) },
       measures,
       problems,
@@ -126,4 +136,131 @@ export function reportLines(r: AdvisorReport, days: number, opts: { redact?: boo
   if (!opts.redact) for (const p of r.problems) lines.push(`  problem: ${p}`);
   else if (r.problems.length > 0) lines.push(`  ${r.problems.length} problem(s) in its persona.md: see \`snagboat advisors\``);
   return lines;
+}
+
+// --- Period reports (docs/design/goal-tracking-lifecycle.md, snagboat-79f.7.2) -------------------------
+//
+// Each advisor reports once a period (its persona.md's `period`, weekly by default), or when you ask.
+// A report covers the time since the advisor's last report, so scheduled and asked-for reports chain
+// with no gap and no overlap, and "since last period" means since that stored report. Its measures and
+// the rules in force are frozen when it's written: a baseline outlives the raw events it came from.
+
+/** The start of the period holding `at`, in local time: midnight, Monday's midnight, or the 1st's. */
+export function periodStart(period: AdvisorPeriod, at: Date): Date {
+  const d = new Date(at.getFullYear(), at.getMonth(), period === 'monthly' ? 1 : at.getDate());
+  if (period === 'weekly') d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}
+
+/** The start of the period after the one starting at `start`. */
+export function nextPeriod(period: AdvisorPeriod, start: Date): Date {
+  const d = new Date(start);
+  if (period === 'daily') d.setDate(d.getDate() + 1);
+  else if (period === 'weekly') d.setDate(d.getDate() + 7);
+  else d.setMonth(d.getMonth() + 1);
+  return d;
+}
+
+/** The start of the period before the one starting at `start`. */
+export function previousPeriod(period: AdvisorPeriod, start: Date): Date {
+  const d = new Date(start);
+  if (period === 'daily') d.setDate(d.getDate() - 1);
+  else if (period === 'weekly') d.setDate(d.getDate() - 7);
+  else d.setMonth(d.getMonth() - 1);
+  return d;
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** A period's name: 2026-11-15, 2026-W46 (ISO week) or 2026-11. */
+export function periodLabel(period: AdvisorPeriod, start: Date): string {
+  if (period === 'daily') return `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
+  if (period === 'monthly') return `${start.getFullYear()}-${pad(start.getMonth() + 1)}`;
+  // ISO week: the week's Thursday decides its year.
+  const thursday = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 3 - ((start.getDay() + 6) % 7));
+  const jan4 = new Date(thursday.getFullYear(), 0, 4);
+  const week = 1 + Math.round(((thursday.getTime() - jan4.getTime()) / 86_400_000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+  return `${thursday.getFullYear()}-W${pad(week)}`;
+}
+
+/** Measures for the report's events, with the last report's values (or, for a first report, `before`'s) as "before". */
+function reportMeasures(a: AdvisorGoal, events: NormalizedEvent[], last: MeasureResult[] | undefined, before: NormalizedEvent[] | undefined): MeasureResult[] {
+  const { patterns } = riskyPatterns(a.riskyCommands);
+  const now = measure(a.measures, events, before ?? [], { risky: patterns });
+  if (!last) return before ? now : now.map(({ previous: _p, trend: _t, ...m }) => m);
+  return now.map((m) => {
+    const { previous: _p, trend: _t, ...rest } = m;
+    const prev = last.find((x) => x.id === m.id)?.value;
+    if (m.note) return rest;
+    const trend = trendOf(m.value, prev, m.better);
+    return { ...rest, ...(prev !== undefined ? { previous: prev } : {}), ...(trend ? { trend } : {}) };
+  });
+}
+
+/**
+ * One period report. `events`: every workspace's events in [from, to); `before`: for an advisor's first
+ * report, the events in the same length of time before it (later reports compare with `last`).
+ */
+export function buildPeriodReport(
+  a: AdvisorGoal,
+  w: { id: string; label: string; from: Date; to: Date; trigger: PeriodReport['trigger']; createdAt: Date },
+  events: NormalizedEvent[],
+  last: PeriodReport | undefined,
+  rules: RulesInForce,
+  before?: NormalizedEvent[],
+  experiments: Experiment[] = []
+): PeriodReport {
+  const measures = reportMeasures(a, events, last?.measures, last ? undefined : before);
+  const byWorkspace = new Map<string, NormalizedEvent[]>();
+  for (const e of events) if (e.workspace) (byWorkspace.get(e.workspace) ?? byWorkspace.set(e.workspace, []).get(e.workspace)!).push(e);
+  const workspaces = [...byWorkspace.keys()].sort().map((workspace) => {
+    const lastHere = last?.workspaces.find((x) => x.workspace === workspace)?.measures;
+    const beforeHere = before?.filter((e) => e.workspace === workspace);
+    return { workspace, measures: reportMeasures(a, byWorkspace.get(workspace)!, last ? lastHere ?? [] : undefined, last ? undefined : beforeHere) };
+  });
+  return {
+    version: 1,
+    id: w.id,
+    advisor: a.id,
+    advisorVersion: a.version,
+    period: a.period,
+    label: w.label,
+    from: w.from.toISOString(),
+    to: w.to.toISOString(),
+    trigger: w.trigger,
+    createdAt: w.createdAt.toISOString(),
+    ...(last ? { previous: last.id } : {}),
+    measures,
+    workspaces,
+    rules,
+    summary: measureSummary(measures),
+    ...(() => {
+      const verdicts = experimentVerdicts(experiments.filter((x) => x.advisor === a.id), measures, workspaces, w.to);
+      return verdicts.length ? { verdicts } : {};
+    })(),
+  };
+}
+
+/**
+ * Each running experiment judged from the numbers (snagboat-79f.7.11): too early before its review date;
+ * confounded while another experiment on the same measure and scope runs beside it; otherwise met or not
+ * met, against the prediction's target, or else whether the measure moved the better way from its baseline.
+ */
+export function experimentVerdicts(experiments: Experiment[], measures: MeasureResult[], workspaces: PeriodReport['workspaces'], to: Date): Verdict[] {
+  const running = experiments.filter((x) => x.status === 'running' && Date.parse(x.startedAt) < to.getTime());
+  return running.map((x) => {
+    const inScope = x.scope === 'global' ? measures : workspaces.find((w) => w.workspace === (x.scope as { workspace: string }).workspace)?.measures ?? [];
+    const m = inScope.find((y) => y.id === x.baseline.measure);
+    const now = m?.value;
+    const base = x.baseline.value;
+    const nums = { experiment: x.id, measure: x.baseline.measure, ...(base !== undefined ? { baseline: base } : {}), ...(now !== undefined ? { now } : {}) };
+    const change = `${m?.label ?? x.baseline.measure} ${base === undefined ? 'not measured' : formatMeasure(base, m?.unit ?? '')} at the start, ${now === undefined ? 'nothing to measure now' : formatMeasure(now, m?.unit ?? '')} now`;
+    if (Date.parse(x.reviewAt) > to.getTime()) return { ...nums, result: 'too-early' as const, text: `${change}; reviewed ${x.reviewAt.slice(0, 10)}.` };
+    const others = (x.overlaps ?? []).filter((id) => running.some((y) => y.id === id));
+    if (others.length) return { ...nums, result: 'confounded' as const, text: `${change}; may be mixed up with ${others.join(', ')}, which changes the same measure in the same scope.` };
+    if (now === undefined || base === undefined) return { ...nums, result: 'too-early' as const, text: `${change}.` };
+    const t = x.prediction.target;
+    const met = t ? (t.direction === 'below' ? now < t.value : now > t.value) : m!.better === 'lower' ? now < base : now > base;
+    return { ...nums, result: met ? ('met' as const) : ('not-met' as const), text: `${change}; predicted: ${x.prediction.text}` };
+  });
 }

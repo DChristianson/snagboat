@@ -158,7 +158,11 @@ Two rules for the beads: each one is a code change, and each names the boxes it 
 | 5 | `snagboat-79f.7.9` | The experiments page in the advisor UI | Advisor UI | reads Experiment, Report | .8 |
 | 5 | `snagboat-79f.7.10` | `snagboat experiments` in the CLI | snagboat CLI, Claude Code plugin | reads Experiment | .8 |
 | 6 | `snagboat-79f.7.11` | Verdicts in the next report, keep going at the review, overlap warnings | report module, experiments module, advisor routes, Advisor UI | Report, Experiment, Proposal | .8 |
+| 6 | `snagboat-79f.7.14` | The VS Code findings view and status bar show proposals waiting and open the advisor's page (split from `.5`: a window's token can't read reports, so it gets counts only) | VS Code window, advisor routes | reads Report, Proposal (counts) | .5 |
 | 6 | `snagboat-79f.7.12` | Remove the weekly review and the old ask-the-advisor paths; recolor the diagrams and put them in the user docs | VS Code window, report module | Dismissed candidate, Discovery candidate | .11 |
+| 7 | `snagboat-79f.7.15` | Setting up an advisor by conversation, in the core: pick a model first, talk the goal through, review the proposed advisor (accept, revise with a note, discard). The conversation is kept with the advisor as its setup conversation | advisor routes, goals module, models module, advisors storage, schema package | Advisor, Setup conversation (new: added to the diagram in the same change) | |
+| 7 | `snagboat-79f.7.16` | The setup conversation in the advisor UI: a chat on the + page with a model picker, the form kept as a fallback | Advisor UI | Setup conversation, Advisor (through the core) | .15 |
+| 8 | `snagboat-79f.7.17` | The setup conversation in an agent session, through MCP | Claude Code plugin | Setup conversation, Advisor (through the core) | .15 |
 
 The reviewed plan had "investigate VS Code Agent Mode as the surface for the review, and decide between it and the advisor UI" as step 3, before accept, discard and revise. Here the order is the other way round. The review logic is built once in the core (`.7`), and each surface is a thin client of it: the advisor page (`.13`) and an agent session through MCP (`.6`). Neither blocks the other or anything after them, so the agent terminal can be explored with the real actions, not a read-only view, and the two surfaces can both stay. Whether Snagboat can appear in a VS Code Agents window at all is `snagboat-i52`.
 
@@ -167,11 +171,13 @@ The components diagram here has one box the reviewed plan did not: the schema pa
 ## Open questions
 
 - Does the review flow live in the advisor UI in the browser, or in an agent terminal (VS Code Agent Mode)? Both get built, as clients of the same core routes (`snagboat-79f.7.13` and `.6`), and neither blocks the experiment store. What is left to decide, once both can be tried: whether to keep both, and whether an agent should be able to accept a rule change for you.
-- `server.ts` holds every route (about 1,000 lines) and hands most work to the service modules. Should the new advisor routes go in their own module instead of growing it? Needed for `snagboat-79f.7.2`.
 - An advisor with no model set up can still produce a report from the numbers alone: measures, trends and findings, with no written summary. Should that report also turn discovery's mined rule candidates into proposals, so the loop works without a model, or show the numbers only? Needed for `snagboat-79f.7.4`.
 - Which outcome sources should reports have before this ships? Built today: tests going green, finding responses, approvals and notifications, and from git: milestones, commits kept or reverted, and code survival. Planned but not built: a Beads adapter for milestones (closed issues), and the phase 8 heartbeat that tells a stalled agent from a sleeping laptop.
 
 ## Decided
+
+- The new advisor routes stay in `server.ts` as one dispatch line each; their logic lives in its own modules (`periodJob.ts` first). Decided November 17, 2026, building `snagboat-79f.7.2`.
+- A report covers the time since the advisor's last report, so a report you ask for and the scheduled ones chain with no gap or overlap. Scheduled reports are named by their period (`2026-W46`), asked-for ones `2026-W47-asked-1`. Periods start at local midnight, Monday or the 1st. Reports cover every workspace, so only tokens that read every workspace (the admin token, the advisor UI's) can see them.
 
 - Reports are weekly by default. Each advisor can set its own period, and you can always ask for a report.
 - Experiments that affect the same measure in the same scope may run together. When one fires while another is running, the core flags the overlap as a problem, and the report says the two results may be confounded.

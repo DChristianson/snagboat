@@ -8,3 +8,4 @@ export * from './sessions';
 export * from './contextMarks';
 export * from './sessionModel';
 export * from './jsonSchema';
+export * from './advisorRecords';

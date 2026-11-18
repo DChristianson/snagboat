@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { AdvisorPeriod } from '@snagboat/schema';
 
 /**
  * Advisors as goals (RFC step 4c, docs/design/architecture-rfc.md "Advisors
@@ -16,6 +17,8 @@ import * as path from 'path';
  *   measures: [tokens_per_milestone, tokens_per_accepted_change, cache_hit_rate]
  *   reads: [events, findings, outcomes]
  *   may_change: [rules]
+ *   period: weekly             # how often it reports: daily, weekly (the default) or monthly
+ *   model: local               # the model advisor (snagboat.advisors) that writes its reports
  *   notify:
  *     rules: [token-budget, cache-thrash]
  *     max_per_hour: 2
@@ -44,6 +47,10 @@ export interface AdvisorGoal {
   reads: string[];
   /** What it may propose changing; it never edits code. */
   mayChange: string[];
+  /** How often it reports (docs/design/goal-tracking-lifecycle.md); weekly unless its persona.md says otherwise. */
+  period: AdvisorPeriod;
+  /** The model advisor (an id in snagboat.advisors) that writes its reports; none means numbers-only reports. */
+  model?: string;
   /** Notifications: which heuristics or rules it speaks for, and at most how many an hour. */
   notify: { rules: string[]; maxPerHour?: number };
   cue?: { icon?: string; color?: string; mood?: string };
@@ -56,6 +63,10 @@ export interface AdvisorGoal {
   /** sha256 of its persona.md text, the first 12 hex digits. */
   version: string;
 }
+
+export const ADVISOR_PERIODS: readonly AdvisorPeriod[] = ['daily', 'weekly', 'monthly'];
+export type { AdvisorPeriod };
+export const DEFAULT_PERIOD: AdvisorPeriod = 'weekly';
 
 type Value = string | number | boolean | Value[] | { [key: string]: Value };
 
@@ -183,6 +194,10 @@ export function parseAdvisor(text: string, source: string, fallbackId?: string):
   if (typeof data.goal !== 'string' || !data.goal) return { problems: [...problems, `${source}: no "goal"`] };
   const notify = (typeof data.notify === 'object' && !Array.isArray(data.notify) ? data.notify : {}) as Record<string, Value>;
   const cue = typeof data.cue === 'object' && !Array.isArray(data.cue) ? (data.cue as Record<string, Value>) : undefined;
+  const period = ADVISOR_PERIODS.find((p) => p === data.period);
+  if (data.period !== undefined && !period) problems.push(`${source}: "period" is one of ${ADVISOR_PERIODS.join(', ')}; reporting ${DEFAULT_PERIOD}`);
+  const model = typeof data.model === 'string' && data.model ? data.model : undefined;
+  if (data.model !== undefined && (!model || !/^[a-z][a-z0-9-]*$/.test(model))) problems.push(`${source}: "model" is the id of an advisor in snagboat.advisors (lower-case letters, digits and dashes)`);
   const maxPerHour = typeof notify.max_per_hour === 'number' && notify.max_per_hour >= 0 ? notify.max_per_hour : undefined;
   return {
     problems,
@@ -194,6 +209,8 @@ export function parseAdvisor(text: string, source: string, fallbackId?: string):
       measures: strings(data.measures),
       reads: strings(data.reads),
       mayChange: strings(data.may_change),
+      period: period ?? DEFAULT_PERIOD,
+      ...(model && /^[a-z][a-z0-9-]*$/.test(model) ? { model } : {}),
       notify: { rules: strings(notify.rules), ...(maxPerHour !== undefined ? { maxPerHour } : {}) },
       ...(cue ? { cue: { icon: cue.icon === undefined ? undefined : String(cue.icon), color: cue.color === undefined ? undefined : String(cue.color), mood: cue.mood === undefined ? undefined : String(cue.mood) } } : {}),
       riskyCommands: strings(data.risky_commands),
