@@ -23,9 +23,34 @@ export interface ProviderConfig {
   locality: Locality;
   /** What it may receive. */
   policy: DigestPolicy;
+  /**
+   * The context window to ask for, in tokens. Ollama's OpenAI-compatible endpoint can't set one per request
+   * (its docs: create a Modelfile instead), so with this set an Ollama address (port 11434) is asked through
+   * Ollama's own /api/chat with options.num_ctx. Ignored elsewhere.
+   */
+  contextWindow?: number;
 }
 
-export const DEFAULT_PROVIDERS = [{ id: 'local', label: 'Local (Ollama)', baseUrl: 'http://localhost:11434/v1', model: '' }];
+/** A positive whole number of tokens up to 1M, or undefined. */
+export function parseContextWindow(v: unknown, where: string, problems: string[]): number | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v === 'number' && Number.isInteger(v) && v >= 1024 && v <= 1_048_576) return v;
+  problems.push(`${where}: contextWindow is a whole number of tokens from 1024 to 1048576`);
+  return undefined;
+}
+
+/** An Ollama server: its OpenAI-compatible endpoint is /v1 on port 11434. */
+export function isOllama(p: Pick<ProviderConfig, 'baseUrl'>): boolean {
+  try {
+    const u = new URL(p.baseUrl);
+    return u.port === '11434' && /\/v1\/?$/.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/** Ollama on this machine, with Llama 3.1 8B and a 32k-token context window (Ollama's default is far smaller). */
+export const DEFAULT_PROVIDERS = [{ id: 'local', label: 'Local (Ollama)', baseUrl: 'http://localhost:11434/v1', model: 'llama3.1:latest', contextWindow: 32768 }];
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
@@ -94,6 +119,10 @@ export function parseProviders(value: unknown): { providers: ProviderConfig[]; p
       ...address,
       model: typeof entry.model === 'string' ? entry.model.trim() : '',
       policy: sendPolicy(entry.send, address.locality === 'local' ? LOCAL_POLICY : HOSTED_POLICY),
+      ...(() => {
+        const contextWindow = parseContextWindow(entry.contextWindow, where, problems);
+        return contextWindow ? { contextWindow } : {};
+      })(),
     });
   }
   return { providers, problems };
@@ -175,6 +204,7 @@ export interface Completion {
 
 /** One chat completion. No tools are ever offered. A reasoning model's <think> block is dropped. */
 export async function complete(p: ProviderConfig, messages: ChatMessage[], apiKey: string | undefined, fetchImpl: FetchLike, jsonMode = false): Promise<Completion> {
+  if (p.contextWindow && isOllama(p)) return completeOllama(p, messages, fetchImpl, jsonMode);
   const res = await fetchImpl(`${p.baseUrl}/chat/completions`, { method: 'POST', headers: headers(apiKey), body: completionBody(p.model, messages, jsonMode), signal: AbortSignal.timeout(p.locality === 'local' ? LOCAL_TIMEOUT_MS : HOSTED_TIMEOUT_MS) });
   if (!res.ok) throw await failure(res);
   let content: unknown;
@@ -191,6 +221,41 @@ export async function complete(p: ProviderConfig, messages: ChatMessage[], apiKe
   if (!text) throw new Error('the response had no text');
   const n = (v: unknown) => (typeof v === 'number' ? v : undefined);
   return { text, promptTokens: n(usage?.prompt_tokens), completionTokens: n(usage?.completion_tokens) };
+}
+
+/** Ollama's own chat endpoint, for a context window the OpenAI-compatible one can't set. Streams NDJSON. */
+async function completeOllama(p: ProviderConfig, messages: ChatMessage[], fetchImpl: FetchLike, jsonMode: boolean): Promise<Completion> {
+  const url = new URL(p.baseUrl);
+  const body = JSON.stringify({ model: p.model, messages, stream: true, options: { temperature: 0.2, num_ctx: p.contextWindow }, ...(jsonMode ? { format: 'json' } : {}) });
+  const res = await fetchImpl(`${url.origin}/api/chat`, { method: 'POST', headers: headers(undefined), body, signal: AbortSignal.timeout(LOCAL_TIMEOUT_MS) });
+  if (!res.ok) throw await failure(res);
+  let content = '';
+  let promptTokens: number | undefined;
+  let completionTokens: number | undefined;
+  const take = (line: string) => {
+    if (!line) return;
+    const chunk = JSON.parse(line) as { message?: { content?: unknown }; error?: unknown; prompt_eval_count?: unknown; eval_count?: unknown };
+    if (chunk.error) throw new Error(String(chunk.error));
+    if (typeof chunk.message?.content === 'string') content += chunk.message.content;
+    if (typeof chunk.prompt_eval_count === 'number') promptTokens = chunk.prompt_eval_count;
+    if (typeof chunk.eval_count === 'number') completionTokens = chunk.eval_count;
+  };
+  if (res.body) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split('\n');
+      buffer = done ? '' : lines.pop()!;
+      for (const line of lines) take(line.trim());
+      if (done) break;
+    }
+  } else for (const line of (await res.text()).split('\n')) take(line.trim());
+  const text = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  if (!text) throw new Error('the response had no text');
+  return { text, ...(promptTokens !== undefined ? { promptTokens } : {}), ...(completionTokens !== undefined ? { completionTokens } : {}) };
 }
 
 /**

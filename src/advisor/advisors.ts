@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { DigestPolicy, HOSTED_POLICY, LOCAL_POLICY } from './digest';
-import { ID_PATTERN, isObject, parseBaseUrl, parseProviders, ProviderConfig, sendPolicy } from './providers';
+import { ID_PATTERN, isObject, parseBaseUrl, parseProviders, ProviderConfig, sendPolicy, parseContextWindow } from './providers';
 
 /**
  * Installed advisors: several, each with a kind, the abilities it offers, and
@@ -105,6 +105,10 @@ export function parseAdvisors(advisorsValue: unknown, providersValue: unknown): 
       label: typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim() : entry.id,
       ...address,
       model: typeof entry.model === 'string' ? entry.model.trim() : '',
+      ...(() => {
+        const contextWindow = parseContextWindow(entry.contextWindow, where, problems);
+        return contextWindow ? { contextWindow } : {};
+      })(),
       policy,
       kind,
       abilities,
