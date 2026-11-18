@@ -161,6 +161,7 @@ async function main() {
       assert.deepStrictEqual(rev, r.advisor === 'purser' ? reports.job.get('purser')!.revisions![0] : undefined, `${r.advisor}: only an advisor with a model is asked`);
     }
     assert.strictEqual(sent.length, 1);
+    assert.ok(!('response_format' in JSON.parse(sent[0])), "no structured-output mode: Ollama models without it answer 501; the parser reads JSON from a plain answer");
     const view = reports.view('purser')!;
     assert.deepStrictEqual(view.report.revisions!.map((r) => [r.rev, r.summary, r.model]), [[1, 'Cache hits fell.', { advisor: 'local', model: 'tiny' }]]);
     assert.deepStrictEqual(view.report.revisions![0].verdicts, [], 'no running experiments, so the verdict is dropped');

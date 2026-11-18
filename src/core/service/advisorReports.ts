@@ -164,7 +164,7 @@ export class AdvisorReports {
         discarded: this.proposals.discarded(advisorId),
         ...(revise ? { notes: revise.notes, accepted: revise.accepted } : {}),
       };
-      const asked = await this.models.ask('propose-heuristics', async (ctx) => performanceReportMessages({ ...input, policy: ctx.policy }), { advisorId: advisor.model, json: true });
+      const asked = await this.models.ask('propose-heuristics', async (ctx) => performanceReportMessages({ ...input, policy: ctx.policy }), { advisorId: advisor.model });
       if (!asked) {
         this.asks.set(key, { state: 'not-sent', at: this.now().toISOString() });
         return undefined;

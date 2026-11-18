@@ -279,7 +279,7 @@ async function evalPerformanceReport(runs: Run[]): Promise<string[]> {
       const messages = performanceReportMessages({ ...input, policy });
       const started = Date.now();
       try {
-        const completion = await complete({ ...run.provider }, messages, run.apiKey, fetch as unknown as FetchLike, true);
+        const completion = await complete({ ...run.provider }, messages, run.apiKey, fetch as unknown as FetchLike);
         const parsed = parseReportAnswer(completion.text, input);
         const secs = ((Date.now() - started) / 1000).toFixed(1);
         console.log(`${advisor.id.padEnd(12)} ${run.label.padEnd(30)} ${secs.padStart(6)}s  ${parsed.proposals.length} kept, ${parsed.problems.length} dropped${promptWasCut(completion, messages) ? ', PROMPT CUT' : ''}`);
