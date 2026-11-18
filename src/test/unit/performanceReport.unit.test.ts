@@ -182,6 +182,43 @@ async function main() {
     assert.deepStrictEqual(reports.view('purser')!.proposals, [], 'the discarded change was not proposed again');
   });
 
+  test("the report says why its model hasn't answered: failed, not sent, then answered on asking again", async () => {
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-ask-')));
+    saveConfig(home, { version: 1, defaults: { 'advisor.providers': [{ id: 'local', label: 'Test model', baseUrl: 'http://127.0.0.1:9/v1', model: 'tiny' }] }, projects: {} });
+    fs.mkdirSync(path.join(home, 'advisors', 'purser'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'advisors', 'purser', 'persona.md'), DEFAULT_PERSONAS.purser.replace('may_change: [rules]', 'may_change: [rules]\nmodel: local'));
+    let down = true;
+    const fetchImpl: FetchLike = async () => {
+      if (down) throw new Error('connect ECONNREFUSED 127.0.0.1:11434');
+      const body = { choices: [{ message: { role: 'assistant', content: answer([cacheProposal]) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
+      return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+    };
+    const models = new CoreAdvisors(home, fetchImpl);
+    writeApprovals(home, { local: approvalKey(models.advisors()[0]) });
+    const now = () => new Date(2026, 10, 18, 10);
+    const reports = new AdvisorReports(new PeriodJob(home, now), new ProposalStore(home, now), models, () => [], now);
+    const r = await reports.job.request('purser');
+    assert.strictEqual(reports.view('purser')!.ask, undefined, 'not asked yet');
+    await assert.rejects(reports.answer('purser', r.id), /didn't answer: connect ECONNREFUSED/);
+    const failed = reports.view('purser')!.ask!;
+    assert.deepStrictEqual([failed.state, /ECONNREFUSED/.test(failed.error!)], ['failed', true]);
+    down = false;
+    await reports.answer('purser', r.id);
+    const v = reports.view('purser')!;
+    assert.deepStrictEqual([v.ask, v.review.rev, v.proposals.length], [undefined, 1, 1], 'answered: the state goes');
+
+    // Waiting for approval shows the request; not sending it says so.
+    writeApprovals(home, {});
+    const r2 = await reports.job.request('purser');
+    const asking = reports.answer('purser', r2.id);
+    await new Promise((res) => setTimeout(res, 20));
+    const w = reports.view('purser')!.ask!;
+    assert.deepStrictEqual([w.state, w.approval?.advisor], ['asking', 'Test model']);
+    models.decide(w.approval!.id, false);
+    assert.strictEqual(await asking, undefined);
+    assert.strictEqual(reports.view('purser')!.ask!.state, 'not-sent');
+  });
+
   let failures = 0;
   for (const [name, fn] of tests) {
     try {

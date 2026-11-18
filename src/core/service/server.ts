@@ -93,6 +93,7 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *   GET  /today?workspace=w     today's tokens, cache rate and milestones, and how many findings are showing (step 5d)
  *   GET  /advisors/:id/report  an advisor's latest period report (?id= for another) and the list of them;
  *                              POST asks for one now (admin or reader: reports cover every workspace)
+ *   POST /advisors/:id/report/answer  ask the advisor's model again for an unanswered report (?id= for an older one)
  *   POST /proposals/:id        { mark: accept | discard | revise, note }: your mark, switchable until sent
  *   GET  /experiments          every experiment (?advisor=a,b&status=running|ended); POST /experiments/:id
  *                              { action: revert | keep | accept }: put back what it replaced, keep going (judged a
@@ -578,6 +579,8 @@ export class CoreService {
       if (route === 'GET /today') return send(200, await this.today(scope, url.searchParams.get('workspace')));
       if (route === 'GET /experiments') return send(200, this.listExperiments(scope, url.searchParams));
       if (req.method === 'POST' && url.pathname.startsWith('/experiments/')) return send(200, await this.actOnExperiment(scope, decodeURIComponent(url.pathname.slice('/experiments/'.length)), await this.readBody(req, 4096)));
+      const answerMatch = req.method === 'POST' ? /^\/advisors\/([^/]+)\/report\/answer$/.exec(url.pathname) : null;
+      if (answerMatch) return send(202, this.askAgain(scope, decodeURIComponent(answerMatch[1]), url.searchParams.get('id')));
       const sendMatch = req.method === 'POST' ? /^\/advisors\/([^/]+)\/report\/(\d+)$/.exec(url.pathname) : null;
       if (sendMatch) return send(200, await this.sendReport(scope, decodeURIComponent(sendMatch[1]), url.searchParams.get('id'), Number(sendMatch[2])));
       if (req.method === 'POST' && url.pathname.startsWith('/proposals/')) return send(200, await this.markProposal(scope, decodeURIComponent(url.pathname.slice('/proposals/'.length)), await this.readBody(req, 8192)));
@@ -919,6 +922,17 @@ export class CoreService {
     } catch (err) {
       throw new HttpError(409, err instanceof Error ? err.message : String(err));
     }
+  }
+
+  /** POST /advisors/:id/report/answer[?id=]: asks the advisor's model again for a report it hasn't answered (it failed, or you didn't send it). */
+  private askAgain(scope: Scope, advisor: string, reportId: string | null) {
+    if (!readsAll(scope)) throw new HttpError(403, 'period reports cover every workspace; this token reads only its own');
+    const view = this.reports.view(advisor, reportId ?? undefined);
+    if (!view) throw new HttpError(404, `${advisor} has no report ${reportId ?? 'yet'}`);
+    if (view.report.revisions?.length) throw new HttpError(409, 'its model has answered this report already');
+    if (!this.reports.job.advisors().find((a) => a.id === advisor)?.model) throw new HttpError(409, `${advisor} has no model: set "model" in its persona.md`);
+    this.reports.answerLater(advisor, view.report.id);
+    return { asking: true };
   }
 
   /** POST /proposals/:id { mark: accept | discard | revise, note }: your mark on a proposal, switchable until its revision is sent. */

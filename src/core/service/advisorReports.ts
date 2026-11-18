@@ -1,7 +1,7 @@
 import { Experiment, PeriodReport, Proposal, ReportRevision } from '@snagboat/schema';
 import { parseReportAnswer, performanceReportMessages, ReportInput } from '../../advisor/performanceReport';
 import { ProposalStore } from '../proposals';
-import { CoreAdvisors } from './advisorModels';
+import { CoreAdvisors, PendingApproval } from './advisorModels';
 import { PeriodJob } from './periodJob';
 
 /**
@@ -39,11 +39,22 @@ export interface ReportView {
   /** The proposals those revised ones replace, with your notes. */
   replaced: Proposal[];
   /** What you can do with the latest revision now. */
+  /** Where the model's request for the next revision stands, since the core started: asking (approval: waiting for yours), failed, or not sent. */
+  ask?: { state: 'asking' | 'failed' | 'not-sent'; at: string; error?: string; approval?: PendingApproval };
   review: { rev: number; state: 'numbers-only' | 'open' | 'revising' | 'accepted'; marked: number; unmarked: number; toRevise: number; send?: 'accept' | 'revise' };
 }
 
 export class AdvisorReports {
   private readonly inFlight = new Set<string>();
+  /** The last model request per report, so the page can say why there's no answer yet. */
+  private readonly asks = new Map<string, { state: 'asking' | 'failed' | 'not-sent'; at: string; error?: string }>();
+
+  private withAsk(advisor: string, view: ReportView): ReportView {
+    const a = this.asks.get(`${advisor}/${view.report.id}`);
+    if (!a) return view;
+    const approval = a.state === 'asking' ? this.models.pendingApproval() : undefined;
+    return { ...view, ask: { ...a, ...(approval ? { approval } : {}) } };
+  }
 
   constructor(
     readonly job: PeriodJob,
@@ -66,13 +77,13 @@ export class AdvisorReports {
     const report = this.job.get(advisor, id);
     if (!report) return undefined;
     const latest = report.revisions?.[report.revisions.length - 1];
-    if (!latest) return { report, proposals: [], replaced: [], review: { rev: 0, state: 'numbers-only', marked: 0, unmarked: 0, toRevise: 0 } };
+    if (!latest) return this.withAsk(advisor, { report, proposals: [], replaced: [], review: { rev: 0, state: 'numbers-only', marked: 0, unmarked: 0, toRevise: 0 } });
     const proposals = this.proposalsOf(advisor, report, latest.rev);
     const unmarked = proposals.filter((p) => p.status === 'open').length;
     const toRevise = proposals.filter((p) => p.status === 'revised').length;
     const state = latest.sent?.as === 'accept' ? 'accepted' : latest.sent?.as === 'revise' ? 'revising' : 'open';
     const replaced = this.proposals.byIds(advisor, proposals.map((p) => p.replaces).filter((id): id is string => !!id));
-    return { report, proposals, replaced, review: { rev: latest.rev, state, marked: proposals.length - unmarked, unmarked, toRevise, ...(state === 'open' && !unmarked ? { send: toRevise ? ('revise' as const) : ('accept' as const) } : {}) } };
+    return this.withAsk(advisor, { report, proposals, replaced, review: { rev: latest.rev, state, marked: proposals.length - unmarked, unmarked, toRevise, ...(state === 'open' && !unmarked ? { send: toRevise ? ('revise' as const) : ('accept' as const) } : {}) } });
   }
 
   /** The advisor a proposal belongs to, found by its id (which starts with the advisor's). */
@@ -138,6 +149,7 @@ export class AdvisorReports {
     const key = `${advisorId}/${reportId}`;
     if (this.inFlight.has(key)) return undefined;
     this.inFlight.add(key);
+    this.asks.set(key, { state: 'asking', at: this.now().toISOString() });
     try {
       const report = this.job.get(advisorId, reportId);
       if (!report) throw new Error(`${advisorId} has no report ${reportId}`);
@@ -153,7 +165,10 @@ export class AdvisorReports {
         ...(revise ? { notes: revise.notes, accepted: revise.accepted } : {}),
       };
       const asked = await this.models.ask('propose-heuristics', async (ctx) => performanceReportMessages({ ...input, policy: ctx.policy }), { advisorId: advisor.model, json: true });
-      if (!asked) return undefined;
+      if (!asked) {
+        this.asks.set(key, { state: 'not-sent', at: this.now().toISOString() });
+        return undefined;
+      }
       const parsed = parseReportAnswer(asked.completion.text, input);
       for (const p of parsed.problems) this.log(`report ${advisorId} ${reportId}: ${p}`);
       const added = this.proposals.propose(advisorId, report.id, rev, parsed.proposals);
@@ -168,7 +183,11 @@ export class AdvisorReports {
       };
       this.job.addRevision(advisorId, report.id, revision);
       this.log(`report ${advisorId} ${reportId}: revision ${rev}, ${added.length} new proposal(s)`);
+      this.asks.delete(key);
       return revision;
+    } catch (err) {
+      this.asks.set(key, { state: 'failed', at: this.now().toISOString(), error: err instanceof Error ? err.message : String(err) });
+      throw err;
     } finally {
       this.inFlight.delete(key);
     }

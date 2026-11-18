@@ -468,7 +468,7 @@
     );
     const verdicts = latest && latest.verdicts.length ? latest.verdicts : r.verdicts || [];
     if (verdicts.length) parts.push(el('h3', { text: 'Experiments' }), ...verdicts.map(verdictLine));
-    if (!latest) parts.push(el('p', { class: 'small muted', text: a.model ? 'Waiting for its model to answer.' : 'No model is set in its persona.md, so this report has the numbers only.' }));
+    if (!latest) parts.push(...modelState(a, view));
     else if (!view.proposals.length) parts.push(el('p', { class: 'small muted', text: 'No changes proposed.' }));
     else {
       parts.push(el('h3', { text: 'Proposed changes' }));
@@ -481,6 +481,47 @@
     }
     parts.push(el('div', { class: 'foot', id: 'report-foot' }, reportFoot ? reportFoot(a, view) : [el('span', { class: 'small muted', text: reviewText(view.review) })]));
     $('report').replaceChildren(...parts);
+  }
+  /** Why a report has no model answer yet: asking, waiting for your approval, failed, not sent, or not asked. */
+  let askPoll = null;
+  function modelState(a, view) {
+    if (!a.model) return [el('p', { class: 'small muted', text: 'No model is set in its persona.md, so this report has the numbers only.' })];
+    clearTimeout(askPoll);
+    const again = (label) => {
+      const b = el('button', { class: 'btn', type: 'button', text: label });
+      b.addEventListener('click', () => void act(() => api(`/advisors/${encodeURIComponent(a.id)}/report/answer?id=${encodeURIComponent(view.report.id)}`, { method: 'POST' })));
+      return b;
+    };
+    const ask = view.ask;
+    if (!ask) return [el('p', { class: 'small muted', text: `${a.model} hasn't been asked about this report since the core started.` }), el('div', { class: 'btns' }, [again(`Ask ${a.model}`)])];
+    if (ask.state === 'failed') return [el('p', { class: 'err', text: `${a.model} couldn't answer: ${ask.error}` }), el('div', { class: 'btns' }, [again('Ask the model again')])];
+    if (ask.state === 'not-sent') return [el('p', { class: 'small muted', text: "The request wasn't sent: it was waiting for your approval and you didn't send it, or it timed out." }), el('div', { class: 'btns' }, [again('Ask the model again')])];
+    // Asking: look again shortly, while you approve or it answers.
+    askPoll = setTimeout(() => {
+      if (reviewing === a && !$('view-advisor').hidden) void renderReport(a);
+    }, 3000);
+    if (!ask.approval) return [el('p', { class: 'small muted', text: `Asking ${a.model}… a local model can take a minute or two.` })];
+    const ap = ask.approval;
+    const decide = (send) => () =>
+      void act(async () => {
+        try {
+          await api('/suggestions', { method: 'POST', body: JSON.stringify({ workspace: state.workspace, action: 'approve', id: ap.id, send }) });
+        } catch (err) {
+          if (!(err instanceof Refused)) throw err; // already answered elsewhere
+        }
+      });
+    const sendBtn = el('button', { class: 'btn primary', type: 'button', text: 'Send' });
+    sendBtn.addEventListener('click', decide(true));
+    const noBtn = el('button', { class: 'btn ghost', type: 'button', text: "Don't send" });
+    noBtn.addEventListener('click', decide(false));
+    return [
+      el('div', { class: 'approval' }, [
+        el('b', { text: `Send this to ${ap.advisor} (${ap.model})?` }),
+        el('span', { class: 'small muted', text: "The first request with this model's address and sending rules waits for you to see exactly what it sends. Once you send it, later requests go without asking." }),
+        el('details', {}, [el('summary', { text: 'The request, exactly as sent' }), el('pre', { class: 'payload', text: ap.payload })]),
+        el('div', { class: 'btns' }, [sendBtn, noBtn]),
+      ]),
+    ];
   }
   function reviewText(rv) {
     if (rv.state === 'numbers-only') return '';
