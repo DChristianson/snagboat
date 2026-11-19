@@ -985,7 +985,7 @@
       return el('div', { class: `turn ${t.from}${t.revise ? ' revise' : ''}` }, [
         el('span', { class: 'who small muted', text: who }),
         t.text ? el('p', { text: t.text }) : el('p', { class: 'small muted', text: 'Asked this model to answer instead.' }),
-        t.from === 'model' && !t.proposal && t.problems && t.problems.length ? el('span', { class: 'small muted', text: `Snagboat couldn't use what it proposed: ${t.problems.join(' ')}` }) : null,
+        t.from === 'model' && !t.proposal && t.problems && t.problems.length ? el('p', { class: 'small rejected', text: `Snagboat couldn't use what it proposed: ${t.problems.join(' ')}` }) : null,
       ]);
     });
   }

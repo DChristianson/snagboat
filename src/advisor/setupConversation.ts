@@ -1,4 +1,5 @@
 import { SetupProposal, SetupTurn } from '@snagboat/schema';
+import { HEURISTIC_GLOSSARY } from './glossary';
 import { ADVISOR_PERIODS } from './goals';
 import { advisorId, checkNewAdvisor, CUE_COLORS, CUE_ICONS } from './newAdvisor';
 import { PromptLayers, systemPrompt } from './prompts';
@@ -22,11 +23,35 @@ export interface SetupCatalog {
   taken: string[];
 }
 
+/** What each built-in rule reports, by id (the glossary's lines), for rules that have no title of their own. */
+const RULE_MEANINGS: Record<string, string> = Object.fromEntries(
+  HEURISTIC_GLOSSARY.split('\n')
+    .map((l) => /^- ([a-z-]+): (.*)$/.exec(l))
+    .filter((m): m is RegExpExecArray => !!m)
+    .map((m) => [m[1], m[2]])
+);
+
+/**
+ * What Snagboat tells the model when its proposal was kept out: the problems, and the lists again in a
+ * line each, since small models invent ids and reuse names the long list didn't stop them using.
+ */
+export function repairNote(problems: string[], catalog: SetupCatalog): string {
+  return [
+    `(From Snagboat, not the person.) Your proposal couldn't be used: ${problems.join(' ')}`,
+    `Answer again with a corrected proposal. measures must come from exactly these ids: ${catalog.measures.map((m) => m.id).join(', ')}.`,
+    `rules must come from exactly these ids: ${catalog.rules.map((r) => r.id).join(', ')}.`,
+    `The name must not be any of: ${catalog.taken.join(', ')}.`,
+  ].join(' ');
+}
+
 /** The messages for the model's next turn. */
 export function setupMessages(turns: SetupTurn[], catalog: SetupCatalog, prompts: PromptLayers = {}): ChatMessage[] {
   const data = {
     measures: catalog.measures.map((m) => ({ id: m.id, label: m.label, unit: m.unit })),
-    rules: catalog.rules.map((r) => ({ id: r.id, ...(r.title ? { title: r.title } : {}) })),
+    rules: catalog.rules.map((r) => {
+      const title = r.title ?? RULE_MEANINGS[r.id];
+      return { id: r.id, ...(title ? { title } : {}) };
+    }),
     periods: ADVISOR_PERIODS,
     colors: CUE_COLORS,
     icons: CUE_ICONS,
@@ -41,7 +66,7 @@ export function setupMessages(turns: SetupTurn[], catalog: SetupCatalog, prompts
       const { model: _model, ...proposal } = t.proposal ?? ({} as Partial<SetupProposal>);
       messages.push({ role: 'assistant', content: JSON.stringify({ reply: t.text, proposal: t.proposal ? proposal : null }) });
       // Its proposal was kept out: say why, so the next answer can fix it.
-      if (!t.proposal && t.problems?.length) messages.push({ role: 'user', content: `(From Snagboat, not the person.) Your last answer couldn't be used as it was: ${t.problems.join(' ')}` });
+      if (!t.proposal && t.problems?.length) messages.push({ role: 'user', content: repairNote(t.problems, catalog) });
     }
   }
   return messages;
@@ -68,6 +93,8 @@ export interface SetupAnswer {
   proposal?: SetupProposal;
   /** What was dropped from the answer, and why. */
   problems: string[];
+  /** It proposed an advisor, but the proposal didn't pass the checks and was kept out. */
+  rejected?: boolean;
 }
 
 const MAX_REPLY = 4000;
@@ -115,7 +142,7 @@ export function parseSetupAnswer(text: string, catalog: SetupCatalog, model: str
   if (checked.spec && catalog.taken.includes(advisorId(checked.spec.name))) checked.problems.push(`An advisor called ${advisorId(checked.spec.name)} already exists; it needs another name.`);
   if (!checked.spec || checked.problems.length) {
     problems.push(...checked.problems);
-    return { reply: reply || 'I proposed an advisor, but it did not pass the checks.', problems };
+    return { reply: reply || 'I proposed an advisor, but it did not pass the checks.', problems, rejected: true };
   }
   return { reply: reply || `I propose ${checked.spec.name}: ${checked.spec.status}.`, proposal: checked.spec, problems };
 }

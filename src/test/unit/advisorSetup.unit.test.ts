@@ -37,7 +37,13 @@ async function main() {
       const last = users[users.length - 1]?.content ?? '';
       const catalog = JSON.parse(request.messages[0].content.split('What you may choose from:\n')[1]) as { measures: Array<{ id: string }>; rules: Array<{ id: string }> };
       let answer: unknown;
-      if (/note on your last proposal/.test(last)) {
+      if (/^\(From Snagboat, not the person\.\) Your proposal couldn't be used/.test(last)) {
+        // The repair: it picks from the lists it was given again, and a name not taken.
+        answer = { reply: 'Fixed: Context Watch speaks for context-pressure.', proposal: { name: 'Context Watch', status: 'Know before a session compacts', goal: 'context-headroom', measures: ['useful_share'], rules: ['context-pressure'], maxPerHour: 2, period: 'weekly', color: 'blue', icon: 'compass', voice: 'You watch the context window.' } };
+      } else if (/rules and objectives/.test(last)) {
+        // llama3.1's answer on 2026-11-19: an invented measure (none left once it's dropped) and a built-in's name.
+        answer = { reply: "Based on what you've told me, I propose the 'Navigator' advisor. Here's the proposal:", proposal: { name: 'Navigator', status: 'Notify halfway to compaction', goal: 'compaction-halfway', measures: ['compaction-progress'], rules: [], maxPerHour: 2, period: 'weekly', voice: 'You watch the context.' } };
+      } else if (/note on your last proposal/.test(last)) {
         answer = { reply: 'Revised: it watches the cache too.', proposal: { name: 'Cache Keeper', status: 'Keeping the cache warm and cost down', goal: 'cache-warm', measures: [catalog.measures[0].id, catalog.measures[1].id], rules: [catalog.rules[0].id], maxPerHour: 1, period: 'daily', color: 'teal', icon: 'anchor', voice: 'You watch the cache.' } };
       } else if (/propose/i.test(last)) {
         answer = { reply: 'I propose Cache Keeper.', proposal: { name: 'Cache Keeper', status: 'Keeping token cost down', goal: 'token-cost-down', measures: [catalog.measures[0].id, 'made_up_measure'], rules: [], maxPerHour: 2, period: 'weekly', color: 'amber', icon: 'coin', voice: 'You watch what the work costs.' } };
@@ -211,6 +217,25 @@ async function main() {
     assert.strictEqual((await call('GET', '/advisor-setups/s-20260101-zzzzzz')).status, 404);
   });
 
+  test("a proposal that fails the checks goes straight back to the model once, with the lists, and you see the fixed one", async () => {
+    const v = (await call('POST', '/advisor-setups', { model: 'local' })).body as View;
+    const before = asked.length;
+    assert.strictEqual((await call('POST', `/advisor-setups/${v.setup.id}/messages`, { text: 'could you propose the rules and objectives for that' })).status, 202);
+    const after = await answered(v.setup.id, 3);
+    assert.deepStrictEqual(after.setup.turns.map((t) => t.from), ['you', 'model', 'model'], 'one turn of yours, answered twice');
+    assert.ok(!after.setup.turns[1].proposal);
+    assert.ok(after.setup.turns[1].problems!.some((x) => /compaction-progress/.test(x)), after.setup.turns[1].problems!.join(" | "));
+    assert.strictEqual(after.setup.proposal!.turn, 2);
+    assert.deepStrictEqual(after.setup.proposal!.spec.rules, ['context-pressure']);
+    assert.strictEqual(asked.length - before, 2, 'asked once more, not again and again');
+    const repair = asked[asked.length - 1].messages[asked[asked.length - 1].messages.length - 1].content;
+    assert.match(repair, /measures must come from exactly these ids: .*useful_share/);
+    assert.match(repair, /must not be any of: .*navigator/);
+    const sent = JSON.parse(asked[asked.length - 1].messages[0].content.split('What you may choose from:\n')[1]) as { rules: Array<{ id: string; title?: string }> };
+    assert.match(sent.rules.find((r) => r.id === 'context-pressure')!.title!, /compacted/, 'built-in rules go with what they report');
+    await call('POST', `/advisor-setups/${v.setup.id}/proposal`, { action: 'discard' });
+  });
+
   const catalog: SetupCatalog = { measures: [{ id: 'cache_hit_rate', label: 'cache hit rate', unit: '%' }], rules: [{ id: 'cache-thrash' }], taken: ['purser'] };
 
   test("an answer that isn't JSON is kept as a reply; a proposal that fails the checks is kept out, with reasons", () => {
@@ -236,7 +261,7 @@ async function main() {
       catalog
     );
     assert.deepStrictEqual(messages.map((m) => m.role), ['system', 'user', 'assistant', 'user']);
-    assert.match(messages[3].content, /From Snagboat, not the person.*Pick at least one measure/);
+    assert.match(messages[3].content, /From Snagboat, not the person.*Pick at least one measure.*exactly these ids: cache_hit_rate/);
     assert.match(messages[0].content, /"taken":\["purser"\]/);
   });
 

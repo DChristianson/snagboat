@@ -1,6 +1,9 @@
 import { SetupConversation, SetupModel } from '@snagboat/schema';
 import { checkNewAdvisor, writeNewAdvisor } from '../../advisor/newAdvisor';
 import { parseSetupAnswer, SetupCatalog, setupMessages } from '../../advisor/setupConversation';
+
+/** How many times a rejected proposal is sent straight back to the model to fix, before you see it. */
+const REPAIRS = 1;
 import { AdvisorSetupStore } from '../advisorSetups';
 import { CoreAdvisorChoice, CoreAdvisors, PendingApproval } from './advisorModels';
 
@@ -169,15 +172,23 @@ export class AdvisorSetups {
     this.asks.set(id, { state: 'asking', at: this.now().toISOString() });
     try {
       const catalog = await this.catalog();
-      const asked = await this.models.ask('set-up-advisor', async (ctx) => setupMessages(setup.turns, catalog, ctx.prompts), { advisorId: setup.model.advisor, json: true });
-      if (!asked) {
-        this.asks.set(id, { state: 'not-sent', at: this.now().toISOString() });
-        return undefined;
+      let turns = setup.turns;
+      let after: SetupConversation | undefined;
+      // A proposal that fails the checks (an invented measure, a taken name) goes straight back to the model
+      // with what was wrong, once: small models usually fix it, and you see the fixed one.
+      for (let attempt = 0; attempt <= REPAIRS; attempt++) {
+        const asked = await this.models.ask('set-up-advisor', async (ctx) => setupMessages(turns, catalog, ctx.prompts), { advisorId: setup.model.advisor, json: true });
+        if (!asked) {
+          this.asks.set(id, { state: 'not-sent', at: this.now().toISOString() });
+          return after;
+        }
+        const parsed = parseSetupAnswer(asked.completion.text, catalog, asked.advisor.id, this.models.advisors().map((a) => a.id));
+        for (const p of parsed.problems) this.log(`setup ${id}: ${p}`);
+        const model: SetupModel = { advisor: asked.advisor.id, ...(asked.advisor.model ? { model: asked.advisor.model } : {}) };
+        after = this.store.append(id, { type: 'answered', model, text: parsed.reply, ...(parsed.proposal ? { proposal: parsed.proposal } : {}), ...(parsed.problems.length ? { problems: parsed.problems } : {}) });
+        if (!parsed.rejected) break;
+        turns = after.turns;
       }
-      const parsed = parseSetupAnswer(asked.completion.text, catalog, asked.advisor.id, this.models.advisors().map((a) => a.id));
-      for (const p of parsed.problems) this.log(`setup ${id}: ${p}`);
-      const model: SetupModel = { advisor: asked.advisor.id, ...(asked.advisor.model ? { model: asked.advisor.model } : {}) };
-      const after = this.store.append(id, { type: 'answered', model, text: parsed.reply, ...(parsed.proposal ? { proposal: parsed.proposal } : {}), ...(parsed.problems.length ? { problems: parsed.problems } : {}) });
       this.asks.delete(id);
       return after;
     } catch (err) {
