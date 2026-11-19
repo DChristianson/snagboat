@@ -1,11 +1,12 @@
 import type { NormalizedEvent } from './types';
-import type { Experiment, PeriodReport, ProposalEvent } from './advisorRecords';
+import type { Experiment, PeriodReport, ProposalEvent, SetupEvent, SetupProposal } from './advisorRecords';
 import schemaV1 = require('./normalizedEvent.v1.schema.json');
 import schemaV2 = require('./normalizedEvent.v2.schema.json');
 import schemaV3 = require('./normalizedEvent.v3.schema.json');
 import periodReportV1 = require('./periodReport.v1.schema.json');
 import proposalEventV1 = require('./proposalEvent.v1.schema.json');
 import experimentV1 = require('./experiment.v1.schema.json');
+import setupEventV1 = require('./setupEvent.v1.schema.json');
 
 /**
  * JSON Schema (draft 2020-12) for one line of the event log, version 3:
@@ -55,6 +56,8 @@ void v1IsV2WithoutWorkspace;
 export const periodReportSchema = periodReportV1;
 export const proposalEventSchema = proposalEventV1;
 export const experimentSchema = experimentV1;
+/** One line of a setup conversation (snagboat-79f.7.15). */
+export const setupEventSchema = setupEventV1;
 
 // Compile-time check, as for events: each schema lists exactly its type's fields.
 type Same<A, B> = [Exclude<A, B>, Exclude<B, A>] extends [never, never] ? true : never;
@@ -64,3 +67,7 @@ const experimentFields: Same<keyof Experiment, keyof typeof experimentV1.propert
 void reportFields;
 void proposalFields;
 void experimentFields;
+const setupFields: Same<keyof SetupEvent, keyof typeof setupEventV1.properties> = true;
+const setupProposalFields: Same<keyof SetupProposal, keyof typeof setupEventV1.properties.proposal.properties> = true;
+void setupFields;
+void setupProposalFields;

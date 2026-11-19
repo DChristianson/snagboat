@@ -44,6 +44,17 @@ When a report is ready you get a notification, and the advisor's card shows how 
 
 Where the review happens is [still open](#open-questions): the advisor UI in the browser, or an agent session.
 
+### Setting up an advisor
+
+Step 1, **You set a goal**, can be a conversation (`snagboat-79f.7.15`, the core; `.16`, the advisor UI; `.17`, an agent session). It replaces the + form as the main way to add an advisor, and the form stays as the fallback.
+
+1. You pick a model first: one of the local model advisors in your settings that offers the `set-up-advisor` ability. Nothing proceeds without one.
+2. You describe what you care about. The model asks clarifying questions and settles a goal statement with you, then proposes an advisor: status line, goal id, measures, the rules it speaks for, notification limit, period and voice. The proposal is checked as the + form is checked; ids that aren't on Snagboat's lists are dropped, and a proposal that still fails is kept out with its reasons, which the model is told on its next turn.
+3. You accept it, revise it with a note (the conversation continues), or discard the draft. You can switch models on any turn to try another; each answer records the model that gave it, and the model that wrote the accepted proposal becomes the advisor's `model`.
+4. Accepting writes `persona.md` as the form does (`checkNewAdvisor`, `writeNewAdvisor`) and keeps the conversation with the advisor as its setup conversation.
+
+The model is sent only what you type in the conversation, its own earlier answers, and Snagboat's lists to choose from (measures, rules by id and title, periods, colors, icons, and the advisor names already taken), never anything from your sessions. So the setup call runs under its own ability, `set-up-advisor`, with its own sending rules and its own approval (`<advisor id>#set-up-advisor` in `advisor-approvals.json`), through `CoreAdvisors.ask` like every other core model call. Adding the ability left every existing approval as it was.
+
 A separate experiments page lists every experiment in one table, filtered by project, advisor, experiment or status. Each row shows the change, its review date, and the tracked measure against its baseline, so you can check in between reports or revert early.
 
 ## Data
@@ -65,16 +76,18 @@ Everything is in the per-user store, written by the core. Each box is an entity,
 | Report | per user, `advisors/<id>/periods/<W>.json` | new: measures, rules, verdicts |
 | Proposal | per user, `advisors/<id>/proposals.jsonl` | new: accepted, discarded, revised |
 | Experiment | per user, `experiments/<id>.json` | new: before and after, baseline, status |
+| Setup conversation | per user, `advisor-drafts/<draft id>/setup.jsonl` until accepted, then `advisors/<id>/setup.jsonl` | new: your turns and the model's, each with the model that answered, its proposals, and how it ended (accepted or discarded) |
 
-How they connect: agent logs are collected into events, which roll up into daily aggregates. Sessions and findings are rebuilt from events, and findings come from rules run over events. You respond to a finding, which writes a finding response. Discovery mines candidates from event history; accepting one writes a rule, and dismissing one writes a dismissed candidate. Each advisor has a report per period, each report has up to three proposals, and an accepted proposal becomes an experiment, which changes a rule or threshold.
+How they connect: agent logs are collected into events, which roll up into daily aggregates. Sessions and findings are rebuilt from events, and findings come from rules run over events. You respond to a finding, which writes a finding response. Discovery mines candidates from event history; accepting one writes a rule, and dismissing one writes a dismissed candidate. Each advisor has a report per period, each report has up to three proposals, and an accepted proposal becomes an experiment, which changes a rule or threshold. An advisor set up by conversation keeps that setup conversation; accepting its proposal is what wrote the advisor's `persona.md`.
 
-Only events have a formal, versioned schema today (`packages/schema`); Report, Proposal and Experiment get one too. The event log keeps its current retention, 90 days raw then aggregates. Reports, proposals and experiments are small and kept forever, so a baseline outlives the raw events it came from.
+Only events have a formal, versioned schema today (`packages/schema`); Report, Proposal, Experiment and Setup conversation get one too. The event log keeps its current retention, 90 days raw then aggregates. Reports, proposals and experiments are small and kept forever, so a baseline outlives the raw events it came from.
 
 ### Lifecycle steps and entities
 
 | Step | Advisor | Report | Proposal | Experiment | Rule / threshold | Event |
 | --- | --- | --- | --- | --- | --- | --- |
 | Configure (+ form or edit) | create / edit | | | | | |
+| Set up by conversation (you and a model) | create, on accept (the setup conversation moves to its folder) | | | | read: rule ids | |
 | Prepare brief (advisor, once) | read | create: the brief, from history | add: first proposals | | read | read: history |
 | Report triggered (schedule or on demand) | read | create: measures and rules, frozen | read: last round | read: running ones | read | read: since last report |
 | Report returned (model call) | | update: summary, verdicts | add: up to three | | | |
@@ -112,6 +125,7 @@ There is no job runner. `server.ts` starts each timer with `setInterval`, and th
 | Views and actions | `GET /sessions`, `/sessions/:id`, `/sessions/:id/view`, `GET /today`, `GET /findings`, `POST /findings/respond`, `GET /workspaces`, `GET`/`POST /suggestions`, `POST /retention` | advisor UI, CLI, status line, windows |
 | Admin and UI | `GET /health`, `POST /tokens`, `POST /ui-links`, `POST /ui-session`, `GET /ui/…`, `POST /shutdown` | front ends starting up, the browser |
 | Advisor routes | `GET /advisors`, `GET /advisor-form`, `POST /advisors` | advisor UI |
+| Advisor routes, setup | `GET`/`POST /advisor-setups` (drafts and models, or `?advisor=` for an advisor's setup conversation; start, with a model), `GET /advisor-setups/:id`, `POST /advisor-setups/:id/messages` (your turn; optional model switch), `POST /advisor-setups/:id/proposal` (accept, revise with a note, discard), `POST /advisor-setups/:id/approval` (the request waiting for approval) | advisor UI, MCP tool |
 | Advisor routes, new | `GET`/`POST /advisors/:id/report` (read, or trigger now), `POST /advisors/:id/report/:rev` (accept or revise report), `POST /proposals/:id` (accept, discard, or revise with a note), `GET /experiments`, `POST /experiments/:id` (keep or revert) | advisor UI, CLI, MCP tool |
 
 ## What changes in the code
@@ -182,4 +196,5 @@ The components diagram here has one box the reviewed plan did not: the schema pa
 - Reports are weekly by default. Each advisor can set its own period, and you can always ask for a report.
 - Experiments that affect the same measure in the same scope may run together. When one fires while another is running, the core flags the overlap as a problem, and the report says the two results may be confounded.
 - Snagboat keeps its own store for proposals and experiments for now. Beads is the candidate base store later, so each proposal stays one record whose revisions link to what they replace. That shape maps onto beads.
+- Setting up an advisor by conversation runs under a new ability, `set-up-advisor`, with its own sending rules and approval, not under an existing ability's: it sends only what you type in the conversation. Its approval is kept apart from the advisor's (`<advisor id>#set-up-advisor`), so adding the ability didn't ask again for advisors you had approved. Decided November 18, 2026, building `snagboat-79f.7.15`; to fold it into the advisor's one approval instead, remove it from `SEPARATELY_APPROVED` in `src/advisor/advisors.ts`.
 - Report, Proposal and Experiment get formal schemas in `packages/schema`, as events have, so the advisor UI, CLI and MCP tool share one definition. That means what events have today: TypeScript types plus a JSON Schema checked by a unit test, with no run-time validation.

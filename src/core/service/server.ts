@@ -30,6 +30,9 @@ import { MEASURES } from '../../advisor/measures';
 import { CoreAdvisors } from './advisorModels';
 import { PERIOD_CHECK_MS, PeriodJob } from './periodJob';
 import { AdvisorReports, ReviewError } from './advisorReports';
+import { AdvisorSetups, SetupError } from './setupChats';
+import { AdvisorSetupStore } from '../advisorSetups';
+import { DEFAULT_PERSONAS } from '../../advisor/goals';
 import { ExperimentStore } from '../experiments';
 import { ProposalStore } from '../proposals';
 import { advisorTemplates, checkNewAdvisor, CUE_COLORS, CUE_ICONS, writeNewAdvisor } from '../../advisor/newAdvisor';
@@ -104,6 +107,16 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *   GET  /advisor-form         the + form's choices: measures, rules an advisor can speak for, templates (step 5c)
  *   POST /advisors             a new advisor from the form: ~/.snagboat/advisors/<id>/persona.md, never
  *                              overwriting one (any token, a reader's included: advisors are yours)
+ *   GET  /advisor-setups       drafts of setup conversations (setting up an advisor by talking it through
+ *                              with a model), newest first, and the models you can pick; ?advisor=<id> for the
+ *                              conversation that advisor was made from
+ *   POST /advisor-setups       { model, text? }: a new setup conversation with that model (required)
+ *   GET  /advisor-setups/:id   one, with where the model's answer stands (and a request waiting for your approval)
+ *   POST /advisor-setups/:id/messages  { text, model? }: your turn, switching model if you name another; the
+ *                              model answers in the background (no text: ask again for your last turn)
+ *   POST /advisor-setups/:id/proposal  { action: accept | revise | discard, note?, model? }: accept writes persona.md
+ *                              and moves the conversation to the advisor's folder; revise goes on with your note
+ *   POST /advisor-setups/:id/approval  { id, send }: your answer to the request waiting for approval
  *   POST /ui-links             admin: [{ workspace, allowHost }] -> a one-time code (2 minutes) and the advisor UI
  *                              address that uses it (http://127.0.0.1:<port>/ui/#<code>)
  *   POST /ui-session           no token: { code } -> a reader token (every workspace, read only), once
@@ -259,6 +272,7 @@ export class CoreService {
   private readonly suggestions: SuggestionsService;
   private readonly reports: AdvisorReports;
   private readonly experiments: ExperimentStore;
+  private readonly setups: AdvisorSetups;
   /** Streams that want findings, told of each change. */
   private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
@@ -323,6 +337,7 @@ export class CoreService {
       }
     );
     this.suggestions = new SuggestionsService(opts.home, this.findings, (line) => this.log(line), { workerIdleMs: opts.discoveryWorkerIdleMs, advisors: models });
+    this.setups = new AdvisorSetups(new AdvisorSetupStore(opts.home, opts.now), models, path.join(opts.home, 'advisors'), () => this.setupCatalog(), opts.now, (line) => this.log(line));
     // Outcomes (RFC step 4): tests going green, worked out from what's written and written back.
     const testsGreen = new TestsGreen();
     this.writer.onWritten((workspace, events) => {
@@ -592,6 +607,7 @@ export class CoreService {
       }
       if (route === 'GET /advisor-form') return send(200, await this.advisorForm());
       if (route === 'POST /advisors') return send(201, await this.addAdvisor(await this.readBody(req, 8192)));
+      if (url.pathname === '/advisor-setups' || url.pathname.startsWith('/advisor-setups/')) return send(...(await this.advisorSetup(scope, req, url)));
       if (route === 'POST /findings/respond') return send(200, await this.respond(scope, await this.readBody(req, 4096)));
       if (route === 'GET /findings') return send(200, await this.currentFindings(scope, url.searchParams.get('workspace')));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days'), url.searchParams.get('workspace')));
@@ -997,6 +1013,73 @@ export class CoreService {
       colors: CUE_COLORS,
       icons: CUE_ICONS,
     };
+  }
+
+  /** What a setup conversation's model may choose from: the + form's measures and rules, and the advisor names taken. */
+  private async setupCatalog() {
+    const { advisors } = loadAdvisorGoals(path.join(this.opts.home, 'advisors'), () => undefined);
+    let folders: string[] = [];
+    try {
+      folders = fs.readdirSync(path.join(this.opts.home, 'advisors'));
+    } catch {
+      // no advisors of yours yet
+    }
+    return {
+      measures: Object.entries(MEASURES).map(([id, m]) => ({ id, label: m.label, unit: m.unit })),
+      rules: await this.knownRules(),
+      taken: [...new Set([...Object.keys(DEFAULT_PERSONAS), ...advisors.map((a) => a.id), ...folders])].sort(),
+    };
+  }
+
+  /**
+   * The /advisor-setups routes (setupChats.ts): setting up an advisor by conversation. Advisors are yours
+   * across every workspace, so only tokens that read every workspace (admin, the advisor UI's) use them.
+   */
+  private async advisorSetup(scope: Scope, req: http.IncomingMessage, url: URL): Promise<[number, unknown]> {
+    if (!readsAll(scope)) {
+      req.resume();
+      throw new HttpError(403, 'advisors are yours across every workspace; this token reads only its own');
+    }
+    const [, , rawId, action, extra] = url.pathname.split('/');
+    const id = rawId === undefined ? undefined : decodeURIComponent(rawId);
+    try {
+      if (id === undefined || id === '') {
+        if (req.method === 'GET') {
+          const advisor = url.searchParams.get('advisor');
+          if (advisor !== null) {
+            const setup = this.setups.store.forAdvisor(advisor);
+            if (!setup) throw new HttpError(404, `${advisor} was not set up by a conversation`);
+            return [200, { setup }];
+          }
+          return [200, { drafts: this.setups.store.drafts(), models: this.setups.choices() }];
+        }
+        if (req.method === 'POST') return [201, await this.setups.start((await this.readBody(req, 8192)) as object)];
+      } else if (extra === undefined && AdvisorSetupStore.isId(id)) {
+        if (req.method === 'GET' && action === undefined) {
+          const view = this.setups.view(id);
+          if (!view) throw new HttpError(404, `no setup conversation ${id}`);
+          return [200, view];
+        }
+        if (req.method === 'POST' && action === 'messages') return [202, await this.setups.say(id, (await this.readBody(req, 16384)) as object)];
+        if (req.method === 'POST' && action === 'proposal') {
+          const body = (await this.readBody(req, 8192)) as { action?: unknown };
+          const view = await this.setups.decide(id, body);
+          return [body.action === 'revise' ? 202 : view.advisor ? 201 : 200, view];
+        }
+        if (req.method === 'POST' && action === 'approval') {
+          const b = (await this.readBody(req, 4096)) as { id?: unknown; send?: unknown };
+          if (typeof b?.id !== 'string' || typeof b.send !== 'boolean') throw new HttpError(400, 'send { id, send: true | false }');
+          if (!this.setups.view(id)) throw new HttpError(404, `no setup conversation ${id}`);
+          if (!this.setups.approve(b.id, b.send)) throw new HttpError(409, 'no request is waiting for that approval');
+          return [200, this.setups.view(id)];
+        }
+      }
+      req.resume();
+      throw new HttpError(404, `no such endpoint: ${req.method} ${url.pathname}`);
+    } catch (err) {
+      if (err instanceof SetupError) throw new HttpError(err.status, err.message);
+      throw err;
+    }
   }
 
   /**
