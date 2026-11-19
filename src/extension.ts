@@ -1003,7 +1003,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       // One entry per advisor and ability, since each ability can have its own sending rules.
       const pick = await vscode.window.showQuickPick(
         advisor.advisors().flatMap((a) =>
-          (Object.entries(a.abilities) as Array<[Capability, { policy: typeof a.policy }]>).map(([ability, { policy }]) => ({
+          // Setting up an advisor sends only what you type in its chat, never a session digest.
+          (Object.entries(a.abilities) as Array<[Capability, { policy: typeof a.policy }]>).filter(([ability]) => ability !== 'set-up-advisor').map(([ability, { policy }]) => ({
             label: a.label,
             description: `${CAPABILITY_LABELS[ability]} · ${a.locality === 'local' ? 'on this machine' : a.baseUrl}`,
             detail: describePolicy(policy),
