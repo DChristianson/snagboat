@@ -390,6 +390,37 @@ suite('Snagboat core plumbing', () => {
     await vscode.commands.executeCommand('snagboat.findings.focus');
   });
 
+  test("the findings view and status bar link to an advisor's waiting proposals (counts only, from the core)", async function () {
+    if (api.getStorageMode() !== 'core') {
+      // Without the core there are no period reports to read; nothing shows.
+      assert.deepStrictEqual(api.getFindingsViewState().proposals, []);
+      return this.skip();
+    }
+    const home = process.env.SNAGBOAT_HOME!;
+    // One period report for Purser whose latest revision proposes one change you haven't marked.
+    const dir = path.join(home, 'advisors', 'purser');
+    fs.mkdirSync(path.join(dir, 'periods'), { recursive: true });
+    const at = new Date().toISOString();
+    const report = 'proposals-test';
+    fs.writeFileSync(
+      path.join(dir, 'periods', `${report}.json`),
+      JSON.stringify({ version: 1, id: report, advisor: 'purser', advisorVersion: 'test', period: 'weekly', label: '2099-W01', from: at, to: '2099-01-08T00:00:00.000Z', trigger: 'request', createdAt: at, measures: [], workspaces: [], rules: { defaults: {}, projects: {}, saved: [] }, summary: '', revisions: [{ rev: 1, createdAt: at, summary: '', verdicts: [], proposals: ['purser-test-1'] }] })
+    );
+    fs.writeFileSync(
+      path.join(dir, 'proposals.jsonl'),
+      JSON.stringify({ version: 1, at, proposal: 'purser-test-1', advisor: 'purser', type: 'proposed', report, rev: 1, title: 'Secret title', change: { setting: 'heuristics.stalled.minutes', value: 6 }, scope: 'global', what: 'x', why: 'y', prediction: { measure: 'cache_hit_rate', text: 'z' } }) + '\n'
+    );
+    try {
+      assert.deepStrictEqual(await api.checkWaitingProposals(), [{ advisor: 'purser', name: 'Purser', waiting: 1 }]);
+      assert.deepStrictEqual(api.getFindingsViewState().proposals, [{ advisor: 'purser', name: 'Purser', waiting: 1, text: 'Purser: 1 proposal waiting' }]);
+      assert.ok(!JSON.stringify(api.getFindingsViewState()).includes('Secret title'), "the window never sees the proposal's content");
+    } finally {
+      fs.rmSync(path.join(dir, 'periods', `${report}.json`));
+      fs.rmSync(path.join(dir, 'proposals.jsonl'));
+    }
+    assert.deepStrictEqual(await api.checkWaitingProposals(), [], 'none waiting: nothing shows');
+  });
+
   test('the detail view opens as a webview tab and the today snapshot tracks new events', async () => {
     const beforeToday = api.getTodaySnapshot().totalTokens;
     await vscode.commands.executeCommand('snagboat._emitTestEvent');

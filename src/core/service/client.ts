@@ -59,6 +59,13 @@ const FLUSH_TIMEOUT_MS = 60_000;
 
 let spoolSeq = 0;
 
+/** An advisor with proposals waiting in its latest period report (GET /advisors, count only). */
+export interface WaitingProposals {
+  advisor: string;
+  name: string;
+  waiting: number;
+}
+
 export class CoreClient {
   private info!: CoreInfo;
   private token!: string;
@@ -304,6 +311,21 @@ export class CoreClient {
     try {
       const res = await this.request401('GET', '/findings', undefined, 30_000);
       return res.status === 200 ? (res.body as WorkspaceFindings[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Proposals waiting for your marks, per advisor: only the counts, which a workspace token may read (the
+   * reports themselves cover every workspace). Empty when none wait or no core answers.
+   */
+  async waitingProposals(): Promise<WaitingProposals[]> {
+    try {
+      const res = await this.request401('GET', `/advisors?workspace=${encodeURIComponent(this.opts.workspace)}&days=1`, undefined, 30_000);
+      if (res.status !== 200) return [];
+      const advisors = (res.body as { advisors?: Array<{ id: string; name: string; review?: { unmarked?: number } }> }).advisors ?? [];
+      return advisors.filter((a) => (a.review?.unmarked ?? 0) > 0).map((a) => ({ advisor: a.id, name: a.name, waiting: a.review!.unmarked! }));
     } catch {
       return [];
     }

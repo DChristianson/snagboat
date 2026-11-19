@@ -10,7 +10,9 @@ import { writeApprovals } from '../../core/advisorApprovals';
 import { configHost, loadConfig, saveConfig } from '../../core/config';
 import { CoreAdvisors } from '../../core/service/advisorModels';
 import { ReportView } from '../../core/service/advisorReports';
-import { AdvisorReport } from '../../advisor/report';
+import { AdvisorReport, isReviewSummary, ReviewSummary } from '../../advisor/report';
+import { CoreClient } from '../../core/service/client';
+import { waitingText } from '../../ui/format';
 import { coreRequest, readCoreFile } from '../../core/service/coreFile';
 import { CoreService } from '../../core/service/server';
 import { StoreWriter } from '../../core/service/storeWriter';
@@ -76,12 +78,32 @@ async function main() {
   test("the advisors' cards show the review: proposals waiting, the model, the period", async () => {
     const res = (await call('GET', `/advisors?workspace=${encodeURIComponent(w)}`)).body as { advisors: AdvisorReport[] };
     const purser = res.advisors.find((a) => a.id === 'purser')!;
-    assert.deepStrictEqual([purser.model, purser.period, purser.review?.unmarked, purser.review?.state], ['local', 'weekly', 3, 'open']);
-    assert.deepStrictEqual(purser.brief!.surface.text, `3 proposals waiting in the ${purser.review!.label} report.`);
-    assert.strictEqual(res.advisors.find((a) => a.id === 'navigator')!.review?.state, 'numbers-only');
+    const review = purser.review as ReviewSummary;
+    assert.deepStrictEqual([purser.model, purser.period, review.unmarked, review.state], ['local', 'weekly', 3, 'open']);
+    assert.deepStrictEqual(purser.brief!.surface.text, `3 proposals waiting in the ${review.label} report.`);
+    assert.strictEqual((res.advisors.find((a) => a.id === 'navigator')!.review as ReviewSummary).state, 'numbers-only');
+  });
+
+  test('a workspace token sees only how many proposals wait, never the report', async () => {
     const minted = await call('POST', '/tokens', { workspaces: [w] });
-    const own = (await coreRequest(info.port, (minted.body as { token: string }).token, 'GET', '/advisors')).body as { advisors: AdvisorReport[] };
-    assert.strictEqual(own.advisors[0].review, undefined, "a workspace token doesn't see reports, which cover every workspace");
+    const token = (minted.body as { token: string }).token;
+    const own = (await coreRequest(info.port, token, 'GET', `/advisors?workspace=${encodeURIComponent(w)}&days=1`)).body as { advisors: AdvisorReport[] };
+    assert.deepStrictEqual(own.advisors.find((a) => a.id === 'purser')!.review, { unmarked: 3 }, 'the count, nothing else');
+    assert.ok(!isReviewSummary(own.advisors.find((a) => a.id === 'purser')!.review));
+    assert.strictEqual(own.advisors.find((a) => a.id === 'navigator')!.review, undefined, 'none waiting: no field');
+    assert.ok(!JSON.stringify(own).includes('Catch smaller cache rewrites'), 'no proposal content');
+    assert.ok(!/proposals? waiting in the/.test(JSON.stringify(own)), "the brief doesn't name the report");
+    assert.strictEqual((await coreRequest(info.port, token, 'GET', '/advisors/purser/report')).status, 403, 'the report itself stays closed');
+    // The window's client reads the same counts for the findings view and status bar.
+    const client = await CoreClient.connect({ home, cliPath: '', workspace: w, ensure: async () => info, find: async () => info });
+    try {
+      const waiting = await client.waitingProposals();
+      assert.deepStrictEqual(waiting, [{ advisor: 'purser', name: 'Purser', waiting: 3 }]);
+      assert.strictEqual(waitingText(waiting[0]), 'Purser: 3 proposals waiting');
+      assert.strictEqual(waitingText({ ...waiting[0], waiting: 1 }), 'Purser: 1 proposal waiting');
+    } finally {
+      client.close();
+    }
   });
 
   test('marks are checked and switchable until you send; Revise needs a note', async () => {

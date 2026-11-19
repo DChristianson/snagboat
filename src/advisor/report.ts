@@ -31,8 +31,31 @@ export interface AdvisorReport {
   /** How often it reports, and the model advisor that answers its reports (goal tracking lifecycle). */
   period?: AdvisorPeriod;
   model?: string;
-  /** Its latest period report's review, for tokens that read every workspace. */
-  review?: { report: string; label: string; rev: number; state: 'numbers-only' | 'open' | 'revising' | 'accepted'; unmarked: number; proposals: number };
+  /**
+   * Its latest period report's review, for tokens that read every workspace; a workspace token gets only the
+   * count of proposals waiting (no content: reports cover every workspace).
+   */
+  review?: ReviewSummary | WaitingCount;
+}
+
+/** A period report's review as the advisors' cards show it. */
+export interface ReviewSummary {
+  report: string;
+  label: string;
+  rev: number;
+  state: 'numbers-only' | 'open' | 'revising' | 'accepted';
+  unmarked: number;
+  proposals: number;
+}
+
+/** What a workspace token may know of a review: how many proposals wait for your marks. */
+export interface WaitingCount {
+  unmarked: number;
+}
+
+/** Whether a card's review is the whole summary (the token reads every workspace) or only the count. */
+export function isReviewSummary(r: ReviewSummary | WaitingCount | undefined): r is ReviewSummary {
+  return !!r && 'report' in r;
 }
 
 export interface Period {

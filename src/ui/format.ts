@@ -115,3 +115,15 @@ export function buildBreakdownLines(
 
   return lines;
 }
+
+/** An advisor with proposals waiting for your marks (counts only; the advisor UI shows them). */
+export interface WaitingLink {
+  advisor: string;
+  name: string;
+  waiting: number;
+}
+
+/** "Purser: 2 proposals waiting", for the findings view and the status bar's tooltip. */
+export function waitingText(p: WaitingLink): string {
+  return `${p.name}: ${p.waiting} proposal${p.waiting === 1 ? '' : 's'} waiting`;
+}
