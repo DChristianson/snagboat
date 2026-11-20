@@ -8,6 +8,8 @@ Snagboat owns the sanitizing rules. Factory Clock reads files and never sees a r
 
 So the export keeps prompts, replies and tool calls, and removes what identifies the machine, the person, or the workspace's place on disk. Anything it isn't sure about is flagged for you to review. It doesn't silently pass or silently drop.
 
+**Everything exported comes from the Snagboat store.** The export never re-reads transcripts, git or bd. The store takes on the schema below: git state, plan state, and the links between them and sessions are recorded by the core as they happen, for heuristics as much as for export. The export does two things only: it selects one workspace's records, then applies the privacy rules. In the maintainer's words: "the export will just be selecting data for a given workspace and then applying the privacy rules." What the store doesn't hold, the export can't give.
+
 Factory Clock's scrape script ([factory-clock#31](https://github.com/DChristianson/factory-clock/pull/31)) was the first attempt at this from the other side. Its rules are a good start and this design takes most of them, but they belong here: Snagboat knows its own store layout, its own capture-time redaction, and which fields carry what. Once `snagboat export` exists, the scrape script reads its output instead of `~/.snagboat/data`. It can keep its own leak check as a second look.
 
 ## Contents
@@ -16,14 +18,14 @@ Factory Clock's scrape script ([factory-clock#31](https://github.com/DChristians
 - [The privacy rules](#the-privacy-rules)
 - [The normalized schema](#the-normalized-schema)
 - [How records are linked](#how-records-are-linked)
-- [Recording git and plan history](#recording-git-and-plan-history)
+- [The store records it](#the-store-records-it)
 - [The command](#the-command)
 - [Build order](#build-order)
 - [Open questions](#open-questions)
 
 ## What an export holds
 
-One project: a git repository's working tree, with its other worktrees and any other paths you name. It covers a time range, all of the project's history by default. The export is a folder:
+One workspace from the store: a git repository's working tree, with its other worktrees and any other paths you name. It covers a time range, all of what the store holds by default. Each file is the store's own records for that workspace, sanitized. The export is a folder:
 
 ```text
 <out>/
@@ -87,8 +89,8 @@ Snagboat already redacts secret formats when it captures text (`SECRET_PATTERNS`
 
 Everything else, which is most of the detail:
 
-- **Prompts and replies**, whole. The store caps them (prompts at 2,000 characters, reply excerpts at 500) because it keeps them on your machine for heuristics. The export reads the full text from the agent's own transcript while that's still on disk (Claude Code's JSONL, Copilot CLI's session state), and falls back to the store's copy. `manifest.json` says which sessions were read in full.
-- **Tool calls**: tool name and category, status, timing, turn, subagent, and the input that matters to a view: the file it touched (made relative), the command it ran, the search pattern, the URL it fetched. Tool *output* isn't exported, apart from a test or build run's pass/fail, which is already the call's status. Output is where pasted logs, file contents and stack traces live, which is most of the risk and little of the value.
+- **Prompts and replies**, as the store holds them. Today it caps them (prompts at 2,000 characters, reply excerpts at 500), and the export doesn't go back to the transcripts for more. If the export needs more detail, the store keeps more: see [open question 1](#open-questions).
+- **Tool calls**: tool name and category, status, timing, turn, subagent, and the input that matters to a view: the file it touched (made relative), the command it ran, the search pattern, the URL it fetched. The store records these as `toolInput` (schema v4) when the call is captured; today it keeps only one of them, in `target`. Tool *output* is neither stored nor exported, apart from a test or build run's pass/fail, which is already the call's status. Output is where pasted logs, file contents and stack traces live, which is most of the risk and little of the value.
 - **Plans**: todo lists, task tools, and plan items' titles, descriptions, design, notes, acceptance criteria and close reasons.
 - **Git**: commit subjects and bodies, branch names, changed files with line counts.
 - **Session names, compactions, model calls and tokens, findings and outcomes**, as stored.
@@ -116,6 +118,8 @@ After everything is written to a temporary folder, the export searches every fil
 
 The schema extends what Snagboat already records rather than starting over. Events stay `NormalizedEvent` (version 4), and sessions stay what `snagboat sessions --json` prints, with more fields. Git and plan history are new records that sit beside them, joined by ids.
 
+This is the **store's** schema, not only the export's. The core writes these records into each workspace's folder in `~/.snagboat/data`, heuristics and advisors read them there, and the export writes the same records with the privacy rules applied. Fields marked *export only* are added by the privacy step and never stored.
+
 ```mermaid
 erDiagram
   SESSION ||--o{ EVENT : "has"
@@ -138,11 +142,11 @@ Version 4 is version 3 with these changes, so a v3 reader still reads the events
 
 | Field | Change |
 | --- | --- |
-| `workspace`, `raw` | Never in an export. Still in the store. |
-| `toolInput` | New, optional: `{ command?, path?, pattern?, url?, description? }`, the parts of a tool call's input worth drawing. Today only `target` holds one of them. |
-| `refs` | New, optional: `{ commit?, branch?, planItems? }`, set on an event that *observably* acted on one: a tool call that ran `git commit`, `git checkout -b`, or `bd close snagboat-koh`. Inferred relations go in `links.jsonl`, not here. |
-| `promptText`, `textExcerpt` | Whole in an export when the transcript was read (rule 3), else as stored. `textTruncated: true` says which. |
-| `redactions` | New, export only: `{ field, rule, count }[]`, saying what rules 1, 2 and 4 replaced in this event, without the values. |
+| `workspace`, `raw` | Stay in the store. Never in an export. |
+| `toolInput` | New, optional, recorded at capture: `{ command?, path?, pattern?, url?, description? }`, the parts of a tool call's input worth drawing. Today only `target` holds one of them. |
+| `refs` | New, optional, recorded at capture: `{ commit?, branch?, planItems? }`, set on an event that *observably* acted on one: a tool call that ran `git commit`, `git checkout -b`, or `bd close snagboat-koh`. Inferred relations go in `links.jsonl`, not here. |
+| `textTruncated` | New, optional: the prompt or reply text was cut at the store's cap. |
+| `redactions` | New, *export only*: `{ field, rule, count }[]`, saying what rules 1, 2 and 4 replaced in this event, without the values. |
 
 ### Sessions: `sessions.jsonl`
 
@@ -168,8 +172,6 @@ interface SessionRecord {
   commits: Array<{ sha: string; confidence: Confidence }>;
   /** Plan items linked to the session, and how it touched each. */
   planItems: Array<{ id: string; how: 'created' | 'claimed' | 'updated' | 'closed' | 'mentioned'; confidence: Confidence }>;
-  /** The full text came from the transcript (rule 3), not just the store's copy. */
-  fullText: boolean;
 }
 type Confidence = 'observed' | 'inferred';
 ```
@@ -261,7 +263,9 @@ For beads, the source is bd's own audit journal (`bd history <id> --events`), wh
 
 ### Findings: `findings.jsonl`
 
-Findings were half of step 9's original ask, and Factory Clock's page has shown none since step 8. One record per episode: heuristic or rule id, session, turn, first and last time, the events it's about, whether it was an early warning, and your response (`useful`, `muted`, `acknowledged`, `passed`) from the store's `finding_response` outcomes.
+Findings were half of step 9's original ask, and Factory Clock's page has shown none since step 8. One record per episode: heuristic or rule id and its version, session, turn, first and last time, the events it's about, whether it was an early warning, and your response (`useful`, `muted`, `acknowledged`, `passed`).
+
+Today the store keeps only your responses (`finding_response` outcomes, `finding-responses.jsonl`); the core works episodes out live from events. Replaying the heuristics at export time would break "the export only selects", and would give different answers once a heuristic changes. So the core also writes each episode to the workspace's `findings.jsonl` when it closes, as it was shown, and the export selects from that.
 
 ### Links: `links.jsonl`
 
@@ -278,7 +282,7 @@ interface LinkRecord {
 
 ## How records are linked
 
-Every link says whether it was **observed** (something recorded shows it directly) or **inferred** (a heuristic guessed it), and why. Views can draw the two differently, and a wrong guess can be traced to its rule.
+The core works out links as records arrive and stores them, so heuristics use the same links the export writes. Every link says whether it was **observed** (something recorded shows it directly) or **inferred** (a heuristic guessed it), and why. Views can draw the two differently, and a wrong guess can be traced to its rule. A link that a later record overturns is replaced, not deleted: the store keeps `supersededBy`, and the export writes only the current links.
 
 | Link | Observed when | Inferred when |
 | --- | --- | --- |
@@ -291,14 +295,33 @@ Every link says whether it was **observed** (something recorded shows it directl
 
 Bead ids are found by the project's own prefix: bd's `issue_prefix` (`bd config get issue_prefix`), else the most common `<prefix>-` among its beads. That keeps `snagboat-koh` from matching text that only looks like an id.
 
-## Recording git and plan history
+## The store records it
 
-An export run months later can't rebuild everything from what's still on disk. Reflog entries expire (90 days by default), merged branches get deleted (this project deletes them as soon as their pull request merges), and squash merges drop a branch's commits from `main`. So the core records git and plan history **as it happens**, like the git outcomes job does today, and the export reads what it recorded.
+The store holds everything the export writes, because the core records it as it happens. Snagboat needs it for its own heuristics, and an export run later couldn't rebuild it anyway: reflog entries expire (90 days by default), merged branches get deleted (this project deletes them as soon as their pull request merges), squash merges drop a branch's commits from `main`, and transcripts get cleaned up.
 
-- **A repository job in the core**, beside `GitOutcomesJob`. It runs for each workspace in the per-user store that's a folder in a git repository and doesn't have `outcomes.git` or `collect` turned off. It reads commits since its last run (`git log --all`), branches (`for-each-ref`), and each worktree's HEAD reflog, then appends what's new to the workspace's store as `git.jsonl`. Read-only git, as the outcomes job already uses. It runs every few minutes while a session is active in the workspace, so checkouts are seen with their times, and hourly otherwise.
-- **Plan history** is appended to `plan.jsonl` the same way, from `bd export` and `bd history --events` when the project has a `.beads` folder and `bd` is installed. bd keeps its journal itself, so this is a copy for export rather than the only record.
-- **What's stored is raw**, just as events are stored unsanitized and sanitized only on export. The rules run once, at export, so improving a rule improves every later export of old data.
-- **Retention:** `git.jsonl` and `plan.jsonl` follow `retention.rawDays`, like events.
+Each workspace's folder in `~/.snagboat/data` gains four files beside `events/`:
+
+| File | What writes it | From |
+| --- | --- | --- |
+| `git.jsonl` | A repository job in the core, beside `GitOutcomesJob` | `git log --all`, `for-each-ref`, and each worktree's HEAD reflog, read-only as the outcomes job's git already is. It runs every few minutes while a session is active in the workspace, so checkouts are seen with their times, and hourly otherwise. It appends commit, branch and checkout records, plus a branch's `merged` or `deletedAt` when it sees them. |
+| `plan.jsonl` | A plan job in the core, when the project has a `.beads` folder and `bd` is installed | `bd export` and `bd history --events`: items as they change, and every transition once |
+| `links.jsonl` | The core's linker, run as events, git records and plan records arrive | The rules in [How records are linked](#how-records-are-linked) |
+| `findings.jsonl` | The core's findings service, as each episode closes | The episode as it was shown, with its heuristic's version |
+
+Adapters record `toolInput`, and `refs` where a tool call observably acted on a commit, branch or plan item, when they capture the call (event schema v4).
+
+**What's stored is raw.** Events are stored unsanitized today, with only capture-time secret redaction, and so are these. The privacy rules run once, on export. So a better rule improves every later export of old data, and heuristics see real paths and names.
+
+**Retention.** `git.jsonl`, `plan.jsonl`, `links.jsonl` and `findings.jsonl` follow `retention.rawDays`, as events do. `outcomes.git` and `collect` turned off for a project stop its git and plan jobs too. **Snagboat: Remove Captured Text** also clears commit bodies and plan item text.
+
+**What heuristics get from it.** The point of storing it is that Snagboat can reason about the work, not only the session. These are examples, not commitments:
+- a session that claimed a bead and ended with no commit and no status change;
+- a branch with many sessions and no merge;
+- work closed with no linked commit;
+- time from claimed to closed, per bead kind;
+- commits reverted after the session that made them closed its bead.
+
+The git outcomes job's commit-to-session rule becomes one of the linker's rules, so `milestone`, `commit_kept` and `code_survival` use the stored links.
 
 ## The command
 
@@ -308,7 +331,8 @@ snagboat export --project <dir> --out <dir> [--name <name>] [--since <date>] [--
                 [--match <path>]... [--json]
 ```
 
-- `--project` defaults to the current folder's repository. Sessions are kept when their `workspace` is the project, inside it, another worktree of its repository, or a `--match` path. These are factory-clock#31's rules, applied to the store Snagboat knows.
+- It only reads the store: one workspace's `events/`, `git.jsonl`, `plan.jsonl`, `links.jsonl` and findings, with or without the core running. It runs no git and no bd, reads no transcript, and writes nothing back to the store.
+- `--project` defaults to the current folder's repository. Records are selected when their workspace is the project, inside it, another worktree of its repository, or a `--match` path. These are factory-clock#31's rules, applied to the store Snagboat knows.
 - `--out` must be outside the project, or a path git ignores in it, so an export never gets committed.
 - It prints what it wrote, what each rule replaced (counts), how many flags there are and where the review file is. `--json` prints the same as `manifest.json`.
 - In VS Code: **Snagboat: Export Project...** runs it for the window's folder and opens the review file when anything was flagged.
@@ -316,20 +340,24 @@ snagboat export --project <dir> --out <dir> [--name <name>] [--since <date>] [--
 
 ## Build order
 
-Each is a bead under `snagboat-93b.9` once this is reviewed:
+Each is a bead under `snagboat-93b.9` once this is reviewed. The store comes first, so heuristics can use it before there's an export.
 
-1. **Schema:** `NormalizedEvent` v4 fields, the new record types and their JSON Schemas in `packages/schema`, and `manifest.json`'s format.
-2. **Sanitizer:** rules 1–5 as one module in `src/core/export/`, with tests on made-up data that plants every kind of value the rules name and checks none survives.
+1. **Schema:** `NormalizedEvent` v4 fields, the git, plan, link, finding and session record types, their JSON Schemas in `packages/schema`, and `manifest.json`'s format.
+2. **Capture:** adapters record `toolInput`, and `refs` for tool calls that observably ran git or bd.
 3. **Repository job:** `git.jsonl` (commits, branches, checkouts) in the core, with tests on a scratch repository: merge, squash, rebase, deleted branch, two worktrees.
-4. **Plan recording:** `plan.jsonl` from bd's export and audit journal.
-5. **Linker:** the link rules, each tested on its own, with `observed` and `inferred` cases.
-6. **The command:** `snagboat export`, full text from transcripts, the review folder, the final check, and the VS Code command.
-7. **Factory Clock:** load an export folder, and `--from-export` in the scrape script (in factory-clock's own tracker).
+4. **Plan job:** `plan.jsonl` from bd's export and audit journal.
+5. **Linker:** `links.jsonl`, with each rule tested on its own in `observed` and `inferred` cases. The git outcomes job moves onto it.
+   **Findings:** the core writes closed episodes to `findings.jsonl`.
+6. **Sanitizer:** rules 1–5 as one module in `src/core/export/`, with tests on made-up data that plants every kind of value the rules name and checks none survives.
+7. **The command:** `snagboat export` (select, sanitize, review folder, final check), and the VS Code command.
+8. **Factory Clock:** load an export folder, and `--from-export` in the scrape script (in factory-clock's own tracker).
+
+Heuristics that use git and plan state are their own beads, after step 5.
 
 ## Open questions
 
-1. **Full text from transcripts.** Reading whole prompts and replies from the transcript at export time gives the detail you asked for. It also means the export can hold text the store never kept, from before capture was on or after you removed captured text. Should it read transcripts only for sessions whose text the store still has?
+1. **How much text the store keeps.** The export gives what the store holds: prompts up to 2,000 characters and reply excerpts up to 500. For more detail the store has to keep more. Should those caps go up (as settings, with `captureContent`), or does the export live with them?
 2. **Commit SHAs in a private repository.** They're kept so exports join up. Should `--private` re-key them with the HMAC? Then the export can't be matched with the repository's real history.
 3. **Pseudonyms across machines.** The key is per machine, so two people's exports of the same project number people differently. Is that fine, or should a team share a key?
-4. **Pull request detail.** Titles, reviewers and review comments are on GitHub, not on disk. Fetching them means a network call from the export, or from the repository job. Leave it out for now?
-5. **Markdown plans.** Without beads, factory-clock#31 reads `docs/` markdown as a plan. Should the export do the same, with `confidence: 'inferred'` items, or only export beads?
+4. **Pull request detail.** Titles, reviewers and review comments are on GitHub, not on disk. Recording them means a network call from the repository job. Leave it out for now?
+5. **Markdown plans.** Without beads, factory-clock#31 reads `docs/` markdown as a plan. Should the plan job do the same, storing `confidence: 'inferred'` items, or record only beads?
