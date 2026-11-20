@@ -20,6 +20,9 @@ import { advisorId } from '../advisor/newAdvisor';
  *   and rules from the lists Snagboat sent by the words you used (cost, context, stall, risk, noise);
  * - a revise note: a revised proposal, its status line from your note, and the period if you name one;
  * - Snagboat's repair note (a proposal it kept out): a corrected proposal.
+ * An advisor whose model is the mock gets period reports answered too (Ask for a report now on its page):
+ * a summary, and up to two setting changes that pass the report's checks, so proposals wait for you; on
+ * Revise report, a smaller step for each note.
  * Words in your message that force the other paths:
  * - mock:bad   a proposal with a name already taken and an invented measure, which Snagboat keeps out
  *              and sends straight back for repair;
@@ -97,11 +100,86 @@ function proposalFor(said: string, catalog: Catalog, model: string, extra: { sta
   };
 }
 
+const REPORT = /^Write this period's report\.\n\nData:\n/;
+
+interface ReportData {
+  goal?: { id?: string; inPlainWords?: string; measures?: string[]; mayChange?: string[] };
+  report?: { period?: string };
+  settings?: Array<{ setting: string; heuristic?: string; global?: number | string }>;
+  runningExperiments?: Array<{ id: string; change?: { setting?: string } }>;
+  discarded?: Array<{ change?: { setting?: string } }>;
+  acceptedAndKept?: Array<{ change?: { setting?: string } }>;
+  reviseNotes?: Array<{ proposal: string; title?: string; change?: { setting?: string; after?: number }; note?: string }>;
+}
+
+/** Which heuristics' settings suit a goal, by the words in it; the rest follow. */
+const GOAL_HEURISTICS: Array<[RegExp, RegExp]> = [
+  [/cost|token|cache|spend/i, /cache-thrash|runaway-turn|token-budget/],
+  [/context|compact/i, /context-pressure/],
+  [/stall|stuck|unstuck|minutes|green/i, /stalled|backtracking/],
+  [/notif|useful|noise/i, /tool-churn|stalled/],
+];
+
+/** A setting's new value: looser by half (a share stays under 1). */
+function loosened(value: number): number {
+  return value < 1 ? Math.min(0.99, Math.round((value + (1 - value) / 2) * 100) / 100) : Math.round(value * 1.5);
+}
+
+/**
+ * A period report's answer (performanceReport.ts): a summary, "too early" for each running experiment,
+ * and up to two setting changes the checks accept (numeric settings the goal's words point at, none
+ * already being tried, discarded or kept), each predicting the goal's first measure; on Revise report,
+ * one replacement per note.
+ */
+function reportAnswer(model: string, data: ReportData): string {
+  const goal = data.goal ?? {};
+  const measure = goal.measures?.[0];
+  const verdicts = (data.runningExperiments ?? []).map((x) => ({ experiment: x.id, result: 'too-early', text: `Mock (${model}): one period isn't enough to tell.` }));
+  const summary = `Mock report (${model}) for ${data.report?.period ?? 'this period'}: ${goal.inPlainWords ?? 'the goal'}.`;
+  if (!measure || !(goal.mayChange ?? []).includes('rules')) return JSON.stringify({ summary: `${summary} Nothing to propose: no measure, or it may not change rules.`, verdicts, proposals: [] });
+  const proposal = (setting: string, before: number, after: number, extra: Record<string, unknown> = {}) => ({
+    title: `Loosen ${setting.split('.').slice(-2).join(' ')} to ${after}`,
+    scope: 'global',
+    change: { setting, value: after },
+    what: `Changes ${setting} from ${before} to ${after}.`,
+    why: `Mock (${model}): fewer findings that don't help, so the ones left are worth a look.`,
+    prediction: { measure, text: `${measure} should improve within a period.` },
+    ...extra,
+  });
+  const numeric = (s: { global?: number | string }): s is { global: number } => typeof s.global === 'number' && s.global > 0;
+  const settings = (data.settings ?? []).filter(numeric) as Array<{ setting: string; heuristic?: string; global: number }>;
+  if (data.reviseNotes?.length) {
+    const proposals = data.reviseNotes.flatMap((n) => {
+      const s = settings.find((x) => x.setting === n.change?.setting);
+      if (!s) return [];
+      const after = n.change?.after !== undefined && n.change.after !== s.global ? Math.round(((n.change.after + s.global) / 2) * 100) / 100 : loosened(s.global);
+      return after !== s.global ? [proposal(s.setting, s.global, after, { replaces: n.proposal, why: `Mock (${model}), on your note "${(n.note ?? '').slice(0, 80)}": a smaller step.` })] : [];
+    });
+    return JSON.stringify({ summary, verdicts, proposals });
+  }
+  const busy = new Set([...(data.runningExperiments ?? []), ...(data.discarded ?? []), ...(data.acceptedAndKept ?? [])].map((x) => x.change?.setting).filter(Boolean));
+  const words = `${goal.id ?? ''} ${goal.inPlainWords ?? ''}`;
+  const suited = GOAL_HEURISTICS.find(([w]) => w.test(words))?.[1];
+  const ranked = [...settings].sort((a, b) => Number(!!suited?.test(b.heuristic ?? '')) - Number(!!suited?.test(a.heuristic ?? '')));
+  const proposals = ranked
+    .filter((s) => !busy.has(s.setting))
+    .slice(0, 2)
+    .map((s) => proposal(s.setting, s.global, loosened(s.global)));
+  return JSON.stringify({ summary, verdicts, proposals });
+}
+
 /** The mock's answer to one chat request. */
 export function mockAnswer(model: string, messages: MockMessage[]): MockAnswer {
-  const catalog = catalogOf(messages);
   const users = messages.filter((m) => m.role === 'user');
   const last = users[users.length - 1]?.content ?? '';
+  if (REPORT.test(last)) {
+    try {
+      return { content: reportAnswer(model, JSON.parse(last.replace(REPORT, '')) as ReportData), status: 200, delayMs: 0 };
+    } catch {
+      return { content: JSON.stringify({ summary: `Mock (${model}) couldn't read the report's data.`, verdicts: [], proposals: [] }), status: 200, delayMs: 0 };
+    }
+  }
+  const catalog = catalogOf(messages);
   // What you said, without Snagboat's own notes.
   const yours = users.map((m) => m.content).filter((c) => !REPAIR.test(c)).map((c) => c.replace(REVISE, ''));
   const said = yours.join(' ');
