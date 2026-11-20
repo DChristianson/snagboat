@@ -229,9 +229,6 @@ a.btn { text-decoration: none; display: inline-block; }
 #suggestions-root .saved-rule p { margin: 2px 0 6px; }
 #suggestions-root p { margin: 4px 0; }
 #suggestions-root input.threshold { color: var(--sb-input-ink, var(--sb-ink)); background: var(--sb-input-bg, var(--sb-surface)); border: 1px solid var(--sb-input-border, var(--sb-rule)); border-radius: 4px; padding: 2px 6px; }
-.advice { gap: 8px; border-left: 3px solid var(--sb-accent); }
-.advice h2 { font-size: 14px; }
-.advice .payload { margin: 0; max-height: 360px; overflow: auto; font: 11.5px/1.45 var(--sb-mono); background: var(--sb-panel); border: 1px solid var(--sb-rule); border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* An advisor's period report (goal tracking lifecycle) */
 .report { display: grid; gap: 10px; }

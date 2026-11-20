@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { DetailState, DetailTab, isDetailMessage, resolveTargetFile } from './detailModel';
 import { SessionController } from './sessionController';
 import { SuggestionsController } from '../discovery/suggestionsController';
-import { Capability, ExplainRequest } from '../vscode/advisor';
+import { ExplainRequest } from '../vscode/advisor';
 import { hostFileUri } from '../vscode/hostUri';
 
 const UPDATE_DEBOUNCE_MS = 500;
@@ -17,10 +17,6 @@ export interface DetailPanelHooks {
   sessions: SessionController;
   suggestions: SuggestionsController;
   explain(req: ExplainRequest): Promise<void>;
-  /** Tactics for a session: whether model use and prompt tactics could be refined. */
-  tactics(sessionId: string): Promise<void>;
-  /** Lets the person pick among the advisors offering an ability; undefined when they didn't. */
-  pickAdvisor(ability: Capability): Promise<string | undefined>;
   /** Today's UTC day key, for the session list's default day. */
   today(): string;
   /**
@@ -181,14 +177,6 @@ export class DetailPanel implements vscode.Disposable {
       case 'discover':
         await this.hooks.suggestions.discover();
         break;
-      case 'askAdvisor':
-        await this.hooks.suggestions.askAdvisor();
-        break;
-      case 'askAnotherAdvisor': {
-        const advisorId = await this.hooks.pickAdvisor('propose-heuristics');
-        if (advisorId) await this.hooks.suggestions.askAdvisor(advisorId);
-        break;
-      }
       case 'tweakSuggestion':
         this.hooks.suggestions.tweak(message.id, message.threshold);
         break;
@@ -207,14 +195,8 @@ export class DetailPanel implements vscode.Disposable {
       case 'applyThreshold':
         await this.hooks.suggestions.applyThreshold(message.heuristic, message.setting);
         break;
-      case 'applyAdvisorThreshold':
-        await this.hooks.suggestions.applyAdvisorThreshold(message.heuristic, message.setting);
-        break;
       case 'explain':
         await this.hooks.explain({ sessionId: message.sessionId, ...(message.turnId ? { turnId: message.turnId } : {}), ...(message.heuristicId ? { heuristicId: message.heuristicId } : {}) });
-        break;
-      case 'tactics':
-        await this.hooks.tactics(message.sessionId);
         break;
       case 'removeSaved':
         await this.hooks.suggestions.removeSaved(message.section, message.id);

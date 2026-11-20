@@ -6,7 +6,7 @@ Adapters know agent-specific formats; nothing downstream does. The normalization
 
 ## Where everything lives
 
-How Snagboat relates to the systems around it: you, VS Code, the two coding agents, what's on disk, and the advisors. Inside Snagboat only its spine is drawn, from adapters to the UI, plus the Advisor, which is the only way anything leaves. The table below ties each part of Snagboat, the drawn ones and the ones behind them (discovery, review, nudges), to its modules and to where it keeps things on disk.
+How Snagboat relates to the systems around it: you, VS Code, the two coding agents, what's on disk, and the advisors. Inside Snagboat only its spine is drawn, from adapters to the UI, plus the Advisor, which is the only way anything leaves. The table below ties each part of Snagboat, the drawn ones and the ones behind them (discovery, nudges, reports), to its modules and to where it keeps things on disk.
 
 ```mermaid
 flowchart LR
@@ -34,7 +34,7 @@ flowchart LR
   HypAware["HypAware<br>(planned)"]
 
   You -->|prompts| ClaudeCode & Copilot
-  UI -->|findings, sessions, reviews| You
+  UI -->|findings, sessions, reports| You
   ClaudeCode -->|transcripts| AgentLogs
   Copilot -->|session logs| AgentLogs
   AgentLogs --> Adapters
@@ -59,13 +59,13 @@ flowchart LR
 | EventStore | [src/core](../src/core/): `eventStore`, `turns`, `dailyHistory`, `contextLimits` | In memory, rehydrated from the log |
 | Heuristics | [src/heuristics](../src/heuristics/): `engine`, `builtIns` and the eight heuristics, `rule`, `ruleHeuristic`, `ruleStore`, `findingsRegistry`, `replay`, `responses` | `~/.snagboat/rules.json`; mutes in the workspace's `finding-state.json` (the core's) |
 | Discovery | [src/discovery](../src/discovery/), including `suggestionsController` (the Suggestions view VS Code and the core both serve); [src/ui](../src/ui/): `ruleTransfer` | Dismissed suggestions in `~/.snagboat/suggestions.json` |
-| Review | [src/review](../src/review/): `review`, `presentation`, `effectiveness` (how each heuristic did, shared with propose-heuristics) | `~/.snagboat/reviews/*.md` |
+| Presentation checks | [src/review/presentation.ts](../src/review/presentation.ts): the status bar rebuilt at the moments that mattered, and fixed checks over it; only the `npm run review:ui` dev script runs it | |
 | Nudger | [src/nudges/nudger.ts](../src/nudges/nudger.ts) | In memory (see the nudge refinements in the [roadmap](roadmap.md#planned-tasks)) |
-| Advisor | [src/advisor](../src/advisor/): `goals` (advisors as goals: persona.md front matter and the four built-in), `measures`, `report`, `digest`, `providers`, `advisors`, `audit`, `prompts` (the three layers of every system prompt), one module per ability: `summarizeSession` (with the headline form), `summarizeWeek`, `proposeHeuristics`, `proposeNudges`, `proposeTactics`; and `headlines` (the per-session cache and what's due); the VS Code side (pickers, keys, progress) is `Advisor` in [src/vscode/advisor.ts](../src/vscode/advisor.ts) | `~/.snagboat/data/advisor-audit.jsonl`, API keys in `SecretStorage`, approved payloads in `~/.snagboat/advisor-approvals.json`; `~/.snagboat/advisors/<id>/` for an advisor's prompt files (`persona.md` and one per ability) ([tuning](design/trusted-advisor.md#tuning-an-advisor)) |
+| Advisor | [src/advisor](../src/advisor/): `goals` (advisors as goals: persona.md front matter and the four built-in), `measures`, `report` (measures and period reports), `digest`, `providers`, `advisors`, `audit`, `prompts` (the three layers of a system prompt), one module per ability: `summarizeSession` (Explain, with the headline form), `performanceReport` (report-on-goal) and `setupConversation` (set-up-advisor); and `headlines` (the per-session cache and what's due); the VS Code side (pickers, keys, progress) is `Advisor` in [src/vscode/advisor.ts](../src/vscode/advisor.ts) | `~/.snagboat/data/advisor-audit.jsonl`, API keys in `SecretStorage`, approved payloads in `~/.snagboat/advisor-approvals.json`; `~/.snagboat/advisors/<id>/` for an advisor's prompt files (`persona.md` and one per ability) ([tuning](design/trusted-advisor.md#tuning-an-advisor)) |
 | UI | [src/ui](../src/ui/): `statusBar`, `detailPanel`, `detailModel`, `sessionController`; [media/](../media/): the page's scripts (`detail.js`, `sessions.js`, `suggestions.js`, the detail view's own helpers in `shared.js`), Snagboat's theme (`theme.css`, mapped to VS Code's in `vscodeTheme.css`) and base styles (`base.css`), and its two session drawings in `drawings/` (`kit.js`, `turnTree.js`, `contextTimeline.js`, `drawings.css`); [src/extension.ts](../src/extension.ts) wires everything together | |
 | Advisors outside Snagboat | Ollama, LM Studio, llama.cpp; any OpenAI-compatible https endpoint with your key; HypAware (planned) | |
 
-The core service collects, writes and runs the heuristics for every workspace; each VS Code window is its client, with no store of its own ([the core and its clients](#the-core-and-its-clients)). Nudges, the advisor and the UI run in each window, which still builds the heuristics for replay, discovery and the review. Advisors get only what the `Advisor` module builds for one request ([the advisor](#advisor)).
+The core service collects, writes and runs the heuristics for every workspace; each VS Code window is its client, with no store of its own ([the core and its clients](#the-core-and-its-clients)). Nudges, Explain and the UI run in each window, which still builds the heuristics for replay and discovery. Performance reports, experiments and setting up an advisor run in the core ([goal tracking](#goal-tracking)). Advisors get only what the `Advisor` module builds for one request ([the advisor](#advisor)).
 
 ## Data flow
 
@@ -268,7 +268,21 @@ Design notes:
 
 ## Advisor
 
-[src/advisor/](../src/advisor/) is the one path out of Snagboat to a model. `digest.ts` builds a **session digest** from stored events under a `DigestPolicy` (prompts, replies, session names, relative or hashed paths); `providers.ts` speaks to OpenAI-compatible endpoints and decides local or hosted from the address alone (loopback is local); `advisors.ts` reads the installed advisors from `snagboat.advisors` and `snagboat.advisor.providers`, each with a kind, the abilities it offers, and a policy per ability; `vscode/advisor.ts` picks the advisor for an ability (`snagboat.advisor.defaults`, or one you chose), holds hosted keys in `SecretStorage`, shows the exact payload before an advisor's first request (and again when its address or any ability's sending rules change, keyed by a hash in `~/.snagboat/advisor-approvals.json`, shared with the advisor UI), and records hosted requests in `audit.ts`. `prompts.ts` composes each system prompt from the advisor's goal and voice (`persona.md`), the ability's instruction (both replaceable from settings or `~/.snagboat/advisors/<id>/`), and a fixed tail with the data-handling rules and the answer's shape. Each ability has a module that builds its request and reads its answer: [summarizeSession](../src/advisor/summarizeSession.ts) (Explain, from the Sessions tab, a finding, a nudge, or a command), [proposeHeuristics](../src/advisor/proposeHeuristics.ts) (from the Suggestions tab), [summarizeWeek](../src/advisor/summarizeWeek.ts), the review form of [proposeNudges](../src/advisor/proposeNudges.ts), and [proposeTactics](../src/advisor/proposeTactics.ts) (after a review; tactics also on a session), the live form of `proposeNudges` (the one-line nudge), and the headline form of `summarizeSession` (one quiet ask per ended session, cached in `workspaceState` by [headlines.ts](../src/advisor/headlines.ts)). The model gets no tools, and its output is only ever shown, or parsed as a rule or category that is checked like one you wrote. See [installed advisors](design/trusted-advisor.md#installed-advisors) and the [abilities](design/trusted-advisor.md#abilities).
+[src/advisor/](../src/advisor/) is the one path out of Snagboat to a model. `digest.ts` builds a **session digest** from stored events under a `DigestPolicy` (prompts, replies, session names, relative or hashed paths); `providers.ts` speaks to OpenAI-compatible endpoints and decides local or hosted from the address alone (loopback is local); `advisors.ts` reads the installed advisors from `snagboat.advisors` and `snagboat.advisor.providers`, each with a kind, the abilities it offers, and a policy per ability; `vscode/advisor.ts` picks the advisor for an ability (`snagboat.advisor.defaults`, or one you chose), holds hosted keys in `SecretStorage`, shows the exact payload before an advisor's first request (and again when its address or any ability's sending rules change, keyed by a hash in `~/.snagboat/advisor-approvals.json`, shared with the advisor UI), and records hosted requests in `audit.ts`. `prompts.ts` composes each system prompt from the advisor's goal and voice (`persona.md`), the ability's instruction (both replaceable from settings or `~/.snagboat/advisors/<id>/`), and a fixed tail with the data-handling rules and the answer's shape. Each ability has a module that builds its request and reads its answer: [summarizeSession](../src/advisor/summarizeSession.ts) (Explain, from the Sessions tab, a finding, a nudge, or a command, asked from VS Code; and its headline form, one quiet ask per ended session, cached in `workspaceState` by [headlines.ts](../src/advisor/headlines.ts)), [performanceReport](../src/advisor/performanceReport.ts) (`report-on-goal`: a goal advisor's period report, asked by the core) and [setupConversation](../src/advisor/setupConversation.ts) (`set-up-advisor`, asked by the core). The core asks local models only, through `CoreAdvisors` ([advisorModels.ts](../src/core/service/advisorModels.ts)), with the same approvals. The model gets no tools, and its output is only ever shown, or parsed as a rule or category that is checked like one you wrote. See [installed advisors](design/trusted-advisor.md#installed-advisors) and the [abilities](design/trusted-advisor.md#abilities).
+
+## Goal tracking
+
+Each advisor reports on its goal once a period, and you review its proposals; an accepted one becomes an experiment. The design, with each step and entity, is [goal-tracking-lifecycle.md](design/goal-tracking-lifecycle.md); what you see is in [usage.md](usage.md#performance-reports).
+
+![Goal tracking lifecycle](images/goal-tracking-lifecycle.svg)
+
+Everything is in the per-user store, written by the core. Each box is an entity, a TypeScript type the code reads and writes; Report, Proposal, Experiment and Setup conversation have JSON Schemas in `packages/schema` ([schema.md](schema.md)).
+
+![Goal tracking data model](images/goal-tracking-data.svg)
+
+The parts, top to bottom: the front ends, the core's routes, modules, timers, collectors and storage, and what they read. Calls inside the core are implied; only scheduled triggers and writes are drawn.
+
+![Goal tracking components](images/goal-tracking-components.svg)
 
 ## UI
 

@@ -229,7 +229,7 @@ In the Suggestions tab:
 
 **Snagboat: Export Rules...** writes saved rules and categories, with their provenance, to a JSON file. **Snagboat: Import Rules...** reads one back (or a plain list of rules, as in `snagboat.rules`), replays each rule over this workspace's history, and lets you pick which to add. An imported rule replaces a saved rule with the same id.
 
-**Ask the advisor** sends the candidates to the advisor set for `propose-heuristics` (`snagboat.advisor.defaults`; **Ask another advisor** offers the rest), with digests of up to two example turns each, your shell command-family names, how each current heuristic and rule did over the window (episodes, acknowledged, ended unacknowledged, muted), and the built-in thresholds against your history (see [PRIVACY.md](../PRIVACY.md#the-advisor)). It returns names, summaries, and suggested actions for the candidates, up to three rules of its own (always given an `advisor:` id, so they can't replace one of yours), shell categories, rules or heuristics it would retire (Remove for a saved rule; a built-in you mute yourself), and threshold changes for built-ins (Apply writes the value to your settings). All of it goes through the same validators as hand-written rules: a name whose summary uses a placeholder the rule doesn't have, a rule that doesn't parse, or a category that can't match anything is dropped, and the tab lists what was dropped and why. Kept rules are scored by replay like discovery's, and accepting one records the advisor in its provenance. A new discovery clears the advisor's answer, since it was about the old candidates.
+Discovery asks no model. Its candidates and threshold comparisons are deterministic; a goal advisor's [performance report](usage.md#performance-reports) is where a model proposes rule changes. (Ask the advisor, which had a model name these candidates and propose rules of its own, was removed with it.)
 
 `npm run discover` prints the same findings as text, naming heuristic ids and command families only, never targets, paths, prompts, or session names.
 
@@ -243,8 +243,6 @@ With `snagboat.nudges.notify` set to `warnings` or `all` (it's `off` by default)
 - **Buttons:** Show in Session, Explain (the advisor, asking first as Explain always does), Useful, Acknowledge, Mute.
 
 **Early warnings** come from heuristics that can say how close they are (`progress` on the `Heuristic` interface), where acting early saves something real. `runaway-turn` reports at `earlyWarning` of its call thresholds, since tokens are still being spent. `context-pressure` reports at `earlyWarning` of its percentage, since a compaction is coming. Both default to `0.8`, and `0` turns them off. Rules opt in with `earlyWarning`. An early warning notifies as info, once per heuristic and turn, and not while that heuristic is already firing.
-
-**The advisor's line** (`snagboat.nudges.advisor`, off by default): when a finding nudges, the advisor set for `propose-nudges` (`snagboat.advisor.defaults`) gets that turn's digest and returns one sentence. It's shown under the finding in the status bar tooltip, labelled as model output, until the finding clears. It never prompts while you work. If the advisor has no model yet, needs a key, or you haven't approved its payload through Explain, it doesn't ask, and the Snagboat output says why.
 
 ## Acknowledging and muting
 

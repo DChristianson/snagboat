@@ -25,7 +25,7 @@ An advisor is an AI model that owns one goal. You decide which goals matter, and
 | Bosun | Limit unsafe tool use | Risky commands, permission approvals per session |
 | Purser | Spend fewer tokens | Tokens per milestone, tokens per commit kept, cache hit rate |
 
-Each one reports this week against last, explains a session or warning when asked, and proposes rule changes. Proposals are tested against your own history and listed as **Suggestions** to accept or dismiss. When a warning clears, Snagboat records how you met it (marked useful, acknowledged, muted, or let pass), and advisors learn from that.
+Each one reports this week against last, explains a session or warning when asked, and proposes rule changes. Each period it writes a report; its proposals are checked against your history and wait for you to accept, discard or revise, and an accepted one is tracked as an experiment. Discovery's own candidates are listed as **Suggestions**. When a warning clears, Snagboat records how you met it (marked useful, acknowledged, muted, or let pass), and advisors learn from that.
 
 - Measurements and warnings are computed without a model, so they're repeatable. The model interprets them.
 - A model is optional. It runs locally (Ollama, LM Studio) by default, which keeps everything private. A hosted model is more capable; it gets a redacted summary that you approve first, and no tools ([advisor models](docs/advisor-models.md)).
@@ -69,8 +69,7 @@ Neither agent needs setup, except counting Copilot's inline-suggestion tokens ([
 | Status line (Claude Code), status bar (VS Code) | Today's tokens and the findings showing |
 | Agent tools and `/snagboat:` commands (Claude Code) | Findings, sessions and advisors' measurements, for you or the agent to read |
 | Command line | `snagboat sessions`, `findings`, `advisors` and more, with `--json` for scripts and agents ([CLI](docs/cli.md)) |
-| Advisor UI (browser; `/snagboat:open`) | Advisors' measurements and Suggestions |
-| Weekly review | A Markdown report of usage, findings and advisors' progress |
+| Advisor UI (browser; `/snagboat:open`) | Advisors' measurements, reports, experiments and Suggestions |
 | Detail view (VS Code) | Findings, a daily token chart, and each session's turn tree and context timeline |
 
 Underneath is one event log. Claude Code and Copilot activity is normalized into a single event shape ([schema](docs/schema.md)), so every warning and view works for both. It's saved as daily JSONL (one JSON record per line), readable with `jq`, DuckDB or a notebook.

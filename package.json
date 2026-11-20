@@ -79,20 +79,12 @@
         "title": "Snagboat: Explain Session with Advisor..."
       },
       {
-        "command": "snagboat.tacticsSession",
-        "title": "Snagboat: Propose Tactics for Session..."
-      },
-      {
         "command": "snagboat.setAdvisorKey",
         "title": "Snagboat: Set Advisor API Key..."
       },
       {
         "command": "snagboat.writeAdvisorPrompts",
         "title": "Snagboat: Write Default Advisor Prompts..."
-      },
-      {
-        "command": "snagboat.writeReview",
-        "title": "Snagboat: Write Review"
       },
       {
         "command": "snagboat.showBreakdown",
@@ -1039,7 +1031,7 @@
         "snagboat.advisors": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Installed advisors: each a model (an OpenAI-compatible endpoint, local or hosted) with the abilities it offers and what it may receive for each. Each can have its own persona (`persona`) and a prompt file per ability, so several advisors on one model can watch for different things in different voices. Several advisors can offer the same ability; `snagboat.advisor.defaults` picks the one used, and the rest are offered as **Ask another advisor**. Entries in `snagboat.advisor.providers` are read as advisors offering every ability. See [the advisor](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#the-advisor).",
+          "markdownDescription": "Installed advisors: each a model (an OpenAI-compatible endpoint, local or hosted) with the abilities it offers and what it may receive for each. Each can have its own persona (`persona`) and a prompt file per ability, so several advisors on one model can watch for different things in different voices. Several advisors can offer the same ability; `snagboat.advisor.defaults` picks the one Explain uses (**Snagboat: Explain Session with Advisor...** asks another), and a goal advisor's `model` in its persona.md picks the one that writes its reports. Entries in `snagboat.advisor.providers` are read as advisors offering every ability. See [the advisor](https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md#the-advisor).",
           "items": {
             "type": "object",
             "required": [
@@ -1159,7 +1151,7 @@
                     ],
                     "description": "Explain a session, a turn, or a finding (Sessions tab, notifications, Snagboat: Explain Session...)."
                   },
-                  "summarize-week": {
+                  "report-on-goal": {
                     "oneOf": [
                       {
                         "type": "boolean",
@@ -1198,12 +1190,12 @@
                           },
                           "prompt": {
                             "type": "string",
-                            "markdownDescription": "A file replacing Snagboat's instruction for this ability (`~` allowed). Without it, `~/.snagboat/advisors/<id>/summarize-week.md` is read when it exists."
+                            "markdownDescription": "Not used yet: the performance report's instruction is fixed, and its voice is the goal advisor's persona.md."
                           }
                         }
                       }
                     ],
-                    "description": "Summarize the week in the review (Ask the Advisor, after Snagboat: Write Review)."
+                    "description": "Report on a goal: a goal advisor's performance report (summary, verdicts and up to three proposals), from the model its persona.md names. Only local advisors are asked (the core holds no API keys)."
                   },
                   "propose-heuristics": {
                     "oneOf": [
@@ -1249,99 +1241,8 @@
                         }
                       }
                     ],
-                    "description": "Name discovery's candidates, propose rules, and group shell commands (Ask the advisor, in the Suggestions tab)."
-                  },
-                  "propose-nudges": {
-                    "oneOf": [
-                      {
-                        "type": "boolean",
-                        "description": "true: offered with the advisor's send rules; false: not offered."
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "properties": {
-                          "send": {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "description": "What it may receive for this ability, over the advisor's send rules.",
-                            "properties": {
-                              "prompts": {
-                                "type": "boolean",
-                                "description": "Your prompts' text (default: local yes, hosted no)."
-                              },
-                              "replies": {
-                                "type": "boolean",
-                                "description": "Agent reply excerpts (default: no)."
-                              },
-                              "sessionNames": {
-                                "type": "boolean",
-                                "description": "Session names (default: local yes, hosted no)."
-                              },
-                              "paths": {
-                                "type": "string",
-                                "enum": [
-                                  "relative",
-                                  "hashed"
-                                ],
-                                "description": "File paths relative to the workspace, or hashed (default: relative)."
-                              }
-                            }
-                          },
-                          "prompt": {
-                            "type": "string",
-                            "markdownDescription": "A file replacing Snagboat's instruction for this ability (`~` allowed). Without it, `~/.snagboat/advisors/<id>/propose-nudges.md` is read when it exists."
-                          }
-                        }
-                      }
-                    ],
-                    "description": "Review how findings were shown, in the review; and the one-line suggestion under a finding (snagboat.nudges.advisor)."
-                  },
-                  "propose-tactics": {
-                    "oneOf": [
-                      {
-                        "type": "boolean",
-                        "description": "true: offered with the advisor's send rules; false: not offered."
-                      },
-                      {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "properties": {
-                          "send": {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "description": "What it may receive for this ability, over the advisor's send rules.",
-                            "properties": {
-                              "prompts": {
-                                "type": "boolean",
-                                "description": "Your prompts' text (default: local yes, hosted no)."
-                              },
-                              "replies": {
-                                "type": "boolean",
-                                "description": "Agent reply excerpts (default: no)."
-                              },
-                              "sessionNames": {
-                                "type": "boolean",
-                                "description": "Session names (default: local yes, hosted no)."
-                              },
-                              "paths": {
-                                "type": "string",
-                                "enum": [
-                                  "relative",
-                                  "hashed"
-                                ],
-                                "description": "File paths relative to the workspace, or hashed (default: relative)."
-                              }
-                            }
-                          },
-                          "prompt": {
-                            "type": "string",
-                            "markdownDescription": "A file replacing Snagboat's instruction for this ability (`~` allowed). Without it, `~/.snagboat/advisors/<id>/propose-tactics.md` is read when it exists."
-                          }
-                        }
-                      }
-                    ],
-                    "description": "Suggest changes to model use and prompt tactics (Tactics on a session in the Sessions tab, Snagboat: Propose Tactics for Session..., and a section of the review)."
+                    "description": "The ability report-on-goal replaced.",
+                    "deprecationMessage": "Use report-on-goal instead. This is still read as report-on-goal when that isn't set."
                   },
                   "set-up-advisor": {
                     "oneOf": [
@@ -1471,21 +1372,10 @@
               "type": "string",
               "description": "Explain a session, a turn, or a finding (Sessions tab, notifications, Snagboat: Explain Session...)."
             },
-            "summarize-week": {
-              "type": "string",
-              "description": "Summarize the week in the review (Ask the Advisor, after Snagboat: Write Review)."
-            },
             "propose-heuristics": {
               "type": "string",
-              "description": "Name discovery's candidates, propose rules, and group shell commands (Ask the advisor, in the Suggestions tab)."
-            },
-            "propose-nudges": {
-              "type": "string",
-              "description": "Review how findings were shown, in the review; and the one-line suggestion under a finding (snagboat.nudges.advisor)."
-            },
-            "propose-tactics": {
-              "type": "string",
-              "description": "Suggest changes to model use and prompt tactics (Tactics on a session in the Sessions tab, Snagboat: Propose Tactics for Session..., and a section of the review)."
+              "description": "The ability report-on-goal replaced.",
+              "deprecationMessage": "No longer used: a goal advisor's performance report asks the model its persona.md names (model)."
             },
             "set-up-advisor": {
               "type": "string",
@@ -1498,52 +1388,16 @@
           "default": false,
           "markdownDescription": "Give each session a one-line headline from the `summarize-session` advisor (what you were trying to do and how it went), shown under its name in the session list and in the open session's summary line. Asked quietly, one session at a time, once a session has been idle past the `stalled` window, for sessions of the last 7 days; never while you work, and only after you've approved that advisor's payload through Explain."
         },
-        "snagboat.advisor.modelTiers": {
-          "type": "object",
-          "default": {},
-          "additionalProperties": {
-            "type": "string"
-          },
-          "markdownDescription": "Your own tiers for models, by a fragment of the model name, sent with **Tactics** so the advisor judges fit by your ranking rather than by name. For example `{ \"opus\": \"high\", \"sonnet\": \"mid\", \"haiku\": \"low\" }`."
-        },
         "snagboat.advisor.explainProvider": {
           "type": "string",
           "default": "local",
           "description": "The id of the provider Explain uses.",
           "deprecationMessage": "Use snagboat.advisor.defaults[\"summarize-session\"] instead; this setting is still read when that is unset."
         },
-        "snagboat.advisor.proposeProvider": {
-          "type": "string",
-          "default": "local",
-          "description": "The id of the provider the Suggestions tab asks to propose heuristics.",
-          "deprecationMessage": "Use snagboat.advisor.defaults[\"propose-heuristics\"] instead; this setting is still read when that is unset."
-        },
-        "snagboat.advisor.reviewProvider": {
-          "type": "string",
-          "default": "local",
-          "description": "The id of the provider asked to add its judgment to a review (Ask the Advisor, after Snagboat: Write Review).",
-          "deprecationMessage": "Use snagboat.advisor.defaults[\"summarize-week\"] instead; this setting is still read when that is unset."
-        },
-        "snagboat.advisor.nudgeProvider": {
-          "type": "string",
-          "default": "local",
-          "description": "The id of the provider asked for a one-line suggestion when a nudge fires (snagboat.nudges.advisor).",
-          "deprecationMessage": "Use snagboat.advisor.defaults[\"propose-nudges\"] instead; this setting is still read when that is unset."
-        },
         "snagboat.advisor.auditPayloads": {
           "type": "boolean",
           "default": false,
           "description": "Also keep the full payload of each request to a hosted provider in the audit log, for snagboat.retention.rawDays. Off: the log keeps when, which capability, the size, and a hash."
-        },
-        "snagboat.advisor.reviewDirectory": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Where **Snagboat: Write Review** writes its Markdown reports, one per week and workspace. Empty: `~/.snagboat/reviews`."
-        },
-        "snagboat.advisor.weeklyReview": {
-          "type": "boolean",
-          "default": false,
-          "description": "Write this workspace's review once a week, the first time a window is open that week, without a model. You're told when it's written, and can then ask the advisor to add to it."
         },
         "snagboat.nudges.notify": {
           "type": "string",
@@ -1567,11 +1421,6 @@
           },
           "default": [],
           "description": "Heuristic or rule ids that never notify, while still showing in the status bar."
-        },
-        "snagboat.nudges.advisor": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "When a nudge fires, also ask the advisor (`snagboat.advisor.nudgeProvider`) for one line on what to do, shown under the finding in the status bar tooltip as model output. It never prompts while you work: until you've picked a model and approved that provider's payload through Explain, it doesn't ask."
         }
       }
     }

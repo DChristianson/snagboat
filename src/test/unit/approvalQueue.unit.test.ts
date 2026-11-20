@@ -27,7 +27,7 @@ async function main() {
     saveConfig(home, { version: 1, defaults: { advisors: [{ id: 'local', label: 'Local', baseUrl: 'http://127.0.0.1:9/v1', model: 'm' }] }, projects: {} });
     return { home, models: new CoreAdvisors(home, fetchImpl) };
   };
-  const ask = (models: CoreAdvisors, text: string) => models.ask('propose-heuristics', async () => [{ role: 'user', content: text }], { advisorId: 'local' });
+  const ask = (models: CoreAdvisors, text: string) => models.ask('report-on-goal', async () => [{ role: 'user', content: text }], { advisorId: 'local' });
   const until = async (ok: () => boolean, what: string) => {
     for (let i = 0; i < 100; i++) {
       if (ok()) return;

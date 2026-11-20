@@ -66,18 +66,17 @@ Accepted rules and categories live in `~/.snagboat/rules.json`, not in settings;
 | --- | --- | --- |
 | `snagboat.advisors` | `[]` | Installed advisors (below): each a model with the abilities it offers and what it may receive for each. |
 | `snagboat.advisor.providers` | one local provider: Ollama at `http://localhost:11434/v1` with `llama3.1:latest` and a 32,768-token context window | The short form of an advisor: a model offering every ability with one set of sending rules. OpenAI-compatible chat completion endpoints, each with an `id`, `label`, `baseUrl`, and `model` (empty: pick from the server's models on first use). `contextWindow` (tokens) asks for a context window: Ollama's OpenAI-compatible endpoint can't set one, so for Ollama (port 11434) Snagboat then asks through Ollama's own chat endpoint with that `num_ctx`; other servers ignore it. `snagboat.advisors` entries take it too. A loopback `baseUrl` makes it local; any other is hosted, must use https, needs an API key (**Snagboat: Set Advisor API Key...**), and is audited. `send` sets what it may receive: `prompts` and `sessionNames` (default: local yes, hosted no), `replies` (default: no), and `paths` (`relative` or `hashed`). See [the advisor](../PRIVACY.md#the-advisor). |
-| `snagboat.advisor.defaults` | `{}` | The advisor each ability uses unless you pick another, by id: `summarize-session` (Explain), `summarize-week` and `propose-nudges` (the review; `propose-nudges` is also the one-line suggestion under a finding), `propose-heuristics` (Ask the advisor), `propose-tactics` (**Tactics** on a session, and the review), `set-up-advisor` (setting up an advisor by conversation on the advisor UI's **+** page; it has its own approval, separate from the advisor's other abilities). Unset abilities use `local`. The older `explainProvider`, `reviewProvider`, `proposeProvider`, and `nudgeProvider` settings still work when this is unset. |
+| `snagboat.advisor.defaults` | `{}` | The advisor each ability uses unless you pick another, by id: `summarize-session` (Explain), `set-up-advisor` (setting up an advisor by conversation on the advisor UI's **+** page; it has its own approval, separate from the advisor's other abilities). Unset abilities use `local`. The older `explainProvider` setting still works when this is unset. The third ability, `report-on-goal` (a goal advisor's performance report), has no default: each goal advisor names its model in its `persona.md`. |
 | `snagboat.advisor.headlines` | `false` | Give each session a one-line headline from the `summarize-session` advisor (what you were trying to do and how it went), under its name in the session list and in the open session's summary line, as model output. Asked quietly, one session at a time, once a session has been idle past the `stalled` window, for the last 7 days' sessions; never while you work, and only after you've approved that advisor's payload through Explain. |
-| `snagboat.advisor.modelTiers` | `{}` | Your own tiers for models, by a fragment of the model name (`{ "opus": "high", "sonnet": "mid", "haiku": "low" }`), sent with **Tactics** so the advisor judges fit by your ranking rather than by name. |
 | `snagboat.advisor.auditPayloads` | `false` | Also keep the full payload of each request to a hosted provider in the audit log, for `rawDays`. Off, the log keeps when, which capability, the size, and a hash. |
-| `snagboat.advisor.reviewDirectory` | `""` | Where **Snagboat: Write Review** writes its Markdown reports, one per week and workspace. Empty: `~/.snagboat/reviews`. |
-| `snagboat.advisor.weeklyReview` | `false` | Write this workspace's review once a week, the first time a window is open that week, without a model. You're told when it's written and can then ask the advisor to add to it. |
+
+The weekly review's settings (`advisor.weeklyReview`, `advisor.reviewDirectory`), `advisor.modelTiers`, `nudges.advisor`, and the `reviewProvider`, `proposeProvider` and `nudgeProvider` settings were removed with the weekly review and Ask the advisor; performance reports took their place ([usage](usage.md#performance-reports)). Snagboat ignores them if they're still set.
 
 ### Installed advisors
 
-An entry in `snagboat.advisors` is a model advisor: `id`, `label`, `baseUrl`, `model`, and `send` as for a provider, plus `abilities`, which names what it offers. Leave `abilities` out to offer everything; otherwise each ability is `true`, `false`, or an object with its own `send` rules over the advisor's. Several advisors can offer one ability: `snagboat.advisor.defaults` picks the one used, and the others are a click away (**Ask another advisor** in the Suggestions tab, **Ask Another Advisor** on the review notification, and **Snagboat: Explain Session with Advisor...**). Every answer names the advisor and its model. A hosted advisor's first request shows the exact payload and asks; changing its address or any ability's `send` rules asks again.
+An entry in `snagboat.advisors` is a model advisor: `id`, `label`, `baseUrl`, `model`, and `send` as for a provider, plus `abilities`, which names what it offers. Leave `abilities` out to offer everything; otherwise each ability is `true`, `false`, or an object with its own `send` rules over the advisor's. The abilities are `summarize-session` (Explain), `report-on-goal` (a goal advisor's performance report) and `set-up-advisor`. `propose-heuristics`, the ability `report-on-goal` replaced, is still read as `report-on-goal`, with its `send` rules, when `report-on-goal` isn't named, so an advisor you approved for it stays approved; `summarize-week`, `propose-nudges` and `propose-tactics` are ignored. Several advisors can offer one ability: `snagboat.advisor.defaults` picks the one Explain uses, and **Snagboat: Explain Session with Advisor...** asks another; a goal advisor's `model` picks the one that writes its reports. Every answer names the advisor and its model. A hosted advisor's first request shows the exact payload and asks; changing its address or any ability's `send` rules asks again.
 
-**Prompts.** Each advisor can have its own goal and voice (a `persona.md` can also carry front matter making it one of the goal advisors; see [usage](usage.md#advisors-and-their-goals)), for every ability it offers: `persona` (text in the setting) or `personaFile` (a path; `~` allowed), or the file `~/.snagboat/advisors/<id>/persona.md` when it exists. Each ability can have its own instruction: `"prompt": "<path>"` in the ability's object, or `~/.snagboat/advisors/<id>/<ability>.md`. Snagboat always appends its own data-handling rules and the answer's shape after your text, so an advisor's own text can't change what is sent or how answers are read. **Snagboat: Write Default Advisor Prompts...** writes an advisor's defaults to its folder, each under a comment that is dropped when read, to edit from; an empty file means the default. Two local advisors on the same model with different goals and voices, for example:
+**Prompts.** Each advisor can have its own goal and voice (a `persona.md` can also carry front matter making it one of the goal advisors; see [usage](usage.md#advisors-and-their-goals)), for every ability it offers: `persona` (text in the setting) or `personaFile` (a path; `~` allowed), or the file `~/.snagboat/advisors/<id>/persona.md` when it exists. Each ability can have its own instruction: `"prompt": "<path>"` in the ability's object, or `~/.snagboat/advisors/<id>/<ability>.md`. The performance report is the exception for now: its instruction is fixed, and its voice is the goal advisor's own `persona.md`. Snagboat always appends its own data-handling rules and the answer's shape after your text, so an advisor's own text can't change what is sent or how answers are read. **Snagboat: Write Default Advisor Prompts...** writes an advisor's defaults to its folder, each under a comment that is dropped when read, to edit from; an empty file means the default. Two local advisors on the same model with different goals and voices, for example:
 
 ```jsonc
 "snagboat.advisors": [
@@ -88,18 +87,17 @@ An entry in `snagboat.advisors` is a model advisor: `id`, `label`, `baseUrl`, `m
   {
     "id": "risk", "label": "Context risk", "baseUrl": "http://localhost:11434/v1", "model": "qwen3.5",
     "personaFile": "~/.snagboat/advisors/risk/persona.md",   // a gentler voice, watching context size and compactions
-    "abilities": { "summarize-session": { "prompt": "~/prompts/explain-risk.md" }, "propose-heuristics": true }
+    "abilities": { "summarize-session": { "prompt": "~/prompts/explain-risk.md" }, "report-on-goal": true }
   },
   {
     "id": "hosted", "label": "OpenAI", "baseUrl": "https://api.openai.com/v1", "model": "gpt-5",
     "abilities": {
-      "summarize-week": true,                              // counts only, as hosted advisors get by default
-      "summarize-session": { "send": { "prompts": true } }, // but prompts when explaining a session
-      "propose-nudges": false                               // never asked for the live line
+      "summarize-session": { "send": { "prompts": true } }, // prompts when explaining a session, which hosted advisors don't get by default
+      "set-up-advisor": false                               // the advisor UI asks only local models anyway
     }
   }
 ],
-"snagboat.advisor.defaults": { "summarize-session": "spend", "summarize-week": "hosted" }
+"snagboat.advisor.defaults": { "summarize-session": "hosted", "set-up-advisor": "spend" }
 ```
 
 `npm run eval:advisor -- --advisor spend,risk` asks both over the same sessions, with their own prompts, and writes the answers side by side.
@@ -110,7 +108,6 @@ An entry in `snagboat.advisors` is a model advisor: `id`, `label`, `baseUrl`, `m
 | --- | --- | --- |
 | `snagboat.nudges.notify` | `"off"` | `warnings` notifies when a warning appears (and for early warnings); `all` for every finding. At most one per turn, never modal; muted heuristics never notify. See [Nudges](heuristics.md#nudges). |
 | `snagboat.nudges.quiet` | `[]` | Heuristic or rule ids that never notify, while still showing in the status bar. |
-| `snagboat.nudges.advisor` | `false` | When a nudge fires, also ask the `propose-nudges` advisor for one line on what to do, shown under the finding in the status bar tooltip as model output. It never prompts while you work: until you've picked a model and approved that advisor's payload through Explain, it doesn't ask. |
 
 ## Outside VS Code: `~/.snagboat/config.json` and `.snagboat.json`
 
@@ -133,7 +130,7 @@ Layers, lowest first:
 }
 ```
 
-VS Code copies only settings someone set, and only Snagboat's own. `storage.*` stays in VS Code, and so do the advisor settings only VS Code uses (`advisor.headlines`, `advisor.weeklyReview`, `advisor.reviewDirectory`, `advisor.modelTiers`, `advisor.auditPayloads`). Which advisors exist (`advisors`, `advisor.providers`) and which one each ability uses (`advisor.defaults`, and the older `*Provider` settings) are copied, so the advisor UI can ask the local ones; the core reads those from your defaults only, never a project's or a `.snagboat.json`, and API keys are never settings. A key VS Code doesn't have, such as `collect`, is left as you wrote it. When something else changes a setting in `config.json` (the advisor UI applying a threshold, or you), VS Code takes it into its own settings.
+VS Code copies only settings someone set, and only Snagboat's own. `storage.*` stays in VS Code, and so do the advisor settings only VS Code uses (`advisor.headlines`, `advisor.auditPayloads`). Which advisors exist (`advisors`, `advisor.providers`) and which one each ability uses (`advisor.defaults`, and the older `advisor.explainProvider`) are copied, so the advisor UI can ask the local ones; the core reads those from your defaults only, never a project's or a `.snagboat.json`, and API keys are never settings. A key VS Code doesn't have, such as `collect`, is left as you wrote it. When something else changes a setting in `config.json` (the advisor UI applying a threshold, or you), VS Code takes it into its own settings.
 
 Two keys exist only here, for the core service, which records every Claude Code and Copilot CLI project on the machine while it runs:
 

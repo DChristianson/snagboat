@@ -46,14 +46,14 @@ These rollups should evaluate sessions, days, or PRs instead of the short event 
 Finished work is in the [changelog](../CHANGELOG.md).
 
 - **Architecture refactor (in progress).** Move the engine out of the VS Code extension into one local core that VS Code, the Claude Code CLI and a browser tab share. Steps 1 and 2 are done and step 3 is done, on the `refactor` branch: the core service collects, writes and runs the heuristics for every window, which delivers the findings, and every window is its client. Step 4 (outcomes and the default advisors) is next. See the [architecture RFC](design/architecture-rfc.md) and [the next steps](design/handoff-3c.md).
-- **Goal tracking lifecycle (designed 2026-11-16, not started).** Step 6 of the architecture RFC. Each advisor reports once a period (weekly by default, or when you ask) with at most three proposed rule changes. You accept, discard or revise each one, and an accepted proposal becomes an experiment with a baseline, a prediction and a review date. It replaces the weekly review and the separate ask-the-advisor abilities, and adds an experiments page and `snagboat experiments`. See [design/goal-tracking-lifecycle.md](design/goal-tracking-lifecycle.md) for the design, its three diagrams and the build order (`snagboat-79f.7` in Beads).
+- **Goal tracking lifecycle (designed 2026-11-16; built, its last step the removal of the weekly review on 2026-11-20).** Step 6 of the architecture RFC. Each advisor reports once a period (weekly by default, or when you ask) with at most three proposed rule changes. You accept, discard or revise each one, and an accepted proposal becomes an experiment with a baseline, a prediction and a review date. It replaces the weekly review and the separate ask-the-advisor abilities, and adds an experiments page and `snagboat experiments`. See [design/goal-tracking-lifecycle.md](design/goal-tracking-lifecycle.md) for the design, its three diagrams and the build order (`snagboat-79f.7` in Beads).
 - **Model-fit heuristic (planned, not started; enabled by prompt text).** Flags expensive models doing simple work, such as a top-tier model running a one-line `git push` or `npm test`. Signals, per turn:
   - **the ask:** a short prompt that reads as an instruction to run something ("commit and push", "run the tests"), from `promptText`;
   - **the work:** few model calls, little output, and tool calls that are mostly shell, version control, or tests and builds (finer shell categories, once the advisor discovers them, would sharpen this);
   - **the model:** its tier, from a small table of model families (for example Opus above Sonnet above Haiku) that you can override, since Snagboat has no price data.
 
   It would report info-level, per session over a window ("9 simple turns on opus-5-5 today; a smaller model or a direct command would do"), with the tokens those turns cost. To calibrate by replay like the other heuristics, once enough history has prompt text. A candidate for the advisor's rule format later; prompt classification may need the advisor's model rather than keywords.
-- **Trusted advisor: phases 7 and 8.** Phases 1 to 6 and the periodic review are built: rules, discovery, Explain, Ask the advisor, installed advisors, notifications, and the weekly review. See [design/trusted-advisor.md](design/trusted-advisor.md). Two phases are left:
+- **Trusted advisor: phases 7 and 8.** Phases 1 to 6 are built: rules, discovery, Explain, installed advisors and notifications. Ask the advisor and the weekly review were built too, and removed on 2026-11-20 (snagboat-79f.7.12) in favor of performance reports. See [design/trusted-advisor.md](design/trusted-advisor.md). Two phases are left:
 
   **Phase 7: presentation, UX optimization, and telemetry.** Rendered screenshots for vision models, the optional local interaction counts, measures of whether findings get seen, consolidating how insights are presented, and the visualization and preference prototypes (the two entries below).
 
@@ -74,9 +74,8 @@ Finished work is in the [changelog](../CHANGELOG.md).
 - **Consolidate how insights, reports, and reviews are presented (noted 2026-10-30, not started).** Each feature found its own place to show its output, and together they're scattered:
   - findings appear in the status bar and its tooltip, in notifications, and in the detail view (the Overview, and a session's findings in the Sessions tab);
   - Explain answers open as untitled Markdown documents beside the editor;
-  - discovery's and the advisor's suggestions are in the Suggestions tab;
-  - the weekly review is a Markdown file in `~/.snagboat/reviews/`, opened from a notification;
-  - the advisor's nudge line is in the tooltip, and payload previews open as separate JSON documents.
+  - discovery's suggestions are in the Suggestions tab, and advisors' reports in the advisor UI;
+  - payload previews open as separate JSON documents.
 
   Reconsider them as one design: where each kind of insight belongs, how they link to each other (a finding to its Explain, a review to the sessions it cites), and whether reviews and Explain answers belong in the detail view rather than loose documents. The presentation review's checks and recommendations should cover whatever surfaces result. This is part of phase 7 of the [advisor design](design/trusted-advisor.md#phases), which also decides where phase 5's new abilities (session headlines, daily digests, annotated session maps) appear.
 - **Prototype session visualizations and ways to specify preferences (noted 2026-10-30; phase 7 of the [advisor design](design/trusted-advisor.md#phases)).** Two explorations, as prototypes before anything is built in:

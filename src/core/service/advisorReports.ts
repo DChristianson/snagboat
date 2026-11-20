@@ -9,7 +9,7 @@ import { PeriodJob } from './periodJob';
  * snagboat-79f.7.4 and .7).
  *
  * Answering: when a report is written, the core asks the model the advisor's persona.md names (`model`,
- * an advisor in snagboat.advisors offering "propose heuristics") for a summary, verdicts and at most three
+ * an advisor in snagboat.advisors offering "report-on-goal") for a summary, verdicts and at most three
  * proposals, checks the answer, adds the proposals to the advisor's log and the answer to the report as a
  * revision. With no `model` the report keeps the numbers only. The request goes through the core's usual
  * approval: the first one with a model's current address and sending rules waits for you.
@@ -164,7 +164,7 @@ export class AdvisorReports {
         discarded: this.proposals.discarded(advisorId),
         ...(revise ? { notes: revise.notes, accepted: revise.accepted } : {}),
       };
-      const asked = await this.models.ask('propose-heuristics', async (ctx) => performanceReportMessages({ ...input, policy: ctx.policy }), { advisorId: advisor.model });
+      const asked = await this.models.ask('report-on-goal', async (ctx) => performanceReportMessages({ ...input, policy: ctx.policy }), { advisorId: advisor.model });
       if (!asked) {
         this.asks.set(key, { state: 'not-sent', at: this.now().toISOString() });
         return undefined;

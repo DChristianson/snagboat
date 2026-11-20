@@ -3,12 +3,10 @@
 <desc id="d">Lifecycle: you set a goal; the advisor prepares a brief; you review the brief (a counter goes back to the brief); the experiment runs; a report is triggered by schedule or by request; the advisor prepares the report; you review the experiment (a counter goes back to the report), and accepting a proposal or keeping going returns to the running experiment. Changing the goal means a new advisor, outside the loop.</desc>
 <style>
   svg { --sb-surface:#ffffff; --sb-ink:#3b3b3b; --sb-ink-muted:#6b6b6b; --sb-rule:#d4d4d4; --sb-panel:#f6f7f9;
-        --sb-accent:#005fb8; --sb-amber:#b07400; --sb-mark-new:#1b7f55; --sb-mark-chg:#005fb8;
-        --sb-new-soft:rgba(27,127,85,0.10); --sb-chg-soft:rgba(0,95,184,0.08); color:var(--sb-ink); }
+        --sb-accent:#005fb8; --sb-amber:#b07400;  color:var(--sb-ink); }
   @media (prefers-color-scheme: dark) {
     svg { --sb-surface:#1f1f1f; --sb-ink:#cccccc; --sb-ink-muted:#9d9d9d; --sb-rule:#3a3a3a; --sb-panel:#262728;
-          --sb-accent:#4daafc; --sb-amber:#e0a92e; --sb-mark-new:#5cc98f; --sb-mark-chg:#4daafc;
-          --sb-new-soft:rgba(92,201,143,0.14); --sb-chg-soft:rgba(77,170,252,0.12); }
+          --sb-accent:#4daafc; --sb-amber:#e0a92e;  }
   }
 </style>
 <rect width="960" height="355" fill="var(--sb-surface)"/>

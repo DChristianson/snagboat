@@ -69,18 +69,14 @@ export type DetailMessage =
   | { type: 'openSession'; sessionId: string }
   | { type: 'closeSession' }
   | { type: 'discover' }
-  | { type: 'askAdvisor' }
-  | { type: 'askAnotherAdvisor' }
   | { type: 'tweakSuggestion'; id: string; threshold: number }
   | { type: 'acceptSuggestion'; id: string }
   | { type: 'acceptShellCategory'; id: string }
   | { type: 'dismissSuggestion'; id: string }
   | { type: 'clearDismissed' }
   | { type: 'applyThreshold'; heuristic: string; setting: string }
-  | { type: 'applyAdvisorThreshold'; heuristic: string; setting: string }
   | { type: 'removeSaved'; section: 'rules' | 'categories'; id: string }
   | { type: 'explain'; sessionId: string; turnId?: string; heuristicId?: string }
-  | { type: 'tactics'; sessionId: string }
   | { type: 'openAdvisorUi'; view?: 'sessions' };
 
 export type DetailTab = 'overview' | 'sessions' | 'suggestions';
@@ -108,8 +104,6 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
       return m.view === undefined || m.view === 'sessions';
     case 'closeSession':
     case 'discover':
-    case 'askAdvisor':
-    case 'askAnotherAdvisor':
     case 'clearDismissed':
       return true;
     case 'tweakSuggestion':
@@ -119,12 +113,9 @@ export function isDetailMessage(value: unknown): value is DetailMessage {
     case 'dismissSuggestion':
       return typeof m.id === 'string';
     case 'applyThreshold':
-    case 'applyAdvisorThreshold':
       return typeof m.heuristic === 'string' && typeof m.setting === 'string';
     case 'explain':
       return typeof m.sessionId === 'string' && (m.turnId === undefined || typeof m.turnId === 'string') && (m.heuristicId === undefined || typeof m.heuristicId === 'string');
-    case 'tactics':
-      return typeof m.sessionId === 'string';
     case 'removeSaved':
       return (m.section === 'rules' || m.section === 'categories') && typeof m.id === 'string';
     default:

@@ -37,8 +37,6 @@
   const explain = (extra) => vscode.postMessage({ type: 'explain', sessionId: ui.view.summary.sessionId, ...(extra || {}) });
   const explainBtn = el('button', { text: 'Explain session', title: 'Ask the advisor model what happened in this session' });
   explainBtn.addEventListener('click', () => explain());
-  const tacticsBtn = el('button', { text: 'Tactics', title: 'Ask the advisor model whether the models used fit each turn, and whether a different way of prompting would have cost less' });
-  tacticsBtn.addEventListener('click', () => vscode.postMessage({ type: 'tactics', sessionId: ui.view.summary.sessionId }));
   const promptPanel = el('section', { class: 'prompt-panel', 'aria-label': 'Prompt', hidden: true });
   const treeHost = el('div', { class: 'tree-host' });
   const expandBtn = el('button', {});
@@ -56,7 +54,7 @@
   ]);
   const findingsSection = el('section', { class: 'session-findings', 'aria-label': 'Findings in this session' });
   const sessionSection = el('section', { class: 'session-view', hidden: true }, [
-    el('div', { class: 'session-head' }, [crumbs, el('span', { class: 'spacer' }), explainBtn, tacticsBtn, closeBtn]),
+    el('div', { class: 'session-head' }, [crumbs, el('span', { class: 'spacer' }), explainBtn, closeBtn]),
     sessionMeta,
     treeHost,
     promptPanel,

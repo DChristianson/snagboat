@@ -1,5 +1,4 @@
 import * as assert from 'assert';
-import { nudgeLine } from '../../advisor/proposeNudges';
 import { EventStore } from '../../core/eventStore';
 import { NormalizedEvent } from '@snagboat/schema';
 import { contextPressureHeuristic } from '../../heuristics/contextPressure';
@@ -125,12 +124,6 @@ async function main() {
     assert.ok(parseRule({ ...doc, earlyWarning: 1.5 }).errors[0].includes('between 0 and 1'));
     const both = { ...doc, measures: { a: { type: 'count' }, b: { type: 'count', filter: { kind: 'tool_call' } } }, measure: undefined, when: { all: [{ measure: 'a', gte: 10 }, { measure: 'b', gte: 100 }] }, summary: '{a}' };
     assert.deepStrictEqual(ruleHeuristic(parseRule(both).value!).progress!({ now: at(2), store: store(events), settings: {} }), [], 'all: the furthest-off condition decides');
-  });
-
-  test('the advisor\'s answer becomes one line, or nothing when it had nothing specific', () => {
-    assert.strictEqual(nudgeLine('  "Ask the agent to run the failing test alone."\n'), 'Ask the agent to run the failing test alone.');
-    assert.strictEqual(nudgeLine('Nothing specific.'), undefined);
-    assert.strictEqual(nudgeLine('x'.repeat(300))!.length, 240);
   });
 
   let failures = 0;

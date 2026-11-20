@@ -46,8 +46,6 @@ export interface AsyncDiscoveryRun {
   result: DiscoveryResult;
   tweak(ruleId: string, threshold: number): Promise<Candidate | undefined>;
   score(rules: Rule[]): Promise<Map<string, Score>>;
-  sessionEvents(sessionId: string): NormalizedEvent[];
-  readonly events: NormalizedEvent[];
   /** Lets go of what the run keeps (its worker). */
   dispose(): void;
 }
@@ -58,8 +56,6 @@ export function inProcess(run: DiscoveryRun): AsyncDiscoveryRun {
     result: run.result,
     tweak: async (ruleId, threshold) => run.tweak(ruleId, threshold),
     score: async (rules) => run.score(rules),
-    sessionEvents: (sessionId) => run.sessionEvents(sessionId),
-    events: run.events,
     dispose: () => undefined,
   };
 }
@@ -84,27 +80,6 @@ type Asked = Extract<WorkerRequest, { id: number }>;
 type WithoutId<T> = T extends unknown ? Omit<T, 'id'> : never;
 
 export type WorkerReply = { id: number; value: unknown } | { id: number; error: string };
-
-/** The history's events in time order, and by session, as runDiscovery keeps them; worked out on first use. */
-function history(events: NormalizedEvent[]): { sorted: () => NormalizedEvent[]; bySession: () => Map<string, NormalizedEvent[]> } {
-  let sorted: NormalizedEvent[] | undefined;
-  let bySession: Map<string, NormalizedEvent[]> | undefined;
-  const sortedOnce = () => (sorted ??= [...events].sort((a, b) => a.ts.localeCompare(b.ts)));
-  return {
-    sorted: sortedOnce,
-    bySession: () => {
-      if (!bySession) {
-        bySession = new Map();
-        for (const e of sortedOnce()) {
-          const list = bySession.get(e.sessionId);
-          if (list) list.push(e);
-          else bySession.set(e.sessionId, [e]);
-        }
-      }
-      return bySession;
-    },
-  };
-}
 
 /** How long a run's worker may sit unasked before it's stopped: the core's default. */
 export const DEFAULT_WORKER_IDLE_MS = 15 * 60_000;
@@ -262,15 +237,10 @@ export async function discoverOffThread(events: NormalizedEvent[], data: Discove
   };
 
   countdown();
-  const h = history(events);
   return {
     result,
     tweak: (ruleId, threshold) => request<Candidate | undefined>({ type: 'tweak', ruleId, threshold }),
     score: (rules) => request<Map<string, Score>>({ type: 'score', rules }),
-    sessionEvents: (sessionId) => h.bySession().get(sessionId) ?? [],
-    get events() {
-      return h.sorted();
-    },
     get workerRunning() {
       return worker !== undefined;
     },

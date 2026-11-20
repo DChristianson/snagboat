@@ -2,11 +2,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { AdvisorConfig, approvalKey, Capability, CAPABILITY_LABELS, describeAdvisor, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from '../advisor/advisors';
+import { AdvisorConfig, approvalKey, Capability, CAPABILITY_LABELS, defaultAdvisorId, describeAdvisor, isApproved, parseAdvisors } from '../advisor/advisors';
 import { AuditLog } from '../advisor/audit';
 import { buildDigest, DigestInput, DigestPolicy } from '../advisor/digest';
 import { defaultPromptFiles, promptDir, PromptLayers, resolvePrompts } from '../advisor/prompts';
-import { ModelTiers, proposeTacticsMessages } from '../advisor/proposeTactics';
 import { SessionFocus, summarizeSessionMessages } from '../advisor/summarizeSession';
 import { ChatMessage, complete, completionBody, Completion, FetchLike, listModels, promptWasCut } from '../advisor/providers';
 import { hostFileUri } from './hostUri';
@@ -100,11 +99,7 @@ export class Advisor {
 
   /** The id of the advisor an ability uses unless another is picked: `snagboat.advisor.defaults`, or the older per-capability setting. */
   defaultId(ability: Capability): string {
-    const defaults = config().get<Record<string, unknown>>('defaults', {});
-    const set = defaults[ability];
-    if (typeof set === 'string' && set.trim()) return set.trim();
-    const legacy = Object.entries(LEGACY_DEFAULT_SETTINGS).find(([, c]) => c === ability)?.[0];
-    return (legacy && config().get<string>(legacy)) || 'local';
+    return defaultAdvisorId(ability, config().get<Record<string, unknown>>('defaults', {}), (setting) => config().get<string>(setting));
   }
 
   private advisorFor(ability: Capability, advisorId?: string): AskContext | string {
@@ -206,8 +201,9 @@ export class Advisor {
     return model;
   }
 
+  /** The advisor's one approval (what Explain is asked under); one given before snagboat-79f.7.12 retired abilities still counts. */
   private isApproved(a: AdvisorConfig): boolean {
-    return this.approvals()[a.id] === approvalKey(a);
+    return isApproved(this.approvals(), a, 'summarize-session');
   }
 
   private approvals(): Record<string, string> {
@@ -271,7 +267,7 @@ export class Advisor {
   }
 
   /**
-   * For requests made while you work (the live nudge line): never a prompt,
+   * For requests made while you work (session headlines): never a prompt,
    * picker, or approval dialog. If the advisor still needs a key, a model, or
    * your approval, it doesn't ask, and says why in the output.
    */
@@ -339,36 +335,6 @@ export class Advisor {
     const cut = Advisor.cutWarning(asked, 'explain a turn or finding instead, which sends much less');
     const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: header + (cut ? `> **Warning:** ${cut}\n\n` : '') + asked.completion.text + '\n' });
     await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
-  }
-
-  /** Tactics for a session: whether model use and prompt tactics could be refined, with the ability's default advisor or the one given. */
-  async tactics(sessionId: string, advisorId?: string): Promise<void> {
-    let gone = false;
-    const asked = await this.ask(
-      'propose-tactics',
-      async ({ policy, prompts }) => {
-        const input = await this.deps.digestInput(sessionId);
-        if (!input) {
-          gone = true;
-          return undefined;
-        }
-        return proposeTacticsMessages([buildDigest(input, policy)], prompts, Advisor.modelTiers());
-      },
-      { title: 'proposing tactics', advisorId }
-    );
-    if (gone) void vscode.window.showWarningMessage('Snagboat: that session is no longer in the log.');
-    if (!asked) return;
-    const header = `> **Model output** from ${Advisor.label(asked)}, ${new Date().toLocaleString()}. Tactics for session \`${sessionId.slice(0, 8)}\` from Snagboat's digest. Suggestions to judge against the session; nothing is changed.\n\n`;
-    const cut = Advisor.cutWarning(asked, 'ask about a shorter session, which sends less');
-    const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: header + (cut ? `> **Warning:** ${cut}\n\n` : '') + asked.completion.text + '\n' });
-    await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
-  }
-
-  /** `snagboat.advisor.modelTiers`, when set. */
-  static modelTiers(): ModelTiers | undefined {
-    const v = config().get<Record<string, unknown>>('modelTiers', {});
-    const tiers = Object.fromEntries(Object.entries(v).filter(([k, t]) => k.trim() && typeof t === 'string' && t.trim()).map(([k, t]) => [k.trim(), (t as string).trim()]));
-    return Object.keys(tiers).length > 0 ? tiers : undefined;
   }
 
   private async auditRequest(a: AdvisorConfig, ability: Capability, body: string, outcome: 'ok' | 'error'): Promise<void> {

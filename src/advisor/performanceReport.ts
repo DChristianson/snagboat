@@ -12,8 +12,8 @@ import { ChatMessage } from './providers';
  * the last, the running experiments, the last round of proposals and what you discarded, it returns a
  * summary, a verdict for each running experiment, and at most three proposals. Each proposal is one change
  * to the tracking rules (a threshold on a built-in heuristic, or a saved rule), with a scope, what it does,
- * why, and a prediction on one of the advisor's measures. It replaces "propose heuristics" for goal
- * advisors, and is sent under that ability's settings and approval.
+ * why, and a prediction on one of the advisor's measures. It is sent under the report-on-goal ability's
+ * sending rules and approval (which read propose-heuristics', the ability it replaced, when unset).
  *
  * The answer is data only and checked here: anything outside the contract, outside the advisor's
  * may_change, or the same as a change you discarded, is dropped with a reason.
