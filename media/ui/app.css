@@ -288,3 +288,23 @@ table.xp td.num.down { color: var(--sb-error); }
 .table-scroll { min-width: 0; max-width: 100%; }
 .approval { display: grid; gap: 6px; border: 1px solid var(--sb-rule); border-left: 3px solid var(--sb-warn); border-radius: 6px; padding: 10px; }
 .approval pre.payload { max-height: 320px; overflow: auto; font: 11px/1.4 var(--sb-mono); background: var(--sb-panel); padding: 8px; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Setting up an advisor by conversation (snagboat-79f.7.16): a model picker, the turns as a chat, the proposed
+   advisor as a card like a report's proposals, and the box you type in. */
+.setup { max-width: 720px; gap: 12px; }
+.setup-model { display: grid; gap: 4px; }
+.setup-model label { font-size: 12px; font-weight: 600; }
+.setup-model select { justify-self: start; max-width: 100%; font: inherit; font-size: 13px; }
+.chat { display: grid; gap: 8px; min-width: 0; }
+.turn { display: grid; gap: 2px; max-width: 85%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--sb-rule); min-width: 0; }
+.turn p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.turn.you { justify-self: end; background: color-mix(in srgb, var(--sb-link) 8%, transparent); border-color: transparent; }
+.turn.you.revise { border-left: 2px solid var(--sb-link); }
+.turn.model { justify-self: start; background: var(--sb-panel); }
+.turn p.rejected { color: var(--sb-amber); }
+.turn .who { font-size: 11px; }
+.chat .prop { max-width: 100%; }
+.prop-head .glyph { width: 22px; height: 22px; border-radius: 5px; display: inline-grid; vertical-align: middle; }
+.compose { display: grid; gap: 6px; }
+.compose textarea { width: 100%; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--sb-input-border, var(--sb-rule)); border-radius: 5px; background: var(--sb-input-bg, var(--sb-surface)); color: var(--sb-input-ink, var(--sb-ink)); resize: vertical; line-height: 1.45; }
+.setup-foot { padding-top: 8px; border-top: 1px solid var(--sb-rule); }
+#setup-history .chat { margin-top: 8px; }

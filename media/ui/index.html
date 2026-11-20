@@ -83,15 +83,45 @@
         <h2>Report <span class="muted small" id="report-meta"></span></h2>
         <div class="report" id="report"></div>
       </div>
+      <div class="panel" id="setup-history" hidden>
+        <h2>Setup conversation <span class="muted small" id="setup-history-meta"></span></h2>
+        <details id="setup-history-details">
+          <summary>How this advisor was set up, read only</summary>
+          <div class="chat" id="setup-history-turns"></div>
+        </details>
+      </div>
     </section>
 
     <section id="view-add" hidden aria-labelledby="add-h">
       <a class="back small" href="#">← All advisors</a>
       <div class="view-head">
         <h1 id="add-h">Add an advisor</h1>
-        <span class="muted small">Written to your advisors folder as persona.md; edit that file to change it later.</span>
+        <span class="muted small">Talk your goal through with a model, then review the advisor it proposes. It's written to your advisors folder as persona.md; edit that file to change it later.</span>
       </div>
-      <form id="add-form" class="panel add-form" novalidate>
+      <div class="panel setup" id="setup-panel">
+        <div class="setup-model">
+          <label for="setup-model">Model</label>
+          <select id="setup-model"><option value="">Pick a model…</option></select>
+          <span class="hint small muted" id="setup-model-hint">A model on this machine from your advisor settings (snagboat.advisors). You can switch at any turn to try another.</span>
+        </div>
+        <div class="small muted" id="setup-drafts" hidden></div>
+        <div class="chat" id="setup-turns" aria-live="polite"></div>
+        <div id="setup-state"></div>
+        <form id="setup-compose" class="compose" novalidate>
+          <label class="sr-only" for="setup-text">Your message</label>
+          <textarea id="setup-text" rows="3" maxlength="4000" placeholder="What do you care about? For example: my agent sessions cost too much, or the agent keeps redoing work."></textarea>
+          <div class="btns">
+            <button class="btn primary" type="submit" id="setup-send">Send</button>
+            <span class="err" id="setup-error" role="alert"></span>
+          </div>
+        </form>
+        <div class="btns setup-foot">
+          <button class="btn ghost" type="button" id="setup-form-link">Fill in the form instead</button>
+          <button class="btn ghost" type="button" id="setup-discard" hidden>Discard this draft</button>
+          <button class="btn ghost" type="button" id="setup-new" hidden>Start another</button>
+        </div>
+      </div>
+      <form id="add-form" class="panel add-form" novalidate hidden>
         <div class="field">
           <label for="add-template">Start from</label>
           <select id="add-template"><option value="">A blank advisor</option></select>
@@ -145,6 +175,7 @@
         </div>
         <div class="acts">
           <button class="btn primary" type="submit" id="add-submit">Add advisor</button>
+          <button class="btn ghost" type="button" id="add-chat">Back to the conversation</button>
           <a class="btn ghost" href="#">Cancel</a>
           <span class="err" id="add-error" role="alert"></span>
         </div>

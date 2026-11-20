@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { approvalKey, CAPABILITIES, parseAdvisors } from '../../advisor/advisors';
+import { approvalFor, approvalKey, CAPABILITIES, CAPABILITY_LABELS, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from '../../advisor/advisors';
 import { AuditLog } from '../../advisor/audit';
 import { buildDigest, HOSTED_POLICY, LOCAL_POLICY } from '../../advisor/digest';
 import { summarizeSessionMessages } from '../../advisor/summarizeSession';
@@ -119,6 +119,29 @@ async function main() {
     assert.notStrictEqual(approvalKey(a), approvalKey({ ...a, baseUrl: 'https://other.example.com/v1' }));
     assert.notStrictEqual(approvalKey(a), approvalKey(parse({ 'summarize-session': { send: { prompts: true } } })), 'widening one ability asks again');
     assert.notStrictEqual(approvalKey(a), approvalKey(parse({ 'summarize-session': true })), 'offering fewer abilities is a different approval too');
+  });
+
+  test('setting up an advisor is an ability of its own, with its own approval; existing approvals and defaults are unchanged', () => {
+    const local = parseAdvisors(undefined, undefined).advisors[0];
+    assert.ok(local.abilities['set-up-advisor'], 'the default local advisor offers it, with its policy');
+    assert.deepStrictEqual(local.abilities['set-up-advisor']!.policy, LOCAL_POLICY);
+    assert.ok(!Object.values(LEGACY_DEFAULT_SETTINGS).includes('set-up-advisor'), 'no legacy provider setting maps to it');
+    // The key as it was before the ability existed: the five older abilities only.
+    const before = (x: typeof local) =>
+      crypto
+        .createHash('sha256')
+        .update(JSON.stringify({ id: x.id, baseUrl: x.baseUrl, abilities: CAPABILITIES.filter((c) => c !== 'set-up-advisor' && x.abilities[c]).map((c) => [c, x.abilities[c]!.policy]) }))
+        .digest('hex')
+        .slice(0, 16);
+    assert.strictEqual(approvalKey(local), before(local), 'an advisor you approved before stays approved');
+    const parse = (abilities?: unknown) => parseAdvisors([{ id: 'x', baseUrl: 'http://localhost:11434/v1', model: 'a', ...(abilities ? { abilities } : {}) }], undefined).advisors[0];
+    const narrowed = parse({ 'summarize-session': true, 'set-up-advisor': { send: { prompts: false } } });
+    assert.strictEqual(approvalKey(narrowed), approvalKey(parse({ 'summarize-session': true })), 'its sending rules are not in the advisor\'s approval');
+    const setUp = approvalFor(narrowed, 'set-up-advisor');
+    assert.strictEqual(setUp.name, 'x#set-up-advisor');
+    assert.notStrictEqual(setUp.key, approvalFor(parse(), 'set-up-advisor').key, 'its own sending rules are in its own approval');
+    assert.deepStrictEqual(approvalFor(narrowed, 'summarize-session'), { name: 'x', key: approvalKey(narrowed) });
+    assert.match(CAPABILITY_LABELS['set-up-advisor'], /Set up an advisor/);
   });
 
   test('a completion posts messages with no tools, with the key only when there is one', async () => {

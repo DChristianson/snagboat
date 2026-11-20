@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as os from 'os';
-import { AdvisorConfig, approvalKey, Capability, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from '../../advisor/advisors';
+import { AdvisorConfig, approvalFor, Capability, CAPABILITY_LABELS, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from '../../advisor/advisors';
 import { PromptLayers, resolvePrompts } from '../../advisor/prompts';
 import { ChatMessage, complete, completionBody, Completion, FetchLike, listModels } from '../../advisor/providers';
 import { DigestPolicy } from '../../advisor/digest';
@@ -28,6 +28,8 @@ export interface PendingApproval {
   id: string;
   advisor: string;
   model: string;
+  /** What it's asked for, in plain words ("Set up an advisor ..."). */
+  ability?: string;
   /** The exact request body, pretty-printed. */
   payload: string;
 }
@@ -46,6 +48,8 @@ export const APPROVAL_WAIT_MS = 10 * 60_000;
 
 export class CoreAdvisors {
   private pending?: PendingApproval & { decide: (send: boolean) => void };
+  /** Settles when the request waiting for approval is answered (or times out). */
+  private answered?: Promise<void>;
 
   constructor(
     private readonly home: string,
@@ -138,19 +142,29 @@ export class CoreAdvisors {
     const messages = await build({ advisor: a, policy: a.abilities[ability]!.policy, prompts });
     if (!messages) return undefined;
     const body = completionBody(model, messages, opts.json);
-    if (readApprovals(this.home)[a.id] !== approvalKey(a)) {
-      if (this.pending) throw new Error('another request is waiting for your approval; answer it first');
+    // Most abilities share the advisor's one approval; setting up an advisor has its own (advisors.ts SEPARATELY_APPROVED).
+    const approval = approvalFor(a, ability);
+    const approved = () => readApprovals(this.home)[approval.name] === approval.key;
+    // One request waits for approval at a time. Another one waits behind it, and goes without asking if
+    // that answer approved the same address and sending rules (Ask for a report now on a new advisor also
+    // answers its overdue scheduled report: snagboat-79f.7.20).
+    while (this.pending && !approved()) await this.answered;
+    if (!approved()) {
+      let settle!: () => void;
+      this.answered = new Promise<void>((r) => (settle = r));
       const send = await new Promise<boolean>((resolve) => {
         // Not sent if nobody answers (the tab was closed): a waiting request would hold up every other.
         const timer = setTimeout(() => {
           this.pending = undefined;
           resolve(false);
+          settle();
         }, APPROVAL_WAIT_MS);
         timer.unref?.();
         this.pending = {
           id: String(nextId++),
           advisor: a.label,
           model,
+          ability: CAPABILITY_LABELS[ability],
           payload: JSON.stringify(JSON.parse(body), null, 2),
           decide: (yes) => {
             clearTimeout(timer);
@@ -158,8 +172,10 @@ export class CoreAdvisors {
           },
         };
       });
+      if (send) writeApprovals(this.home, { ...readApprovals(this.home), [approval.name]: approval.key });
+      // Written before the requests waiting behind this one look again.
+      settle();
       if (!send) return undefined;
-      writeApprovals(this.home, { ...readApprovals(this.home), [a.id]: approvalKey(a) });
     }
     const advisor = { ...a, model };
     try {

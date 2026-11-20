@@ -1,4 +1,4 @@
-// The compact findings panel (RFC step 5c): the findings now, each with its advisor and Useful, today's
+// The compact findings panel (RFC step 5c): advisors with proposals waiting, the findings now, each with its advisor and Useful, today's
 // totals, and links to the advisor UI and the detail view. State comes whole from findingsView.ts;
 // everything is written with textContent.
 (function () {
@@ -43,7 +43,14 @@
     };
     const t = s.today;
     const today = [`Today ${compact(t.tokens)} tokens`, t.cacheRate !== undefined ? `${Math.round(t.cacheRate)}% cache` : '', `${t.milestones} milestone${t.milestones === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
+    // Advisors with proposals waiting: each opens the advisor UI at that advisor's page.
+    const waiting = (s.proposals || []).map((p) => {
+      const a = el('button', { type: 'button', class: 'link', text: p.text, title: `Review ${p.name}'s proposals in the advisor UI` });
+      a.addEventListener('click', () => vscode.postMessage({ type: 'openAdvisorUi', advisor: p.advisor }));
+      return el('div', { class: 'waiting' }, [a]);
+    });
     root.replaceChildren(
+      ...waiting,
       ...(s.findings.length ? s.findings.map(finding) : [el('p', { class: 'muted', text: 'No findings now.' })]),
       el('p', { class: 'muted small', text: today }),
       el('div', { class: 'links' }, [s.advisorUi ? link('Open the advisor UI ↗', 'openAdvisorUi') : null, link('Details', 'openDetail')])

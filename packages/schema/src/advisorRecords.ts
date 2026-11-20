@@ -1,7 +1,8 @@
 /**
  * The goal tracking lifecycle's records (docs/design/goal-tracking-lifecycle.md): an advisor's period
- * report, the log of its proposals, and the experiments that accepted proposals become. Each has a JSON
- * Schema beside it (report.v1.schema.json, proposalEvent.v1.schema.json, experiment.v1.schema.json),
+ * report, the log of its proposals, the experiments that accepted proposals become, and the setup
+ * conversation an advisor was made from. Each has a JSON Schema beside it (report.v1.schema.json,
+ * proposalEvent.v1.schema.json, experiment.v1.schema.json, setupEvent.v1.schema.json),
  * kept in step by a compile-time check in jsonSchema.ts and a unit test, as events are. Nothing
  * validates against the schemas at run time.
  */
@@ -201,4 +202,89 @@ export interface Experiment {
   keptGoing: number;
   /** Running experiments on the same measure and scope when it started. */
   overlaps?: string[];
+}
+
+/**
+ * The advisor a setup conversation proposes (snagboat-79f.7.15): what the + form asks for, and what
+ * persona.md is written from when you accept it. `model` is the model advisor that wrote it.
+ */
+export interface SetupProposal {
+  name: string;
+  /** The goal in plain words: "Keeping token cost down". */
+  status: string;
+  /** The goal as an id: token-cost-down. */
+  goal: string;
+  measures: string[];
+  /** Heuristic or rule ids whose notifications it speaks for. */
+  rules: string[];
+  maxPerHour: number;
+  period: AdvisorPeriod;
+  model?: string;
+  color: string;
+  icon: string;
+  voice: string;
+}
+
+/** A model advisor in snagboat.advisors, and the model it ran. */
+export interface SetupModel {
+  advisor: string;
+  model?: string;
+}
+
+/**
+ * One line of a setup conversation: setting up an advisor by talking it through with a model
+ * (snagboat-79f.7.15). A draft's lines are ~/.snagboat/advisor-drafts/<setup id>/setup.jsonl, append
+ * only; once accepted the file moves to ~/.snagboat/advisors/<advisor id>/setup.jsonl, kept with the
+ * advisor it made.
+ */
+export interface SetupEvent {
+  version: 1;
+  at: string;
+  /** The setup conversation's id. */
+  setup: string;
+  /**
+   * started: you picked a model; said: your turn; answered: the model's turn (a reply, and maybe a
+   * proposed advisor); revised: your note on its last proposal; accepted: persona.md written from it;
+   * discarded: you dropped the draft.
+   */
+  type: 'started' | 'said' | 'answered' | 'revised' | 'accepted' | 'discarded';
+  /** started: the model you picked; said, revised: the model you switched to, if you did; answered: the model that answered. */
+  model?: SetupModel;
+  /** said: your words; answered: the model's reply; revised: your note. */
+  text?: string;
+  /** answered: the advisor it proposed, checked as the + form checks it. */
+  proposal?: SetupProposal;
+  /** answered: why what it proposed couldn't be used, in plain words. */
+  problems?: string[];
+  /** accepted: the new advisor's id. */
+  advisor?: string;
+}
+
+/** One turn of a setup conversation, as shown. */
+export interface SetupTurn {
+  at: string;
+  from: 'you' | 'model';
+  text: string;
+  /** you: the model you switched to; model: the model that answered. */
+  model?: SetupModel;
+  /** you: a revise note on the last proposal. */
+  revise?: boolean;
+  proposal?: SetupProposal;
+  problems?: string[];
+}
+
+/** A setup conversation, folded from its lines. */
+export interface SetupConversation {
+  id: string;
+  /** open while you talk; accepted once it made an advisor; discarded once you dropped it. */
+  status: 'open' | 'accepted' | 'discarded';
+  /** The model the next turn goes to: the one you picked first, or switched to last. */
+  model: SetupModel;
+  turns: SetupTurn[];
+  /** The latest proposal you can accept: the last turn, when it proposed one. Its index in turns. */
+  proposal?: { turn: number; spec: SetupProposal };
+  /** accepted: the advisor it made. */
+  advisor?: string;
+  startedAt: string;
+  updatedAt: string;
 }

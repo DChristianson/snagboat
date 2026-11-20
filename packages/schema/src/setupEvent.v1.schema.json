@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DChristianson/snagboat/schema/setup-event/v1",
+  "title": "SetupEvent",
+  "description": "One line of a setup conversation, setting up an advisor by talking it through with a model (docs/design/goal-tracking-lifecycle.md). A draft's lines are ~/.snagboat/advisor-drafts/<setup id>/setup.jsonl, append only; once accepted the file moves to ~/.snagboat/advisors/<advisor id>/setup.jsonl. It matches the SetupEvent type in advisorRecords.ts; a unit test and a compile-time check keep them in step.",
+  "type": "object",
+  "required": [
+    "version",
+    "at",
+    "setup",
+    "type"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+    },
+    "setup": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "started",
+        "said",
+        "answered",
+        "revised",
+        "accepted",
+        "discarded"
+      ]
+    },
+    "model": {
+      "type": "object",
+      "required": [
+        "advisor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "advisor": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      }
+    },
+    "text": {
+      "type": "string"
+    },
+    "proposal": {
+      "type": "object",
+      "required": [
+        "name",
+        "status",
+        "goal",
+        "measures",
+        "rules",
+        "maxPerHour",
+        "period",
+        "color",
+        "icon",
+        "voice"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "goal": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "measures": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "maxPerHour": {
+          "type": "number"
+        },
+        "period": {
+          "type": "string",
+          "enum": [
+            "daily",
+            "weekly",
+            "monthly"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "voice": {
+          "type": "string"
+        }
+      }
+    },
+    "problems": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "advisor": {
+      "type": "string"
+    }
+  }
+}
