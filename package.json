@@ -1596,6 +1596,7 @@
     "demo:traces": "npm run compile-tests && node ./out/scripts/demoTraces.js",
     "discover": "npm run compile-tests && node ./out/scripts/discover.js",
     "eval:advisor": "npm run compile-tests && node ./out/scripts/evalAdvisor.js",
+    "mock:model": "npm run compile-tests && node ./out/scripts/mockModel.js",
     "review:ui": "npm run compile-tests && node ./out/scripts/reviewUi.js",
     "summarize:copilot": "npm run compile-tests && node ./out/scripts/copilotStructure.js",
     "pretest": "npm run compile-tests && npm run build",
