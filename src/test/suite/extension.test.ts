@@ -105,7 +105,7 @@ suite('Snagboat core plumbing', () => {
     const workspacesDir = path.join(home!, 'data', 'workspaces');
     await vscode.commands.executeCommand('snagboat._emitTestEvent');
     if (!process.env.SNAGBOAT_TEST_PER_USER_STORE) {
-      // Off (the default): nothing is written to the per-user store.
+      // Off: nothing is written to the per-user store.
       assert.ok(!fs.existsSync(path.join(home!, 'data')), 'the per-user store is untouched with the setting off');
       return;
     }

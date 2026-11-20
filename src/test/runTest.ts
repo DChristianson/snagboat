@@ -32,10 +32,11 @@ async function downloadVSCode(version: string, attempts = 3): Promise<string> {
 }
 
 /**
- * Runs the integration suite twice: with VS Code's per-window storage (the
- * default), then with snagboat.storage.perUserStore on, set in a private user
- * settings folder, so every test also passes against the per-user store. Each
- * run gets fresh folders.
+ * Runs the integration suite twice: with no setting changed (the per-user
+ * store and the core, as a fresh install gets them), then with
+ * snagboat.storage.perUserStore off, set in a private user settings folder, so
+ * every test also passes against VS Code's per-window storage. Each run gets
+ * fresh folders.
  */
 async function runSuite(vscodeExecutablePath: string, perUserStore: boolean): Promise<void> {
   const extensionDevelopmentPath = path.resolve(__dirname, '../../');
@@ -50,14 +51,14 @@ async function runSuite(vscodeExecutablePath: string, perUserStore: boolean): Pr
   const snagboatHome = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-home-'));
   const copilotSessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-copilot-sessions-'));
   const launchArgs = [workspaceDir, '--disable-extensions'];
-  if (perUserStore) {
+  if (!perUserStore) {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-user-data-'));
     fs.mkdirSync(path.join(userDataDir, 'User'));
-    fs.writeFileSync(path.join(userDataDir, 'User', 'settings.json'), JSON.stringify({ 'snagboat.storage.perUserStore': true }));
+    fs.writeFileSync(path.join(userDataDir, 'User', 'settings.json'), JSON.stringify({ 'snagboat.storage.perUserStore': false }));
     launchArgs.push(`--user-data-dir=${userDataDir}`);
   }
 
-  console.log(`\n=== integration suite, ${perUserStore ? 'per-user store (snagboat.storage.perUserStore on)' : "VS Code's storage"}`);
+  console.log(`\n=== integration suite, ${perUserStore ? 'per-user store (the default)' : "VS Code's storage (snagboat.storage.perUserStore off)"}`);
   await runTests({
     vscodeExecutablePath,
     extensionDevelopmentPath,
@@ -90,8 +91,8 @@ async function main() {
   try {
     // CI also tests the minimum supported VS Code (engines.vscode); default is the latest stable.
     const vscodeExecutablePath = await downloadVSCode(process.env.SNAGBOAT_TEST_VSCODE_VERSION || 'stable');
-    await runSuite(vscodeExecutablePath, false);
     await runSuite(vscodeExecutablePath, true);
+    await runSuite(vscodeExecutablePath, false);
   } catch (err) {
     console.error('Failed to run tests', err);
     process.exit(1);
