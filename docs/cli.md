@@ -38,7 +38,28 @@ snagboat containers deny [folder]    # stop reading it
 snagboat containers status           # each allowed folder: whether claude-projects is there, its project folders and session files, when it was last read
 ```
 
-`allow` and `deny` change `containers.allow` in `~/.snagboat/config.json` and print what they changed. The allow list lives only there, never in the project ([settings](settings.md#dev-containers-containersallow)). A running core picks up the change on its next ingest tick (every 30 seconds) and reads the folder while it runs (not with `--no-collect`). `status --json` prints the same as JSON.
+`allow` and `deny` change `containers.allow` in `~/.snagboat/config.json` and print what they changed. The allow list lives only there, never in the project ([settings](settings.md#dev-containers-containersallow)). A running core picks up the change on its next ingest tick (every 30 seconds) and reads the folder while it runs (not with `--no-collect`). `status --json` prints the same as JSON. `allow --dry-run` shows what `allow` would change and writes nothing.
+
+### Setting up the dev container
+
+The container has to keep its transcripts where the core looks. `allow` checks the folder's `devcontainer.json` and lists what it lacks, with a diff, but changes nothing in the project; `status` says the same per folder. Add `--edit` to make the changes:
+
+```sh
+snagboat containers allow [folder] --edit              # a personal config, git-ignored in this clone only
+snagboat containers allow [folder] --edit --in-place   # edit the shared devcontainer.json instead
+```
+
+A dev container needs:
+
+- the project mounted at the **same path as on the host** (`workspaceMount`, `workspaceFolder`), so the paths in its transcripts name the same folder on both sides. This moves the project in the container: it opens at the host path, not `/workspaces/<name>`;
+- its `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`; the home is `remoteUser`'s, else `containerUser`'s, else `/root`) **bind-mounted to `<folder>/.snagboat/claude-projects`**, which `--edit` creates, since Docker won't start with a missing mount source;
+- the project folder marked as a git `safe.directory` on start (`postStartCommand`), since its path changed.
+
+`devcontainer.json` is usually committed, and committed changes apply to everyone who opens the container ([data sources](data-sources.md#does-a-collaborator-have-to-use-snagboat)). So by default `--edit` writes a **personal config**, `.devcontainer/snagboat/devcontainer.json`: the shared one plus these changes, with its Dockerfile, build context and local features pointing at the shared ones, named "<name> (Snagboat)" to pick in **Dev Containers: Reopen in Container**. Git ignores it and `.snagboat/` in your clone only (`.git/info/exclude`). Dev Containers can't merge a per-user file into a committed one, so it's a copy: run `allow --edit` again after the shared config changes and it's regenerated, unless you've edited it by hand (then it stops; `--force` replaces it). `--in-place` edits the shared `devcontainer.json` and adds `.snagboat/` to `.gitignore`, for a repository only you use. Comments in the file are kept. A `dockerComposeFile` config is left alone: `allow` prints the two volumes to add to the compose file. A `workspaceMount` that isn't the same-path one stops `--edit` unless you add `--force`.
+
+In VS Code, a window on this machine whose folder has a dev container that isn't set up offers the same, once per folder (the personal config only). **Snagboat: Set Up Dev Container** asks again.
+
+The new mount hides the transcripts the container kept so far. `scripts/devcontainerSetup.js` in a snagboat checkout runs `allow --edit` and then carries them over: each of the folder's containers' earlier transcripts, out of their Docker volumes, and this machine's own sessions in the project ([.devcontainer/README.md](../.devcontainer/README.md#snagboat-and-this-container)).
 
 ## Migrating to the per-user store
 
