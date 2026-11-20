@@ -10,6 +10,10 @@ So the export keeps prompts, replies and tool calls, and removes what identifies
 
 **Everything exported comes from the Snagboat store.** The export never re-reads transcripts, git or bd. The store takes on the schema below: git state, plan state, and the links between them and sessions are recorded by the core as they happen, for heuristics as much as for export. The export does two things only: it selects one workspace's records, then applies the privacy rules. In the maintainer's words: "the export will just be selecting data for a given workspace and then applying the privacy rules." What the store doesn't hold, the export can't give.
 
+Two more decisions came out of review:
+- **The store keeps more text, by setting.** The caps on stored prompt and reply text become settings (see [rule 3](#3-whats-preserved)).
+- **The core records finding episodes as they happen.** Until now the store kept only your responses to findings. The maintainer called that "a gap in our original design", separate from export.
+
 Factory Clock's scrape script ([factory-clock#31](https://github.com/DChristianson/factory-clock/pull/31)) was the first attempt at this from the other side. Its rules are a good start and this design takes most of them, but they belong here: Snagboat knows its own store layout, its own capture-time redaction, and which fields carry what. Once `snagboat export` exists, the scrape script reads its output instead of `~/.snagboat/data`. It can keep its own leak check as a second look.
 
 ## Contents
@@ -65,7 +69,7 @@ What the export removes is what says *whose* machine this is and *where* on it t
 | People (git authors and committers, `Co-Authored-By` humans, bead `owner`, `created_by`, `assignee`, actors in bead history) | Pseudonyms: `person-1`, `person-2`. Agents keep their names (`claude-code`, `copilot`, "Claude" in a co-author line), since which agent did the work is the point. |
 | Timestamps | Kept, in UTC. Git's timezone offsets are dropped, because they say roughly where you are. |
 
-Session ids, subagent ids, turn ids, commit SHAs and bead ids are kept. They're random or content-derived, and joining two exports of the same project needs them. A commit SHA identifies a public commit if the repository is public. That's the price of joining commits across exports. [Open question 2](#open-questions) asks whether a "private repository" switch should re-key them.
+Session ids, subagent ids, turn ids, commit SHAs and bead ids are kept. They're random or content-derived, and joining two exports of the same project needs them. A commit SHA identifies a public commit if the repository is public. That's the price of joining commits across exports. [Open question 1](#open-questions) asks whether a "private repository" switch should re-key them.
 
 **Re-keying and pseudonyms are stable per machine and unreadable off it.** They're an HMAC with a key the export creates once and keeps in `~/.snagboat/export.key`. Two exports from your machine agree (`person-1` is the same person in both), and nobody without the key can test a guess at a path or a name against them. Deleting the key starts fresh numbering.
 
@@ -89,7 +93,11 @@ Snagboat already redacts secret formats when it captures text (`SECRET_PATTERNS`
 
 Everything else, which is most of the detail:
 
-- **Prompts and replies**, as the store holds them. Today it caps them (prompts at 2,000 characters, reply excerpts at 500), and the export doesn't go back to the transcripts for more. If the export needs more detail, the store keeps more: see [open question 1](#open-questions).
+- **Prompts and replies**, as the store holds them. The export doesn't go back to the transcripts for more. How much the store keeps is up to you, in two new settings beside `captureContent`:
+  - `snagboat.capture.promptChars`: the most of a prompt's text that's stored. Default 2,000, today's cap, which 98% of real prompts fit whole.
+  - `snagboat.capture.replyChars`: the most of a reply's text that's stored. Default 500, today's cap.
+
+  Both take up to 100,000 characters. They're resource-scoped like `captureContent`, and copied into `~/.snagboat/config.json`, so the core applies them per project. A raised cap applies to what's captured from then on. Text already stored stays as it was, and `textTruncated` says it was cut. Secret redaction runs on the whole text either way. Retention is unchanged: text is still removed after `retention.textDays`.
 - **Tool calls**: tool name and category, status, timing, turn, subagent, and the input that matters to a view: the file it touched (made relative), the command it ran, the search pattern, the URL it fetched. The store records these as `toolInput` (schema v4) when the call is captured; today it keeps only one of them, in `target`. Tool *output* is neither stored nor exported, apart from a test or build run's pass/fail, which is already the call's status. Output is where pasted logs, file contents and stack traces live, which is most of the risk and little of the value.
 - **Plans**: todo lists, task tools, and plan items' titles, descriptions, design, notes, acceptance criteria and close reasons.
 - **Git**: commit subjects and bodies, branch names, changed files with line counts.
@@ -343,7 +351,7 @@ snagboat export --project <dir> --out <dir> [--name <name>] [--since <date>] [--
 Each is a bead under `snagboat-93b.9` once this is reviewed. The store comes first, so heuristics can use it before there's an export.
 
 1. **Schema:** `NormalizedEvent` v4 fields, the git, plan, link, finding and session record types, their JSON Schemas in `packages/schema`, and `manifest.json`'s format.
-2. **Capture:** adapters record `toolInput`, and `refs` for tool calls that observably ran git or bd.
+2. **Capture:** adapters record `toolInput`, and `refs` for tool calls that observably ran git or bd. The `capture.promptChars` and `capture.replyChars` settings replace the fixed caps, with `textTruncated` on text they cut.
 3. **Repository job:** `git.jsonl` (commits, branches, checkouts) in the core, with tests on a scratch repository: merge, squash, rebase, deleted branch, two worktrees.
 4. **Plan job:** `plan.jsonl` from bd's export and audit journal.
 5. **Linker:** `links.jsonl`, with each rule tested on its own in `observed` and `inferred` cases. The git outcomes job moves onto it.
@@ -356,8 +364,7 @@ Heuristics that use git and plan state are their own beads, after step 5.
 
 ## Open questions
 
-1. **How much text the store keeps.** The export gives what the store holds: prompts up to 2,000 characters and reply excerpts up to 500. For more detail the store has to keep more. Should those caps go up (as settings, with `captureContent`), or does the export live with them?
-2. **Commit SHAs in a private repository.** They're kept so exports join up. Should `--private` re-key them with the HMAC? Then the export can't be matched with the repository's real history.
-3. **Pseudonyms across machines.** The key is per machine, so two people's exports of the same project number people differently. Is that fine, or should a team share a key?
-4. **Pull request detail.** Titles, reviewers and review comments are on GitHub, not on disk. Recording them means a network call from the repository job. Leave it out for now?
-5. **Markdown plans.** Without beads, factory-clock#31 reads `docs/` markdown as a plan. Should the plan job do the same, storing `confidence: 'inferred'` items, or record only beads?
+1. **Commit SHAs in a private repository.** They're kept so exports join up. Should `--private` re-key them with the HMAC? Then the export can't be matched with the repository's real history.
+2. **Pseudonyms across machines.** The key is per machine, so two people's exports of the same project number people differently. Is that fine, or should a team share a key?
+3. **Pull request detail.** Titles, reviewers and review comments are on GitHub, not on disk. Recording them means a network call from the repository job. Leave it out for now?
+4. **Markdown plans.** Without beads, factory-clock#31 reads `docs/` markdown as a plan. Should the plan job do the same, storing `confidence: 'inferred'` items, or record only beads?
