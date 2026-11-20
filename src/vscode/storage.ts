@@ -78,9 +78,9 @@ async function writeWorkspaceMarker(storageDir: string): Promise<void> {
 }
 
 /**
- * VS Code's per-window storage, or with snagboat.storage.perUserStore on, this
- * workspace's folder in the per-user store (~/.snagboat/data). Turning it on
- * first copies this window's existing storage there (core/migrate.ts: copy
+ * The per-user store (~/.snagboat/data), this workspace's folder in it, or with
+ * snagboat.storage.perUserStore turned off, VS Code's per-window storage. Its
+ * first start on the per-user store copies this window's existing storage there (core/migrate.ts: copy
  * only, so turning it off again finds the old storage as it was). If that copy
  * fails, the window stays on its old storage and says so.
  */
@@ -95,7 +95,7 @@ export async function resolveStorage(context: vscode.ExtensionContext): Promise<
     rulesDir: context.globalStorageUri.fsPath,
     perUser: false,
   };
-  if (!vscode.workspace.getConfiguration('snagboat').get<boolean>('storage.perUserStore', false)) return legacy;
+  if (!vscode.workspace.getConfiguration('snagboat').get<boolean>('storage.perUserStore', true)) return legacy;
 
   const home = snagboatHome();
   const info = thisWorkspace(legacy.storageDir, !context.storageUri);
@@ -131,6 +131,30 @@ export async function resolveStorage(context: vscode.ExtensionContext): Promise<
     );
     return legacy;
   }
+}
+
+const DEFAULT_NOTICE_KEY = 'snagboat.perUserStoreDefaultNoticeShown';
+
+/**
+ * Says once, the first time a window starts on the per-user store because it's
+ * the default (not because you turned it on), what that means: data in
+ * ~/.snagboat/data, and the core recording every project on this machine.
+ */
+export function noticePerUserStoreDefault(context: vscode.ExtensionContext, storage: StorageLocations): void {
+  if (!storage.perUser || context.globalState.get<boolean>(DEFAULT_NOTICE_KEY)) return;
+  const set = vscode.workspace.getConfiguration('snagboat').inspect<boolean>('storage.perUserStore')?.globalValue;
+  void context.globalState.update(DEFAULT_NOTICE_KEY, true);
+  if (set === true) return;
+  void vscode.window
+    .showInformationMessage(
+      `Snagboat now keeps its data in one per-user store, ${userDataDir(snagboatHome())}, and runs a core service that records Claude Code and Copilot CLI sessions in every project on this machine, not only folders open in VS Code. Any data already in VS Code's storage was copied there, and the originals are untouched. To record only projects VS Code knows, set "collect.unopened": false in ~/.snagboat/config.json, or turn off snagboat.storage.perUserStore to go back.`,
+      'Privacy',
+      'Settings'
+    )
+    .then((choice) => {
+      if (choice === 'Privacy') void vscode.env.openExternal(vscode.Uri.parse('https://github.com/DChristianson/snagboat/blob/main/PRIVACY.md'));
+      else if (choice === 'Settings') void vscode.commands.executeCommand('workbench.action.openSettings', PER_USER_STORE_SETTING);
+    });
 }
 
 /** The setting takes effect on reload: offers one when it changes. */

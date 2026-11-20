@@ -30,7 +30,7 @@ Each one reports this week against last, explains a session or warning when aske
 - Measurements and warnings are computed without a model, so they're repeatable. The model interprets them.
 - A model is optional. It runs locally (Ollama, LM Studio) by default, which keeps everything private. A hosted model is more capable; it gets a redacted summary that you approve first, and no tools ([advisor models](docs/advisor-models.md)).
 - An advisor is a Markdown file: goal and measurements on top, voice below. Edit one or add your own ([usage](docs/usage.md#advisors-and-their-goals)).
-- Cost is counted in tokens, not dollars. A milestone is a commit made after the session's tests pass. Commits kept and milestones need the per-user store, a preview setting that pools every project's data.
+- Cost is counted in tokens, not dollars. A milestone is a commit made after the session's tests pass. Commits kept and milestones need the per-user store, which pools every project's data (on by default).
 
 ## Warnings
 
@@ -46,7 +46,7 @@ Heuristics need tuning. A threshold that suits one supervised agent is noise for
 >
 > - The VS Code extension adds five hook entries to `.claude/settings.json` in each project you open in VS Code, so Claude Code can report what it did. **Snagboat: Remove Claude Code Hooks from Project...** takes them out.
 > - It stores your prompts and the agents' replies for 30 days, with common secret formats redacted, and full shell commands (which can contain secrets) for 90. Turn off `snagboat.captureContent` to store no text.
-> - While its background service runs, it records Claude Code and Copilot sessions in every project on the machine, not only those open in VS Code ([PRIVACY.md](PRIVACY.md#what-is-captured)).
+> - By default it runs a background service that records Claude Code and Copilot sessions in every project on the machine, not only those open in VS Code, in `~/.snagboat/data`. `"collect.unopened": false` in `~/.snagboat/config.json` limits it to projects VS Code knows ([PRIVACY.md](PRIVACY.md#what-is-captured)).
 
 **Claude Code** (preview; Node.js 24+). Download the plugin zip from the [latest release](https://github.com/DChristianson/snagboat/releases/latest). It records sessions and adds `/snagboat:` commands, read-only tools for the agent, and a status line ([plugin](plugins/snagboat/README.md)):
 

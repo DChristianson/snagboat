@@ -55,7 +55,7 @@ import { readApprovals, writeApprovals } from './core/advisorApprovals';
 import { FindingsView } from './ui/findingsView';
 import { EditTrackerAdapter } from './vscode/editTracker';
 import { vscodeHost } from './vscode/host';
-import { resolveStorage, watchPerUserStoreSetting } from './vscode/storage';
+import { noticePerUserStoreDefault, resolveStorage, watchPerUserStoreSetting } from './vscode/storage';
 import { syncSettingsToConfig } from './vscode/configSync';
 import { ClaudeCodeAdapter } from './adapters/claude-code';
 import { removeHooksConfigured } from './adapters/claude-code/hooksConfig';
@@ -134,8 +134,9 @@ export interface SnagboatTestApi {
 export async function activate(context: vscode.ExtensionContext): Promise<SnagboatTestApi | undefined> {
   // The engine reads settings and workspace folders through the host (docs/design/architecture-rfc.md, step 2).
   setHost(vscodeHost);
-  // VS Code's per-window storage, or the per-user store (snagboat.storage.perUserStore).
+  // The per-user store (the default), or VS Code's per-window storage (snagboat.storage.perUserStore off).
   const storage = await resolveStorage(context);
+  noticePerUserStoreDefault(context, storage);
   const storageDir = storage.storageDir;
   context.subscriptions.push(watchPerUserStoreSetting());
   // The core and the CLI read settings from ~/.snagboat/config.json; this window keeps it current.
