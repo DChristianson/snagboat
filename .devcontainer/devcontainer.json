@@ -3,7 +3,11 @@
 {
   "name": "snagboat-dev",
 
-  "build": { "dockerfile": "Dockerfile" },
+  // WORKSPACE lets the image create node_modules (below) owned by vscode.
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": { "WORKSPACE": "${localWorkspaceFolder}" }
+  },
 
   // Everything runs as this non-root user, which has no sudo.
   "remoteUser": "vscode",
@@ -33,7 +37,11 @@
   // Snagboat runs in the container. See README "Snagboat and this container".
   "mounts": [
     "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
-    "source=${localWorkspaceFolder}/.snagboat/claude-projects,target=/home/vscode/.claude/projects,type=bind"
+    "source=${localWorkspaceFolder}/.snagboat/claude-projects,target=/home/vscode/.claude/projects,type=bind",
+    // node_modules gets its own volume, so the container's Linux binaries
+    // (TypeScript 7's native compiler, esbuild) and the host's macOS ones
+    // never overwrite each other. post-create.sh fills it with npm ci.
+    "source=snagboat-node-modules-${devcontainerId},target=${localWorkspaceFolder}/node_modules,type=volume"
   ],
 
   "containerEnv": {
