@@ -48,6 +48,8 @@ export const APPROVAL_WAIT_MS = 10 * 60_000;
 
 export class CoreAdvisors {
   private pending?: PendingApproval & { decide: (send: boolean) => void };
+  /** Settles when the request waiting for approval is answered (or times out). */
+  private answered?: Promise<void>;
 
   constructor(
     private readonly home: string,
@@ -142,13 +144,20 @@ export class CoreAdvisors {
     const body = completionBody(model, messages, opts.json);
     // Most abilities share the advisor's one approval; setting up an advisor has its own (advisors.ts SEPARATELY_APPROVED).
     const approval = approvalFor(a, ability);
-    if (readApprovals(this.home)[approval.name] !== approval.key) {
-      if (this.pending) throw new Error('another request is waiting for your approval; answer it first');
+    const approved = () => readApprovals(this.home)[approval.name] === approval.key;
+    // One request waits for approval at a time. Another one waits behind it, and goes without asking if
+    // that answer approved the same address and sending rules (Ask for a report now on a new advisor also
+    // answers its overdue scheduled report: snagboat-79f.7.20).
+    while (this.pending && !approved()) await this.answered;
+    if (!approved()) {
+      let settle!: () => void;
+      this.answered = new Promise<void>((r) => (settle = r));
       const send = await new Promise<boolean>((resolve) => {
         // Not sent if nobody answers (the tab was closed): a waiting request would hold up every other.
         const timer = setTimeout(() => {
           this.pending = undefined;
           resolve(false);
+          settle();
         }, APPROVAL_WAIT_MS);
         timer.unref?.();
         this.pending = {
@@ -163,8 +172,10 @@ export class CoreAdvisors {
           },
         };
       });
+      if (send) writeApprovals(this.home, { ...readApprovals(this.home), [approval.name]: approval.key });
+      // Written before the requests waiting behind this one look again.
+      settle();
       if (!send) return undefined;
-      writeApprovals(this.home, { ...readApprovals(this.home), [approval.name]: approval.key });
     }
     const advisor = { ...a, model };
     try {
