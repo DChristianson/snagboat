@@ -13,19 +13,19 @@ Three components do the collecting:
 
 | Component | What it does |
 | --- | --- |
-| **The hook script** (`~/.snagboat/bin/snagboat-hook`) | Run by Claude Code on each tool call, turn end and permission prompt. Forwards the event to whichever VS Code window has the project open, else to the core, else leaves it in a spool for the core's next start. Installed by VS Code, or by the Claude Code plugin. |
-| **A VS Code window** | By default each window collects its own workspace: it reads the transcripts and session logs, receives hooks and OpenTelemetry, and tracks file saves. With the core on, the window passes on only what the core can't see: its edits and Copilot's OpenTelemetry. |
-| **The core** (`snagboat serve`, preview) | With `snagboat.storage.perUserStore` on, or started by the Claude Code plugin: reads every Claude Code project's transcripts and every Copilot CLI session on this machine, plus the dev container folders you allow, and receives hooks that no window takes. |
+| **The hook script** (`~/.snagboat/bin/snagboat-hook`) | Run by Claude Code on each tool call, turn end and permission prompt. Forwards the event to the core, else leaves it in a spool for the core's next start. Installed by VS Code, or by the Claude Code plugin. |
+| **A VS Code window** | A client of the core: it passes on only what the core can't see, its edits and Copilot's OpenTelemetry, and shows its own workspace from the core. |
+| **The core** (`snagboat serve`) | Started by VS Code or the Claude Code plugin: reads every Claude Code project's transcripts and every Copilot CLI session on this machine, plus the dev container folders you allow, and receives the hooks. |
 
 ## Each place you chat
 
 | Where you chat | Captured by | Pulled from files | Pushed |
 | --- | --- | --- | --- |
-| **Claude Code in VS Code** (the Claude Code extension, in a local window) | The window, or the core with it on | Transcripts | Hooks |
-| **Claude Code in a terminal** | The core, or a VS Code window open on the project; nothing while neither is running, until one starts and reads the transcripts | Transcripts | Hooks, from the project's hook entry or from the Claude Code plugin |
+| **Claude Code in VS Code** (the Claude Code extension, in a local window) | The core, which the window starts | Transcripts | Hooks |
+| **Claude Code in a terminal** | The core; nothing while it isn't running, until it starts and reads the transcripts | Transcripts | Hooks, from the project's hook entry or from the Claude Code plugin |
 | **Claude Code in a dev container** | The core on the host, for folders you allow (`snagboat containers allow`) | Transcripts, once the container keeps them in the project (`.snagboat/claude-projects/`, see [cli.md](cli.md#dev-containers)) | Nothing: the hook entry runs inside the container, where there's no Snagboat, and does nothing |
-| **Copilot Agent mode in VS Code** | The window, or the core with it on | Copilot CLI session logs | Nothing: Agent mode sends no OpenTelemetry |
-| **Copilot inline and next-edit suggestions** | The window that owns the OpenTelemetry port | Nothing | OpenTelemetry, once you turn on Copilot's export ([usage.md](usage.md#copilot-setup)) |
+| **Copilot Agent mode in VS Code** | The core, which the window starts | Copilot CLI session logs | Nothing: Agent mode sends no OpenTelemetry |
+| **Copilot inline and next-edit suggestions** | The window that owns the OpenTelemetry port, which passes them to the core | Nothing | OpenTelemetry, once you turn on Copilot's export ([usage.md](usage.md#copilot-setup)) |
 | **Copilot in a dev container** | Not collected | Its session logs stay in the container | Its OpenTelemetry goes to an address inside the container, where nothing listens |
 
 A dev container window shows the Snagboat panel because VS Code runs Snagboat on the host side of the window; collection still happens on the host.
@@ -64,6 +64,6 @@ The hook entry follows the same pattern as the dev container changes, but costs 
 
 - Copilot in a dev container isn't collected.
 - In a dev container, Claude Code's hooks don't reach the host, so permission prompts aren't recorded there (transcripts cover the rest).
-- Sessions run while no VS Code window and no core were running reach Snagboat only from transcripts, so their permission prompts are missing.
+- Sessions run while no core was running reach Snagboat only from transcripts, so their permission prompts are missing.
 - Copilot's OpenTelemetry doesn't say which workspace it came from.
 - Collecting from a dev container means changing its shared configuration (above). Watching the container through Docker instead, reading the volume where many dev containers already keep `~/.claude`, would need no change to the project. So would collecting Claude Code's own OpenTelemetry, though that needs the container to reach the host. Both are being considered (bead `snagboat-05p`).

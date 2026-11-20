@@ -5,7 +5,7 @@ import * as path from 'path';
 import { NormalizedEvent, SessionSummary } from '@snagboat/schema';
 import { listUserStores, userDataDir, workspaceInfoOf } from '../userStore';
 import { liveCore, readCoreFile, removeCoreFile, removeCoreRoute, writeCoreFile, writeCoreRoute } from './coreFile';
-import { hookEvent, ingestHookSpool, openHookSpool } from './hooks';
+import { hookEvent, ingestHookSpool, openHookSpool, projectDirHeader } from './hooks';
 import { ClaudeCollector, defaultProjectsDir } from './claudeCollector';
 import { CopilotCollector } from './copilotCollector';
 import { isWithinFolders, withRealPaths } from '../paths';
@@ -13,7 +13,6 @@ import { collectedWorkspace, knownWorkspaceFolders } from './workspaces';
 import { ContainerCollectors } from './containerCollectors';
 import { CheckpointStore } from '../checkpointStore';
 import { effectiveSettings, loadConfig } from '../config';
-import { projectDirHeader } from '../../adapters/claude-code/hooksReceiver';
 import { isProcessAlive } from '../processes';
 import { RETENTION_INTERVAL_MS, StoreWriter } from './storeWriter';
 import { EventLog } from '../eventLog';
@@ -457,7 +456,7 @@ export class CoreService {
         captureContent: (cwd) => core.settingsFor(cwd).captureContent !== false,
         deliver: (events, cwd) => {
           core.lastActivity = Date.now();
-          // A window writing its folder itself reads the Copilot sessions started inside it: drop those.
+          // A window of an earlier Snagboat writing its folder itself reads the Copilot sessions started inside it: drop those.
           return core.writer.write(events, (e, claim) => {
             const folder = workspaceInfoOf(e.workspace!).folder;
             return !claim.hold && folder && isWithinFolders(cwd, withRealPaths([folder])) ? 'drop' : 'spool';

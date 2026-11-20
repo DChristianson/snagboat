@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { Host, host, setHost } from '../../core/host';
-import { hooksEnabledFor, resolveProjectDir, resolveWorkspaceFolders } from '../../adapters/claude-code/workspace';
+import { hooksEnabledFor, resolveWorkspaceFolders } from '../../adapters/claude-code/workspace';
 import { heuristicSettings, settingsRuleSource } from '../../heuristics/index';
 
 async function main() {
@@ -14,7 +14,6 @@ async function main() {
     assert.strictEqual(original.get('snagboat', 'copilot.otlpPort', 4318), 4318);
     assert.deepStrictEqual(original.section('snagboat.heuristics.loop'), {});
     assert.deepStrictEqual(resolveWorkspaceFolders(), []);
-    assert.strictEqual(resolveProjectDir(), undefined);
   });
 
   test('engine reads go through the installed host', () => {
@@ -34,7 +33,6 @@ async function main() {
     setHost(fake);
     try {
       assert.deepStrictEqual(resolveWorkspaceFolders(), ['/a', '/b']);
-      assert.strictEqual(resolveProjectDir(), '/a');
       assert.strictEqual(hooksEnabledFor('/a'), true);
       assert.strictEqual(hooksEnabledFor('/b'), false);
       assert.deepStrictEqual(heuristicSettings('tool-churn'), { threshold: 7 });

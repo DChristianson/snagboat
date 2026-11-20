@@ -6,11 +6,13 @@ import { EventLog } from './eventLog';
 import { userDataDir, WorkspaceInfo, workspaceStoreDir } from './userStore';
 
 /**
- * The copy-only migration from VS Code's per-window storage to the per-user
- * store (docs/design/handoff-3c.md, step 3c-1).
+ * The copy-only migration from VS Code's per-window storage, where earlier
+ * versions kept each window's data, to the per-user store
+ * (docs/design/handoff-3c.md, step 3c-1). A window runs it for its own store
+ * on each start; `snagboat migrate` runs it for every store at once.
  *
  * It copies and never moves or deletes: the VS Code stores are left exactly as
- * they were, so turning snagboat.storage.perUserStore off goes back to them.
+ * they were.
  * Events gain `workspace` and are deduplicated on eventId, so copying the same
  * store twice, or two stores of the same workspace (VS Code and Cursor), never
  * duplicates an event. A marker per source store records what was copied; a

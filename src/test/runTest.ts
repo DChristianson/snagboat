@@ -32,49 +32,39 @@ async function downloadVSCode(version: string, attempts = 3): Promise<string> {
 }
 
 /**
- * Runs the integration suite twice: with no setting changed (the per-user
- * store and the core, as a fresh install gets them), then with
- * snagboat.storage.perUserStore off, set in a private user settings folder, so
- * every test also passes against VS Code's per-window storage. Each run gets
- * fresh folders.
+ * Runs the integration suite with no setting changed, as a fresh install gets
+ * it: the window starts the core and is its client. Fresh folders each run.
  */
-async function runSuite(vscodeExecutablePath: string, perUserStore: boolean): Promise<void> {
+async function runSuite(vscodeExecutablePath: string): Promise<void> {
   const extensionDevelopmentPath = path.resolve(__dirname, '../../');
   const extensionTestsPath = path.resolve(__dirname, './suite/index');
 
   const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-workspace-'));
-  // Claude Code's projects folder: the window reads its own project's transcripts, or, as a
-  // client of the core (per-user store), the core reads every project's.
+  // Claude Code's projects folder, which the core reads; the suite writes the test workspace's transcripts in it.
   const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-projects-'));
   const transcriptsDir = path.join(projectsDir, sanitizeCwd(workspaceDir));
   fs.mkdirSync(transcriptsDir);
   const snagboatHome = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-home-'));
   const copilotSessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-copilot-sessions-'));
-  const launchArgs = [workspaceDir, '--disable-extensions'];
-  if (!perUserStore) {
-    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-user-data-'));
-    fs.mkdirSync(path.join(userDataDir, 'User'));
-    fs.writeFileSync(path.join(userDataDir, 'User', 'settings.json'), JSON.stringify({ 'snagboat.storage.perUserStore': false }));
-    launchArgs.push(`--user-data-dir=${userDataDir}`);
-  }
+  // VS Code's own user data, fresh each run (no state from an earlier run), and short: its IPC socket lives
+  // there, and a deep checkout's .vscode-test/user-data can pass the OS's limit on socket path length.
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-test-user-data-'));
 
-  console.log(`\n=== integration suite, ${perUserStore ? 'per-user store (the default)' : "VS Code's storage (snagboat.storage.perUserStore off)"}`);
   await runTests({
     vscodeExecutablePath,
     extensionDevelopmentPath,
     extensionTestsPath,
-    launchArgs,
-    // A private Snagboat home (hook routes and script, and the per-user store) and
+    launchArgs: [workspaceDir, '--disable-extensions', `--user-data-dir=${userDataDir}`],
+    // A private Snagboat home (the hook script, the per-user store and the core) and
     // alternate OTLP port, so this doesn't touch or collide with a real window you
     // might have open (~/.snagboat, port 4318).
     extensionTestsEnv: {
-      SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR: transcriptsDir,
+      SNAGBOAT_TEST_TRANSCRIPTS_DIR: transcriptsDir,
       SNAGBOAT_CLAUDE_PROJECTS_DIR: projectsDir,
       SNAGBOAT_HOME: snagboatHome,
       SNAGBOAT_COPILOT_SESSIONS_DIR: copilotSessionsDir,
       SNAGBOAT_COPILOT_DISCOVERY_MS: '500',
       SNAGBOAT_COPILOT_OTLP_PORT: '4319',
-      SNAGBOAT_TEST_PER_USER_STORE: perUserStore ? '1' : '',
     },
   }).finally(() => stopCore(snagboatHome));
 }
@@ -91,8 +81,7 @@ async function main() {
   try {
     // CI also tests the minimum supported VS Code (engines.vscode); default is the latest stable.
     const vscodeExecutablePath = await downloadVSCode(process.env.SNAGBOAT_TEST_VSCODE_VERSION || 'stable');
-    await runSuite(vscodeExecutablePath, true);
-    await runSuite(vscodeExecutablePath, false);
+    await runSuite(vscodeExecutablePath);
   } catch (err) {
     console.error('Failed to run tests', err);
     process.exit(1);

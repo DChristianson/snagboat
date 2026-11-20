@@ -164,7 +164,7 @@
           "type": "boolean",
           "default": true,
           "scope": "resource",
-          "markdownDescription": "With the per-user store on, the core service reads this project's git history (read-only: `git log`, `git show`, `git blame`) to record what became of commits made in a session: whether each was kept or reverted after 7 days, how many of its lines survive after 7 and 30 days, and whether it was a milestone (made after the session's tests last passed). Commit ids, counts and times only; no code. Off stops it for this project. A project's `.snagboat.json` can turn it off, not on."
+          "markdownDescription": "The core service reads this project's git history (read-only: `git log`, `git show`, `git blame`) to record what became of commits made in a session: whether each was kept or reverted after 7 days, how many of its lines survive after 7 and 30 days, and whether it was a milestone (made after the session's tests last passed). Commit ids, counts and times only; no code. Off stops it for this project. A project's `.snagboat.json` can turn it off, not on."
         },
         "snagboat.captureContent": {
           "type": "boolean",
@@ -195,16 +195,10 @@
           "minimum": 1,
           "markdownDescription": "Days captured prompts and reply excerpts are kept, counting today. Older events keep everything else, with the text removed. Capped at `#snagboat.retention.rawDays#`. The default matches how long Claude Code keeps its own transcripts."
         },
-        "snagboat.storage.perUserStore": {
-          "type": "boolean",
-          "default": true,
-          "scope": "application",
-          "markdownDescription": "Keep Snagboat's data in one per-user store, `~/.snagboat/data` (one folder per workspace, with saved rules in `~/.snagboat/rules.json`), instead of VS Code's storage for each window. On by default. The first start with it on copies the window's existing data there; nothing is moved or deleted, so turning it off goes back to the data in VS Code's storage as it was, without what was recorded while it was on. With it on, VS Code starts Snagboat's core service, which records Claude Code and Copilot CLI sessions in **every project on this machine**, not only folders open in VS Code (see PRIVACY.md; `\"collect.unopened\": false` in `~/.snagboat/config.json` limits it to projects VS Code knows), and each window shows its own workspace from it. Set it in User settings (it is not offered under Workspace); it applies to every window. Takes effect when the window reloads."
-        },
         "snagboat.copilot.captureStructure": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Development aid: record the *structure* of the telemetry Copilot sends (span names, parent links, timings, attribute names, and numeric values such as token counts) to Snagboat's global storage, for mapping Copilot's spans to Snagboat events. Every text value is replaced by its length, so no prompts, replies, arguments, or paths are recorded. Summarize with `npm run summarize:copilot` in the Snagboat repo."
+          "markdownDescription": "Development aid: record the *structure* of the telemetry Copilot sends (span names, parent links, timings, attribute names, and numeric values such as token counts) to `~/.snagboat/data/copilot-structure/`, for mapping Copilot's spans to Snagboat events. Every text value is replaced by its length, so no prompts, replies, arguments, or paths are recorded. Summarize with `npm run summarize:copilot` in the Snagboat repo."
         },
         "snagboat.copilot.otlpPort": {
           "type": "number",

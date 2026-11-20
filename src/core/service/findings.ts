@@ -257,7 +257,7 @@ export class FindingsService {
     return watch;
   }
 
-  /** An ended episode as a finding_response outcome, as a window writing its own folder records it. */
+  /** An ended episode as a finding_response outcome. */
   private recordResponse(watch: Watch, episode: ResponseEpisode, refs: string[]): void {
     const endedAt = episode.endedAt;
     if (!endedAt || !this.opts.record) return;

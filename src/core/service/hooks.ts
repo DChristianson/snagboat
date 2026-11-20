@@ -7,16 +7,28 @@ import { isProcessAlive } from '../processes';
 import { userDataDir } from '../userStore';
 
 /**
- * Claude Code hooks at the core (3c-2b). The hook script tries the VS Code
- * window that routes the project first, as before; with none, or one that
- * refuses it, it posts to the core through ~/.snagboat/core.route; and with no
- * core running, it leaves the payload in the hook spool, which the core reads
- * when it starts. A window that's a client of the core (3c-3c) publishes no
- * route, so for its projects the script goes straight to the core.
+ * Claude Code hooks at the core (3c-2b). The hook script (hookRoutes.ts) posts
+ * them to the core through ~/.snagboat/core.route; with no core running, it
+ * leaves the payload in the hook spool, which the core reads when it starts.
+ * VS Code windows receive no hooks: they only add the hook entries.
  *
  * The core records a hook under the workspace its project belongs to
  * (workspaces.ts): every project, unless its settings say not to.
  */
+
+/**
+ * The project dir the hook script sent. Header values arrive as raw bytes read
+ * as latin1, so re-decode them as UTF-8 for non-ASCII paths. On Windows the
+ * script sends it hex-encoded instead (X-Snagboat-Project-Dir-Hex): curl there
+ * takes its arguments in the ANSI code page, which mangles non-ASCII
+ * characters, while hex digits survive any encoding.
+ */
+export function projectDirHeader(value: string | string[] | undefined, hex: string | string[] | undefined): string | undefined {
+  const hexRaw = Array.isArray(hex) ? hex[0] : hex;
+  if (hexRaw !== undefined && /^([0-9a-f]{2})+$/i.test(hexRaw)) return Buffer.from(hexRaw, 'hex').toString('utf8');
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw === undefined ? undefined : Buffer.from(raw, 'latin1').toString('utf8');
+}
 
 export function hookSpoolDir(home: string): string {
   return path.join(userDataDir(home), 'spool', 'hooks');

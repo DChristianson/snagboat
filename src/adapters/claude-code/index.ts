@@ -1,157 +1,57 @@
 import { AgentAdapter, AdapterContext } from '@snagboat/schema';
-import { TranscriptTailer } from './transcriptTail';
-import { HooksReceiver } from './hooksReceiver';
 import { buildHookCommand, ensureHooksConfigured } from './hooksConfig';
-import { keepCheckpointEntry, withRealPaths } from '../../core/paths';
-import { hooksEnabledFor, onHooksSettingChanged, onWorkspaceFoldersChanged, resolveTranscriptsDir, resolveWorkspaceFolders } from './workspace';
-import { installHookScript, newToken, pruneStaleRoutes, removeRoutes, Route, snagboatHome, updateRoutes, writeRoutes } from './hookRoutes';
-import { SeenMessages, TurnTracker } from './normalize';
-import { CheckpointStateV2, readCheckpointState } from './checkpointState';
-import { isCopilotSession } from '../copilot/cliSessions';
+import { hooksEnabledFor, onHooksSettingChanged, onWorkspaceFoldersChanged, resolveWorkspaceFolders } from './workspace';
+import { installHookScript, snagboatHome } from './hookRoutes';
 
+/**
+ * Claude Code in a VS Code window. The core reads every project's transcripts
+ * and receives the hooks (core/service/claudeCollector.ts, hooks.ts); the
+ * window only installs the hook script and adds its hook entries to its
+ * folders' .claude/settings.json, so the script sends them to the core
+ * (core.route). It publishes no events of its own.
+ */
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly agentId = 'claude-code' as const;
 
-  /**
-   * With collect off (a window that's a client of the core, 3c-3c) the window
-   * reads no transcripts and receives no hooks: the core does both. It still
-   * installs the hook script and adds hooks to its folders' .claude/settings.json,
-   * which the script then sends to the core (core.route).
-   */
-  constructor(private readonly opts: { collect?: boolean } = {}) {}
-
-  private get collects(): boolean {
-    return this.opts.collect ?? true;
-  }
-
   private ctx?: AdapterContext;
-  private offsets = new Map<string, number>();
-  private seen = new SeenMessages();
-  private turns = new TurnTracker();
-  private transcriptTailer?: TranscriptTailer;
-  private hooksReceiver?: HooksReceiver;
-  private routedFolders: string[] = [];
-  /** Set once hooks are routed: what a folder added later needs to be routed and configured. */
-  private hookSetup?: { home: string; route: Route; command: string };
-  private hookFolders: string[] = [];
-  /** A client window's hook command (it has no hookSetup). */
   private hookCommand?: string;
+  private hookFolders: string[] = [];
   private folderWatch?: { dispose(): void };
   private settingWatch?: { dispose(): void };
   private folderUpdates: Promise<void> = Promise.resolve();
 
   async init(ctx: AdapterContext): Promise<void> {
     this.ctx = ctx;
-    const checkpoint = await ctx.readCheckpoint();
-    // Entries for transcripts Claude Code has since deleted (its own cleanup) are dropped.
-    const { offsets, seen, turns } = readCheckpointState(checkpoint?.state, keepCheckpointEntry(resolveTranscriptsDir()));
-    this.offsets = offsets;
-    this.seen = seen;
-    this.turns = turns;
   }
 
   async start(): Promise<void> {
     if (!this.ctx) throw new Error('ClaudeCodeAdapter.start() called before init()');
-
-    if (this.collects) {
-      this.transcriptTailer = new TranscriptTailer(this.ctx, resolveTranscriptsDir(), this.offsets, this.seen, () => this.persistCheckpoint(), undefined, { turns: this.turns });
-      this.transcriptTailer.start();
-      await this.startHooks(this.ctx);
-    } else {
-      await this.configureHooksOnly(this.ctx);
-    }
+    await this.configureHooks();
+    // A folder added to an open window gets its hooks without a reload.
     this.folderWatch = onWorkspaceFoldersChanged(() => {
-      this.folderUpdates = this.folderUpdates.then(() => this.updateHookFolders());
+      this.folderUpdates = this.folderUpdates.then(() => this.configureHooks());
     });
     this.settingWatch = onHooksSettingChanged(() => {
       this.folderUpdates = this.folderUpdates.then(() => this.configureEnabledFolders());
     });
   }
 
-  /**
-   * Starts this window's hook receiver on a free port and publishes routes for
-   * its workspace folders, so the shared hook script delivers each Claude Code
-   * project's hooks here and nowhere else (see hookRoutes.ts).
-   */
-  private async startHooks(ctx: AdapterContext): Promise<void> {
-    const workspaceFolders = resolveWorkspaceFolders();
-    if (workspaceFolders.length === 0) {
-      ctx.reportHealth('hooks', 'no workspace folder open, hooks were not configured');
-      return;
-    }
-    const folders = withRealPaths(workspaceFolders);
-    try {
-      const home = snagboatHome();
-      pruneStaleRoutes(home);
-      const scriptPath = installHookScript(home);
-      const token = newToken();
-      this.hooksReceiver = new HooksReceiver(ctx, {
-        token,
-        workspaceFolders: folders,
-        turnFallback: (sessionId) => this.turns.latestTurnForSession(sessionId),
-        // Copilot runs these same hooks; its sessions come from its own log, with these tool calls and turn ends already in it.
-        ignoreSession: (sessionId) => isCopilotSession(sessionId),
-      });
-      const port = await this.hooksReceiver.start();
-      const route = { port, token, pid: process.pid };
-      writeRoutes(home, folders, route);
-      this.routedFolders = folders;
-      const command = buildHookCommand(scriptPath);
-      this.hookSetup = { home, route, command };
-      this.hookFolders = workspaceFolders;
-      for (const folder of workspaceFolders) if (hooksEnabledFor(folder)) await ensureHooksConfigured(folder, command);
-      ctx.reportHealth('hooks', undefined);
-    } catch (err) {
-      ctx.reportHealth('hooks', `hook routing not set up: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  /** A client window: the hook script and settings.json entries, no receiver or routes. */
-  private async configureHooksOnly(ctx: AdapterContext): Promise<void> {
+  /** The hook script and settings.json entries for each folder that wants them. A removed folder's entries stay. */
+  private async configureHooks(): Promise<void> {
     try {
       const command = buildHookCommand(installHookScript(snagboatHome()));
       this.hookCommand = command;
       this.hookFolders = resolveWorkspaceFolders();
       for (const folder of this.hookFolders) if (hooksEnabledFor(folder)) await ensureHooksConfigured(folder, command);
-      ctx.reportHealth('hooks', undefined);
+      this.ctx?.reportHealth('hooks', undefined);
     } catch (err) {
-      ctx.reportHealth('hooks', `hooks not configured: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  /**
-   * Re-routes hooks when workspace folders are added or removed, so a folder
-   * added to an open window gets its hooks without a reload. A removed
-   * folder's .claude/settings.json keeps its hook entry, which another window
-   * may still be using.
-   */
-  private async updateHookFolders(): Promise<void> {
-    if (!this.ctx) return;
-    if (!this.collects) return this.configureHooksOnly(this.ctx);
-    if (!this.hookSetup) {
-      // No folder was open at activation, so hooks were never set up.
-      if (!this.hooksReceiver) await this.startHooks(this.ctx);
-      return;
-    }
-    const { home, route, command } = this.hookSetup;
-    const workspaceFolders = resolveWorkspaceFolders();
-    const folders = withRealPaths(workspaceFolders);
-    try {
-      this.hooksReceiver?.setWorkspaceFolders(folders);
-      updateRoutes(home, this.routedFolders, folders, route);
-      this.routedFolders = folders;
-      const added = workspaceFolders.filter((f) => !this.hookFolders.includes(f));
-      this.hookFolders = workspaceFolders;
-      for (const folder of added) if (hooksEnabledFor(folder)) await ensureHooksConfigured(folder, command);
-      this.ctx.reportHealth('hooks', undefined);
-    } catch (err) {
-      this.ctx.reportHealth('hooks', `hook routing not updated for changed folders: ${err instanceof Error ? err.message : String(err)}`);
+      this.ctx?.reportHealth('hooks', `hooks not configured: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   /** Adds hooks to folders where snagboat.claudeCode.configureHooks was turned back on. */
   private async configureEnabledFolders(): Promise<void> {
-    const command = this.hookSetup?.command ?? this.hookCommand;
+    const command = this.hookCommand;
     if (!command) return;
     try {
       for (const folder of this.hookFolders) if (hooksEnabledFor(folder)) await ensureHooksConfigured(folder, command);
@@ -163,19 +63,5 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   async stop(): Promise<void> {
     this.folderWatch?.dispose();
     this.settingWatch?.dispose();
-    this.transcriptTailer?.stop();
-    removeRoutes(snagboatHome(), this.routedFolders, process.pid);
-    this.routedFolders = [];
-    this.hooksReceiver?.stop();
-  }
-
-  private persistCheckpoint(): void {
-    const state: CheckpointStateV2 = {
-      version: 2,
-      offsets: Object.fromEntries(this.offsets),
-      recentMessageIds: this.seen.snapshot(),
-      lastTurnByFile: this.turns.snapshot(),
-    };
-    void this.ctx?.writeCheckpoint({ updatedAt: new Date().toISOString(), state: { ...state } });
   }
 }

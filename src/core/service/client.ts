@@ -11,9 +11,8 @@ import { ensureCore, findCore } from './lifecycle';
 import { spoolDir } from './storeWriter';
 
 /**
- * A front door's connection to the core for one workspace (3c-3c: a VS Code
- * window with snagboat.storage.perUserStore on). The core collects and writes;
- * the client
+ * A front door's connection to the core for one workspace (3c-3c: every VS
+ * Code window is one). The core collects and writes; the client
  *
  *   - follows the workspace's live feed (GET /events/stream), reconnecting,
  *     and starting the core again if it went away unexpectedly; a reconnect
@@ -91,6 +90,22 @@ export class CoreClient {
     return client;
   }
 
+  /**
+   * Like connect, but a core that can't be started or used now (an older one
+   * is running, say) isn't the end: the client comes back with the error, and
+   * once following, keeps trying as it does after losing the core. Until then
+   * its posts are spooled for the next core to pick up.
+   */
+  static async connectOrRetry(opts: CoreClientOptions): Promise<{ client: CoreClient; error?: unknown }> {
+    const client = new CoreClient(opts);
+    try {
+      await client.authorize(await client.ensure());
+      return { client };
+    } catch (error) {
+      return { client, error };
+    }
+  }
+
   private ensure(): Promise<CoreInfo> {
     return (this.opts.ensure ?? (() => ensureCore(this.opts.home, this.opts.cliPath)))();
   }
@@ -112,11 +127,6 @@ export class CoreClient {
     this.token = (res.body as { token: string }).token;
   }
 
-  /** The running core's pid (for the status of this window's storage). */
-  get corePid(): number {
-    return this.info.pid;
-  }
-
   /**
    * Follows the live feed. changedSince: when what the caller already has was
    * read; day files changed after it are replayed first.
@@ -124,7 +134,8 @@ export class CoreClient {
   follow(handlers: StreamHandlers, changedSince: string): void {
     this.handlers = handlers;
     this.upTo = changedSince;
-    this.open();
+    if (this.info) this.open();
+    else this.retryLater('not connected yet', false);
   }
 
   private open(): void {
@@ -221,12 +232,12 @@ export class CoreClient {
   private reconnect(unauthorized: boolean): Promise<void> {
     this.connecting ??= (async () => {
       try {
-        const pid = this.info.pid;
+        const was = this.info as CoreInfo | undefined;
         // Stopped on purpose: only a core someone else starts. Otherwise start one if it's gone.
         const info = this.coreStopped ? await this.find() : await this.ensure();
         if (!info) throw new Error('no core running');
-        // A new core knows no token minted by the old one.
-        if (unauthorized || info.pid !== pid || info.port !== this.info.port) await this.authorize(info);
+        // A new core knows no token minted by the old one (and one never connected has none).
+        if (unauthorized || !was || info.pid !== was.pid || info.port !== was.port) await this.authorize(info);
         this.open();
       } catch (err) {
         this.retryLater(err instanceof Error ? err.message : String(err), unauthorized);
@@ -239,6 +250,8 @@ export class CoreClient {
 
   /** A request with this client's token; on a 401 (the core restarted), one more try with a new token. */
   private async request401(method: string, urlPath: string, body: unknown, timeoutMs?: number) {
+    // Never connected yet: as if no core answered.
+    if (!this.info) throw Object.assign(new Error('not connected to the core yet'), { code: 'ECONNREFUSED' });
     let res = await coreRequest(this.info.port, this.token, method, urlPath, body, timeoutMs);
     if (res.status === 401) {
       const info = await this.find();

@@ -99,16 +99,11 @@ suite('Snagboat core plumbing', () => {
     assert.ok(!api.getFindings().some((f) => f.heuristicId === 'stalled'), 'stalled should not fire right after recent activity');
   });
 
-  test('events are written to the store the storage setting picks', async () => {
+  test('events are written to the per-user store, by the core', async () => {
     const home = process.env.SNAGBOAT_HOME;
     assert.ok(home, 'SNAGBOAT_HOME must be set by runTest.ts');
     const workspacesDir = path.join(home!, 'data', 'workspaces');
     await vscode.commands.executeCommand('snagboat._emitTestEvent');
-    if (!process.env.SNAGBOAT_TEST_PER_USER_STORE) {
-      // Off: nothing is written to the per-user store.
-      assert.ok(!fs.existsSync(path.join(home!, 'data')), 'the per-user store is untouched with the setting off');
-      return;
-    }
     const folder = vscode.workspace.workspaceFolders![0].uri.fsPath;
     const tagged = () => {
       if (!fs.existsSync(workspacesDir)) return false;
@@ -124,22 +119,19 @@ suite('Snagboat core plumbing', () => {
     };
     await waitFor(tagged);
     // The window is a client: the core writes the folder, and the window claims nothing (3c-3c).
-    assert.strictEqual(api.getStorageMode(), 'core', 'the window started the core and follows it');
     const claims = fs.readdirSync(workspacesDir).map((key) => path.join(workspacesDir, key, 'writer.json')).filter((f) => fs.existsSync(f));
     assert.deepStrictEqual(claims, [], 'no claim');
     const core = JSON.parse(fs.readFileSync(path.join(home!, 'core.json'), 'utf8'));
     assert.notStrictEqual(core.pid, process.pid, 'the core runs in its own process');
   });
 
-  test("the window marks its VS Code storage folder with its workspace, whichever store the setting picks", () => {
+  test("nothing is written to VS Code's storage for the window", () => {
     const dir = api.getVsCodeStorageDir();
     assert.ok(dir, 'the test window has a folder open, so it has workspace storage');
-    const marker = JSON.parse(fs.readFileSync(path.join(dir!, 'snagboat-workspace.json'), 'utf8'));
-    assert.deepStrictEqual(marker, { folder: vscode.workspace.workspaceFolders![0].uri.fsPath });
+    assert.ok(!fs.existsSync(dir!), 'no events, aggregates or checkpoints there (a fresh install has no old store to mark)');
   });
 
-  test("with the per-user store on, the window copies Snagboat's settings into ~/.snagboat/config.json", async function () {
-    if (!process.env.SNAGBOAT_TEST_PER_USER_STORE) return this.skip();
+  test("the window copies Snagboat's settings into ~/.snagboat/config.json", async () => {
     const configFile = path.join(process.env.SNAGBOAT_HOME!, 'config.json');
     const folder = vscode.workspace.workspaceFolders![0].uri.fsPath;
     const project = () => {
@@ -159,8 +151,7 @@ suite('Snagboat core plumbing', () => {
     await waitFor(() => project() === undefined, 8000);
   });
 
-  test('a setting changed in config.json outside VS Code (the advisor UI applying a threshold) comes into its settings', async function () {
-    if (!process.env.SNAGBOAT_TEST_PER_USER_STORE) return this.skip();
+  test('a setting changed in config.json outside VS Code (the advisor UI applying a threshold) comes into its settings', async () => {
     const configFile = path.join(process.env.SNAGBOAT_HOME!, 'config.json');
     const key = 'heuristics.stalled.maxMinutes';
     const user = () => vscode.workspace.getConfiguration('snagboat').inspect<number>(key)?.globalValue;
@@ -198,9 +189,9 @@ suite('Snagboat core plumbing', () => {
     assert.strictEqual(api.getAggregateSnapshot().localEditCount, before + 1);
   });
 
-  test('a synthetic Claude Code transcript line is picked up by the transcript-tail path', async () => {
-    const transcriptsDir = process.env.SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR;
-    assert.ok(transcriptsDir, 'SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR must be set by runTest.ts');
+  test('a synthetic Claude Code transcript line is picked up by the core and reaches the window', async () => {
+    const transcriptsDir = process.env.SNAGBOAT_TEST_TRANSCRIPTS_DIR;
+    assert.ok(transcriptsDir, 'SNAGBOAT_TEST_TRANSCRIPTS_DIR must be set by runTest.ts');
 
     const beforeTokens = api.getAggregateSnapshot().perAgent['claude-code']?.tokens.input ?? 0;
 
@@ -224,7 +215,7 @@ suite('Snagboat core plumbing', () => {
   });
 
   test('a Claude Code message split across transcript lines is counted once', async () => {
-    const transcriptsDir = process.env.SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR!;
+    const transcriptsDir = process.env.SNAGBOAT_TEST_TRANSCRIPTS_DIR!;
     const before = api.getAggregateSnapshot().perAgent['claude-code']?.tokens.output ?? 0;
 
     // Real transcripts write one line per content block, each repeating the
@@ -253,7 +244,7 @@ suite('Snagboat core plumbing', () => {
     assert.strictEqual(api.getAggregateSnapshot().perAgent['claude-code'].tokens.output, before + 11);
   });
 
-  test('a Claude Code hook reaches this window through the routing script, and only with its token', async () => {
+  test('a Claude Code hook reaches the core through the hook script, and only with its token', async () => {
     const home = process.env.SNAGBOAT_HOME;
     assert.ok(home, 'SNAGBOAT_HOME must be set by runTest.ts');
     const folder = vscode.workspace.workspaceFolders![0].uri.fsPath;
@@ -278,10 +269,10 @@ suite('Snagboat core plumbing', () => {
     await waitFor(() => toolCalls() > before);
     assert.strictEqual(toolCalls(), before + 1);
 
-    // The same payload without the token is rejected (the token check comes first). A client
-    // window publishes no route of its own: the script sends hooks to the core (core.route).
-    const routeFile = api.getStorageMode() === 'core' ? path.join(home!, 'core.route') : path.join(home!, 'routes', folder.replace(/\//g, '-'));
-    const [port] = fs.readFileSync(routeFile, 'utf8').trim().split(' ');
+    // The same payload without the token is rejected (the token check comes first). The window
+    // receives no hooks itself and publishes no route: the script sends hooks to the core (core.route).
+    assert.ok(!fs.existsSync(path.join(home!, 'routes')), 'no window routes');
+    const [port] = fs.readFileSync(path.join(home!, 'core.route'), 'utf8').trim().split(' ');
     const status = await postJsonStatus(Number(port), '/hook', payload);
     assert.strictEqual(status, 401);
 
@@ -320,7 +311,7 @@ suite('Snagboat core plumbing', () => {
     assert.strictEqual(api.getAggregateSnapshot().perAgent['copilot'].tokens.input, before + 9);
   });
 
-  test('a Copilot agent session started in this workspace is read from its session log', async () => {
+  test('a Copilot agent session started in this workspace is read from its session log by the core', async () => {
     const base = process.env.SNAGBOAT_COPILOT_SESSIONS_DIR;
     assert.ok(base, 'SNAGBOAT_COPILOT_SESSIONS_DIR must be set by runTest.ts');
     const folder = vscode.workspace.workspaceFolders![0].uri.fsPath;
@@ -390,12 +381,7 @@ suite('Snagboat core plumbing', () => {
     await vscode.commands.executeCommand('snagboat.findings.focus');
   });
 
-  test("the findings view and status bar link to an advisor's waiting proposals (counts only, from the core)", async function () {
-    if (api.getStorageMode() !== 'core') {
-      // Without the core there are no period reports to read; nothing shows.
-      assert.deepStrictEqual(api.getFindingsViewState().proposals, []);
-      return this.skip();
-    }
+  test("the findings view and status bar link to an advisor's waiting proposals (counts only, from the core)", async () => {
     const home = process.env.SNAGBOAT_HOME!;
     // One period report for Purser whose latest revision proposes one change you haven't marked.
     const dir = path.join(home, 'advisors', 'purser');

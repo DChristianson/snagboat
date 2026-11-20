@@ -103,7 +103,7 @@ under the host's `~/.snagboat`, which doesn't exist in here, so in the
 container it does nothing; Snagboat follows this container's sessions from
 their transcripts instead, a few seconds behind.
 
-To turn it on, on the host, with `snagboat.storage.perUserStore` on:
+To turn it on, on the host:
 
 ```bash
 snagboat containers allow ~/code/snagboat    # your checkout's path

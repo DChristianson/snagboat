@@ -6,9 +6,8 @@ import { baseCategory, commandPrefix, NormalizedEvent } from '@snagboat/schema';
  * or more times in the same session becomes a tests_green outcome, naming the first failure and the
  * run that passed, with how many failed and how long it took.
  *
- * Whoever writes a workspace's events runs it over them as they arrive: the
- * core, or a window writing its own folder. It remembers only failures not yet
- * followed by a pass, per session, in memory; a failure from before a restart
+ * The core, which writes every workspace's events, runs it over them as they
+ * arrive. It remembers only failures not yet followed by a pass, per session, in memory; a failure from before a restart
  * isn't remembered, so that green goes unrecorded. "The same command" is its
  * runner and subcommand (`npm test`, `cargo test`, `pytest`), so a build or
  * typecheck passing doesn't turn a failing test suite green. Its eventId is derived from

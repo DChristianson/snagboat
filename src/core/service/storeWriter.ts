@@ -131,7 +131,7 @@ export class StoreWriter {
     for (const [workspace, list] of byWorkspace) {
       const claim = claimOf(workspaceStoreDir(this.home, workspace));
       if (claim) {
-        // A window writes this folder: forget what we knew of it (the window changes it), and spool or drop.
+        // Another process writes or holds this folder: forget what we knew of it (it changes it), and spool or drop.
         this.stores.delete(workspace);
         const spool = list.filter((e) => onClaimed(e, claim) === 'spool');
         if (spool.length > 0) await this.spool(workspace, spool);

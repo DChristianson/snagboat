@@ -161,8 +161,8 @@ async function summaries(stores: Store[]): Promise<Array<SessionSummary & { stor
 
 /**
  * The stores --store picks. Without it, the per-user store's once it has events
- * (where the core and windows with snagboat.storage.perUserStore write, dev
- * containers' sessions included), else VS Code's. SNAGBOAT_STORE overrides both.
+ * (where the core writes, dev containers' sessions included), else the ones
+ * earlier versions left in VS Code's storage. SNAGBOAT_STORE overrides both.
  */
 function storesOf(kind: Options['store']): Store[] {
   if (process.env.SNAGBOAT_STORE || kind === 'vscode') return findStores();
@@ -377,7 +377,7 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       const home = userHome();
       const info = await findCore(home);
       if (!info) {
-        io.err('the core isn\'t running; start it with `snagboat core start` (or open the folder in VS Code with snagboat.storage.perUserStore on)\n');
+        io.err('the core isn\'t running; start it with `snagboat core start` (or open the folder in VS Code)\n');
         return 1;
       }
       const stores = selectStores(findUserStores(), cwd, parsed.all).filter((st) => st.workspace);
