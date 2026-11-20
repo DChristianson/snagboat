@@ -48,6 +48,16 @@ RUN set -eu; \
     install -m 0755 /tmp/bd /usr/local/bin/bd; \
     rm -f "/tmp/$f" /tmp/bd
 
+# ---- node_modules volume -----------------------------------------------------
+# devcontainer.json mounts a named volume over <project>/node_modules. An empty
+# volume takes its owner from this directory in the image (otherwise it would
+# be root's, and with no sudo the vscode user could never write to it).
+ARG WORKSPACE
+RUN if [ -n "$WORKSPACE" ]; then \
+      mkdir -p "$WORKSPACE/node_modules" \
+      && chown vscode:vscode "$WORKSPACE/node_modules"; \
+    fi
+
 # ---- Lock down the dev user --------------------------------------------------
 # The base image gives "vscode" passwordless sudo. Remove it so nothing running
 # as that user (the agent, bd, bd's repo hooks) can become root.

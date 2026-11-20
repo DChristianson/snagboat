@@ -37,8 +37,8 @@ JetBrains and the `devcontainer` CLI read it too.
 | File | Job |
 |---|---|
 | `Dockerfile` | Debian + git, curl, jq, ripgrep; the libraries and virtual display (`xvfb`) VS Code needs for `npm test`; **bd** pinned to a verified release; **Claude Code**; removes `sudo` |
-| `devcontainer.json` | Node 24 and the GitHub CLI (as features), security options, Claude login volume, env vars, setup hooks, VS Code extension |
-| `post-create.sh` | Runs once at creation: prints tool versions, turns bd metrics off |
+| `devcontainer.json` | Node 24 and the GitHub CLI (as features), security options, Claude login volume, `node_modules` volume, env vars, setup hooks, VS Code extension |
+| `post-create.sh` | Runs once at creation: prints tool versions, turns bd metrics off, runs `npm ci` into the `node_modules` volume |
 | `init-project.sh` | Run once by hand: `git init` + `bd init --skip-hooks` |
 | `check-host-safety.sh` | Runs on every start: warns if git hooks have been configured (see below) |
 | `postStartCommand` | Also marks the project folder as a git `safe.directory` on every start: the folder is mounted from the host, so its owner isn't the container's user, and git, `gh` and `bd` would otherwise refuse to use it ("detected dubious ownership") |
@@ -53,8 +53,15 @@ JetBrains and the `devcontainer` CLI read it too.
 3. In the container's terminal:
    ```bash
    claude        # log in once; the login is kept in a Docker volume
-   npm install
    ```
+   `npm ci` has already run, during creation.
+
+`node_modules` in the container is a Docker volume of its own, not the
+host's folder: some packages (TypeScript 7's native compiler, esbuild) ship
+one binary per platform, so a `node_modules` installed on the Mac doesn't run
+in Linux and the other way round. Run `npm ci` on each side separately; the
+two never touch. A rebuild keeps the volume; delete it in Docker Desktop
+(`snagboat-node-modules-…`) to start clean.
 
 ## Building and testing snagboat
 
