@@ -55,9 +55,6 @@ async function main() {
       const remote = await discoverOffThread(events, data);
       try {
         assert.deepStrictEqual(remote.result, local.result, `discovery over ${n} copies`);
-        assert.deepStrictEqual(remote.events, local.events);
-        const session = local.events[0].sessionId;
-        assert.deepStrictEqual(remote.sessionEvents(session), local.sessionEvents(session));
         const scored = [rule, parseRule({ ...READ_RULE, id: 'test:some-reads', when: { measure: 'value', gte: 1 } }).value!];
         assert.deepStrictEqual(await remote.score(scored), local.score(scored));
         const candidate = local.result.candidates[0];

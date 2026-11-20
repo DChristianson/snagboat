@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as os from 'os';
-import { AdvisorConfig, approvalFor, Capability, CAPABILITY_LABELS, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from '../../advisor/advisors';
+import { AdvisorConfig, approvalFor, Capability, CAPABILITY_LABELS, defaultAdvisorId, isApproved, parseAdvisors } from '../../advisor/advisors';
 import { PromptLayers, resolvePrompts } from '../../advisor/prompts';
 import { ChatMessage, complete, completionBody, Completion, FetchLike, listModels } from '../../advisor/providers';
 import { DigestPolicy } from '../../advisor/digest';
@@ -79,12 +79,7 @@ export class CoreAdvisors {
 
   private defaultId(ability: Capability): string {
     const d = loadConfig(this.home).config.defaults;
-    const defaults = d['advisor.defaults'];
-    const set = defaults && typeof defaults === 'object' ? (defaults as Record<string, unknown>)[ability] : undefined;
-    if (typeof set === 'string' && set.trim()) return set.trim();
-    const legacy = Object.entries(LEGACY_DEFAULT_SETTINGS).find(([, c]) => c === ability)?.[0];
-    const old = legacy ? d[`advisor.${legacy}`] : undefined;
-    return typeof old === 'string' && old ? old : 'local';
+    return defaultAdvisorId(ability, d['advisor.defaults'], (setting) => d[`advisor.${setting}`]);
   }
 
   /** The request waiting for your approval, if any. */
@@ -144,7 +139,8 @@ export class CoreAdvisors {
     const body = completionBody(model, messages, opts.json);
     // Most abilities share the advisor's one approval; setting up an advisor has its own (advisors.ts SEPARATELY_APPROVED).
     const approval = approvalFor(a, ability);
-    const approved = () => readApprovals(this.home)[approval.name] === approval.key;
+    // An approval given before snagboat-79f.7.12 retired abilities still counts (advisors.ts isApproved).
+    const approved = () => isApproved(readApprovals(this.home), a, ability);
     // One request waits for approval at a time. Another one waits behind it, and goes without asking if
     // that answer approved the same address and sending rules (Ask for a report now on a new advisor also
     // answers its overdue scheduled report: snagboat-79f.7.20).

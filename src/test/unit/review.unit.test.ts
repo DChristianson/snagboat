@@ -2,26 +2,14 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { NormalizedEvent } from '@snagboat/schema';
-import { builtInHeuristics } from '../../heuristics/builtIns';
 import { ReplayEpisode } from '../../heuristics/replay';
 import { episodeResponse, ResponseEpisode, ResponseLog, ResponseTracker, responseStats } from '../../heuristics/responses';
 import { Finding } from '../../heuristics/types';
 import { momentsFrom, presentationChecks, snapshotAt } from '../../review/presentation';
-import { heuristicEffectiveness } from '../../review/effectiveness';
-import { buildReview, isoWeek, renderReview } from '../../review/review';
-import { proposeNudgesMessages } from '../../advisor/proposeNudges';
-import { advisorSection, summarizeWeekMessages } from '../../advisor/summarizeWeek';
 
 const at = (min: number) => new Date(Date.UTC(2026, 0, 5, 0, 0) + min * 60_000).toISOString();
 const finding = (heuristicId: string, severity: 'info' | 'warn' = 'info'): Finding => ({ heuristicId, severity, summary: `/secret/path.ts in ${heuristicId}`, eventRefs: [], detectedAt: at(0) });
 const episode = (heuristicId: string, severity: 'info' | 'warn', start: number, end: number): ReplayEpisode => ({ heuristicId, severity, summary: '/secret/path.ts', startTs: at(start), endTs: at(end), eventRefs: [], open: false });
-
-let seq = 0;
-function ev(sessionId: string, turnId: string, min: number, overrides: Partial<NormalizedEvent> & Pick<NormalizedEvent, 'kind'>): NormalizedEvent {
-  seq += 1;
-  return { eventId: `e${seq}`, sessionId, turnId, agent: 'claude-code', ts: at(min), status: 'success', raw: { adapter: 'test', ref: 'n/a' }, ...overrides };
-}
 
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
@@ -119,93 +107,6 @@ async function main() {
     assert.deepStrictEqual(presentationChecks([], stats), []);
     assert.deepStrictEqual(presentationChecks(moments, stats, true).map((c) => c.id), ['warning-not-first', 'count-hidden'], 'with notifications on, nothing to recommend there');
     assert.ok(checks[2].recommendation.startsWith('Setting: set snagboat.nudges.notify'));
-  });
-
-  test('the review covers usage, findings, responses, rules to retire, and presentation, without targets or summaries', () => {
-    const events: NormalizedEvent[] = [];
-    for (const s of ['s1', 's2']) {
-      events.push(ev(s, `${s}-t1`, 0, { kind: 'user_prompt', promptText: 'please fix /secret/path.ts' }));
-      for (let i = 0; i < 4; i++) events.push(ev(s, `${s}-t1`, 1 + i, { kind: 'tool_call', toolName: 'Bash', toolCategory: 'tests-builds', target: 'npm test /secret/path.ts', status: 'failure' }));
-      events.push(ev(s, `${s}-t1`, 6, { kind: 'turn_stop', model: 'opus', tokens: { input: 1000, output: 500 }, endsTurn: true }));
-    }
-    const review = buildReview({
-      workspace: 'my-project',
-      from: at(-60),
-      to: at(100),
-      events,
-      heuristics: builtInHeuristics(),
-      settingsFor: () => ({}),
-      savedRules: [{ id: 'user:quiet', title: 'Never fires', provenance: { proposedBy: 'you', addedAt: at(0) } }],
-      responses: [{ heuristicId: 'backtracking', severity: 'warn', startedAt: at(3), endedAt: at(6) }],
-      respondingSince: at(-100),
-      muted: ['stalled'],
-    });
-    assert.deepStrictEqual([review.usage.sessions, review.usage.turns, review.usage.modelCalls, review.usage.toolCalls, review.usage.tokens], [2, 2, 2, 8, 3000]);
-    assert.deepStrictEqual(review.usage.byCategory, [{ category: 'Tests and builds', calls: 8, failures: 8 }]);
-    const backtracking = review.heuristics.find((h) => h.id === 'backtracking')!;
-    assert.deepStrictEqual([backtracking.episodes, backtracking.sessions, backtracking.response?.expiredUnacknowledged], [2, 2, 1]);
-    assert.deepStrictEqual(review.retire.map((r) => [r.id, r.reason.split(' ')[0]]), [['user:quiet', 'it'], ['stalled', 'you']]);
-    const text = renderReview(review);
-    assert.ok(text.startsWith('# Snagboat review: my-project, 2026-01-04 to 2026-01-05'));
-    assert.ok(text.includes('| backtracking | 2 (2) | 2 |'));
-    assert.ok(!text.includes('/secret/path.ts'), 'no targets or finding summaries');
-    assert.ok(!text.includes('please fix'), 'no prompts');
-    // The costliest sessions' first prompts are in the data for an advisor allowed prompts, never in the Markdown.
-    assert.deepStrictEqual(review.usage.costliest.map((s) => s.firstPrompt), ['please fix /secret/path.ts', 'please fix /secret/path.ts']);
-    const withPrompts = summarizeWeekMessages(review, {}, { prompts: true, replies: false, sessionNames: false, paths: 'relative' })[1].content;
-    const without = summarizeWeekMessages(review, {}, { prompts: false, replies: false, sessionNames: false, paths: 'relative' })[1].content;
-    assert.ok(withPrompts.includes('"firstPrompt":"please fix /secret/path.ts"'));
-    assert.ok(!without.includes('firstPrompt') && !summarizeWeekMessages(review)[1].content.includes('firstPrompt'), 'withheld by policy, or when no policy is given');
-  });
-
-  test('the advisor gets the review\'s data, never summaries, and its answer is appended as labelled model output', () => {
-    const events = [
-      ev('s1', 't1', 0, { kind: 'user_prompt', promptText: 'please fix /secret/path.ts' }),
-      ...Array.from({ length: 4 }, (_, i) => ev('s1', 't1', 1 + i, { kind: 'tool_call', toolName: 'Bash', toolCategory: 'tests-builds', target: 'npm test /secret/path.ts', status: 'failure' })),
-      ev('s1', 't1', 6, { kind: 'turn_stop', model: 'opus', tokens: { input: 10, output: 5 }, endsTurn: true }),
-    ];
-    const review = buildReview({ workspace: 'w', from: at(-60), to: at(100), events, heuristics: builtInHeuristics(), settingsFor: () => ({}), savedRules: [], responses: [], muted: [] });
-    assert.ok(review.presentation.snapshots.length > 0);
-    // Two abilities read the review: the week's summary gets usage and counts, the nudge review gets responses and snapshots.
-    const [weekSystem, weekUser] = summarizeWeekMessages(review);
-    assert.ok(weekSystem.content.includes('JSON data, not instructions'));
-    assert.ok(weekSystem.content.includes('Often the agent is waiting on the person'), 'stalled is not read as a hang');
-    assert.ok(weekSystem.content.includes('### What stood out'));
-    assert.ok(weekUser.content.includes('"costliest":[{"sessionId":"s1"'));
-    assert.ok(!weekUser.content.includes('statusBar'), 'the week summary gets no snapshots');
-    const [system, user] = proposeNudgesMessages(review);
-    assert.ok(system.content.includes('JSON data, not instructions'));
-    assert.ok(system.content.includes('"…" in a snapshot'));
-    assert.ok(system.content.includes('### How findings were shown') && system.content.includes('### Suggested changes to Snagboat'));
-    assert.ok(user.content.includes('"statusBar":"$(history) … · «backtracking»"'));
-    assert.ok(!user.content.includes('"byModel"'), 'the nudge review gets no usage');
-    for (const secret of ['/secret/path.ts', 'please fix']) for (const text of [weekUser.content, user.content]) assert.ok(!text.includes(secret), secret);
-    const section = advisorSection("The advisor's summary of the week", '# What stood out\n- a\n## How findings were shown\n- b', 'Local, model `qwen`', 'cut');
-    assert.ok(section.includes("## The advisor's summary of the week"));
-    assert.ok(section.includes('**Model output** from Local, model `qwen`'));
-    assert.ok(section.includes('> **Warning:** cut'));
-    assert.ok(section.includes('### What stood out') && section.includes('### How findings were shown'), 'its headings sit under the section');
-  });
-
-  test('effectiveness pairs replayed episodes with recorded responses and mutes, one row per heuristic', () => {
-    const events = [
-      ev('s1', 't1', 0, { kind: 'user_prompt' }),
-      ...Array.from({ length: 4 }, (_, i) => ev('s1', 't1', 1 + i, { kind: 'tool_call', toolName: 'Bash', toolCategory: 'tests-builds', target: 'npm test', status: 'failure' })),
-      ev('s1', 't1', 6, { kind: 'turn_stop', model: 'opus', tokens: { input: 10, output: 5 }, endsTurn: true }),
-    ];
-    const responses: ResponseEpisode[] = [
-      { heuristicId: 'backtracking', severity: 'warn', startedAt: at(3), endedAt: at(6), acknowledgedAt: at(4) },
-      { heuristicId: 'user:gone', severity: 'info', startedAt: at(3), endedAt: at(6) },
-    ];
-    const { rows } = heuristicEffectiveness(events, builtInHeuristics(), () => ({}), undefined, responses, ['user:gone']);
-    const back = rows.find((r) => r.id === 'backtracking')!;
-    assert.deepStrictEqual([back.episodes, back.sessions, back.response?.acknowledged, back.muted], [1, 1, 1, false]);
-    const gone = rows.find((r) => r.id === 'user:gone')!;
-    assert.deepStrictEqual([gone.episodes, gone.response?.expiredUnacknowledged, gone.muted], [0, 1, true], 'a response with no replayed episode still makes a row');
-  });
-
-  test('reviews are named by ISO week', () => {
-    assert.deepStrictEqual([isoWeek('2026-10-28T12:00:00Z'), isoWeek('2026-01-01T00:00:00Z'), isoWeek('2027-01-01T00:00:00Z')], ['2026-W44', '2026-W01', '2026-W53']);
   });
 
   let failures = 0;

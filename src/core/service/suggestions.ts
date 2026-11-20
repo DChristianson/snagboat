@@ -11,8 +11,7 @@ import { SuggestionsController, SuggestionsView } from '../../discovery/suggesti
 import { runDiscovery } from '../../discovery/discover';
 import { AsyncDiscoveryRun, DEFAULT_WORKER_IDLE_MS, DiscoveryData, discoverOffThread, discoveryOptionsOf, inProcess, OffThreadRun, workerAvailable } from '../../discovery/offThread';
 import { FindingsService } from './findings';
-import { CoreAdvisorChoice, CoreAdvisors, PendingApproval } from './advisorModels';
-import { proposeHeuristicsMessages } from '../../advisor/proposeHeuristics';
+import { CoreAdvisors } from './advisorModels';
 
 /**
  * Suggestions in the advisor UI (RFC step 5c-2): discovery over a workspace's history,
@@ -24,8 +23,9 @@ import { proposeHeuristicsMessages } from '../../advisor/proposeHeuristics';
  * Writes go where VS Code's go: accepted rules and categories to the saved rules
  * (~/.snagboat/rules.json), a built-in's threshold to your user settings (config.json's
  * defaults, which a VS Code window with the per-user store on takes into its settings),
- * dismissals to suggestions.json. Advisor proposals (step 5c-2b) ask local models only, after you
- * approve the exact payload in the page (advisorModels.ts).
+ * dismissals to suggestions.json. No model is asked here: Ask the advisor went with snagboat-79f.7.12, and
+ * goal advisors' performance reports take discovery's place for proposals. `approve` stays: it answers
+ * the request waiting for your approval (advisorModels.ts), which the advisor page's reports send here.
  *
  * Discovery and re-scoring a tweaked threshold run in a worker thread (discovery/offThread.ts), so the
  * core keeps answering hooks, event posts and the UI meanwhile; without the worker's script beside
@@ -42,18 +42,7 @@ export type SuggestionAction =
   | { action: 'clearDismissed' }
   | { action: 'applyThreshold'; heuristic: string; setting: string }
   | { action: 'removeSaved'; section: 'rules' | 'categories'; id: string }
-  | { action: 'askAdvisor'; advisorId?: string }
-  | { action: 'applyAdvisorThreshold'; heuristic: string; setting: string }
   | { action: 'approve'; id: string; send: boolean };
-
-/** What the page shows beside VS Code's Suggestions view: the local advisors, a request waiting for approval, an error. */
-export interface CoreAdvice {
-  advisors: CoreAdvisorChoice[];
-  approval?: PendingApproval;
-  error?: string;
-}
-
-export type CoreSuggestionsView = SuggestionsView & { core: CoreAdvice };
 
 /** The action a request names, checked; undefined when it isn't one. */
 export function parseSuggestionAction(body: unknown): SuggestionAction | undefined {
@@ -73,10 +62,6 @@ export function parseSuggestionAction(body: unknown): SuggestionAction | undefin
       return str('heuristic') && str('setting') ? { action: 'applyThreshold', heuristic: b.heuristic as string, setting: b.setting as string } : undefined;
     case 'removeSaved':
       return (b.section === 'rules' || b.section === 'categories') && str('id') ? { action: 'removeSaved', section: b.section, id: b.id as string } : undefined;
-    case 'askAdvisor':
-      return b.advisorId === undefined ? { action: 'askAdvisor' } : str('advisorId') ? { action: 'askAdvisor', advisorId: b.advisorId as string } : undefined;
-    case 'applyAdvisorThreshold':
-      return str('heuristic') && str('setting') ? { action: 'applyAdvisorThreshold', heuristic: b.heuristic as string, setting: b.setting as string } : undefined;
     case 'approve':
       return str('id') && typeof b.send === 'boolean' ? { action: 'approve', id: b.id as string, send: b.send } : undefined;
     default:
@@ -95,14 +80,12 @@ interface Entry {
   controller: SuggestionsController;
   store: RuleStore;
   names: Map<string, string>;
-  /** The last advisor request's failure, shown until the next one. */
-  error?: string;
   /** The latest discovery's worker-backed run, when discovery ran in a worker. */
   run?: OffThreadRun;
 }
 
 export interface SuggestionsOptions {
-  /** The local advisors asked for proposals; default the user's own (advisorModels.ts). */
+  /** The local advisors, whose request waiting for approval `approve` answers; default the user's own (advisorModels.ts). */
   advisors?: CoreAdvisors;
   /** Stop a workspace's discovery worker after this long with nothing asked of it; 0 never. Default 15 minutes. */
   workerIdleMs?: number;
@@ -125,23 +108,15 @@ export class SuggestionsService {
   }
 
   /** The Suggestions view for a workspace; discovery runs on the first ask, then on Discover again. */
-  async view(workspace: string): Promise<CoreSuggestionsView> {
+  async view(workspace: string): Promise<SuggestionsView> {
     const entry = await this.entry(workspace);
     if (entry.controller.view().status === 'idle') {
       void entry.controller.discover().catch((err) => this.log(`discovery failed for ${workspace}: ${err instanceof Error ? err.message : String(err)}`));
     }
-    return this.withAdvice(entry);
+    return entry.controller.view();
   }
 
-  private withAdvice(entry: Entry): CoreSuggestionsView {
-    const approval = this.advisors.pendingApproval();
-    return {
-      ...entry.controller.view(),
-      core: { advisors: this.advisors.choices('propose-heuristics'), ...(approval ? { approval } : {}), ...(entry.error ? { error: entry.error } : {}) },
-    };
-  }
-
-  async act(workspace: string, a: SuggestionAction): Promise<CoreSuggestionsView> {
+  async act(workspace: string, a: SuggestionAction): Promise<SuggestionsView> {
     const entry = await this.entry(workspace);
     const c = entry.controller;
     switch (a.action) {
@@ -169,22 +144,11 @@ export class SuggestionsService {
       case 'removeSaved':
         await c.removeSaved(a.section, a.id);
         break;
-      case 'askAdvisor':
-        // Runs on: the request may wait for your approval, which a later POST gives (approve).
-        entry.error = undefined;
-        void c.askAdvisor(a.advisorId).catch((err) => (entry.error = err instanceof Error ? err.message : String(err)));
-        // The controller marks itself asking after a step of its own; let it, so the view returned says so and
-        // the page keeps looking until the request waits for approval or is answered.
-        await new Promise((r) => setImmediate(r));
-        break;
-      case 'applyAdvisorThreshold':
-        await c.applyAdvisorThreshold(a.heuristic, a.setting);
-        break;
       case 'approve':
         if (!this.advisors.decide(a.id, a.send)) throw new NotWaiting();
         break;
     }
-    return this.withAdvice(entry);
+    return c.view();
   }
 
   /** Stops every workspace's discovery worker. */
@@ -272,24 +236,9 @@ export class SuggestionsService {
           saveConfig(this.home, { ...config, defaults: { ...config.defaults, [key]: value } });
           await this.findings.current(workspace).catch(() => undefined);
         },
-        // Local advisors only (decided for 5c-2b); the request waits for your approval the first time.
-        propose: async (build, advisorId) => {
-          let asked;
-          try {
-            asked = await this.advisors.ask('propose-heuristics', async ({ policy, prompts }) => proposeHeuristicsMessages(build(policy), prompts), { advisorId });
-          } catch (err) {
-            const e = this.entries.get(workspace);
-            if (e) e.error = err instanceof Error ? err.message : String(err);
-            return undefined;
-          }
-          if (!asked) return undefined;
-          return { text: asked.completion.text, provider: asked.advisor.label, model: asked.advisor.model };
-        },
-        advisorCount: () => this.advisors.offering('propose-heuristics').length,
         dismissed: () => readDismissed(this.home),
         setDismissed: async (ids) => writeDismissed(this.home, ids),
         sessionName: (id) => names.get(id),
-        roots: () => [this.folderOf(workspace)],
         source: () => path.basename(this.folderOf(workspace)) || workspace,
         days: () => this.days(workspace),
         now: () => new Date().toISOString(),

@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { approvalFor, approvalKey, CAPABILITIES, CAPABILITY_LABELS, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from '../../advisor/advisors';
+import { approvalFor, approvalKey, approvalKeyBefore7_12, CAPABILITIES, CAPABILITY_LABELS, defaultAdvisorId, isApproved, LEGACY_DEFAULT_SETTINGS, parseAdvisors } from '../../advisor/advisors';
 import { AuditLog } from '../../advisor/audit';
 import { buildDigest, HOSTED_POLICY, LOCAL_POLICY } from '../../advisor/digest';
 import { summarizeSessionMessages } from '../../advisor/summarizeSession';
@@ -88,7 +88,7 @@ async function main() {
           baseUrl: 'https://api.example.com/v1',
           model: 'm',
           send: { prompts: true },
-          abilities: { 'summarize-session': true, 'summarize-week': { send: { prompts: false, paths: 'hashed' } }, 'propose-tactics': false },
+          abilities: { 'summarize-session': true, 'report-on-goal': { send: { prompts: false, paths: 'hashed' } }, 'set-up-advisor': false },
         },
         { id: 'hyp', kind: 'hypaware', baseUrl: 'https://hyp.example.com' },
         { id: 'odd', kind: 'robot', baseUrl: 'http://localhost:1/v1' },
@@ -101,10 +101,10 @@ async function main() {
     assert.deepStrictEqual(advisors.map((a) => a.id), ['spend', 'none', 'local']);
     const spend = advisors[0];
     assert.deepStrictEqual([spend.kind, spend.locality, spend.label, spend.source], ['model', 'hosted', 'Token spend', 'advisors']);
-    assert.deepStrictEqual(Object.keys(spend.abilities).sort(), ['summarize-session', 'summarize-week']);
+    assert.deepStrictEqual(Object.keys(spend.abilities).sort(), ['report-on-goal', 'summarize-session']);
     assert.deepStrictEqual(spend.abilities['summarize-session']!.policy, { ...HOSTED_POLICY, prompts: true }, 'true: the advisor\'s policy');
-    assert.deepStrictEqual(spend.abilities['summarize-week']!.policy, { ...HOSTED_POLICY, prompts: false, paths: 'hashed' }, 'an object: its own send over the advisor\'s');
-    assert.ok(spend.abilities['propose-tactics'] === undefined, 'false: not offered');
+    assert.deepStrictEqual(spend.abilities['report-on-goal']!.policy, { ...HOSTED_POLICY, prompts: false, paths: 'hashed' }, 'an object: its own send over the advisor\'s');
+    assert.ok(spend.abilities['set-up-advisor'] === undefined, 'false: not offered');
     assert.ok(problems.some((p) => p.startsWith('advisor hyp:') && p.includes("aren't available yet")));
     assert.ok(problems.some((p) => p.startsWith('advisor odd:') && p.includes('kind must be one of')));
     assert.ok(problems.some((p) => p.startsWith('advisor none:') && p.includes('offers no ability')));
@@ -126,7 +126,7 @@ async function main() {
     assert.ok(local.abilities['set-up-advisor'], 'the default local advisor offers it, with its policy');
     assert.deepStrictEqual(local.abilities['set-up-advisor']!.policy, LOCAL_POLICY);
     assert.ok(!Object.values(LEGACY_DEFAULT_SETTINGS).includes('set-up-advisor'), 'no legacy provider setting maps to it');
-    // The key as it was before the ability existed: the five older abilities only.
+    // The key as it was before the ability existed: the other abilities only.
     const before = (x: typeof local) =>
       crypto
         .createHash('sha256')
@@ -142,6 +142,48 @@ async function main() {
     assert.notStrictEqual(setUp.key, approvalFor(parse(), 'set-up-advisor').key, 'its own sending rules are in its own approval');
     assert.deepStrictEqual(approvalFor(narrowed, 'summarize-session'), { name: 'x', key: approvalKey(narrowed) });
     assert.match(CAPABILITY_LABELS['set-up-advisor'], /Set up an advisor/);
+  });
+
+  test('the abilities removed with the weekly review (snagboat-79f.7.12) are no problem in settings, and propose-heuristics is read as report-on-goal', () => {
+    const { advisors, problems } = parseAdvisors(
+      [
+        { id: 'old', baseUrl: 'http://localhost:1/v1', abilities: { 'summarize-session': true, 'summarize-week': true, 'propose-heuristics': { send: { prompts: false }, prompt: '~/report.md' }, 'propose-nudges': false } },
+        { id: 'both', baseUrl: 'http://localhost:1/v1', abilities: { 'propose-heuristics': { send: { prompts: false } }, 'report-on-goal': true } },
+        { id: 'gone', baseUrl: 'http://localhost:1/v1', abilities: { 'propose-tactics': true } },
+      ],
+      undefined
+    );
+    assert.deepStrictEqual(advisors.map((a) => a.id), ['old', 'both', 'gone']);
+    assert.deepStrictEqual(problems, ['advisor gone: offers no ability'], 'a retired ability is only ignored; one that offered nothing else offers nothing');
+    const [old, both] = advisors;
+    assert.deepStrictEqual(Object.keys(old.abilities).sort(), ['report-on-goal', 'summarize-session']);
+    assert.deepStrictEqual(old.abilities['report-on-goal'], { policy: { ...LOCAL_POLICY, prompts: false }, promptFile: '~/report.md' }, "propose-heuristics' sending rules, for report-on-goal");
+    assert.deepStrictEqual(both.abilities['report-on-goal']!.policy, LOCAL_POLICY, 'report-on-goal named itself wins');
+    assert.strictEqual(defaultAdvisorId('report-on-goal', { 'propose-heuristics': 'old' }, () => undefined), 'old', "a default for propose-heuristics is report-on-goal's");
+    assert.strictEqual(defaultAdvisorId('report-on-goal', { 'propose-heuristics': 'old', 'report-on-goal': 'both' }, () => undefined), 'both');
+    assert.strictEqual(defaultAdvisorId('summarize-session', {}, (s) => (s === 'explainProvider' ? 'old' : undefined)), 'old', 'the older provider setting still counts');
+    assert.strictEqual(defaultAdvisorId('report-on-goal', {}, () => 'x'), 'local');
+  });
+
+  test('an approval given before snagboat-79f.7.12 retired abilities still counts, while the sending rules are the same', () => {
+    // The key as the code computed it before: every ability then, in its order then, set-up-advisor left out.
+    const THEN = ['summarize-session', 'summarize-week', 'propose-heuristics', 'propose-nudges', 'propose-tactics'];
+    const oldKey = (id: string, baseUrl: string, abilities: Array<[string, unknown]>) => crypto.createHash('sha256').update(JSON.stringify({ id, baseUrl, abilities })).digest('hex').slice(0, 16);
+    const local = parseAdvisors(undefined, undefined).advisors[0];
+    const then = oldKey(local.id, local.baseUrl, THEN.map((c) => [c, LOCAL_POLICY]));
+    assert.strictEqual(approvalKeyBefore7_12(local), then);
+    assert.notStrictEqual(approvalKey(local), then, 'the key changed with the abilities');
+    for (const ability of ['summarize-session', 'report-on-goal'] as const) assert.ok(isApproved({ local: then }, local, ability), ability);
+    assert.ok(!isApproved({ local: then }, local, 'set-up-advisor'), 'an ability approved on its own needs its own approval');
+    assert.ok(isApproved({ local: approvalKey(local) }, local, 'report-on-goal'));
+    assert.ok(!isApproved({}, local, 'summarize-session'));
+
+    const parse = (abilities: unknown) => parseAdvisors([{ id: 'x', baseUrl: 'http://localhost:1/v1', abilities }], undefined).advisors[0];
+    const named = parse({ 'summarize-session': true, 'propose-heuristics': { send: { replies: true } }, 'propose-nudges': true });
+    const namedThen = oldKey('x', 'http://localhost:1/v1', [['summarize-session', LOCAL_POLICY], ['propose-heuristics', { ...LOCAL_POLICY, replies: true }], ['propose-nudges', LOCAL_POLICY]]);
+    assert.ok(isApproved({ x: namedThen }, named, 'report-on-goal'), 'named abilities, with their own sending rules');
+    const renamed = parse({ 'summarize-session': true, 'propose-heuristics': { send: { replies: true } }, 'propose-nudges': true, 'report-on-goal': true });
+    assert.ok(!isApproved({ x: namedThen }, renamed, 'report-on-goal'), 'report-on-goal with other sending rules than its approval had asks again');
   });
 
   test('a completion posts messages with no tools, with the key only when there is one', async () => {

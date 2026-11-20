@@ -2,7 +2,6 @@ import * as assert from 'assert';
 import { Headliner, HeadlineEntry } from '../../advisor/headlines';
 import { buildDigest, LOCAL_POLICY } from '../../advisor/digest';
 import { headlineLine, headlineMessages } from '../../advisor/summarizeSession';
-import { proposeTacticsMessages } from '../../advisor/proposeTactics';
 import { SessionSummary } from '@snagboat/schema';
 import { NormalizedEvent } from '@snagboat/schema';
 
@@ -31,7 +30,7 @@ async function main() {
     assert.strictEqual(saved.length, 3);
   });
 
-  test('the headline form asks for one line and reads one back; the tactics form sends the digests and your model tiers', () => {
+  test('the headline form asks for one line and reads one back', () => {
     const ev = (overrides: Partial<NormalizedEvent> & Pick<NormalizedEvent, 'kind' | 'eventId'>): NormalizedEvent => ({ sessionId: 's1', turnId: 't1', agent: 'claude-code', ts: at(0), status: 'success', raw: { adapter: 'test', ref: 'n/a' }, ...overrides });
     const digest = buildDigest({ sessionId: 's1', events: [ev({ eventId: 'p', kind: 'user_prompt', promptText: 'push it' }), ev({ eventId: 'c', kind: 'turn_stop', model: 'opus', tokens: { input: 5, output: 1 }, endsTurn: true })], findings: [], roots: [] }, LOCAL_POLICY);
     const [system, user] = headlineMessages(digest, { persona: 'P' });
@@ -41,11 +40,6 @@ async function main() {
     assert.strictEqual(headlineLine('nothing specific'), undefined);
     assert.strictEqual(headlineLine('x'.repeat(200))!.length, 120);
 
-    const [tSystem, tUser] = proposeTacticsMessages([digest], {}, { opus: 'high', haiku: 'low' });
-    assert.ok(tSystem.content.includes('"Model use", "Prompt tactics", and "What to try"'));
-    assert.ok(tUser.content.startsWith('Propose tactics for this session') && tUser.content.includes('"modelTiers":{"opus":"high","haiku":"low"}') && tUser.content.includes('"model":"opus"'));
-    const [, many] = proposeTacticsMessages([digest, digest]);
-    assert.ok(many.content.startsWith('Propose tactics from these 2 sessions') && !many.content.includes('modelTiers'), 'no tiers when none are set');
   });
 
   test('a digest can be capped to fewer turns than the default', () => {

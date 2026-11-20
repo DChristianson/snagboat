@@ -3,7 +3,7 @@
  * models or advisors, and writes their answers side by side, so default
  * models and prompts are picked from real use. Dev tooling only; never shipped.
  *
- *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--base-url <url>] [--ability summarize-session|propose-tactics|propose-heuristics|performance-report] [--prompts both|on|off] [--sessions 2] [--all-projects | <session.jsonl> ...]
+ *   npm run eval:advisor -- --models qwen3.5:latest,llama3.1:latest [--base-url <url>] [--ability summarize-session|performance-report] [--prompts both|on|off] [--sessions 2] [--all-projects | <session.jsonl> ...]
  *   npm run eval:advisor -- --advisor spend,risk [--settings <settings.json>] [--ability ...] ...
  *
  * --models asks each model at --base-url (Ollama on this machine by default)
@@ -13,11 +13,6 @@
  * each with its own model, sending rules, persona, and prompt files, so two
  * advisors on the same model compare two prompt sets on the same digests.
  * Each advisor needs its "model" set.
- *
- * --ability propose-heuristics (or the older "propose") runs discovery over
- * the sessions and asks each run to name its candidates, propose rules, and
- * group shell commands, through the Suggestions tab's own controller, so
- * what's kept or dropped is exactly what the tab would show.
  *
  * --ability performance-report asks each run for the goal advisors' latest period reports, from the
  * per-user store (~/.snagboat, or SNAGBOAT_HOME), as the core would, and checks each answer against the
@@ -31,8 +26,7 @@
  * A provider off this machine needs SNAGBOAT_EVAL_API_KEY.
  *
  * For summarize-session, each session gives up to three cases: the session,
- * its busiest turn, and its first finding; for propose-tactics, one case per
- * session. Answers are checked automatically (the ability's three headings,
+ * its busiest turn, and its first finding. Answers are checked automatically (the ability's three headings,
  * no absolute paths, whether the server cut the prompt to fit its context
  * window); judging quality is yours, from the report. The
  * console gets counts and timings only. The report, with digests and answers,
@@ -44,19 +38,14 @@ import * as os from 'os';
 import { Capability } from '../advisor/advisors';
 import { buildDigest, digestForReading, DigestFinding, DigestPolicy, HOSTED_POLICY, LOCAL_POLICY, SessionDigest } from '../advisor/digest';
 import { PromptLayers } from '../advisor/prompts';
-import { proposeHeuristicsMessages, weakAction } from '../advisor/proposeHeuristics';
 import { parseReportAnswer, performanceReportMessages } from '../advisor/performanceReport';
 import { ProposalStore } from '../core/proposals';
 import { PeriodJob } from '../core/service/periodJob';
-import { heuristicEffectiveness } from '../review/effectiveness';
-import { proposeTacticsMessages } from '../advisor/proposeTactics';
 import { complete, Completion, FetchLike, isLocalUrl, promptWasCut, ProviderConfig } from '../advisor/providers';
 import { SessionFocus, summarizeSessionMessages } from '../advisor/summarizeSession';
 import { builtInHeuristics } from '../heuristics/builtIns';
 import { FindingReplay } from '../heuristics/replay';
-import { RuleStore } from '../heuristics/ruleStore';
 import { NormalizedEvent } from '@snagboat/schema';
-import { SuggestionsController } from '../discovery/suggestionsController';
 import { advisorsFromSettings } from './advisorSettings';
 import { defaultSessions, sessionEvents } from './replayHeuristics';
 
@@ -88,7 +77,6 @@ interface Result {
 /** The Markdown abilities this script runs case by case: their headings, and how a case's messages are built. */
 const CASE_ABILITIES: Record<string, { ability: Capability; headings: string[]; sessionOnly: boolean; messages: (c: Case, run: Run) => ReturnType<typeof summarizeSessionMessages> }> = {
   'summarize-session': { ability: 'summarize-session', headings: ['what happened', 'likely cause', 'what to try'], sessionOnly: false, messages: (c, run) => summarizeSessionMessages(c.digest, c.focus, run.prompts('summarize-session')) },
-  'propose-tactics': { ability: 'propose-tactics', headings: ['model use', 'prompt tactics', 'what to try'], sessionOnly: true, messages: (c, run) => proposeTacticsMessages([c.digest], run.prompts('propose-tactics')) },
 };
 
 function arg(args: string[], name: string): string | undefined {
@@ -173,86 +161,6 @@ function check(text: string, completion: Completion | undefined, messages: Retur
 
 const describePolicy = (p: DigestPolicy) => `${[p.prompts && 'prompts', p.replies && 'replies', p.sessionNames && 'session names'].filter(Boolean).join(', ') || 'no text'}; paths ${p.paths}`;
 
-/** Asks each run to propose heuristics from one discovery, and reports what the Suggestions tab would keep. */
-async function evalPropose(events: NormalizedEvent[], runs: Run[]): Promise<string[]> {
-  const report: string[] = [`# Advisor evaluation: propose heuristics`, '', `${new Date().toISOString()} · runs: ${runs.map((r) => r.label).join(', ')}`, ''];
-  for (const run of runs) {
-    const policy = run.policy('propose-heuristics');
-    if (!policy) {
-      console.log(`${run.label.padEnd(30)} doesn't offer propose-heuristics`);
-      report.push(`## ${run.label}`, '', "Doesn't offer propose-heuristics.", '');
-      continue;
-    }
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-eval-'));
-    try {
-      const store = new RuleStore(dir);
-      await store.load();
-      let ms = 0;
-      let read: number | undefined;
-      let sent = 0;
-      let error: string | undefined;
-      const controller = new SuggestionsController({
-        loadEvents: async () => events,
-        options: () => ({ existing: builtInHeuristics(), settingsFor: () => ({}) }),
-        store,
-        settingsRules: () => ({ origin: 'eval', rules: [], categories: [] }),
-        rulesChanged: () => undefined,
-        applySetting: async () => undefined,
-        dismissed: () => [],
-        setDismissed: async () => undefined,
-        sessionName: () => undefined,
-        // No recorded responses or mutes outside the extension: episodes only.
-        effectiveness: async (evs) => heuristicEffectiveness(evs, builtInHeuristics(), () => ({}), undefined, [], []).rows.map((r) => ({ id: r.id, builtIn: true, episodes: r.episodes, warnings: r.warnings, sessions: r.sessions, muted: false })),
-        propose: async (build) => {
-          const messages = proposeHeuristicsMessages(build(policy), run.prompts('propose-heuristics'));
-          sent = messages.reduce((n, m) => n + m.content.length, 0);
-          const started = Date.now();
-          try {
-            // No JSON mode: Ollama refuses it for some models (qwen3.5) and loops on others; the parser finds the JSON.
-            const completion = await complete(run.provider, messages, run.apiKey, fetch as unknown as FetchLike);
-            ms = Date.now() - started;
-            read = completion.promptTokens;
-            return { text: completion.text, provider: run.label, model: run.provider.model, ...(promptWasCut(completion, messages) ? { warning: 'prompt cut' } : {}) };
-          } catch (err) {
-            ms = Date.now() - started;
-            error = err instanceof Error ? err.message : String(err);
-            return undefined;
-          }
-        },
-        roots: () => [process.cwd()],
-        source: () => 'eval',
-        days: () => 30,
-        now: () => new Date().toISOString(),
-      });
-      await controller.discover();
-      await controller.askAdvisor();
-      const v = controller.view();
-      const named = v.candidates.filter((c) => c.source === 'discovery' && c.named);
-      const rules = v.candidates.filter((c) => c.source === 'advisor');
-      const categories = v.shell.candidates.filter((c) => c.source === 'advisor');
-      console.log(
-        `${run.label.padEnd(30)} ${(ms / 1000).toFixed(1).padStart(6)}s  read ${read ?? '?'} of ~${Math.round(sent / 3.5)} tokens  ` +
-          (error ? `error: ${error.slice(0, 80)}` : `named ${named.length}/${v.candidates.filter((c) => c.source === 'discovery').length}, rules kept ${rules.length}, categories kept ${categories.length}, dropped ${v.advisor.problems.length}${v.advisor.warning ? ', PROMPT CUT' : ''}`)
-      );
-      report.push(`## ${run.label} (${(ms / 1000).toFixed(1)}s, read ${read ?? '?'} of ~${Math.round(sent / 3.5)} tokens${v.advisor.warning ? ', prompt cut' : ''}; sends ${describePolicy(policy)})`, '');
-      if (error) {
-        report.push(`Error: ${error}`, '');
-        continue;
-      }
-      // Actionability is the person's call; "weak?" flags an action that only says to look.
-      const judge = (action: string | undefined) => `${weakAction(action ?? '') ? ' *(weak action?)*' : ''} ☐ actionable`;
-      report.push('**Names for discovery candidates** (judge each: does the summary name a cause and the action something to do?)', '', ...(named.length ? named.map((c) => `- \`${c.id}\` → **${c.title}**: ${c.summary}${c.suggestedAction ? ` — ${c.suggestedAction}` : ''}${judge(c.suggestedAction)}`) : ['- none']), '');
-      report.push('**Rules it proposed (kept)**', '', ...(rules.length ? rules.map((c) => `- **${c.title}** (\`${c.id}\`): replay ${c.episodes} episodes in ${c.sessions} sessions${judge(c.suggestedAction)}\n\n  \`\`\`json\n  ${JSON.stringify(c.rule)}\n  \`\`\``) : ['- none']), '');
-      report.push('**Retire and threshold proposals**', '', ...(v.advisor.retire.length || v.advisor.thresholds.length ? [...v.advisor.retire.map((r) => `- retire \`${r.id}\`: ${r.reason}`), ...v.advisor.thresholds.map((t) => `- ${t.heuristic} ${t.setting}: ${t.current} → ${t.value}: ${t.reason}`)] : ['- none']), '');
-      report.push('**Shell categories (kept)**', '', ...(categories.length ? categories.map((c) => `- **${c.label}**: ${c.match.join(', ')} (${Math.round(c.share * 100)}% of shell calls)`) : ['- none']), '');
-      report.push('**Dropped**', '', ...(v.advisor.problems.length ? v.advisor.problems.map((p) => `- ${p}`) : ['- nothing']), '');
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  }
-  return report;
-}
-
 /** Each goal advisor's latest period report, asked of each run and checked against the advisor contract. */
 async function evalPerformanceReport(runs: Run[]): Promise<string[]> {
   const home = process.env.SNAGBOAT_HOME ?? path.join(os.homedir(), '.snagboat');
@@ -271,9 +179,9 @@ async function evalPerformanceReport(runs: Run[]): Promise<string[]> {
     const input = { advisor, report, experiments: [], lastRound, discarded: proposals.discarded(advisor.id) };
     out.push(`## ${advisor.name}: ${report.id}`, '', report.summary, '');
     for (const run of runs) {
-      const policy = run.policy('propose-heuristics');
+      const policy = run.policy('report-on-goal');
       if (!policy) {
-        console.log(`${advisor.id.padEnd(12)} ${run.label.padEnd(30)} doesn't offer propose-heuristics`);
+        console.log(`${advisor.id.padEnd(12)} ${run.label.padEnd(30)} doesn't offer report-on-goal`);
         continue;
       }
       const messages = performanceReportMessages({ ...input, policy });
@@ -337,18 +245,9 @@ async function main(): Promise<number> {
   }
   const outDir = path.join(process.cwd(), 'out', 'eval');
   fs.mkdirSync(outDir, { recursive: true });
-  if (ability === 'propose-heuristics' || ability === 'propose') {
-    // Discovery wants history, not the latest few sessions: read them all.
-    const report = await evalPropose(files.flatMap((f) => sessionEvents(f)), runs);
-    const file = path.join(outDir, `propose-${new Date().toISOString().replace(/[:.]/g, '-')}.md`);
-    fs.writeFileSync(file, report.join('\n') + '\n');
-    console.log(`\nReport: ${file}`);
-    return 0;
-  }
-
   const spec = CASE_ABILITIES[ability];
   if (!spec) {
-    console.error(`--ability takes ${[...Object.keys(CASE_ABILITIES), 'propose-heuristics'].join(', ')}`);
+    console.error(`--ability takes ${[...Object.keys(CASE_ABILITIES), 'performance-report'].join(', ')}`);
     return 1;
   }
   // With and without prompts, as --prompts says; a run whose rules withhold prompts (hosted, by default) never gets them.

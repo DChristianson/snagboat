@@ -8,7 +8,6 @@ import { snagboatHome } from './core/userStore';
 import { findCore } from './core/service/lifecycle';
 import { coreRequest } from './core/service/coreFile';
 import { openInBrowser } from './core/openInBrowser';
-import { advisorReports, eventsIn, periods } from './advisor/report';
 import { EventLog } from './core/eventLog';
 import { Aggregate, AggregateSnapshot, TodayAggregate } from './core/aggregate';
 import { EventStore, ReadonlyEventStore } from './core/eventStore';
@@ -19,25 +18,16 @@ import { FindingReplay } from './heuristics/replay';
 import { setHost } from './core/host';
 import { runBackfill } from './vscode/backfillCommand';
 import { runRelabel } from './vscode/relabelCommand';
-import { buildDigest, digestForReading, DigestPolicy } from './advisor/digest';
-import { PromptLayers } from './advisor/prompts';
-import { ChatMessage } from './advisor/providers';
+import { buildDigest, digestForReading } from './advisor/digest';
 import { sessionDigestInput } from './advisor/source';
 import { Advisor, APPROVED_KEY, Capability } from './vscode/advisor';
 import { CAPABILITY_LABELS } from './advisor/advisors';
 import { AuditLog } from './advisor/audit';
-import { EffectivenessInput, proposeHeuristicsMessages } from './advisor/proposeHeuristics';
-import { heuristicEffectiveness } from './review/effectiveness';
-import { nudgeLine, nudgeLineMessages, proposeNudgesMessages } from './advisor/proposeNudges';
-import { proposeTacticsMessages } from './advisor/proposeTactics';
 import { headlineLine, headlineMessages } from './advisor/summarizeSession';
 import { Headliner, HeadlineEntry } from './advisor/headlines';
 import { positiveNumberOr } from './heuristics/settings';
 import { AdvisorLimit, Nudge, Nudger, NudgeSettings, NotifyLevel } from './nudges/nudger';
 import { ResponseLog } from './heuristics/responses';
-import { buildReview, isoWeek, renderReview, Review } from './review/review';
-import { advisorSection, summarizeWeekMessages } from './advisor/summarizeWeek';
-import * as os from 'os';
 import * as fs from 'fs';
 import { hasCapturedText, withoutCapturedText } from './core/excerpt';
 import { ContextLimits, ModelContextMarks } from './core/contextLimits';
@@ -82,16 +72,12 @@ const DISMISSED_SUGGESTIONS_KEY = 'snagboat.dismissedSuggestions';
 const DISMISSED_MOVED_KEY = 'snagboat.dismissedSuggestionsShared';
 /** Set once this machine's advisor payload approvals were added to ~/.snagboat/advisor-approvals.json (per-user store). */
 const APPROVALS_MOVED_KEY = 'snagboat.advisorApprovalsShared';
-const RESPONDING_SINCE_KEY = 'snagboat.respondingSince';
 const HEADLINES_KEY = 'snagboat.headlines';
 /** Headlines are asked for sessions that ended within this many days. */
 const HEADLINE_DAYS = 7;
 const HEADLINE_INTERVAL_MS = 60_000;
 /** After a quiet ask is skipped (no model, key, or approval yet), wait this long before trying again. */
 const HEADLINE_BACKOFF_MS = 30 * 60_000;
-/** The review's tactics section: this many of the costliest sessions, this many turns each. */
-const REVIEW_TACTICS_SESSIONS = 2;
-const REVIEW_TACTICS_TURNS = 20;
 
 
 function retentionPolicy(): RetentionPolicy {
@@ -202,10 +188,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     ruleStoreError = `saved rules couldn't be read and are off until the file is fixed: ${err instanceof Error ? err.message : String(err)}`;
   }
 
-  // How you respond to findings (acknowledge, mute, or let them pass), for the review.
+  // How you responded to findings (acknowledge, mute, or let them pass), in this workspace's folder: Clear Event Log clears it.
   const responseLog = new ResponseLog(storageDir);
   void responseLog.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
-  if (!context.workspaceState.get<string>(RESPONDING_SINCE_KEY)) void context.workspaceState.update(RESPONDING_SINCE_KEY, new Date().toISOString());
   // The core keeps how you meet findings (episodes, the log, outcomes, mutes) for every front door; this window mirrors it.
   const findings = new FindingsRegistry([]);
   /** Useful, Acknowledge, Mute or Unmute from this window: shown at once, and sent to the core. */
@@ -221,7 +206,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   let activeCategories: string | undefined;
   /** Set once the extension is up: offers to relabel past shell calls when the shell categories in use change. */
   let onCategoriesChanged: (() => void) | undefined;
-  /** Rebuilds the heuristics (for replay, discovery and the review) from the built-ins and the current rules. */
+  /** Rebuilds the heuristics (for replay and discovery) from the built-ins and the current rules. */
   const loadRules = () => {
     const ruleSet = buildRuleSet([ruleStore.source(), settingsRuleSource()]);
     setShellSubCategories(ruleSet.categories);
@@ -261,8 +246,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     const inTurn = events.filter((e) => e.turnId).pop();
     return inTurn ? { sessionId: inTurn.sessionId, turnId: inTurn.turnId } : events[0] ? { sessionId: events[0].sessionId } : undefined;
   });
-  /** The advisor's line for a finding in the tooltip, while that finding lasts. */
-  const advice = new Map<string, { line: string; model: string }>();
   let showNudge: (nudge: Nudge) => void = () => undefined;
   // The core works out findings and early warnings (3c-3d); this window shows them, and notifies.
   let coreProgress: Progress[] = [];
@@ -294,7 +277,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     if (settings.notify === 'off') return;
     const active = new Map<string, Finding[]>();
     for (const f of findings.list()) active.set(f.heuristicId, [...(active.get(f.heuristicId) ?? []), f]);
-    for (const id of [...advice.keys()]) if (!active.has(id)) advice.delete(id);
     for (const nudge of nudger.update(active, coreProgress, settings)) showNudge(nudge);
   };
 
@@ -354,30 +336,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     dismissed: () => readDismissed(snagboatHome()),
     setDismissed: (ids) => Promise.resolve(writeDismissed(snagboatHome(), ids)),
     sessionName: (id) => sessionIndex.get(id)?.name,
-    propose: async (build, advisorId) => {
-      const asked = await advisor.ask('propose-heuristics', async ({ policy, prompts }) => proposeHeuristicsMessages(build(policy), prompts), { title: 'proposing heuristics', advisorId });
-      if (!asked) return undefined;
-      const warning = Advisor.cutWarning(asked, 'dismiss candidates you don\'t need and ask again, which sends less');
-      return { text: asked.completion.text, provider: asked.advisor.label, model: asked.advisor.model, ...(warning ? { warning } : {}) };
-    },
-    advisorCount: () => advisor.offering('propose-heuristics').length,
-    effectiveness: async (events): Promise<EffectivenessInput[]> => {
-      const since = events.reduce((min, e) => (e.ts < min ? e.ts : min), new Date().toISOString());
-      const episodes = (await responseLog.readAll()).filter((e) => e.startedAt >= since);
-      const titles = new Map(ruleStore.list('rules').map((r) => [r.doc.id, typeof r.doc.title === 'string' ? r.doc.title : r.doc.id]));
-      return heuristicEffectiveness(events, heuristics, heuristicSettings, contextLimitFor, episodes, findings.mutedHeuristics()).rows.map((r) => ({
-        id: r.id,
-        ...(titles.has(r.id) ? { title: titles.get(r.id) } : {}),
-        builtIn: !r.id.includes(':'),
-        episodes: r.episodes,
-        warnings: r.warnings,
-        sessions: r.sessions,
-        ...(r.response ? { acknowledged: r.response.acknowledged, medianMinutesToAcknowledge: r.response.medianMinutesToAcknowledge, expiredUnacknowledged: r.response.expiredUnacknowledged } : {}),
-        muted: r.muted,
-      }));
-    },
-    roots: () => roots(),
-    source: discoverySource,
+        source: discoverySource,
     days: discoveryDays,
     now: () => new Date().toISOString(),
   });
@@ -448,8 +407,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const detailPanel = new DetailPanel(context.extensionUri, {
     suggestions,
     explain: (req) => advisor.explain(req),
-    tactics: (sessionId) => advisor.tactics(sessionId),
-    pickAdvisor: (ability) => advisor.pickAdvisor(ability),
     buildState: (isOpenable) =>
       buildDetailState({
         now: new Date().toISOString(),
@@ -525,13 +482,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const first = setTimeout(() => void checkWaiting(), 5_000);
   context.subscriptions.push({ dispose: () => (clearInterval(every), clearTimeout(first)) }, vscode.window.onDidChangeWindowState((st) => st.focused && void checkWaiting()));
 
-  const withAdvice = (list: Finding[]): Finding[] =>
-    list.map((f) => {
-      const a = advice.get(f.heuristicId);
-      return a ? { ...f, suggestedAction: [f.suggestedAction, `advisor (model output, ${a.model}): ${a.line}`].filter(Boolean).join(' · ') } : f;
-    });
   const refresh = () => {
-    renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), withAdvice(findings.visible()), findings.worst(), waitingProposals);
+    renderStatusBar(statusBarItem, aggregate.snapshot(), health.list(), todayAggregate.snapshot(), findings.visible(), findings.worst(), waitingProposals);
     detailPanel.scheduleUpdate();
     findingsView.scheduleUpdate();
   };
@@ -645,113 +597,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     })
   );
 
-  const reviewFile = (week: string) => {
-    const configured = vscode.workspace.getConfiguration('snagboat.advisor').get<string>('reviewDirectory', '');
-    const dir = configured ? configured.replace(/^~(?=$|\/)/, os.homedir()) : path.join(os.homedir(), '.snagboat', 'reviews');
-    return path.join(dir, `${week}-${discoverySource().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workspace'}.md`);
-  };
-  /** Writes this week's review of the last 7 days, without a model. */
-  const writeReview = async (): Promise<{ file: string; review: Review }> => {
-    const to = new Date().toISOString();
-    const from = new Date(Date.now() - 7 * 86_400_000).toISOString();
-    await eventLog.flush();
-    const logged = await eventLog.snapshot();
-    const events: NormalizedEvent[] = [];
-    for (const day of await logged.listDays()) if (day >= from.slice(0, 10)) events.push(...(await logged.readDay(day)).filter((e) => e.ts >= from));
-    const discovery = runDiscovery(await loadDiscoveryEvents(), discoveryOptions()).result;
-    const review = buildReview({
-      workspace: discoverySource(),
-      from,
-      to,
-      events,
-      heuristics,
-      settingsFor: heuristicSettings,
-      contextLimit: contextLimitFor,
-      savedRules: ruleStore.list('rules').map((r) => ({ id: r.doc.id, title: typeof r.doc.title === 'string' ? r.doc.title : r.doc.id, provenance: r.provenance })),
-      responses: (await responseLog.readAll()).filter((e) => e.startedAt >= from),
-      respondingSince: context.workspaceState.get<string>(RESPONDING_SINCE_KEY),
-      muted: findings.mutedHeuristics(),
-      discovery,
-      notifying: nudgeSettings().notify !== 'off',
-    });
-    // The advisors' measures (RFC step 4c): this week against the one before, from the same log.
-    const weeks = periods(new Date(to), 7);
-    const goals = loadAdvisorGoals(path.join(snagboatHome(), 'advisors'));
-    for (const problem of goals.problems) outputChannel.appendLine(`Advisors: ${problem}`);
-    review.advisors = advisorReports(goals.advisors, await eventsIn([logged], weeks.current), await eventsIn([logged], weeks.previous));
-    const file = reviewFile(isoWeek(to));
-    await fs.promises.mkdir(path.dirname(file), { recursive: true });
-    await fs.promises.writeFile(file, renderReview(review));
-    return { file, review };
-  };
-  /** The abilities a review asks for, each appended to the file as its own labelled section. */
-  const REVIEW_ABILITIES: Array<{ ability: Capability; title: string; progress: string; build: (r: Review, prompts: PromptLayers, policy: DigestPolicy) => Promise<ChatMessage[] | undefined> }> = [
-    { ability: 'summarize-week', title: "The advisor's summary of the week", progress: 'summarizing the week', build: async (r, prompts, policy) => summarizeWeekMessages(r, prompts, policy) },
-    { ability: 'propose-nudges', title: 'The advisor on how findings were shown', progress: 'reviewing how findings were shown', build: async (r, prompts, policy) => proposeNudgesMessages(r, prompts, policy) },
-    {
-      ability: 'propose-tactics',
-      title: 'The advisor on tactics to try',
-      progress: 'proposing tactics',
-      // The costliest sessions' digests, a few turns each, under this ability's sending rules.
-      build: async (r, prompts, policy) => {
-        const digests = [];
-        for (const s of r.usage.costliest.slice(0, REVIEW_TACTICS_SESSIONS)) {
-          const input = await digestInput(s.sessionId);
-          if (input) digests.push(buildDigest({ ...input, maxTurns: REVIEW_TACTICS_TURNS }, policy));
-        }
-        return digests.length > 0 ? proposeTacticsMessages(digests, prompts, Advisor.modelTiers()) : undefined;
-      },
-    },
-  ];
-  /**
-   * Asks for the advisor's part of a written review: the week's summary and the
-   * nudge review, from the ability's default advisor, or from one advisor for
-   * whichever of the two it offers.
-   */
-  const askReview = async (written: { file: string; review: Review }, advisorId?: string) => {
-    let appended = false;
-    for (const { ability, title, progress, build } of REVIEW_ABILITIES) {
-      if (advisorId && !advisor.advisors().find((a) => a.id === advisorId)?.abilities[ability]) continue;
-      const asked = await advisor.ask(ability, ({ prompts, policy }) => build(written.review, prompts, policy), { title: progress, advisorId });
-      if (!asked) continue;
-      const warning = Advisor.cutWarning(asked, 'its context window is too small for a week of data');
-      await fs.promises.appendFile(written.file, advisorSection(title, asked.completion.text, Advisor.label(asked), warning || undefined));
-      appended = true;
-    }
-    if (appended) await vscode.window.showTextDocument(hostFileUri(written.file), { preview: false });
-  };
-  /** Offers the advisor's review of a written one; another advisor can be asked when several offer it. */
-  const offerAdvisorReview = async (written: { file: string; review: Review }, message: string) => {
-    const several = REVIEW_ABILITIES.some(({ ability }) => advisor.offering(ability).length > 1);
-    const choice = await vscode.window.showInformationMessage(message, 'Open', 'Ask the Advisor', ...(several ? ['Ask Another Advisor'] : []));
-    if (choice === 'Open') await vscode.window.showTextDocument(hostFileUri(written.file), { preview: false });
-    else if (choice === 'Ask the Advisor') await askReview(written);
-    else if (choice === 'Ask Another Advisor') {
-      const id = await pickReviewAdvisor();
-      if (id) await askReview(written, id);
-    }
-  };
-  /** Any advisor offering either of the review's abilities. */
-  const pickReviewAdvisor = async (): Promise<string | undefined> => {
-    const seen = new Set<string>();
-    const options = REVIEW_ABILITIES.flatMap(({ ability }) => advisor.offering(ability)).filter((a) => !seen.has(a.id) && seen.add(a.id));
-    const pick = await vscode.window.showQuickPick(
-      options.map((a) => ({ label: a.label, description: `${a.locality === 'local' ? 'on this machine' : a.baseUrl}${a.model ? ` · ${a.model}` : ''}`, detail: REVIEW_ABILITIES.filter(({ ability }) => a.abilities[ability]).map(({ ability }) => CAPABILITY_LABELS[ability]).join('; '), id: a.id })),
-      { placeHolder: 'Which advisor should review the week?' }
-    );
-    return pick?.id;
-  };
-  // Weekly review, opt-in: once per ISO week, the first time a window is open, without a model.
-  const weeklyReview = async () => {
-    if (!vscode.workspace.getConfiguration('snagboat.advisor').get<boolean>('weeklyReview', false)) return;
-    const file = reviewFile(isoWeek(new Date().toISOString()));
-    if (fs.existsSync(file)) return;
-    try {
-      void offerAdvisorReview(await writeReview(), "Snagboat: wrote this week's review.");
-    } catch (err) {
-      outputChannel.appendLine(`Review: couldn't write the weekly review: ${String(err)}`);
-    }
-  };
   showNudge = (nudge: Nudge) => {
     // Each notification shown is an outcome (Lookout's measures), filed in its session.
     const wanted = new Set(nudge.eventRefs);
@@ -782,30 +627,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       else if (choice === 'Acknowledge') respondTo(nudge.heuristicId, 'acknowledge');
       else if (choice === 'Mute') respondTo(nudge.heuristicId, 'mute');
     });
-    // The advisor's one line, opt-in, only for findings in one turn, and only quietly: no prompts mid-work.
-    if (nudge.early || !nudge.sessionId || !nudge.turnId || !vscode.workspace.getConfiguration('snagboat.nudges').get<boolean>('advisor', false)) return;
-    const { sessionId, turnId } = nudge;
-    void advisor
-      .ask(
-        'propose-nudges',
-        async ({ policy, prompts }) => {
-          const input = await digestInput(sessionId, turnId);
-          if (!input) return undefined;
-          const digest = buildDigest(input, policy);
-          return nudgeLineMessages(digest, nudge.heuristicId, digest.findings.find((f) => f.heuristic === nudge.heuristicId)?.summary ?? '', false, prompts);
-        },
-        { title: `asking the advisor about ${nudge.heuristicId}`, quiet: true }
-      )
-      .then((asked) => {
-        const line = asked && nudgeLine(asked.completion.text);
-        if (!asked || !line || !findings.list().some((f) => f.heuristicId === nudge.heuristicId)) return;
-        advice.set(nudge.heuristicId, { line, model: asked.advisor.model });
-        refresh();
-      });
   };
 
-  const weeklyTimer = setInterval(() => void weeklyReview(), RETENTION_INTERVAL_MS);
-  context.subscriptions.push({ dispose: () => clearInterval(weeklyTimer) });
 
   let headlining = false;
   let headlineBackoffUntil = 0;
@@ -839,9 +662,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   };
   const headlineTimer = setInterval(() => void headlineTick(), HEADLINE_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(headlineTimer) });
-  // A minute in, so activation and catching up on transcripts come first.
-  const firstWeekly = setTimeout(() => void weeklyReview(), 60_000);
-  context.subscriptions.push({ dispose: () => clearTimeout(firstWeekly) });
 
   const pickSession = async (placeHolder: string): Promise<string | undefined> => {
     const recent = sessionIndex.list().slice(0, 40);
@@ -927,10 +747,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       const sessionId = await pickSession('Explain a session (most recent first)');
       if (sessionId) await advisor.explain({ sessionId });
     }),
-    vscode.commands.registerCommand('snagboat.tacticsSession', async () => {
-      const sessionId = await pickSession('Propose tactics for a session (most recent first)');
-      if (sessionId) await advisor.tactics(sessionId);
-    }),
     vscode.commands.registerCommand('snagboat.explainSessionWith', async () => {
       const advisorId = await advisor.pickAdvisor('summarize-session', 'Which advisor should explain it?');
       if (!advisorId) return;
@@ -938,12 +754,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       if (sessionId) await advisor.explain({ sessionId }, advisorId);
     }),
     vscode.commands.registerCommand('snagboat.setAdvisorKey', () => advisor.setKey()),
-    vscode.commands.registerCommand('snagboat.writeAdvisorPrompts', () => advisor.writeDefaultPrompts()),
-    vscode.commands.registerCommand('snagboat.writeReview', async () => {
-      const written = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Snagboat: writing the review…' }, () => writeReview());
-      await vscode.window.showTextDocument(hostFileUri(written.file), { preview: false });
-      void offerAdvisorReview(written, 'Snagboat: wrote the review.');
-    })
+    vscode.commands.registerCommand('snagboat.writeAdvisorPrompts', () => advisor.writeDefaultPrompts())
   );
 
   context.subscriptions.push(

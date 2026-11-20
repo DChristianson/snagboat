@@ -287,12 +287,12 @@ export function externalChanges(lastWritten: SnagboatConfig, now: SnagboatConfig
 /**
  * Which VS Code settings windows copy into config.json: all of Snagboat's but
  * where its data lives (storage.*) and the advisor settings only VS Code uses
- * (headlines, the weekly review, model tiers, audit). Which advisors exist and
+ * (headlines, audit). Which advisors exist and
  * which one each ability uses are copied (RFC step 5c-2b), so the core can ask
  * the local ones; it reads them from your user settings only. API keys are
  * never settings: they stay in VS Code's secret storage.
  */
-const SYNCED_ADVISOR_SETTINGS = new Set(['advisors', 'advisor.providers', 'advisor.defaults', 'advisor.explainProvider', 'advisor.proposeProvider', 'advisor.reviewProvider', 'advisor.nudgeProvider']);
+const SYNCED_ADVISOR_SETTINGS = new Set(['advisors', 'advisor.providers', 'advisor.defaults', 'advisor.explainProvider']);
 
 export function isSyncedSetting(key: string): boolean {
   if (key.startsWith('storage.')) return false;
