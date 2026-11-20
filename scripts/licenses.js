@@ -39,7 +39,8 @@ async function bundledPackageDirs() {
 
 function readFirst(dir, pattern) {
   const name = fs.readdirSync(dir).find((f) => pattern.test(f));
-  return name ? fs.readFileSync(path.join(dir, name), 'utf8').trim() : undefined;
+  // Some packages ship CRLF license files; --check compares with line endings normalised, so the output must be LF too.
+  return name ? fs.readFileSync(path.join(dir, name), 'utf8').replace(/\r\n/g, '\n').trim() : undefined;
 }
 
 function describe(dir) {

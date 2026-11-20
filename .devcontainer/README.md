@@ -134,7 +134,10 @@ node scripts/devcontainerSetup.js ../other-project --dry-run
 node scripts/devcontainerSetup.js ../other-project
 ```
 
-By default it leaves the project's committed files alone. It writes a
+It runs `snagboat containers allow <folder> --edit` (see
+[docs/cli.md](../docs/cli.md#setting-up-the-dev-container)), which you can also
+run by itself, then carries the container's history over. By default it
+leaves the project's committed files alone. It writes a
 **personal config**, `.devcontainer/snagboat/devcontainer.json`: the project's
 own config plus the same-path and transcript mounts and the `safe.directory`
 step, with the Dockerfile and build context still pointing at the shared ones.
@@ -150,8 +153,8 @@ stops, and `--force` replaces it). `--in-place` edits the shared
 `devcontainer.json` instead, and adds `.snagboat/` to `.gitignore`, for a
 repository only you use.
 
-It also creates `.snagboat/claude-projects/`, runs `snagboat containers
-allow`, and carries Claude Code's history in, so `claude --resume` in the new
+It also creates `.snagboat/claude-projects/`, allows the folder, and carries
+Claude Code's history in, so `claude --resume` in the new
 container still lists it. That covers the folder's containers' earlier
 transcripts, copied out of their Docker volumes before or after a rebuild, and
 this machine's own sessions in that project. It copies and never links: a link

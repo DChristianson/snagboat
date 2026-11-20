@@ -9,6 +9,7 @@ import { containersAllowed, effectiveSettings, loadConfig, saveConfig, withConta
 import { ContainerFolderStatus, ContainerProjectsScan, containerProjectsDir, readContainerStatus, scanContainerProjects } from '../core/containerTranscripts';
 import { ensureCore, findCore } from '../core/service/lifecycle';
 import { coreRequest, liveCore } from '../core/service/coreFile';
+import { applyDevcontainerPlan, describePlan, DevcontainerPlan, planDevcontainer, unifiedDiff } from '../core/devcontainerSetup';
 import * as fs from 'fs';
 import { openInBrowser } from '../core/openInBrowser';
 import * as path from 'path';
@@ -24,7 +25,8 @@ import { HOOK_SCRIPT } from '../adapters/claude-code/hookRoutes';
  * logs the VS Code extension writes, from a terminal or an agent, without VS
  * Code running. Every command prints JSON with --json. Only `migrate` and
  * `containers allow|deny` write: migrate only to the per-user store (it copies,
- * never moves or deletes), containers only its list in ~/.snagboat/config.json.
+ * never moves or deletes), containers its list in ~/.snagboat/config.json and,
+ * with --edit, the folder's dev container config (core/devcontainerSetup.ts).
  */
 
 /** An experiment for the terminal: its status, change, scope, and the tracked measure from baseline to now. */
@@ -65,11 +67,18 @@ commands:
   containers allow [dir]
                       let the core read the Claude Code transcripts a dev container keeps in
                       dir's .snagboat/claude-projects folder (dir defaults to the current
-                      folder); writes containers.allow in ~/.snagboat/config.json
+                      folder); writes containers.allow in ~/.snagboat/config.json. Also
+                      checks dir's devcontainer.json and shows what it lacks
+  containers allow [dir] --dry-run
+                      what allow would change, writing nothing
+  containers allow [dir] --edit [--in-place] [--force]
+                      and set the dev container up: a personal config git ignores in this
+                      clone (.devcontainer/snagboat/devcontainer.json), or with --in-place
+                      the shared devcontainer.json; creates .snagboat/claude-projects
   containers deny [dir]
                       stop reading them
-  containers status   the allowed folders: what each one's claude-projects folder holds, and
-                      when the core last read it
+  containers status   the allowed folders: what each one's claude-projects folder holds, when
+                      the core last read it, and whether its dev container is set up
   serve               run the core service in the foreground (Ctrl-C stops it)
   core start          start the core in the background, unless it's running
   core status         whether the core is running, and where
@@ -115,6 +124,9 @@ interface Options {
   idleMinutes?: number;
   noCollect?: boolean;
   noOpen?: boolean;
+  edit?: boolean;
+  inPlace?: boolean;
+  force?: boolean;
   args: string[];
 }
 
@@ -127,6 +139,9 @@ export function parseArgs(argv: string[]): Options | string {
     else if (a === '--dry-run') opts.dryRun = true;
     else if (a === '--no-collect') opts.noCollect = true;
     else if (a === '--no-open') opts.noOpen = true;
+    else if (a === '--edit') opts.edit = true;
+    else if (a === '--in-place') opts.inPlace = true;
+    else if (a === '--force') opts.force = true;
     else if (a === '--port' || a === '--idle-minutes') {
       const value = argv[++i];
       const n = Number(value);
@@ -253,7 +268,7 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       return 0;
     }
     case 'containers':
-      return containersCommand(rest, cwd, io, print);
+      return containersCommand(rest, cwd, io, print, { edit: parsed.edit === true, inPlace: parsed.inPlace === true, force: parsed.force === true, dryRun: parsed.dryRun === true });
     case 'serve': {
       const home = userHome();
       let core: CoreService;
@@ -546,11 +561,92 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
   }
 }
 
+/** What `containers allow --json` says about the folder's dev container. */
+function devcontainerJson(plan: DevcontainerPlan | undefined, edit: boolean, wrote: string[]) {
+  if (!plan) return { state: 'none' };
+  return {
+    state: plan.state,
+    config: plan.configPath,
+    target: plan.outPath,
+    problem: plan.problem,
+    changes: plan.changes,
+    ignoreLines: plan.ignoreLines,
+    createsTranscriptsDir: plan.createsTranscriptsDir,
+    notes: plan.notes,
+    wrote: edit ? wrote : undefined,
+  };
+}
+
+/** What `containers allow` says about the folder's dev container: what it lacks and the diff, or (with --edit) what it wrote. */
+function devcontainerText(plan: DevcontainerPlan | undefined, edit: boolean, wrote: string[]): string {
+  if (!plan) return "\nNo devcontainer.json in this folder: nothing to set up. A dev container needs its ~/.claude/projects mounted at .snagboat/claude-projects for the core to read it.\n";
+  const rel = (p: string) => path.relative(plan.folder, p).split(path.sep).join('/');
+  const lines: string[] = [''];
+  if (plan.state === 'refused') {
+    lines.push(`Dev container: ${edit ? "didn't change anything" : "can't be set up automatically"}. ${plan.problem}`);
+    return lines.join('\n') + '\n';
+  }
+  if (plan.state === 'ready') {
+    lines.push(`Dev container: set up (${rel(plan.beforePath)}).`);
+    for (const n of plan.notes) lines.push(`note: ${n}`);
+    return lines.join('\n') + '\n';
+  }
+  if (plan.writesConfig) {
+    lines.push(`Dev container: ${rel(plan.outPath)}${plan.inPlace ? '' : ` (from ${rel(plan.configPath)})`}:`);
+    for (const c of plan.changes) lines.push(`  + ${c}`);
+  } else {
+    lines.push('Dev container: the config is set up.');
+  }
+  if (plan.createsTranscriptsDir) lines.push(`  + create ${rel(plan.transcriptsDir)}/ (Docker won't start with a missing mount source)`);
+  if (plan.ignoreLines.length && plan.ignoreFile) lines.push(`  + add ${plan.ignoreLines.join(' and ')} to ${plan.ignoreFile.startsWith(plan.folder + path.sep) ? rel(plan.ignoreFile) : plan.ignoreFile}`);
+  for (const n of plan.notes) lines.push(`note: ${n}`);
+  if (!edit) {
+    if (plan.writesConfig) lines.push('', unifiedDiff(plan.before, plan.after, `a/${rel(plan.beforePath)}`, `b/${rel(plan.outPath)}`).trimEnd());
+    lines.push(
+      '',
+      plan.inPlace
+        ? 'Nothing changed yet: rerun with --edit to make these changes.'
+        : 'Nothing changed yet: rerun with --edit to make these changes. The personal config stays out of git in this clone only; --edit --in-place edits the shared devcontainer.json instead, which collaborators get when you commit it.'
+    );
+    return lines.join('\n') + '\n';
+  }
+  lines.push('', `Done: ${wrote.join('; ')}.`);
+  if (plan.writesConfig) {
+    lines.push(
+      plan.inPlace
+        ? 'Next: rebuild the container (Dev Containers: Rebuild Container).'
+        : `Next: in VS Code, run Dev Containers: Reopen in Container (or Rebuild Container) and pick "${plan.personalName}". Run this again after the shared config changes.`
+    );
+    lines.push(
+      'The new mount hides the transcripts the container kept so far, so `claude --resume` there starts empty. To carry them (and this machine\'s sessions in the project) over, run scripts/devcontainerSetup.js from a snagboat checkout before or after rebuilding.'
+    );
+  }
+  return lines.join('\n') + '\n';
+}
+
 /** snagboat containers allow|deny [folder], snagboat containers status (dev container transcripts, core/containerTranscripts.ts). */
-async function containersCommand(rest: string[], cwd: string, io: CliIo, print: (value: unknown, text: () => string) => void): Promise<number> {
+async function containersCommand(
+  rest: string[],
+  cwd: string,
+  io: CliIo,
+  print: (value: unknown, text: () => string) => void,
+  setup: { edit: boolean; inPlace: boolean; force: boolean; dryRun: boolean }
+): Promise<number> {
   const home = userHome();
   const file = path.join(home, 'config.json');
   const [sub, given] = rest;
+  if ((setup.edit || setup.inPlace || setup.force) && sub !== 'allow') {
+    io.err('--edit, --in-place and --force go with containers allow\n');
+    return 2;
+  }
+  if ((setup.inPlace || setup.force) && !setup.edit) {
+    io.err('--in-place and --force go with --edit\n');
+    return 2;
+  }
+  if (setup.dryRun && (sub !== 'allow' || setup.edit)) {
+    io.err('--dry-run goes with containers allow, without --edit (which shows the changes and writes nothing)\n');
+    return 2;
+  }
   if (sub === 'allow' || sub === 'deny') {
     const resolved = path.resolve(cwd, given ?? '.');
     let folder: string;
@@ -577,19 +673,38 @@ async function containersCommand(rest: string[], cwd: string, io: CliIo, print: 
     else for (const f of new Set([folder, resolved])) next = withContainerFolder(next, f, false);
     const after = containersAllowed(next);
     const changed = JSON.stringify(before) !== JSON.stringify(after);
-    if (changed) saveConfig(home, next);
-    print({ changed, folder, allow: after, config: file }, () => {
+    if (changed && !setup.dryRun) saveConfig(home, next);
+    const allowed = () => {
+      if (changed && setup.dryRun) return `--dry-run: would add ${folder} to containers.allow in ${file}\n`;
       if (!changed) return sub === 'allow' ? `${folder} is already allowed (${file}); nothing changed\n` : `${folder} wasn't allowed; nothing changed\n`;
       return sub === 'allow'
         ? `Changed ${file}: added ${folder} to containers.allow.\nThe core reads the Claude Code transcripts in ${containerProjectsDir(folder)} from its next ingest (every 30 seconds while it runs).\n`
         : `Changed ${file}: removed ${folder} from containers.allow. The core stops reading its dev container's transcripts on its next ingest.\n`;
-    });
-    return 0;
+    };
+    if (sub === 'deny') {
+      print({ changed, folder, allow: after, config: file }, allowed);
+      return 0;
+    }
+    // allow: check the folder's dev container too, and with --edit set it up.
+    const plan = planDevcontainer(folder, { inPlace: setup.inPlace, force: setup.force });
+    const wrote = setup.edit && plan ? applyDevcontainerPlan(plan) : [];
+    print({ changed: changed && !setup.dryRun, folder, allow: setup.dryRun ? before : after, config: file, devcontainer: devcontainerJson(plan, setup.edit, wrote) }, () =>
+      (allowed() + devcontainerText(plan, setup.edit, wrote)).replace(/Nothing changed yet: rerun with --edit to make these changes\.[^\n]*/, (m) => (setup.dryRun ? '--dry-run: nothing written. --edit makes these changes.' : m))
+    );
+    return setup.edit && plan?.state === 'refused' ? 1 : 0;
   }
   if (sub === 'status') {
     const status = readContainerStatus(home);
-    const folders: Array<{ folder: string } & ContainerProjectsScan & { lastRead: ContainerFolderStatus | null }> = [];
-    for (const folder of containersAllowed(loadConfig(home).config)) folders.push({ folder, ...scanContainerProjects(folder), lastRead: status[folder] ?? null });
+    const folders: Array<{ folder: string } & ContainerProjectsScan & { lastRead: ContainerFolderStatus | null; devcontainer: string }> = [];
+    for (const folder of containersAllowed(loadConfig(home).config)) {
+      let devcontainer: string;
+      try {
+        devcontainer = describePlan(planDevcontainer(folder));
+      } catch (err) {
+        devcontainer = `couldn't check: ${err instanceof Error ? err.message : String(err)}`;
+      }
+      folders.push({ folder, ...scanContainerProjects(folder), lastRead: status[folder] ?? null, devcontainer });
+    }
     print({ config: file, folders }, () => {
       if (folders.length === 0) return 'No folders are allowed; `snagboat containers allow [folder]` allows one.\n';
       const lines: string[] = [];
@@ -604,6 +719,7 @@ async function containersCommand(rest: string[], cwd: string, io: CliIo, print: 
         );
         if (f.problem) lines.push(`  problem      ${f.problem}`);
         lines.push(`  last read    ${f.lastRead ? `${f.lastRead.lastReadAt} (${f.lastRead.events} event(s) recorded so far)` : 'never'}`);
+        lines.push(`  dev container ${f.devcontainer}${f.devcontainer.startsWith('not set up') ? ' (`snagboat containers allow --edit` in the folder)' : ''}`);
       }
       return lines.join('\n') + '\n';
     });

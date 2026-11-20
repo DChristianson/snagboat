@@ -361,7 +361,7 @@ async function main() {
       assert.strictEqual(JSON.parse(c.get().out).changed, false);
       c = capture();
       assert.strictEqual(await runCli(['containers', 'status', '--json'], c.io, 'test'), 0);
-      assert.deepStrictEqual(JSON.parse(c.get().out).folders, [{ folder, projectsDir: containerProjectsDir(folder), exists: false, projects: 0, sessions: 0, lastRead: null }]);
+      assert.deepStrictEqual(JSON.parse(c.get().out).folders, [{ folder, projectsDir: containerProjectsDir(folder), exists: false, projects: 0, sessions: 0, lastRead: null, devcontainer: 'no devcontainer.json' }]);
       transcript(containerProjectsDir(folder), folder, 's1');
       transcript(containerProjectsDir(folder), folder, 's2');
       transcript(containerProjectsDir(folder), path.join(folder, 'pkg'), 's3');

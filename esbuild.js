@@ -2,11 +2,16 @@ const esbuild = require('esbuild');
 
 const watch = process.argv.includes('--watch');
 
+// jsonc-parser's main entry is a UMD build that loads its parts with a require esbuild can't follow
+// (the bundle then fails with "Cannot find module './impl/format'"); its ESM build bundles cleanly.
+const alias = { 'jsonc-parser': 'jsonc-parser/lib/esm/main.js' };
+
 /** @type {import('esbuild').BuildOptions} */
 const extension = {
   entryPoints: ['src/extension.ts'],
   bundle: true,
   outfile: 'dist/extension.js',
+  alias,
   external: ['vscode'],
   format: 'cjs',
   platform: 'node',
@@ -25,6 +30,7 @@ const cli = {
   entryPoints: ['src/cli/main.ts'],
   bundle: true,
   outfile: 'dist/snagboat.js',
+  alias,
   format: 'cjs',
   platform: 'node',
   target: 'node18',
@@ -45,6 +51,7 @@ const discoveryWorker = {
   entryPoints: ['src/discovery/discoveryWorker.ts'],
   bundle: true,
   outfile: 'dist/discoveryWorker.js',
+  alias,
   format: 'cjs',
   platform: 'node',
   target: 'node18',

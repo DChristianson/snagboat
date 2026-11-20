@@ -55,6 +55,10 @@
         "title": "Snagboat: Open Session..."
       },
       {
+        "command": "snagboat.setUpDevContainer",
+        "title": "Snagboat: Set Up Dev Container"
+      },
+      {
         "command": "snagboat.revealEventLog",
         "title": "Snagboat: Reveal Event Log Folder"
       },
