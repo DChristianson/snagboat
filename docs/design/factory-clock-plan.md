@@ -181,7 +181,7 @@ Each step leaves the web demo working.
    - The old address redirects. Snagboat's Pages site, `dchristianson.github.io/snagboat/`, now deploys two static pages from `pages/` (`index.html`, and the same page as `404.html` for deep paths). Each sends the browser to Factory Clock's site.
    - Snagboat's unit tests keep their own copy of the synthetic sessions, in `src/test/fixtures/synthetic.ts`. The tests of Factory Clock itself moved with it. `vizBoundary.unit.test.ts` now checks that nothing in Snagboat's `src/`, `media/` or `package.json` uses `packages/viz` or `factory-clock`.
    - `npm run demo:traces` stays in Snagboat, since it reads Snagboat's event logs. It now needs `--out <file>`, and still writes `window.factoryClockDemoTraces`. The reviewed output is committed in the factory-clock repository.
-9. **Plan how Snagboat exports findings and plans** for Factory Clock to load, beside the daily event files it loads today. Until then the page shows no findings.
+9. **Plan how Snagboat exports findings and plans** for Factory Clock to load, beside the daily event files it loads today. Until then the page shows no findings. The design is [export.md](export.md): Snagboat owns the privacy rules, and exports sessions, findings, git history and the plan's lifecycle as one normalized, sanitized folder.
 
 ## Open questions
 
