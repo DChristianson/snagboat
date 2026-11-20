@@ -26,7 +26,7 @@ node dist/snagboat.js sessions --all --store vscode   # read VS Code's stores, n
 
 **While it runs, the core records Claude Code and Copilot CLI sessions in every project on this machine**, not only ones open in VS Code. It reads `~/.claude/projects` and `~/.copilot/session-state`, files each project under the workspace that contains it (or its repository), and applies retention to them. A project's `"collect": false`, `"collect.unopened": false` in your `~/.snagboat/config.json`, or `--no-collect` limits it ([privacy](../PRIVACY.md#what-is-captured)). Claude Code hooks for a project with no VS Code window open go to the core too. Once a core has run, hooks that find no core are kept until it next starts.
 
-With `snagboat.storage.perUserStore` on, VS Code starts the core and each window becomes its client. The core collects and writes, and a window shows its own workspace from it ([handoff](design/handoff-3c.md)).
+VS Code starts the core and each window is its client. The core collects and writes, and a window shows its own workspace from it ([handoff](design/handoff-3c.md)).
 
 ## Dev containers
 
@@ -42,7 +42,7 @@ snagboat containers status           # each allowed folder: whether claude-proje
 
 ## Migrating to the per-user store
 
-`migrate` is for the per-user store preview (`snagboat.storage.perUserStore`). It copies, and never moves or deletes. Running it again copies only what's new. To check a migration, save `sessions --all --json --store vscode` to a file before migrating, then run `migrate --verify <file>`. Every session in it must be in the per-user store with the same prompt, tool-call and token counts.
+`migrate` copies the stores earlier versions kept in VS Code's storage, one per window, into the per-user store (each VS Code window also copies its own when it starts). It copies, and never moves or deletes. Running it again copies only what's new. To check a migration, save `sessions --all --json --store vscode` to a file before migrating, then run `migrate --verify <file>`. Every session in it must be in the per-user store with the same prompt, tool-call and token counts.
 
 ## Which stores it reads
 

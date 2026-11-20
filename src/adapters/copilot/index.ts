@@ -1,27 +1,25 @@
 import { host } from '../../core/host';
 import { AgentAdapter, AdapterContext } from '@snagboat/schema';
-import { keepCheckpointEntry, withRealPaths } from '../../core/paths';
-import { resolveWorkspaceFolders } from '../claude-code/workspace';
-import { CopilotCliTailer, readCliCheckpoint } from './cliTailer';
-import { resolveCopilotSessionsDir } from './cliSessions';
 import { OtelReceiver } from './otelReceiver';
 import { StructureCapture } from './structureCapture';
 
 const DEFAULT_OTLP_PORT = 4318;
 
 
+/**
+ * Copilot in a VS Code window: the OTLP receiver for Copilot Chat's
+ * OpenTelemetry export (editor features), which only the window sees; its
+ * events go to the core. The core reads Copilot CLI sessions itself
+ * (core/service/copilotCollector.ts).
+ */
 export class CopilotAdapter implements AgentAdapter {
   readonly agentId = 'copilot' as const;
 
   private ctx?: AdapterContext;
   private otelReceiver?: OtelReceiver;
-  private cliTailer?: CopilotCliTailer;
 
-  /**
-   * @param captureDir where snagboat.copilot.captureStructure writes, if turned on.
-   * @param opts.cli false in a window that's a client of the core, which reads Copilot CLI sessions itself (3c-3d).
-   */
-  constructor(private readonly captureDir?: string, private readonly opts: { cli?: boolean } = {}) {}
+  /** @param captureDir where snagboat.copilot.captureStructure writes, if turned on. */
+  constructor(private readonly captureDir?: string) {}
 
   async init(ctx: AdapterContext): Promise<void> {
     this.ctx = ctx;
@@ -40,31 +38,9 @@ export class CopilotAdapter implements AgentAdapter {
         : undefined
     );
     this.otelReceiver.start();
-
-    // Agent mode: the Copilot CLI's session logs (it exports no telemetry).
-    const sessionsDir = resolveCopilotSessionsDir();
-    // Entries for sessions Copilot has since deleted are dropped.
-    const { offsets, lastTurns } = readCliCheckpoint((await this.ctx.readCheckpoint())?.state, keepCheckpointEntry(sessionsDir));
-    const folders = withRealPaths(resolveWorkspaceFolders());
-    if (folders.length > 0 && this.opts.cli !== false) {
-      const ctx = this.ctx;
-      // Test/CI seam: discover new sessions faster than the 60-second default.
-      const discoveryIntervalMs = process.env.SNAGBOAT_COPILOT_DISCOVERY_MS ? Number(process.env.SNAGBOAT_COPILOT_DISCOVERY_MS) : undefined;
-      this.cliTailer = new CopilotCliTailer(
-        ctx,
-        sessionsDir,
-        folders,
-        offsets,
-        lastTurns,
-        () => void ctx.writeCheckpoint({ updatedAt: new Date().toISOString(), state: { ...this.cliTailer!.checkpoint() } }),
-        { discoveryIntervalMs }
-      );
-      this.cliTailer.start();
-    }
   }
 
   async stop(): Promise<void> {
     this.otelReceiver?.stop();
-    this.cliTailer?.stop();
   }
 }

@@ -269,6 +269,29 @@ async function main() {
     }
   });
 
+  test("a core that can't be started at first: the window spools what it sees, keeps trying, and follows the core once one runs", async () => {
+    const { home, a } = machine();
+    const { client, error } = await CoreClient.connectOrRetry({ home, cliPath: '/nowhere', workspace: a, ensure: running(home) });
+    assert.match(String(error), /no core running/);
+    let replays = 0;
+    const got: string[] = [];
+    client.follow({ onEvents: (e) => got.push(...e.map((x) => x.eventId)), onReplayed: () => (replays += 1) }, new Date().toISOString());
+    await client.post([ev('early')]);
+    assert.strictEqual(fs.readdirSync(spoolDir(home)).length, 1, 'spooled for the core');
+    let ran = false;
+    await client.hold(workspaceStoreDir(home, a), async () => void (ran = true));
+    assert.ok(ran, 'no core running: nothing writes, so a hold goes ahead');
+    const core = await start(home);
+    try {
+      await waitFor(() => replays === 1, 15_000);
+      await client.post([ev('later')]);
+      await waitFor(() => got.includes('later'));
+    } finally {
+      client.close();
+      await core.stop();
+    }
+  });
+
   test('a core stopped on purpose is not started again by its clients; they rejoin the next one', async () => {
     const { home, a } = machine();
     let core = await start(home);
@@ -281,7 +304,7 @@ async function main() {
     try {
       await waitFor(() => replays === 1);
       await core.stop({ final: true }); // as POST /shutdown does
-      await waitFor(() => lost === 1); // the window evaluates its findings itself meanwhile
+      await waitFor(() => lost === 1); // the window says so, and shows the core's last findings meanwhile
       await new Promise((r) => setTimeout(r, 2_500));
       assert.strictEqual(ensured, 1, 'only the first connect asked to start one');
       core = await start(home);

@@ -5,20 +5,21 @@ import { WORKSPACE_NO_FOLDER } from '@snagboat/schema';
 import { listUserStores, readVsCodeStoreWorkspace } from '../core/userStore';
 
 /**
- * Finds the event stores the VS Code extension writes, so the CLI can read
- * them without VS Code running (docs/design/architecture-rfc.md, step 3).
+ * Finds the event stores earlier versions of the VS Code extension wrote, so
+ * the CLI can read them, and `snagboat migrate` copy them, without VS Code
+ * running (docs/design/architecture-rfc.md, step 3). Snagboat now keeps every
+ * workspace's data in the per-user store (see findUserStores).
  *
- * Each VS Code window keeps its log in its workspace storage, unless
- * snagboat.storage.perUserStore is on (then see findUserStores): <user dir>/workspaceStorage/<hash>/dchristianson.snagboat/events/,
+ * Each VS Code window kept its log in its workspace storage: <user dir>/workspaceStorage/<hash>/dchristianson.snagboat/events/,
  * with <hash>/workspace.json naming the folder or .code-workspace file. A window
- * with no folder open uses globalStorage/dchristianson.snagboat instead.
+ * with no folder open used globalStorage/dchristianson.snagboat instead.
  *
  * The user dir is the desktop app's (~/.config/Code/User and the like) or, in a
  * dev container or over Remote-SSH, the VS Code server's (~/.vscode-server/data/User),
  * where the extension runs on the remote side. The server writes no
- * workspace.json, so the extension writes its own marker in its storage folder
- * (snagboat-workspace.json, core/userStore.ts) when a window opens it. A server
- * store written before that has no marker until a window opens it again.
+ * workspace.json, so the extension writes its own marker in an old store's
+ * folder (snagboat-workspace.json, core/userStore.ts) when a window opens it.
+ * A server store written before that has no marker until a window opens it again.
  *
  * Read-only: nothing here writes to a store (core/migrate.ts copies them).
  */

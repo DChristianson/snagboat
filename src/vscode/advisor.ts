@@ -11,17 +11,17 @@ import { SessionFocus, summarizeSessionMessages } from '../advisor/summarizeSess
 import { ChatMessage, complete, completionBody, Completion, FetchLike, listModels, promptWasCut } from '../advisor/providers';
 import { hostFileUri } from './hostUri';
 
+/** Where an earlier Snagboat kept approvals, in VS Code's global state; copied once to the shared file. */
 export const APPROVED_KEY = 'snagboat.advisor.approved';
 const secretKey = (id: string) => `snagboat.advisor.key.${id}`;
 
 export interface AdvisorDeps {
   secrets: vscode.SecretStorage;
-  globalState: vscode.Memento;
   /**
-   * Where approvals are kept, when not in global state: with the per-user store on, the file the core's
-   * advisor UI shares (RFC step 5c-2b), so approving in either counts in both.
+   * Where approvals are kept: the file the core's advisor UI shares (RFC step 5c-2b), so approving in
+   * either counts in both.
    */
-  approvals?: { get(): Record<string, string>; set(approvals: Record<string, string>): void };
+  approvals: { get(): Record<string, string>; set(approvals: Record<string, string>): void };
   audit: AuditLog;
   output: vscode.OutputChannel;
   /** A stored session (optionally one turn) as digest input; undefined if it's gone. */
@@ -211,7 +211,7 @@ export class Advisor {
   }
 
   private approvals(): Record<string, string> {
-    return this.deps.approvals ? this.deps.approvals.get() : this.deps.globalState.get<Record<string, string>>(APPROVED_KEY, {});
+    return this.deps.approvals.get();
   }
 
   /** Before an advisor's first request (or after its URL or sending rules change), shows the payload and asks. */
@@ -230,8 +230,7 @@ export class Advisor {
     );
     if (choice !== 'Send') return false;
     const approvals = { ...this.approvals(), [a.id]: approvalKey(a) };
-    if (this.deps.approvals) this.deps.approvals.set(approvals);
-    else await this.deps.globalState.update(APPROVED_KEY, approvals);
+    this.deps.approvals.set(approvals);
     return true;
   }
 

@@ -24,8 +24,8 @@ export interface DetailPanelHooks {
   /** Today's UTC day key, for the session list's default day. */
   today(): string;
   /**
-   * Whether Sessions live in the advisor UI (RFC step 5c: the window is the core's client, with the
-   * per-user store on); the panel then hides that tab and opens it, and any session, in the browser.
+   * Whether Sessions live in the advisor UI (RFC step 5c: the core serves it); the panel then hides
+   * that tab and opens it, and any session, in the browser.
    */
   inBrowser?(): boolean;
   openInBrowser?(target: { sessionId?: string; view?: 'sessions' }): Promise<void>;

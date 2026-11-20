@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import { EventBus } from './core/eventBus';
-import { OUTCOMES_ADAPTER, TestsGreen } from './outcomes/testsGreen';
+import { OUTCOMES_ADAPTER } from './outcomes/testsGreen';
 import { loadAdvisorGoals } from './advisor/goals';
 import { snagboatHome } from './core/userStore';
 import { findCore } from './core/service/lifecycle';
@@ -12,7 +12,6 @@ import { advisorReports, eventsIn, periods } from './advisor/report';
 import { EventLog } from './core/eventLog';
 import { Aggregate, AggregateSnapshot, TodayAggregate } from './core/aggregate';
 import { EventStore, ReadonlyEventStore } from './core/eventStore';
-import { CheckpointStore } from './core/checkpointStore';
 import { DailyHistory } from './core/dailyHistory';
 import { SessionIndex } from '@snagboat/schema';
 import { SessionController } from './ui/sessionController';
@@ -35,17 +34,17 @@ import { headlineLine, headlineMessages } from './advisor/summarizeSession';
 import { Headliner, HeadlineEntry } from './advisor/headlines';
 import { positiveNumberOr } from './heuristics/settings';
 import { AdvisorLimit, Nudge, Nudger, NudgeSettings, NotifyLevel } from './nudges/nudger';
-import { episodeResponse, ResponseEpisode, ResponseLog, ResponseTracker } from './heuristics/responses';
+import { ResponseLog } from './heuristics/responses';
 import { buildReview, isoWeek, renderReview, Review } from './review/review';
 import { advisorSection, summarizeWeekMessages } from './advisor/summarizeWeek';
 import * as os from 'os';
 import * as fs from 'fs';
 import { hasCapturedText, withoutCapturedText } from './core/excerpt';
 import { ContextLimits, ModelContextMarks } from './core/contextLimits';
-import { AggregateStore, EventSink, RetentionPolicy, applyRetention, oldestKeptDay } from './core/retention';
+import { AggregateStore, RetentionPolicy, oldestKeptDay } from './core/retention';
 import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
-import { AgentAdapter, NormalizedEvent, NormalizedEventKind } from '@snagboat/schema';
+import { AgentAdapter, NormalizedEvent } from '@snagboat/schema';
 import { renderStatusBar } from './ui/statusBar';
 import { buildBreakdownLines, formatCount, WaitingLink, waitingText } from './ui/format';
 import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
@@ -55,13 +54,13 @@ import { readApprovals, writeApprovals } from './core/advisorApprovals';
 import { CompactState, FindingsView } from './ui/findingsView';
 import { EditTrackerAdapter } from './vscode/editTracker';
 import { vscodeHost } from './vscode/host';
-import { noticePerUserStoreDefault, resolveStorage, watchPerUserStoreSetting } from './vscode/storage';
+import { noticePerUserStore, resolveStorage, StorageLocations } from './vscode/storage';
 import { syncSettingsToConfig } from './vscode/configSync';
 import { ClaudeCodeAdapter } from './adapters/claude-code';
 import { removeHooksConfigured } from './adapters/claude-code/hooksConfig';
 import { CopilotAdapter } from './adapters/copilot';
 import { FindingsRegistry } from './heuristics/findingsRegistry';
-import { EVENT_STORE_MAX_EVENTS, EVENT_STORE_WINDOW_MS, HEURISTICS_INTERVAL_MS as POLL_INTERVAL_MS, HeuristicsEngine } from './heuristics/engine';
+import { EVENT_STORE_MAX_EVENTS, EVENT_STORE_WINDOW_MS, HEURISTICS_INTERVAL_MS as POLL_INTERVAL_MS } from './heuristics/engine';
 import { builtInHeuristics, heuristicSettings, heuristicSettingsSection, settingsRuleSource } from './heuristics/index';
 import { Finding, Heuristic, Progress } from './heuristics/types';
 import type { WorkspaceFindings } from './core/service/findings';
@@ -75,8 +74,6 @@ import { exportRules, importRules } from './ui/ruleTransfer';
 import { hostFileUri } from './vscode/hostUri';
 
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
-/** A finding that passed unanswered in less time than this isn't recorded as an outcome: it flickered. */
-const MIN_PASSED_EPISODE_MS = 30_000;
 const MUTED_HEURISTICS_KEY = 'snagboat.mutedHeuristics';
 // Global: saved rules are shared by every workspace, so a dismissed suggestion stays dismissed everywhere.
 const DISMISSED_SUGGESTIONS_KEY = 'snagboat.dismissedSuggestions';
@@ -122,12 +119,10 @@ export interface SnagboatTestApi {
   getAggregateSnapshot(): AggregateSnapshot;
   getTodaySnapshot(): AggregateSnapshot;
   getEventStore(): ReadonlyEventStore;
-  /** core: a client of the core (3c-3c); per-user: writes the per-user store itself; vscode: VS Code's storage. */
-  getStorageMode(): 'core' | 'per-user' | 'vscode';
   getContextLimits(): Record<string, ModelContextMarks>;
   getSessions(): SessionController;
   getFindings(): Finding[];
-  /** VS Code's storage folder for this window (context.storageUri), whichever store the setting picks. */
+  /** VS Code's storage folder for this window (context.storageUri), where an earlier Snagboat kept its data. */
   getVsCodeStorageDir(): string | undefined;
   /** Asks the core now for the advisors with proposals waiting, as the findings view and status bar show them. */
   checkWaitingProposals(): Promise<WaitingLink[]>;
@@ -138,33 +133,27 @@ export interface SnagboatTestApi {
 export async function activate(context: vscode.ExtensionContext): Promise<SnagboatTestApi | undefined> {
   // The engine reads settings and workspace folders through the host (docs/design/architecture-rfc.md, step 2).
   setHost(vscodeHost);
-  // The per-user store (the default), or VS Code's per-window storage (snagboat.storage.perUserStore off).
-  const storage = await resolveStorage(context);
-  noticePerUserStoreDefault(context, storage);
+  // This workspace's folder in the per-user store, and the core that collects and writes it; this window follows it (3c-3c).
+  let storage: StorageLocations;
+  try {
+    storage = await resolveStorage(context);
+  } catch (err) {
+    console.error('snagboat: per-user store unavailable', err);
+    void vscode.window.showErrorMessage(`Snagboat: couldn't set up its data folder in ${snagboatHome()}, so it's off in this window: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
+  noticePerUserStore(context);
   const storageDir = storage.storageDir;
-  context.subscriptions.push(watchPerUserStoreSetting());
   // The core and the CLI read settings from ~/.snagboat/config.json; this window keeps it current.
-  if (storage.perUser) context.subscriptions.push(syncSettingsToConfig(context));
-  // With the core running (3c-3c), it collects and writes this workspace's folder; this window follows it.
+  context.subscriptions.push(syncSettingsToConfig(context));
   const core = storage.core;
-  if (core) context.subscriptions.push({ dispose: () => core.close() });
+  context.subscriptions.push({ dispose: () => core.close() });
 
   const eventLog = new EventLog(storageDir, { workspace: storage.workspace });
   await eventLog.init();
-  const checkpoints = new CheckpointStore(storageDir);
-  await checkpoints.init();
 
   const aggregateStore = new AggregateStore(storageDir);
   await aggregateStore.init();
-
-  // Prune before rehydrating, so nothing past retention is ever loaded. The core prunes the folders it writes.
-  if (!core) {
-    try {
-      await applyRetention(eventLog, aggregateStore, retentionPolicy(), todayKey());
-    } catch (err) {
-      console.error('snagboat: retention failed on activation', err);
-    }
-  }
 
   // The core's feed replays the days written after this, so nothing falls between the read and the feed.
   const readAt = new Date(Date.now() - 2_000).toISOString();
@@ -178,8 +167,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   await dailyHistory.rehydrateFrom(logged, aggregateStore);
   // Sessions in the retained raw log.
   const sessionIndex = new SessionIndex();
-  // Ids already logged, so an event delivered again (a source re-read after a
-  // lost checkpoint) isn't logged or counted twice.
+  // Ids already in, so an event the core's feed delivers again (its replay after a reconnect) isn't counted twice.
   const loggedIds = new Set<string>();
   for (const event of await logged.readAll()) {
     sessionIndex.ingest(event);
@@ -214,22 +202,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const responseLog = new ResponseLog(storageDir);
   void responseLog.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
   if (!context.workspaceState.get<string>(RESPONDING_SINCE_KEY)) void context.workspaceState.update(RESPONDING_SINCE_KEY, new Date().toISOString());
-  // Each ended episode is also an outcome (RFC step 4: finding usefulness), once the bus exists to carry it.
-  let recordResponse: (episode: ResponseEpisode, refs: string[]) => void = () => undefined;
-  const responses = new ResponseTracker((episode, refs) => {
-    responseLog.append(episode);
-    recordResponse(episode, refs);
-  });
-  context.subscriptions.push({ dispose: () => responseLog.appendNow(responses.drain()) });
-  // As the core's client, the core keeps how you meet findings (episodes, the log, outcomes) for every front door; this window mirrors it.
-  const findings = new FindingsRegistry(context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []), core ? undefined : responses);
-  /** Useful, Acknowledge, Mute or Unmute from this window: shown at once, and, as the core's client, sent to the core. */
+  // The core keeps how you meet findings (episodes, the log, outcomes, mutes) for every front door; this window mirrors it.
+  const findings = new FindingsRegistry([]);
+  /** Useful, Acknowledge, Mute or Unmute from this window: shown at once, and sent to the core. */
   const respondTo = (heuristicId: string, response: 'useful' | 'acknowledge' | 'mute' | 'unmute') => {
     if (response === 'useful') findings.markUseful(heuristicId);
     else if (response === 'acknowledge') findings.acknowledge(heuristicId);
     else findings.setMuted(heuristicId, response === 'mute');
-    void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
-    if (core) void core.respond(heuristicId, response);
+    void core.respond(heuristicId, response);
   };
   const contextLimitFor = (model: string | undefined) => (model ? contextLimits.get(model)?.limit : undefined);
   let heuristics: Heuristic[] = [];
@@ -237,18 +217,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   let activeCategories: string | undefined;
   /** Set once the extension is up: offers to relabel past shell calls when the shell categories in use change. */
   let onCategoriesChanged: (() => void) | undefined;
-  let engine = new HeuristicsEngine(heuristics, eventStore, heuristicSettings, contextLimitFor);
-  /** Rebuilds the heuristics from the built-ins and the current rules; findings of rules that are gone are cleared. */
+  /** Rebuilds the heuristics (for replay, discovery and the review) from the built-ins and the current rules. */
   const loadRules = () => {
     const ruleSet = buildRuleSet([ruleStore.source(), settingsRuleSource()]);
     setShellSubCategories(ruleSet.categories);
     const categories = JSON.stringify(ruleSet.categories);
     if (activeCategories !== undefined && categories !== activeCategories) onCategoriesChanged?.();
     activeCategories = categories;
-    const next = [...builtInHeuristics(), ...ruleSet.rules.map(ruleHeuristic)];
-    for (const h of heuristics) if (!next.some((n) => n.id === h.id)) findings.report(h.id, []);
-    heuristics = next;
-    engine = new HeuristicsEngine(heuristics, eventStore, heuristicSettings, contextLimitFor);
+    heuristics = [...builtInHeuristics(), ...ruleSet.rules.map(ruleHeuristic)];
     ruleProblems = [...(ruleStoreError ? [ruleStoreError] : []), ...ruleSet.problems];
     for (const problem of ruleProblems) outputChannel.appendLine(`Rules: ${problem}`);
     health.report('rules', 'invalid', ruleProblems.length > 0 ? `${ruleProblems.length} rule or tool category problem${ruleProblems.length === 1 ? '' : 's'}; see the Snagboat output` : undefined);
@@ -284,45 +260,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   /** The advisor's line for a finding in the tooltip, while that finding lasts. */
   const advice = new Map<string, { line: string; model: string }>();
   let showNudge: (nudge: Nudge) => void = () => undefined;
-  // As a client of the core (3c-3d), the core works out findings and early warnings; this window applies them.
-  // Until the core's first findings arrive, and whenever its stream is down, this window evaluates them itself,
-  // so they neither wait on the core nor freeze while it's gone.
+  // The core works out findings and early warnings (3c-3d); this window shows them, and notifies.
   let coreProgress: Progress[] = [];
   let fromCore = new Set<string>();
-  let coreFindingsLive = false;
-  let mutesMoved = false;
+  let movingMutes = false;
   const applyCoreFindings = (result: WorkspaceFindings) => {
-    coreFindingsLive = true;
-    // The first time: mutes this window had before the core kept them move to the core.
-    if (!mutesMoved && core) {
-      mutesMoved = true;
-      const local = context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY, []).filter((id) => !result.muted.includes(id));
-      for (const id of local) void core.respond(id, 'mute');
-      result = { ...result, muted: [...result.muted, ...local] };
+    // Mutes an earlier Snagboat kept in this window's state move to the core; the list goes once the core has them all.
+    const kept = context.workspaceState.get<string[]>(MUTED_HEURISTICS_KEY);
+    const local = (kept ?? []).filter((id) => !result.muted.includes(id));
+    if (local.length > 0) result = { ...result, muted: [...result.muted, ...local] };
+    if (kept !== undefined && !movingMutes) {
+      movingMutes = true;
+      void Promise.all(local.map((id) => core.respond(id, 'mute')))
+        .then((done) => (done.every((state) => state !== undefined) ? context.workspaceState.update(MUTED_HEURISTICS_KEY, undefined) : undefined))
+        .finally(() => (movingMutes = false));
     }
     const byId = new Map<string, Finding[]>();
     for (const f of result.findings) byId.set(f.heuristicId, [...(byId.get(f.heuristicId) ?? []), f]);
-    // Also clears what this window found itself while the core was away.
-    for (const id of new Set([...fromCore, ...heuristics.map((h) => h.id), ...byId.keys()])) findings.report(id, byId.get(id) ?? []);
+    for (const id of new Set([...fromCore, ...byId.keys()])) findings.report(id, byId.get(id) ?? []);
     fromCore = new Set(byId.keys());
     findings.mirror(result.responses ?? {}, result.muted ?? []);
-    void context.workspaceState.update(MUTED_HEURISTICS_KEY, findings.mutedHeuristics());
     coreProgress = result.progress;
-    runHeuristics();
+    updateNudges();
     refresh();
   };
-  const runHeuristics = (kind?: NormalizedEventKind) => {
-    const now = new Date().toISOString();
-    if (!core || !coreFindingsLive) {
-      const results = kind ? engine.tickFor(kind, now) : engine.tick(now);
-      for (const [id, list] of results) findings.report(id, list);
-    }
+  /** Notifications for the core's findings and early warnings, as the nudge settings allow. */
+  const updateNudges = () => {
     const settings = nudgeSettings();
     if (settings.notify === 'off') return;
     const active = new Map<string, Finding[]>();
     for (const f of findings.list()) active.set(f.heuristicId, [...(active.get(f.heuristicId) ?? []), f]);
     for (const id of [...advice.keys()]) if (!active.has(id)) advice.delete(id);
-    for (const nudge of nudger.update(active, core && coreFindingsLive ? coreProgress : engine.progress(now), settings)) showNudge(nudge);
+    for (const nudge of nudger.update(active, coreProgress, settings)) showNudge(nudge);
   };
 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -356,13 +325,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   const discoveryOptions = () => ({ existing: heuristics, settingsFor: heuristicSettings, contextLimit: contextLimitFor });
   const rulesChanged = () => {
     loadRules();
-    runHeuristics();
     refresh();
     // The core reads the same rules (config.json, already synced, and rules.json); have it evaluate now.
-    void core?.findings();
+    void core.findings();
   };
-  // The first time with the per-user store on, this window's dismissals join the shared list (they stay in global state too).
-  if (storage.perUser && !context.globalState.get<boolean>(DISMISSED_MOVED_KEY)) {
+  // Once: this machine's dismissals from an earlier Snagboat join the shared list (they stay in global state too).
+  if (!context.globalState.get<boolean>(DISMISSED_MOVED_KEY)) {
     const mine = context.globalState.get<string[]>(DISMISSED_SUGGESTIONS_KEY, []);
     try {
       if (mine.length > 0) writeDismissed(snagboatHome(), [...readDismissed(snagboatHome()), ...mine]);
@@ -378,9 +346,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     settingsRules: settingsRuleSource,
     rulesChanged: () => rulesChanged(),
     applySetting: (heuristic, setting, value) => Promise.resolve(vscode.workspace.getConfiguration(heuristicSettingsSection(heuristic)).update(setting, value, vscode.ConfigurationTarget.Global)),
-    // With the per-user store on, one list shared with the core's advisor UI (RFC step 5c-2).
-    dismissed: () => (storage.perUser ? readDismissed(snagboatHome()) : context.globalState.get<string[]>(DISMISSED_SUGGESTIONS_KEY, [])),
-    setDismissed: (ids) => (storage.perUser ? Promise.resolve(writeDismissed(snagboatHome(), ids)) : Promise.resolve(context.globalState.update(DISMISSED_SUGGESTIONS_KEY, ids))),
+    // One list shared with the core's advisor UI (RFC step 5c-2).
+    dismissed: () => readDismissed(snagboatHome()),
+    setDismissed: (ids) => Promise.resolve(writeDismissed(snagboatHome(), ids)),
     sessionName: (id) => sessionIndex.get(id)?.name,
     propose: async (build, advisorId) => {
       const asked = await advisor.ask('propose-heuristics', async ({ policy, prompts }) => proposeHeuristicsMessages(build(policy), prompts), { title: 'proposing heuristics', advisorId });
@@ -419,8 +387,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   };
   const audit = new AuditLog(storage.sharedDir);
   void audit.prune(retentionPolicy().rawDays, new Date().toISOString()).catch(() => undefined);
-  // With the per-user store on, payload approvals are shared with the core's advisor UI; this machine's join them once.
-  if (storage.perUser && !context.globalState.get<boolean>(APPROVALS_MOVED_KEY)) {
+  // Payload approvals are shared with the core's advisor UI; this machine's from an earlier Snagboat join them once.
+  if (!context.globalState.get<boolean>(APPROVALS_MOVED_KEY)) {
     try {
       writeApprovals(snagboatHome(), { ...context.globalState.get<Record<string, string>>(APPROVED_KEY, {}), ...readApprovals(snagboatHome()) });
       void context.globalState.update(APPROVALS_MOVED_KEY, true);
@@ -428,7 +396,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       outputChannel.appendLine(`Advisor: couldn't share payload approvals: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  const advisor = new Advisor({ secrets: context.secrets, globalState: context.globalState, ...(storage.perUser ? { approvals: { get: () => readApprovals(snagboatHome()), set: (a: Record<string, string>) => writeApprovals(snagboatHome(), a) } } : {}), audit, output: outputChannel, digestInput });
+  const advisor = new Advisor({ secrets: context.secrets, approvals: { get: () => readApprovals(snagboatHome()), set: (a: Record<string, string>) => writeApprovals(snagboatHome(), a) }, audit, output: outputChannel, digestInput });
 
   /** Where the advisor UI lands after its one-time code: a session, a view, or an advisor's page. */
   const advisorUiThen = (target: { sessionId?: string; view?: 'sessions'; advisor?: string }): string =>
@@ -436,13 +404,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
 
   /**
    * Opens the advisor UI (RFC step 5a) in the browser with a one-time link, optionally at a session or view
-   * (step 5c: with the per-user store on, Sessions live there). It's served by the core.
+   * (step 5c: Sessions live there). It's served by the core.
    */
   const openAdvisorUi = async (target: { sessionId?: string; view?: 'sessions'; advisor?: string } = {}): Promise<void> => {
-    if (!core) {
-      void vscode.window.showInformationMessage('Snagboat: the advisor UI is served by the core service, which runs with snagboat.storage.perUserStore on (User settings, then reload).');
-      return;
-    }
     const info = await findCore(snagboatHome());
     if (!info) {
       void vscode.window.showWarningMessage('Snagboat: the core service isn\'t answering; reload the window to start it again.');
@@ -452,7 +416,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     // this machine too. VS Code would still tunnel a 127.0.0.1 address into the remote, through asExternalUri and
     // openExternal alike, where no core listens: open the core's own address with the OS's opener instead.
     if (vscode.env.remoteName && context.extension.extensionKind === vscode.ExtensionKind.UI) {
-      const res = await coreRequest(info.port, info.token, 'POST', '/ui-links', storage.workspace ? { workspace: storage.workspace } : {});
+      const res = await coreRequest(info.port, info.token, 'POST', '/ui-links', { workspace: storage.workspace });
       if (res.status !== 200) {
         void vscode.window.showErrorMessage(`Snagboat: the core couldn't open the advisor UI: ${JSON.stringify(res.body)}`);
         return;
@@ -466,7 +430,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     // it under another address: ask for that address, and have the core accept it.
     const external = await vscode.env.asExternalUri(vscode.Uri.parse(`http://127.0.0.1:${info.port}/`));
     const forwarded = external.authority.toLowerCase() !== `127.0.0.1:${info.port}`;
-    const res = await coreRequest(info.port, info.token, 'POST', '/ui-links', { ...(storage.workspace ? { workspace: storage.workspace } : {}), ...(forwarded ? { allowHost: external.authority } : {}) });
+    const res = await coreRequest(info.port, info.token, 'POST', '/ui-links', { workspace: storage.workspace, ...(forwarded ? { allowHost: external.authority } : {}) });
     if (res.status !== 200) {
       void vscode.window.showErrorMessage(`Snagboat: the core couldn't open the advisor UI: ${JSON.stringify(res.body)}`);
       return;
@@ -499,8 +463,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     acknowledge: (heuristicId) => respondTo(heuristicId, 'acknowledge'),
     useful: (heuristicId) => respondTo(heuristicId, 'useful'),
     setMuted: (heuristicId, muted) => respondTo(heuristicId, muted ? 'mute' : 'unmute'),
-    // As the core's client, Sessions are the advisor UI's (RFC step 5c).
-    inBrowser: () => !!core,
+    // Sessions are the advisor UI's (RFC step 5c).
+    inBrowser: () => true,
     openInBrowser: (target) => openAdvisorUi(target),
   });
   context.subscriptions.push(detailPanel);
@@ -515,7 +479,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   // minutes and when the window comes back into focus; shown in the findings view and the status bar's tooltip.
   let waitingProposals: WaitingLink[] = [];
   const checkWaiting = async (): Promise<void> => {
-    if (!core) return;
     const next = await core.waitingProposals();
     if (JSON.stringify(next) === JSON.stringify(waitingProposals)) return;
     waitingProposals = next;
@@ -544,7 +507,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
           }),
         today: { tokens: today.totalTokens, ...(input > 0 ? { cacheRate: (100 * cacheRead) / input } : {}), milestones: todayAggregate.milestones() },
         proposals: waitingProposals.map((p) => ({ ...p, text: waitingText(p) })),
-        advisorUi: !!core,
+        advisorUi: true,
       };
   };
   const findingsView = new FindingsView(context.extensionUri, {
@@ -554,11 +517,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     openDetail: () => detailPanel.show(),
   });
   context.subscriptions.push(findingsView, vscode.window.registerWebviewViewProvider(FindingsView.id, findingsView));
-  if (core) {
-    const every = setInterval(() => void checkWaiting(), 5 * 60_000);
-    const first = setTimeout(() => void checkWaiting(), 5_000);
-    context.subscriptions.push({ dispose: () => (clearInterval(every), clearTimeout(first)) }, vscode.window.onDidChangeWindowState((st) => st.focused && void checkWaiting()));
-  }
+  const every = setInterval(() => void checkWaiting(), 5 * 60_000);
+  const first = setTimeout(() => void checkWaiting(), 5_000);
+  context.subscriptions.push({ dispose: () => (clearInterval(every), clearTimeout(first)) }, vscode.window.onDidChangeWindowState((st) => st.focused && void checkWaiting()));
 
   const withAdvice = (list: Finding[]): Finding[] =>
     list.map((f) => {
@@ -575,48 +536,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   findings.onChange(refresh);
 
   const bus = new EventBus();
-  const testsGreen = new TestsGreen();
-  recordResponse = (episode, refs) => {
-    const response = episodeResponse(episode);
-    const endedAt = episode.endedAt;
-    if (!endedAt) return;
-    // A finding that came and went within seconds unanswered says nothing about its use: it flickered (as when a
-    // window hands its findings over to the core, or back). Wait for the report that ended it to finish, too.
-    if (response === 'passed' && Date.parse(endedAt) - Date.parse(episode.startedAt) < MIN_PASSED_EPISODE_MS) return;
-    queueMicrotask(() => {
-      // A rule you deleted ended its episode by going away, not by passing.
-      if (!heuristics.some((h) => h.id === episode.heuristicId) && !fromCore.has(episode.heuristicId)) return;
-      // Filed in the session of the finding's latest event; a finding with none in reach isn't recorded.
-      const wanted = new Set(refs);
-      const ref = eventStore.query().filter((e) => wanted.has(e.eventId)).pop();
-      if (!ref) return;
-      bus.publish({
-        eventId: `outcome:finding_response:${episode.heuristicId}:${episode.startedAt}`,
-        sessionId: ref.sessionId,
-        agent: ref.agent,
-        ts: endedAt,
-        kind: 'outcome',
-        status: 'unknown',
-        outcome: { type: 'finding_response', heuristicId: episode.heuristicId, response, refs },
-        raw: { adapter: OUTCOMES_ADAPTER, ref: `finding:${episode.heuristicId}:${episode.startedAt}` },
-      });
-    });
-  };
-  // Retention runs, aggregate merges from the sink, and Clear Event Log all
-  // touch the same files, so they share one queue and never interleave.
-  let retentionQueue: Promise<void> = Promise.resolve();
-  const enqueueStorageOp = (op: () => Promise<void>) => {
-    retentionQueue = retentionQueue.then(op).catch((err) => console.error('snagboat: storage operation failed', err));
-  };
-  // Like enqueueStorageOp, but the caller sees the operation's result or failure. With the core, the
-  // operation runs with this workspace's folder held, so the core writes nothing there meanwhile.
-  const holding = (op: () => Promise<void>) => (core ? () => core.hold(storageDir, op) : op);
+  // Rewrites of this workspace's days (backfill, relabel, removing captured text, clearing the log) and reloads after the
+  // core's retention share one queue, so they never interleave. Each rewrite runs with the folder held, so the core
+  // writes nothing there meanwhile.
+  let storageQueue: Promise<void> = Promise.resolve();
+  const holding = (op: () => Promise<void>) => () => core.hold(storageDir, op);
   const runStorageOp = (op: () => Promise<void>): Promise<void> => {
-    const run = retentionQueue.then(holding(op));
-    retentionQueue = run.catch(() => undefined);
+    const run = storageQueue.then(holding(op));
+    storageQueue = run.catch(() => undefined);
     return run;
   };
-  const sink = new EventSink(eventLog, aggregateStore, retentionPolicy, todayKey, enqueueStorageOp);
 
   // While the log is reloaded from disk (after a backfill), live events wait
   // here, so none is counted twice or missed by the half-rebuilt state.
@@ -631,7 +560,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       sessionIndex.reset();
       eventStore.reset();
       loggedIds.clear();
-      testsGreen.reset();
       const logged = await eventLog.snapshot();
       await aggregate.rehydrateFrom(logged, aggregateStore);
       await todayAggregate.rehydrateFrom(logged);
@@ -647,11 +575,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       const held = heldEvents;
       heldEvents = undefined;
       for (const event of held) handleEvent(event);
-      runHeuristics();
       refresh();
     }
   };
 
+  /** An event the core stored, from its feed. */
   const handleEvent = (event: NormalizedEvent) => {
     if (heldEvents) {
       heldEvents.push(event);
@@ -659,78 +587,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     }
     if (loggedIds.has(event.eventId)) return;
     loggedIds.add(event.eventId);
-    // A window writing its own folder works out outcomes too (the core does for its clients).
-    if (!core) for (const outcome of testsGreen.observe([event])) queueMicrotask(() => bus.publish(outcome));
     contextLimits.observe(event);
-    // An event older than all retention isn't stored, so it's left out of the
-    // all-time totals and chart too; they'd otherwise drop on the next reload.
-    // The core sends only what it stored.
-    if (core || sink.write(event)) {
-      aggregate.apply(event);
-      dailyHistory.apply(event);
-      sessionIndex.ingest(event);
-      sessions.ingest(event);
-    }
+    aggregate.apply(event);
+    dailyHistory.apply(event);
+    sessionIndex.ingest(event);
+    sessions.ingest(event);
     todayAggregate.apply(event);
     eventStore.ingest(event);
-    runHeuristics(event.kind);
+    updateNudges();
     refresh();
   };
-  if (core) {
-    // What this window's own adapters see (edits, Copilot) goes to the core, and comes back on its feed.
-    let outgoing: NormalizedEvent[] = [];
-    bus.onEvent((event) => {
-      outgoing.push(event);
-      if (outgoing.length > 1) return;
-      setImmediate(() => {
-        const batch = outgoing;
-        outgoing = [];
-        core.post(batch).catch((err) => {
-          console.error('snagboat: events could not be sent to the core or spooled', err);
-          health.report('core', 'post', `events could not be sent to the core: ${err instanceof Error ? err.message : String(err)}`);
-        });
+  // What this window's own adapters see (edits, Copilot's telemetry, notifications shown) goes to the core, and comes
+  // back on its feed.
+  let outgoing: NormalizedEvent[] = [];
+  bus.onEvent((event) => {
+    outgoing.push(event);
+    if (outgoing.length > 1) return;
+    setImmediate(() => {
+      const batch = outgoing;
+      outgoing = [];
+      core.post(batch).catch((err) => {
+        console.error('snagboat: events could not be sent to the core or spooled', err);
+        health.report('core', 'post', `events could not be sent to the core: ${err instanceof Error ? err.message : String(err)}`);
       });
     });
-  } else {
-    bus.onEvent(handleEvent);
-  }
+  });
 
-  // Catch a stalled/over-budget condition immediately on activation (e.g. the
-  // workspace was already idle before this window opened), rather than
-  // waiting for the first timer tick.
-  runHeuristics();
   const pollTimer = setInterval(() => {
-    runHeuristics();
+    updateNudges();
     refresh();
   }, POLL_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(pollTimer) });
 
-  // Long-lived windows cross midnight, so retention reruns hourly as well as
-  // whenever its settings change. Runs are serialized so two never race over
-  // the same files.
+  // The core prunes the folders it writes, hourly and when retention settings change (it reads them from
+  // config.json); this window then reloads, so nothing it pruned stays in memory.
   const runRetention = () => {
-    if (core) {
-      // The core prunes the folders it writes; this window then reloads, so nothing it pruned stays in memory.
-      retentionQueue = retentionQueue
-        .then(async () => {
-          if ((await core.retention()) > 0) await reloadFromLog();
-        })
-        .catch((err) => console.error('snagboat: retention failed', err));
-      return retentionQueue;
-    }
-    retentionQueue = retentionQueue
+    storageQueue = storageQueue
       .then(async () => {
-        const result = await applyRetention(eventLog, aggregateStore, retentionPolicy(), todayKey());
-        for (const daily of result.dropped) {
-          aggregate.applyDaily(daily, -1);
-          dailyHistory.removeDay(daily.date);
-        }
-        if (result.dropped.length > 0) refresh();
-        // Text just aged out on disk may still be held in memory (the recent-events window, an open session).
-        if (result.textRemoved.length > 0) await reloadFromLog();
+        if ((await core.retention()) > 0) await reloadFromLog();
       })
       .catch((err) => console.error('snagboat: retention failed', err));
-    return retentionQueue;
+    return storageQueue;
   };
   const retentionTimer = setInterval(runRetention, RETENTION_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(retentionTimer) });
@@ -740,7 +637,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       if (e.affectsConfiguration('snagboat.captureContent')) detailPanel.scheduleUpdate();
       if (e.affectsConfiguration('snagboat.rules') || e.affectsConfiguration('snagboat.toolCategories')) rulesChanged();
       // The core reads heuristics' thresholds from config.json (synced already); have it evaluate now.
-      else if (core && (e.affectsConfiguration('snagboat.heuristics') || e.affectsConfiguration('snagboat.tokenBudget'))) void core.findings();
+      else if (e.affectsConfiguration('snagboat.heuristics') || e.affectsConfiguration('snagboat.tokenBudget')) void core.findings();
     })
   );
 
@@ -1151,10 +1048,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         'Delete'
       );
       if (choice !== 'Delete') return;
-      // Queued behind any in-flight retention run so the two never touch the same files at once.
+      // Queued behind any other rewrite so the two never touch the same files at once.
       // In-memory state is reset in the same continuation as the last file
       // delete, so no event can land between the wipe and the reset.
-      const clearOp = retentionQueue.then(holding(async () => {
+      const clearOp = storageQueue.then(holding(async () => {
         await aggregateStore.clear();
         await eventLog.clear();
         await responseLog.clear();
@@ -1165,16 +1062,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         sessions.close();
         eventStore.reset();
         loggedIds.clear();
-        testsGreen.reset();
       }));
-      retentionQueue = clearOp.catch(() => undefined);
+      storageQueue = clearOp.catch(() => undefined);
       try {
         await clearOp;
       } catch (err) {
         vscode.window.showErrorMessage(`Snagboat: failed to clear event log: ${String(err)}`);
         return;
       }
-      runHeuristics();
       refresh();
       vscode.window.showInformationMessage('Snagboat: event log cleared.');
     })
@@ -1186,9 +1081,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       .then((choice) => choice === 'Relabel' && vscode.commands.executeCommand('snagboat.relabelShellCalls'));
   };
 
-  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter({ collect: !core }), new CopilotAdapter(path.join(storage.sharedDir, 'copilot-structure'), { cli: !core })];
+  // What only this window sees, for the core: edits, and Copilot's OpenTelemetry export. The Claude Code adapter
+  // only adds the hook entries to this window's folders; the core reads transcripts and receives the hooks.
+  const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter(path.join(storage.sharedDir, 'copilot-structure'))];
   for (const adapter of adapters) {
-    const adapterCtx = makeAdapterContext(adapter.agentId, bus, checkpoints, health, captureContentEnabled);
+    const adapterCtx = makeAdapterContext(adapter.agentId, bus, undefined, health, captureContentEnabled);
     await adapter.init(adapterCtx);
     await adapter.start();
   }
@@ -1200,24 +1097,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     },
   });
   // Following the core starts once everything that handles its events is in place.
-  core?.follow(
+  // While the core is away, nothing new arrives and the findings shown are its last; the status bar says so.
+  if (storage.coreError) health.report('core', 'feed', `the core service isn't running: ${storage.coreError}`);
+  core.follow(
     {
       onEvents: (events) => events.forEach(handleEvent),
       onFindings: applyCoreFindings,
-      onLost: () => {
-        coreFindingsLive = false;
-        fromCore = new Set();
-        runHeuristics();
-        refresh();
-      },
+      onReplayed: () => health.report('core', 'feed', undefined),
+      onLost: () => health.report('core', 'feed', "lost the core service; reconnecting (findings shown are its last)"),
     },
     readAt
   );
-  // Last, so the claim on the per-user store's folder outlasts the writes made while shutting down.
-  context.subscriptions.push({ dispose: () => storage.release?.() });
 
   // Dev/test-only: emits a synthetic Claude Code turn (35 tokens) through the full
-  // bus -> log -> aggregate -> status bar pipeline; the integration suite relies on
+  // bus -> core -> log -> feed -> aggregate -> status bar pipeline; the integration suite relies on
   // it. Hidden from the command palette (package.json menus.commandPalette) since it
   // writes a fake event into the user's real log; still callable via executeCommand.
   context.subscriptions.push(
@@ -1245,7 +1138,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     getContextLimits: () => contextLimits.all(),
     getSessions: () => sessions,
     getVsCodeStorageDir: () => context.storageUri?.fsPath,
-    getStorageMode: () => (core ? 'core' : storage.perUser ? 'per-user' : 'vscode'),
     checkWaitingProposals: async () => (await checkWaiting(), waitingProposals),
     getFindingsViewState: () => findingsViewState(),
   };

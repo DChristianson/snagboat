@@ -1,14 +1,4 @@
-import * as os from 'os';
-import * as path from 'path';
 import { host, HostDisposable } from '../../core/host';
-
-/** Test/CI seam: override the project root instead of using the host's first workspace folder. */
-export function resolveProjectDir(): string | undefined {
-  if (process.env.SNAGBOAT_CLAUDE_PROJECT_DIR) {
-    return process.env.SNAGBOAT_CLAUDE_PROJECT_DIR;
-  }
-  return host().workspaceFolders()[0];
-}
 
 /** Every workspace folder in this window (hooks are routed to each). */
 export function resolveWorkspaceFolders(): string[] {
@@ -38,14 +28,4 @@ export function hooksEnabledFor(folder: string): boolean {
 export function sanitizeCwd(cwd: string): string {
   // Claude Code names a project's transcript folder after its path, separators (and a Windows drive's colon) as dashes.
   return cwd.replace(/[\\/:]/g, '-');
-}
-
-/** Test/CI seam: override where transcripts are read from instead of the real ~/.claude. */
-export function resolveTranscriptsDir(): string | undefined {
-  if (process.env.SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR) {
-    return process.env.SNAGBOAT_CLAUDE_TRANSCRIPTS_DIR;
-  }
-  const cwd = resolveProjectDir();
-  if (!cwd) return undefined;
-  return path.join(os.homedir(), '.claude', 'projects', sanitizeCwd(cwd));
 }

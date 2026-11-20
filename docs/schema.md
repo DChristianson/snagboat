@@ -78,7 +78,7 @@ interface NormalizedEvent {
 
 `confidence` is intentionally optional. Current Claude Code and Copilot integrations do not expose a trustworthy probability signal, but reserving the field now avoids a future schema migration. Built-in agent IDs stay explicit while third-party adapters should use a namespaced `custom:*` identifier. `raw.event` is optional and exists only for inspection or debugging when keeping part of the source payload is worth the extra storage.
 
-`workspace` (version 2) names the workspace an event was recorded in: its folder path, its `.code-workspace` file path, or `(no folder)` for a window with no folder open (a remote window's is its URI, such as `vscode-remote://…`). It's set on every event in the per-user store (`~/.snagboat/data`, `snagboat.storage.perUserStore`), which holds every workspace's events, and absent in a VS Code window's own storage, which holds only that window's. `snagboat migrate` sets it on the events it copies there.
+`workspace` (version 2) names the workspace an event was recorded in: its folder path, its `.code-workspace` file path, or `(no folder)` for a window with no folder open (a remote window's is its URI, such as `vscode-remote://…`). It's set on every event in the per-user store (`~/.snagboat/data`), which holds every workspace's events. It's absent in the stores earlier versions kept in each VS Code window's own storage, which hold only that window's; `snagboat migrate` sets it on the events it copies from them.
 
 `outcome` events (version 3) measure how work went. Snagboat works most of them out from other events (`raw.adapter` is `snagboat-outcomes`); `approval` comes straight from Claude Code's permission hooks (`raw.adapter` is `claude-code`). Each is filed in the session it's about:
 

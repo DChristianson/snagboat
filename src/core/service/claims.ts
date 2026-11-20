@@ -3,20 +3,20 @@ import * as path from 'path';
 import { isProcessAlive } from '../processes';
 
 /**
- * A VS Code window's claim on a workspace's folder in the per-user store
- * (docs/design/handoff-3c.md, 3c-2): while a window writes the folder itself
- * (snagboat.storage.perUserStore, until 3c-3 makes the extension a client of
- * the core), the core must not write there too, or one's retention and
- * rewrites could lose the other's events. The window writes writer.json with
- * its pid; the core spools events for a claimed workspace instead
- * (eventSpool.ts) and ingests them once the claim is gone. A claim whose
- * process has exited counts as gone.
+ * A process's claim on a workspace's folder in the per-user store
+ * (docs/design/handoff-3c.md, 3c-2): while it writes there, the core must not
+ * write there too, or one's retention and rewrites could lose the other's
+ * events. It writes writer.json with its pid; the core spools events for a
+ * claimed workspace instead (eventSpool.ts) and ingests them once the claim is
+ * gone. A claim whose process has exited counts as gone.
  *
- * A window that's a client of the core (3c-3c) doesn't write the folder, so
- * it doesn't claim it, except briefly with `hold` while a command rewrites
+ * A VS Code window is a client of the core (3c-3c) and doesn't write the
+ * folder, so it claims it only briefly, with `hold`, while a command rewrites
  * days (backfill, relabel, removing captured text, clearing the log). The core
- * spools everything meanwhile: unlike a writing window's, a holding window
- * doesn't read its own transcripts, so nothing it would record is dropped.
+ * spools everything meanwhile: a holding window reads no transcripts, so
+ * nothing it would record is dropped. A claim without `hold` is one an earlier
+ * Snagboat's window made while writing the folder itself, collecting its own
+ * project's hooks.
  */
 
 export const CLAIM_FILE = 'writer.json';

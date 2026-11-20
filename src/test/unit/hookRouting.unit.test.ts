@@ -1,22 +1,13 @@
 import * as assert from 'assert';
 import * as childProcess from 'child_process';
 import * as fs from 'fs';
+import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
-import { HooksReceiver } from '../../adapters/claude-code/hooksReceiver';
 import { buildHookCommand } from '../../adapters/claude-code/hooksConfig';
 import { sanitizeCwd } from '../../adapters/claude-code/workspace';
 import { isWithinFolders, withRealPaths } from '../../core/paths';
-import {
-  installHookScript,
-  newToken,
-  pruneStaleRoutes,
-  removeRoutes,
-  routeKey,
-  updateRoutes,
-  writeRoutes,
-} from '../../adapters/claude-code/hookRoutes';
-import { AdapterContext, NormalizedEvent } from '@snagboat/schema';
+import { installHookScript } from '../../adapters/claude-code/hookRoutes';
 import { CoreService } from '../../core/service/server';
 import { coreRequest } from '../../core/service/coreFile';
 import { hookSpoolDir, ingestHookSpool } from '../../core/service/hooks';
@@ -25,26 +16,14 @@ import { workspaceStoreDir } from '../../core/userStore';
 import { saveConfig } from '../../core/config';
 
 // End to end: the real generated sh script, run the way Claude Code runs a
-// hook command, delivering to a real HooksReceiver.
-
-function fakeCtx() {
-  const published: NormalizedEvent[] = [];
-  const ctx: AdapterContext = {
-    publish: (e) => published.push(e),
-    readCheckpoint: async () => undefined,
-    writeCheckpoint: async () => undefined,
-    reportHealth: () => undefined,
-    captureContent: () => false,
-  };
-  return { ctx, published };
-}
+// hook command, delivering to a real core.
 
 function payload(cwd: string, command = 'echo hi') {
   return { session_id: 's1', cwd, hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command }, tool_response: {} };
 }
 
 /**
- * Async on purpose: the receiver under test runs in this process, so a
+ * Async on purpose: the core under test runs in this process, so a
  * synchronous spawn would block the event loop it needs to answer the request.
  */
 function run(cmd: string, args: string[], opts: { input?: string; env?: NodeJS.ProcessEnv } = {}): Promise<{ status: number | null; stdout: string }> {
@@ -82,240 +61,11 @@ async function setup() {
   return { home, script, projectA, projectB };
 }
 
-async function startWindow(home: string, folders: string[]) {
-  const { ctx, published } = fakeCtx();
-  const token = newToken();
-  const receiver = new HooksReceiver(ctx, { token, workspaceFolders: folders });
-  const port = await receiver.start();
-  writeRoutes(home, folders, { port, token, pid: process.pid });
-  return { receiver, published, port, token };
-}
-
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
   const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
 
-  test('each project reaches only its own window, from the project root or any subfolder', async () => {
-    const { home, script, projectA, projectB } = await setup();
-    const a = await startWindow(home, [projectA]);
-    const b = await startWindow(home, [projectB]);
-    try {
-      assert.notStrictEqual(a.port, b.port, 'each window gets its own free port');
-      assert.strictEqual((await runHook(home, script, projectA, payload(projectA))).status, 0);
-      assert.strictEqual((await runHook(home, script, path.join(projectA, 'src', 'deep'), payload(path.join(projectA, 'src', 'deep')))).status, 0);
-      assert.strictEqual((await runHook(home, script, projectB, payload(projectB))).status, 0);
-      await settle();
-      assert.strictEqual(a.published.length, 2);
-      assert.strictEqual(b.published.length, 1);
-    } finally {
-      a.receiver.stop();
-      b.receiver.stop();
-    }
-  });
-
-  test('with no window for the project, the hook exits 0 quickly and delivers nothing', async () => {
-    const { home, script, projectA, projectB } = await setup();
-    const a = await startWindow(home, [projectA]);
-    try {
-      const started = Date.now();
-      const result = await runHook(home, script, projectB, payload(projectB));
-      assert.strictEqual(result.status, 0);
-      assert.ok(Date.now() - started < 2000, 'never waits on a missing window');
-      await settle();
-      assert.strictEqual(a.published.length, 0, "another project's window must not receive it");
-    } finally {
-      a.receiver.stop();
-    }
-  });
-
-  test('a route left by a dead window is skipped by the script and pruned on the next activation', async () => {
-    const { home, script, projectA } = await setup();
-    // A pid the way the script names its files: under Git Bash its Windows pid, not the MSYS $$.
-      const dead = childProcess.spawnSync('sh', ['-c', 'me=$$; [ -r "/proc/$$/winpid" ] && read -r me < "/proc/$$/winpid"; echo $me']).stdout.toString().trim();
-    writeRoutes(home, [projectA], { port: 9, token: 'x', pid: Number(dead) });
-    assert.strictEqual((await runHook(home, script, projectA, payload(projectA))).status, 0);
-    pruneStaleRoutes(home);
-    assert.ok(!fs.existsSync(path.join(home, 'routes', routeKey(projectA))));
-  });
-
-  test('requests without the right token are rejected and not published', async () => {
-    const { home, projectA } = await setup();
-    const a = await startWindow(home, [projectA]);
-    try {
-      for (const auth of [undefined, 'Bearer wrong', `Bearer ${a.token}x`]) {
-        const args = ['-s', '-m', '5', '-o', '/dev/null', '-w', '%{http_code}', '-X', 'POST', `http://127.0.0.1:${a.port}/hook`, '--data-binary', JSON.stringify(payload(projectA))];
-        if (auth) args.push('-H', `Authorization: ${auth}`);
-        assert.strictEqual((await run('curl', args)).stdout, '401', `auth: ${auth ?? 'none'}`);
-      }
-      await settle();
-      assert.strictEqual(a.published.length, 0);
-    } finally {
-      a.receiver.stop();
-    }
-  });
-
-  test("hooks are accepted when Claude has cd'd outside the project, since routing uses the session's project dir", async () => {
-    const { home, script, projectA, projectB } = await setup();
-    const a = await startWindow(home, [projectA]);
-    try {
-      // CLAUDE_PROJECT_DIR stays at A while the payload's cwd follows Claude to B.
-      await runHook(home, script, projectA, payload(projectB));
-      await settle();
-      assert.strictEqual(a.published.length, 1);
-    } finally {
-      a.receiver.stop();
-    }
-  });
-
-  test('a hook misrouted by a route-name collision is refused by the wrong window', async () => {
-    const { home, script, projectA } = await setup();
-    const dashed = path.join(projectA, 'x-y'); // route name ...-a-x-y
-    const nested = path.join(projectA, 'x', 'y'); // the same route name
-    fs.mkdirSync(dashed);
-    fs.mkdirSync(nested, { recursive: true });
-    const w = await startWindow(home, [dashed]);
-    try {
-      assert.strictEqual(routeKey(dashed), routeKey(nested));
-      await runHook(home, script, nested, payload(nested));
-      await settle();
-      assert.strictEqual(w.published.length, 0);
-    } finally {
-      w.receiver.stop();
-    }
-  });
-
-  test('requests without the project header are refused even with the token', async () => {
-    const { home, projectA } = await setup();
-    const a = await startWindow(home, [projectA]);
-    try {
-      const args = ['-s', '-m', '5', '-o', '/dev/null', '-w', '%{http_code}', '-X', 'POST', `http://127.0.0.1:${a.port}/hook`, '-H', `Authorization: Bearer ${a.token}`, '--data-binary', JSON.stringify(payload(projectA))];
-      assert.strictEqual((await run('curl', args)).stdout, '421');
-      await settle();
-      assert.strictEqual(a.published.length, 0);
-    } finally {
-      a.receiver.stop();
-    }
-  });
-
-  test('non-ASCII project paths route and match', async () => {
-    const { home, script, projectA } = await setup();
-    const unicode = path.join(projectA, 'café-プロジェクト');
-    fs.mkdirSync(unicode);
-    const w = await startWindow(home, [unicode]);
-    try {
-      await runHook(home, script, unicode, payload(unicode));
-      await settle();
-      assert.strictEqual(w.published.length, 1);
-    } finally {
-      w.receiver.stop();
-    }
-  });
-
-  test('folders added or removed after a window starts are routed without restarting it', async () => {
-    const { home, script, projectA, projectB } = await setup();
-    const w = await startWindow(home, [projectA]);
-    const route = { port: w.port, token: w.token, pid: process.pid };
-    try {
-      assert.deepStrictEqual(updateRoutes(home, [projectA], [projectA, projectB], route), [projectB]);
-      w.receiver.setWorkspaceFolders([projectA, projectB]);
-      await runHook(home, script, projectB, payload(projectB));
-      await settle();
-      assert.strictEqual(w.published.length, 1, 'the added folder reaches the window');
-
-      // Another window claims A; removing A from this window must leave that route alone.
-      writeRoutes(home, [projectA], { port: 1, token: 't', pid: process.ppid });
-      assert.deepStrictEqual(updateRoutes(home, [projectA, projectB], [projectB], route), []);
-      w.receiver.setWorkspaceFolders([projectB]);
-      assert.ok(fs.existsSync(path.join(home, 'routes', routeKey(projectA))), "another window's route is kept");
-      assert.ok(fs.existsSync(path.join(home, 'routes', routeKey(projectB))));
-
-      updateRoutes(home, [projectB], [], route);
-      assert.ok(!fs.existsSync(path.join(home, 'routes', routeKey(projectB))), 'a removed folder loses its route');
-    } finally {
-      w.receiver.stop();
-    }
-  });
-
-  test("hooks for sessions another adapter covers are accepted but not published", async () => {
-    const { home, script, projectA } = await setup();
-    const { ctx, published } = fakeCtx();
-    const token = newToken();
-    const receiver = new HooksReceiver(ctx, { token, workspaceFolders: [projectA], ignoreSession: (id) => id === 'copilot-sess' });
-    const port = await receiver.start();
-    writeRoutes(home, [projectA], { port, token, pid: process.pid });
-    try {
-      await runHook(home, script, projectA, { ...payload(projectA), session_id: 'copilot-sess' });
-      await runHook(home, script, projectA, payload(projectA));
-      await settle();
-      assert.deepStrictEqual(published.map((e) => e.sessionId), ['s1']);
-    } finally {
-      receiver.stop();
-    }
-  });
-
-  test('removeRoutes deletes only routes this window still owns', async () => {
-    const { home, projectA, projectB } = await setup();
-    writeRoutes(home, [projectA, projectB], { port: 1000, token: 't', pid: process.pid });
-    writeRoutes(home, [projectB], { port: 2000, token: 'u', pid: process.ppid }); // another window took B
-    removeRoutes(home, [projectA, projectB], process.pid);
-    assert.ok(!fs.existsSync(path.join(home, 'routes', routeKey(projectA))));
-    assert.ok(fs.existsSync(path.join(home, 'routes', routeKey(projectB))));
-  });
-
-  test('under Git Bash (MSYSTEM set) the project dir travels hex-encoded and still matches', async () => {
-    const { home, script, projectA } = await setup();
-    const unicode = path.join(projectA, 'naïve-日本');
-    fs.mkdirSync(unicode);
-    const w = await startWindow(home, [unicode]);
-    try {
-      await runHook(home, script, unicode, payload(unicode), { MSYSTEM: 'MINGW64' });
-      await settle();
-      assert.strictEqual(w.published.length, 1);
-    } finally {
-      w.receiver.stop();
-    }
-  });
-
-  test('a colon in the project path routes the same way the route file is named', async () => {
-    // Windows drive letters put a colon in every path; the script and routeKey must agree on it.
-    // Windows itself can't make a folder named x:y; there every other test here already routes through C:.
-    if (process.platform === 'win32') return;
-    const { home, script, projectA } = await setup();
-    const colon = path.join(projectA, 'x:y');
-    fs.mkdirSync(colon);
-    const w = await startWindow(home, [colon]);
-    try {
-      await runHook(home, script, colon, payload(colon));
-      await settle();
-      assert.strictEqual(w.published.length, 1);
-    } finally {
-      w.receiver.stop();
-    }
-  });
-
-  test('Windows paths: route names, transcript folder names and the hook command', () => {
-    assert.strictEqual(routeKey('C:\\Users\\dc\\proj'), 'C--Users-dc-proj');
-    assert.strictEqual(routeKey('C:/Users/dc/proj'), 'C--Users-dc-proj', 'cygpath -m spelling maps to the same name');
-    assert.strictEqual(sanitizeCwd('C:\\Users\\dc\\proj'), 'C--Users-dc-proj');
-    const home = os.homedir();
-    const scriptPath = path.join(home, '.snagboat', 'bin', 'snagboat-hook');
-    const win = buildHookCommand(scriptPath, 'win32');
-    assert.ok(win.startsWith('sh "$HOME/'), win);
-    assert.ok(!win.includes('\\'), 'no backslashes for Git Bash');
-    assert.ok(buildHookCommand(scriptPath, 'linux').startsWith('"$HOME'), 'POSIX command is unchanged');
-  });
-
-  test('route and script files are private to the user', async () => {
-    const { home, script, projectA } = await setup();
-    writeRoutes(home, [projectA], { port: 1000, token: 't', pid: process.pid });
-    // Windows has no POSIX modes; there the files are private by living in the user's profile.
-    if (process.platform === 'win32') return;
-    assert.strictEqual(fs.statSync(path.join(home, 'routes', routeKey(projectA))).mode & 0o777, 0o600);
-    assert.strictEqual(fs.statSync(path.join(home, 'routes')).mode & 0o777, 0o700);
-    assert.strictEqual(fs.statSync(script).mode & 0o777, 0o755);
-  });
-
-  // --- 3c-2b: the core, then the spool, after the window ---
+  // --- 3c-2b: the core, then the spool ---
 
   /** A core in this process, knowing projectA as a workspace (as if a window registered it with a token). */
   async function startCore(home: string, workspaces: string[]) {
@@ -325,7 +75,7 @@ async function main() {
   }
   const storeEvents = (home: string, workspace: string) => new EventLog(workspaceStoreDir(home, workspace)).readAll();
 
-  test('with no window for the project, the hook goes to the core, which records it for the workspace containing it', async () => {
+  test('the hook goes to the core, which records it for the workspace containing it', async () => {
     const { home, script, projectA } = await setup();
     const core = await startCore(home, [projectA]);
     try {
@@ -340,36 +90,65 @@ async function main() {
     }
   });
 
-  test('a live window still gets its hooks first; the core gets them when the window is gone or refuses', async () => {
+  test("the session's project dir decides, not the payload's cwd, which follows Claude elsewhere", async () => {
     const { home, script, projectA, projectB } = await setup();
     const core = await startCore(home, [projectA, projectB]);
-    const a = await startWindow(home, [projectA]);
     try {
-      await runHook(home, script, projectA, { ...payload(projectA), tool_use_id: 'w1' });
-      await settle();
-      assert.strictEqual(a.published.length, 1);
-      assert.strictEqual((await storeEvents(home, projectA)).length, 0, 'not recorded twice');
-
-      // A route-name collision: B's hook reaches A's window, which refuses it; the core takes it.
-      writeRoutes(home, [projectB], { port: a.port, token: a.token, pid: process.pid });
-      await runHook(home, script, projectB, { ...payload(projectB), tool_use_id: 'c1' });
-      assert.deepStrictEqual((await storeEvents(home, projectB)).map((e) => e.eventId), ['tool:c1']);
-
-      // The window's route left behind by a dead process: the core takes it.
-      // A pid the way the script names its files: under Git Bash its Windows pid, not the MSYS $$.
-      const dead = childProcess.spawnSync('sh', ['-c', 'me=$$; [ -r "/proc/$$/winpid" ] && read -r me < "/proc/$$/winpid"; echo $me']).stdout.toString().trim();
-      writeRoutes(home, [projectA], { port: 9, token: 'x', pid: Number(dead) });
-      await runHook(home, script, projectA, { ...payload(projectA), tool_use_id: 'd1' });
-      assert.deepStrictEqual((await storeEvents(home, projectA)).map((e) => e.eventId), ['tool:d1']);
+      // CLAUDE_PROJECT_DIR stays at A while the payload's cwd follows Claude to B.
+      await runHook(home, script, projectA, { ...payload(projectB), tool_use_id: 'c1' });
+      assert.deepStrictEqual((await storeEvents(home, projectA)).map((e) => e.eventId), ['tool:c1']);
+      assert.deepStrictEqual(await storeEvents(home, projectB), []);
     } finally {
-      a.receiver.stop();
       await core.stop();
     }
   });
 
-  test('without a core ever having run, nothing is spooled and nothing is left behind, as before', async () => {
+  test('non-ASCII and colon project paths reach their workspace, and under Git Bash (MSYSTEM set) travel hex-encoded', async () => {
     const { home, script, projectA } = await setup();
+    // Windows itself can't make a folder named x:y.
+    const names = ['café-プロジェクト', 'naïve-日本', ...(process.platform === 'win32' ? [] : ['x:y'])];
+    const dirs = names.map((n) => path.join(projectA, n));
+    for (const dir of dirs) fs.mkdirSync(dir);
+    const core = await startCore(home, dirs);
+    try {
+      for (const [i, dir] of dirs.entries()) {
+        await runHook(home, script, dir, { ...payload(dir), tool_use_id: `p${i}` });
+        await runHook(home, script, dir, { ...payload(dir), tool_use_id: `m${i}` }, { MSYSTEM: 'MINGW64' });
+        assert.deepStrictEqual((await storeEvents(home, dir)).map((e) => e.eventId).sort(), [`tool:m${i}`, `tool:p${i}`], dir);
+      }
+    } finally {
+      await core.stop();
+    }
+  });
+
+  test('routes an earlier Snagboat left for its windows are ignored: the core gets the hook', async () => {
+    const { home, script, projectA } = await setup();
+    const core = await startCore(home, [projectA]);
+    // A live listener that would take any hook, named by a route file as an old window's was.
+    let taken = 0;
+    const old = http.createServer((req, res) => {
+      taken += 1;
+      req.resume();
+      res.writeHead(200).end();
+    });
+    await new Promise<void>((resolve) => old.listen(0, '127.0.0.1', resolve));
+    try {
+      fs.mkdirSync(path.join(home, 'routes'));
+      fs.writeFileSync(path.join(home, 'routes', projectA.replace(/[\\/:]/g, '-')), `${(old.address() as { port: number }).port} x ${process.pid}\n`);
+      await runHook(home, script, projectA, { ...payload(projectA), tool_use_id: 'r1' });
+      assert.deepStrictEqual((await storeEvents(home, projectA)).map((e) => e.eventId), ['tool:r1']);
+      assert.strictEqual(taken, 0);
+    } finally {
+      old.close();
+      await core.stop();
+    }
+  });
+
+  test('without a core ever having run, the hook exits 0 quickly, nothing is spooled and nothing is left behind', async () => {
+    const { home, script, projectA } = await setup();
+    const started = Date.now();
     assert.strictEqual((await runHook(home, script, projectA, payload(projectA))).status, 0);
+    assert.ok(Date.now() - started < 2000, 'never waits on a missing core');
     assert.ok(!fs.existsSync(hookSpoolDir(home)), 'no spool');
     assert.deepStrictEqual(fs.readdirSync(home).filter((n) => n.startsWith('.hook-in')), [], 'the payload copy is removed');
   });
@@ -444,6 +223,22 @@ async function main() {
       await core.stop();
     }
     assert.ok(!fs.existsSync(path.join(home, 'core.route')), 'core.route removed on stop');
+  });
+
+  test('Windows paths: transcript folder names and the hook command', () => {
+    assert.strictEqual(sanitizeCwd('C:\\Users\\dc\\proj'), 'C--Users-dc-proj');
+    const scriptPath = path.join(os.homedir(), '.snagboat', 'bin', 'snagboat-hook');
+    const win = buildHookCommand(scriptPath, 'win32');
+    assert.ok(win.startsWith('sh "$HOME/'), win);
+    assert.ok(!win.includes('\\'), 'no backslashes for Git Bash');
+    assert.ok(buildHookCommand(scriptPath, 'linux').startsWith('"$HOME'), 'POSIX command is unchanged');
+  });
+
+  test('the script is executable, and writable only by the user', async () => {
+    const { script } = await setup();
+    // Windows has no POSIX modes; there the file is private by living in the user's profile.
+    if (process.platform === 'win32') return;
+    assert.strictEqual(fs.statSync(script).mode & 0o777, 0o755);
   });
 
   test('isWithinFolders and withRealPaths', () => {

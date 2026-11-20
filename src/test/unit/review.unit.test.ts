@@ -4,7 +4,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { NormalizedEvent } from '@snagboat/schema';
 import { builtInHeuristics } from '../../heuristics/builtIns';
-import { FindingsRegistry } from '../../heuristics/findingsRegistry';
 import { ReplayEpisode } from '../../heuristics/replay';
 import { episodeResponse, ResponseEpisode, ResponseLog, ResponseTracker, responseStats } from '../../heuristics/responses';
 import { Finding } from '../../heuristics/types';
@@ -32,14 +31,12 @@ async function main() {
     const written: Array<[ResponseEpisode, string[]]> = [];
     let t = 0;
     const tracker = new ResponseTracker((e, refs) => written.push([e, refs]), () => at(t));
-    const registry = new FindingsRegistry([], tracker);
-    registry.markUseful('stalled'); // nothing active: no-op
-    registry.report('stalled', [{ ...finding('stalled'), eventRefs: ['e1', 'e2'] }]);
+    tracker.useful('stalled'); // nothing active: no-op
+    tracker.reported('stalled', [{ ...finding('stalled'), eventRefs: ['e1', 'e2'] }]);
     t = 2;
-    registry.markUseful('stalled');
-    assert.strictEqual(registry.worst(), undefined, 'hidden like an acknowledged one');
+    tracker.useful('stalled');
     t = 4;
-    registry.report('stalled', []);
+    tracker.reported('stalled', []);
     assert.deepStrictEqual(written, [[{ heuristicId: 'stalled', severity: 'info', startedAt: at(0), usefulAt: at(2), acknowledgedAt: at(2), endedAt: at(4) }, ['e1', 'e2']]]);
     assert.strictEqual(episodeResponse(written[0][0]), 'useful');
     const base = { heuristicId: 'h', severity: 'info' as const, startedAt: at(0) };
@@ -50,33 +47,23 @@ async function main() {
     assert.strictEqual(responseStats(written.map(([e]) => e)).get('stalled')!.useful, 1);
   });
 
-  test("a muted heuristic's episodes are muted from the start, never 'passed'", () => {
-    const written: ResponseEpisode[] = [];
-    const tracker = new ResponseTracker((e) => written.push(e), () => at(0));
-    const registry = new FindingsRegistry(['stalled'], tracker);
-    registry.report('stalled', [finding('stalled')]);
-    registry.report('stalled', []);
-    assert.strictEqual(episodeResponse(written[0]), 'muted');
-  });
-
   test('each episode is recorded when it ends, with when it was acknowledged or muted', () => {
     const written: ResponseEpisode[] = [];
     let t = 0;
     const tracker = new ResponseTracker((e) => written.push(e), () => at(t));
-    const registry = new FindingsRegistry([], tracker);
-    registry.report('stalled', [finding('stalled', 'info')]);
+    tracker.reported('stalled', [finding('stalled', 'info')]);
     t = 1;
-    registry.report('stalled', [finding('stalled', 'warn')]);
+    tracker.reported('stalled', [finding('stalled', 'warn')]);
     t = 3;
-    registry.acknowledge('stalled');
+    tracker.acknowledged('stalled');
     t = 5;
-    registry.report('stalled', []);
-    registry.report('tool-churn', [finding('tool-churn')]);
+    tracker.reported('stalled', []);
+    tracker.reported('tool-churn', [finding('tool-churn')]);
     t = 6;
-    registry.setMuted('tool-churn', true);
-    registry.report('backtracking', [finding('backtracking')]);
+    tracker.muted('tool-churn', true);
+    tracker.reported('backtracking', [finding('backtracking')]);
     t = 8;
-    registry.report('backtracking', []);
+    tracker.reported('backtracking', []);
     assert.deepStrictEqual(written, [
       { heuristicId: 'stalled', severity: 'warn', startedAt: at(0), acknowledgedAt: at(3), endedAt: at(5) },
       { heuristicId: 'backtracking', severity: 'info', startedAt: at(6), endedAt: at(8) },

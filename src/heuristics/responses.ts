@@ -31,9 +31,9 @@ export function episodeResponse(episode: ResponseEpisode): FindingResponse {
 }
 
 /**
- * Follows the findings registry and writes each episode when it ends (or the
- * window closes). An ended episode also comes with the events its findings
- * last named, for the outcome it records.
+ * Follows a workspace's findings (the core's ResponseBook feeds it) and writes
+ * each episode when it ends (or the core stops). An ended episode also comes
+ * with the events its findings last named, for the outcome it records.
  */
 export class ResponseTracker {
   private open = new Map<string, ResponseEpisode>();

@@ -1,6 +1,6 @@
 # Settings
 
-Every setting Snagboat contributes, by area. All are in the `snagboat` section of VS Code's settings; the heuristics' defaults come from replaying real sessions (see [heuristics.md](heuristics.md#calibration)), and **Snagboat: Discover Heuristics** compares them with your own history.
+Every setting Snagboat contributes, by area. All are in the `snagboat` section of VS Code's settings, which VS Code copies to `~/.snagboat/config.json` for the core service ([below](#outside-vs-code-snagboatconfigjson-and-snagboatjson)). Snagboat keeps its data in `~/.snagboat/data`, written by the core ([how](usage.md#the-per-user-store-and-the-core)); the heuristics' defaults come from replaying real sessions (see [heuristics.md](heuristics.md#calibration)), and **Snagboat: Discover Heuristics** compares them with your own history.
 
 ## Captured text and retention
 
@@ -10,7 +10,6 @@ Every setting Snagboat contributes, by area. All are in the `snagboat` section o
 | `snagboat.retention.rawDays` | `90` | Days of raw events to keep, counting today. Older days are rolled up into daily totals and their raw events deleted. |
 | `snagboat.retention.textDays` | `30` | Days captured prompts and reply excerpts are kept, counting today, capped at `rawDays`. Older events keep everything else, without the text. The default matches how long Claude Code keeps its own transcripts. |
 | `snagboat.retention.aggregateDays` | `-1` | Days of daily totals to keep; `-1` keeps them forever, `0` keeps none (raw days past `rawDays` are then deleted without being rolled up). |
-| `snagboat.storage.perUserStore` | `true` | Keep data in one per-user store, `~/.snagboat/data`, one folder per workspace, instead of VS Code's storage for each window. The first start with it on copies the window's data there and leaves the original in place, so turning it off goes back to it as it was. With it on, the window starts the core service (`snagboat serve`), which collects and writes, and shows its own workspace from it ([how](usage.md#the-per-user-store-and-the-core)); if the core can't start, the window writes its own folder as before. The core records Claude Code and Copilot CLI sessions in every project on the machine: see `collect.unopened` below to limit it. Set it in User settings; it is not offered under Workspace. Applies to all windows, when each reloads. See `snagboat migrate` in the CLI. |
 
 See [PRIVACY.md](../PRIVACY.md) for what each source records and where everything is stored.
 
@@ -20,8 +19,8 @@ See [PRIVACY.md](../PRIVACY.md) for what each source records and where everythin
 | --- | --- | --- |
 | `snagboat.claudeCode.configureHooks` | `true` | Add Snagboat's `PostToolUse`, `PostToolUseFailure`, `Stop`, `PermissionRequest` and `PermissionDenied` hooks to each workspace folder's `.claude/settings.json` (set per folder). Off leaves the file alone: token usage still comes from transcripts, but tool calls, turn ends and permission prompts from hooks stop. **Snagboat: Remove Claude Code Hooks from Project...** removes existing entries and turns this off. |
 | `snagboat.copilot.otlpPort` | `4318` | Local port for Copilot's OpenTelemetry export; point `github.copilot.chat.otel.otlpEndpoint` at `http://127.0.0.1:<port>`. Only one window can listen on it. |
-| `snagboat.outcomes.git` | `true` | With the per-user store on, the core reads this project's git history, read-only, to record what became of commits made in a session (kept or reverted at 7 days, lines surviving at 7 and 30 days, milestones). Commit ids and counts only. A project's `.snagboat.json` may turn it off, not on. See [PRIVACY.md](../PRIVACY.md#what-is-captured). |
-| `snagboat.copilot.captureStructure` | `false` | Development aid: record the structure of Copilot's telemetry (span names, links, timings, attribute names, and numbers such as token counts; every text value replaced by its length) to global storage, for mapping its spans. Summarize with `npm run summarize:copilot`. |
+| `snagboat.outcomes.git` | `true` | The core reads this project's git history, read-only, to record what became of commits made in a session (kept or reverted at 7 days, lines surviving at 7 and 30 days, milestones). Commit ids and counts only. A project's `.snagboat.json` may turn it off, not on. See [PRIVACY.md](../PRIVACY.md#what-is-captured). |
+| `snagboat.copilot.captureStructure` | `false` | Development aid: record the structure of Copilot's telemetry (span names, links, timings, attribute names, and numbers such as token counts; every text value replaced by its length) to `~/.snagboat/data/copilot-structure/`, for mapping its spans. Summarize with `npm run summarize:copilot`. |
 
 ## Budgets
 
@@ -59,7 +58,7 @@ See [PRIVACY.md](../PRIVACY.md) for what each source records and where everythin
 | `snagboat.toolCategories` | `[]` | Sub-categories of "Shell command", as JSON (see [Shell sub-categories](heuristics.md#shell-sub-categories)). New tool calls get them; a rule filtering on `shell` still matches them all. |
 | `snagboat.discovery.days` | `30` | How many days of this workspace's history **Snagboat: Discover Heuristics** reads, so suggestions follow your current habits. |
 
-Accepted rules and categories live in `rules.json` in Snagboat's global storage, not in settings; **Snagboat: Export Rules...** and **Import Rules...** move them as a file.
+Accepted rules and categories live in `~/.snagboat/rules.json`, not in settings; **Snagboat: Export Rules...** and **Import Rules...** move them as a file.
 
 ## Advisor
 
@@ -115,7 +114,7 @@ An entry in `snagboat.advisors` is a model advisor: `id`, `label`, `baseUrl`, `m
 
 ## Outside VS Code: `~/.snagboat/config.json` and `.snagboat.json`
 
-With `snagboat.storage.perUserStore` on, the core service and the `snagboat` CLI read Snagboat's settings from files, so they apply without VS Code running. The keys are the settings above without `snagboat.` (`captureContent`, `retention.textDays`, `heuristics.stalled.minutes`). `snagboat config` shows the settings that apply to the current folder and where each comes from.
+The core service and the `snagboat` CLI read Snagboat's settings from files, so they apply without VS Code running. The keys are the settings above without `snagboat.` (`captureContent`, `retention.textDays`, `heuristics.stalled.minutes`). `snagboat config` shows the settings that apply to the current folder and where each comes from.
 
 Layers, lowest first:
 
