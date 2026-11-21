@@ -33,12 +33,12 @@ export class ResponseBook {
   /** Heuristics with findings now. */
   private active = new Set<string>();
 
-  constructor(private readonly storeDir: string, onEnded: (episode: ResponseEpisode, refs: string[]) => void) {
+  constructor(private readonly storeDir: string, onEnded: (episode: ResponseEpisode, refs: string[]) => void, now?: () => string) {
     this.log = new ResponseLog(storeDir);
     this.tracker = new ResponseTracker((episode, refs) => {
       this.log.append(episode);
       onEnded(episode, refs);
-    });
+    }, now);
     try {
       const saved = JSON.parse(fs.readFileSync(path.join(storeDir, STATE_FILE), 'utf8')) as { muted?: unknown };
       if (Array.isArray(saved.muted)) for (const id of saved.muted) if (typeof id === 'string') this.muted.add(id);
