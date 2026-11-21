@@ -35,7 +35,7 @@ export const TODO_MAX_CHARS = 200;
  * Secret formats replaced before any text is stored. A backstop for the
  * common cases, not a guarantee: anything in an unrecognized format stays.
  */
-const SECRET_PATTERNS: Array<[RegExp, string]> = [
+export const SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, '[redacted private key]'],
   [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, '[redacted AWS key]'],
   [/\bgithub_pat_[A-Za-z0-9_]{22,}/g, '[redacted GitHub token]'],
