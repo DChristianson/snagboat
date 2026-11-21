@@ -62,7 +62,25 @@ export const PRIVACY_DEFAULTS = {
   collect: true,
   /** Read the project's git history (read-only) for commit outcomes (RFC step 4b). */
   'outcomes.git': true,
+  /**
+   * snagboat export keeps this project's commit SHAs, and pseudonymizes with this machine's key
+   * (docs/design/export.md, rule 1). Config only, not a VS Code setting; a project file may only
+   * leave it off, so a clone can't make your exports of it public.
+   */
+  'export.public': false,
 } as const;
+
+/**
+ * export.deny: words and phrases snagboat export replaces with [denied-N] (a client's name, a
+ * codename). Config only. A project file's list adds to yours, never replaces it: more words
+ * denied is only ever more private.
+ */
+export const EXPORT_DENY_KEY = 'export.deny';
+
+/** The strings in an export.deny value (anything else ignored). */
+export function denyWords(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((w): w is string => typeof w === 'string' && w.trim().length > 0) : [];
+}
 
 /** Whether `value` is at least as private as `than` for a privacy key. */
 function tighter(key: keyof typeof PRIVACY_DEFAULTS, value: unknown, than: unknown): boolean {
@@ -211,6 +229,15 @@ export function effectiveSettings(home: string, dir: string): EffectiveSettings 
       settings = {};
     }
     for (const [key, value] of Object.entries(settings as Record<string, unknown>)) {
+      if (key === EXPORT_DENY_KEY) {
+        if (!Array.isArray(value) || denyWords(value).length !== value.length) {
+          problems.push(`${file}: ${key} is ignored; it should be a list of words`);
+          continue;
+        }
+        values[key] = [...new Set([...denyWords(values[key]), ...denyWords(value)])];
+        sources[key] = 'repository';
+        continue;
+      }
       if (isPrivacyKey(key)) {
         const inherited = key in values ? values[key] : PRIVACY_DEFAULTS[key];
         if (!tighter(key, value, inherited)) {

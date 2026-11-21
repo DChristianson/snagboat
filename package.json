@@ -59,6 +59,10 @@
         "title": "Snagboat: Set Up Dev Container"
       },
       {
+        "command": "snagboat.exportProject",
+        "title": "Snagboat: Export Project..."
+      },
+      {
         "command": "snagboat.revealEventLog",
         "title": "Snagboat: Reveal Event Log Folder"
       },

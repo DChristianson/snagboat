@@ -280,7 +280,27 @@ async function main() {
     assert.ok(p.includes(`${c.author} said @${c.coAuthors[1]}`), p);
     assert.ok(isAgentIdentity('Copilot', '175728472+Copilot@users.noreply.github.com'));
     assert.ok(isAgentIdentity('dependabot[bot]', '49699333+dependabot[bot]@users.noreply.github.com'));
+    assert.ok(isAgentIdentity('dependabot[bot]', 'support@github.com'), "a [bot] name is an app's, whatever the email");
     assert.ok(!isAgentIdentity('Claude Person', 'claude.person@example.com'), 'a human named Claude is a person');
+  });
+
+  test("a plan item's owner and createdBy are pseudonyms: a bare email joins the git ident, an agent keeps its name", () => {
+    const input = fixture();
+    const item = input.plan![0] as PlanItemRecord;
+    item.owner = PERSON_EMAIL;
+    item.createdBy = PERSON_NAME;
+    const agentItem: PlanItemRecord = { ...item, id: 'acme-2', owner: OTHER_EMAIL, createdBy: 'claude-code' };
+    input.plan!.push(agentItem);
+    const out = sanitizeExport(input, ctx());
+    const author = out.commits[1].record.author;
+    assert.strictEqual(out.planItems[0].record.owner, author, 'the owner email is the git ident with that email');
+    assert.strictEqual(out.planItems[0].record.createdBy, author, 'createdBy by name is the same person');
+    assert.match(out.planItems[1].record.owner!, /^person-[0-9a-f]{8}$/);
+    assert.notStrictEqual(out.planItems[1].record.owner, author);
+    assert.strictEqual(out.planItems[1].record.createdBy, 'claude-code');
+    const text = all(out);
+    for (const v of [PERSON_EMAIL, OTHER_EMAIL, PERSON_NAME]) assert.ok(!text.includes(v), `${v} survived`);
+    assert.deepStrictEqual(finalCheck(files(out), out.summary.finalCheck), []);
   });
 
   test('flags: replaced with [flagged-N], values only in the review list', () => {

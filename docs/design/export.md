@@ -1,6 +1,6 @@
 # Export: privacy rules and the normalized schema
 
-The design for step 9 of the [Factory Clock plan](factory-clock-plan.md), how Snagboat exports what it knows about a project for Factory Clock (and anything else) to load. Written November 20, 2026, and tracked in Beads under `snagboat-93b.9`. Nothing here is built yet.
+The design for step 9 of the [Factory Clock plan](factory-clock-plan.md), how Snagboat exports what it knows about a project for Factory Clock (and anything else) to load. Written November 20, 2026, and tracked in Beads under `snagboat-93b.9`; built under `snagboat-93b.10` (the command is documented in [cli.md](../cli.md#export)).
 
 ## Decision
 
@@ -73,7 +73,7 @@ What the export removes is what says *whose* machine this is and *where* on it t
 
 Session ids, subagent ids, turn ids and bead ids are kept. They're random or content-derived, and joining two exports of the same project needs them.
 
-**Commit SHAs are re-keyed for a private repository.** A SHA is a fingerprint of the commit's content and history: for a private repository it lets anyone holding the repository confirm what an export describes, and it names commits nobody outside should know exist. Snagboat can't ask GitHub whether a repository is private (the export makes no network calls), so **every repository is treated as private** unless the project says otherwise: `"export.public": true` in its entry in `~/.snagboat/config.json`, or in its `.snagboat.json`. In a private repository:
+**Commit SHAs are re-keyed for a private repository.** A SHA is a fingerprint of the commit's content and history: for a private repository it lets anyone holding the repository confirm what an export describes, and it names commits nobody outside should know exist. Snagboat can't ask GitHub whether a repository is private (the export makes no network calls), so **every repository is treated as private** unless the project says otherwise: `"export.public": true` in its entry in `~/.snagboat/config.json`. A project's `.snagboat.json` can't set it, since a file anyone can commit may only make settings more private. In a private repository:
 - every SHA is re-keyed to 40 hex characters, so it still looks and sorts like one;
 - that includes SHAs and short SHAs (7 or more characters) inside commit messages, branch records, prompts, replies and commands, wherever they match a commit the store knows;
 - a run of hex characters that might be a SHA but matches no known commit is flagged (rule 4).
@@ -372,7 +372,7 @@ interface ExportManifest {
   version: 1;                  // the export format's version
   eventSchema: 4;
   generatedAt: string;
-  project: string;             // from --name
+  project: string;             // from --name, else the project folder's name
   range: { since?: string; until?: string; first?: string; last?: string };  // asked for; first and last event exported
   text: 'redacted' | 'none';
   counts: { days: number; events: number; sessions: number; findings: number; commits: number; branches: number;
@@ -439,8 +439,8 @@ snagboat export --project <dir> --out <dir> [--name <name>] [--since <date>] [--
 ```
 
 - It only reads the store: one workspace's `events/`, `git.jsonl`, `plan.jsonl`, `links.jsonl` and findings, with or without the core running. It runs no git and no bd, reads no transcript, and writes nothing back to the store.
-- `--project` defaults to the current folder's repository. Records are selected when their workspace is the project, inside it, another worktree of its repository, or a `--match` path. These are factory-clock#31's rules, applied to the store Snagboat knows.
-- `--out` must be outside the project, or a path git ignores in it, so an export never gets committed.
+- `--project` defaults to the current folder's repository (the nearest folder with a `.git`). Records are selected when their workspace is the project, inside it, another worktree of its repository, or a `--match` path. Without git, another worktree is a workspace whose `git.jsonl` has the project's root commit and whose `.git` file points into the same repository (a separate clone, with its own `.git` folder, isn't one); its working tree is where its checkouts happened. These are factory-clock#31's rules, applied to the store Snagboat knows.
+- `--out` must be outside the project and its worktrees, so an export never gets committed. Since the command runs no git, it can't ask what's ignored: the one place inside allowed is under the project's `.snagboat/` folder, where it writes a `.gitignore` for the export (as the beads exporter does for `.snagboat/beads/`).
 - It prints what it wrote, what each rule replaced (counts), how many flags there are and where the review file is. `--json` prints the same as `manifest.json`.
 - In VS Code: **Snagboat: Export Project...** runs it for the window's folder and opens the review file when anything was flagged.
 - Factory Clock loads an export folder as it loads daily event files today, and its scrape script takes `--from-export <dir>` in place of `--events`.

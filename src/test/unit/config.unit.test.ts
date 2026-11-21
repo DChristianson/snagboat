@@ -39,7 +39,7 @@ async function main() {
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'package.json'), 'utf8'));
     const props = pkg.contributes.configuration.properties ?? Object.assign({}, ...pkg.contributes.configuration.map((c: { properties: object }) => c.properties));
     for (const [key, value] of Object.entries(PRIVACY_DEFAULTS)) {
-      if (key === 'collect') continue; // not a VS Code setting
+      if (key === 'collect' || key.startsWith('export.')) continue; // not VS Code settings
       assert.strictEqual(props[`snagboat.${key}`]?.default, value, key);
     }
   });
@@ -76,6 +76,23 @@ async function main() {
     const { home: h2, repo: r2, projectFile: pf2 } = setup();
     pf2({ captureContent: false, 'retention.aggregateDays': 30 });
     assert.deepStrictEqual(effectiveSettings(h2, r2).values, { captureContent: false, 'retention.aggregateDays': 30 }, 'tighter than the built-in defaults');
+  });
+
+  test("export settings: a project file can't make an export public, and its deny words add to yours", () => {
+    const { home, repo, projectFile } = setup({ defaults: { 'export.deny': ['Bluefin'] } });
+    projectFile({ 'export.public': true, 'export.deny': ['Marlin', 'Bluefin'] });
+    const s = effectiveSettings(home, repo);
+    assert.ok(!('export.public' in s.values), "a clone can't make its exports public");
+    assert.deepStrictEqual(s.values['export.deny'], ['Bluefin', 'Marlin']);
+    assert.strictEqual(s.problems.length, 1, s.problems.join('\n'));
+
+    const { home: h2, repo: r2, projectFile: pf2 } = setup();
+    saveConfig(h2, { version: 1, defaults: {}, projects: { [r2]: { 'export.public': true } } });
+    pf2({ 'export.public': false, 'export.deny': 'not a list' });
+    const s2 = effectiveSettings(h2, r2);
+    assert.strictEqual(s2.values['export.public'], false, 'a project file can make it private again');
+    assert.ok(!('export.deny' in s2.values));
+    assert.strictEqual(s2.problems.length, 1, s2.problems.join('\n'));
   });
 
   test("a project file can't set where data goes or which advisor gets it", () => {

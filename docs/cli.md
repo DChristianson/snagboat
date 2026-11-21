@@ -15,6 +15,7 @@ node dist/snagboat.js experiments revert <id>   # put back what it changed (keep
 node dist/snagboat.js open                # the advisor UI in your browser (a one-time link)
 node dist/snagboat.js mcp                 # an MCP server for agents: read-only tools, and two to review a report (the Claude Code plugin runs it)
 node dist/snagboat.js statusline          # one line for Claude Code's status line
+node dist/snagboat.js export --out ../acme-export   # this project's records, sanitized, to a folder
 node dist/snagboat.js migrate --dry-run   # what migrate would copy into ~/.snagboat/data
 node dist/snagboat.js migrate             # copy every store into the per-user store
 node dist/snagboat.js sessions --all --store vscode   # read VS Code's stores, not the per-user store
@@ -61,6 +62,58 @@ A dev container needs:
 In VS Code, a window on this machine whose folder has a dev container that isn't set up offers the same, once per folder (the personal config only). **Snagboat: Set Up Dev Container** asks again.
 
 The new mount hides the transcripts the container kept so far. `scripts/devcontainerSetup.js` in a snagboat checkout runs `allow --edit` and then carries them over: each of the folder's containers' earlier transcripts, out of their Docker volumes, and this machine's own sessions in the project ([.devcontainer/README.md](../.devcontainer/README.md#snagboat-and-this-container)).
+
+## Export
+
+`snagboat export` writes one project's records from the store to a folder, through Snagboat's privacy rules, for Factory Clock or anything else to load ([design](design/export.md)). It only reads the store (`~/.snagboat/data`): it runs no git and no bd, reads no transcript, writes nothing back, and needs no core running.
+
+```sh
+snagboat export --out ~/exports/acme                       # the repository containing this folder, everything the store holds
+snagboat export --project ~/src/acme --out ~/exports/acme --name acme --since 2026-11-01
+snagboat export --out ~/exports/acme --text none           # structure only: counts, kinds, times, relative paths, links
+snagboat export --out ~/exports/acme --allow flagged-3,flagged-7 --allow-rule internal-url
+snagboat export --out ~/exports/acme --fail-on-flags --json   # for scripts: the manifest, or nothing written
+snagboat export --out ~/exports/acme --match /workspaces/acme # and sessions a dev container recorded at another path
+```
+
+| Option | What it does |
+| --- | --- |
+| `--out <dir>` | The export folder (required). A rerun replaces it whole. It must be outside the project and its worktrees, or under the project's `.snagboat/` folder (see below), and can't be a folder that holds anything but an earlier export. |
+| `--project <dir>` | The project. Default: the repository containing the current folder (the nearest folder with a `.git`). |
+| `--name <name>` | The project's name in `manifest.json`. Default: the project folder's name. |
+| `--since <date>`, `--until <date>` | Only records from this time on, or before it: `YYYY-MM-DD` (UTC; `--until`'s day is included) or an ISO time. Each record by its own time: an event's, a commit's commit time, a checkout's or transition's, a link's latest evidence; branches, plan items and findings when their life overlaps the range. |
+| `--text redacted\|none` | `redacted` (the default) keeps prompts, replies, commit messages and plan text, through the rules. `none` keeps structure only. |
+| `--allow <ids>` | Puts flagged values back, by the ids in the review file (`flagged-3,flagged-7`). Repeatable. |
+| `--allow-rule <rule>` | Puts back every value a flag rule caught (`internal-url`, `name`, `mention`, `high-entropy`, `unresolved-path`, `unknown-sha`, `foreign-trace`), or keeps the rule 2 values that are sometimes the point (`email`, `ip`, `mac`, `phone`, `card`). Never secrets, keys or denied words. Repeatable. |
+| `--fail-on-flags` | Writes nothing if anything is flagged (exit 1). |
+| `--match <path>` | Another path whose workspaces' records belong to the project, such as a dev container's `/workspaces/<name>`. Its paths become `[match-1]`. Repeatable. |
+| `--json` | Prints `manifest.json` instead of the summary. |
+
+**What it selects.** The workspaces in the store whose folder is the project or inside it (its `.claude/worktrees/*` agents, say), any inside a `--match` path, and the repository's **other worktrees**. Without running git, a worktree is found from the store and the disk: a workspace whose `git.jsonl` has the project's root commit (the commit with no parents) and whose `.git` file points into the same repository. A separate clone of the same repository has its own `.git` folder and isn't included. Each workspace's working tree is where its checkouts happened, and its paths become `[worktree-1]`, `[worktree-2]` in path order. Records the worktrees share (commits, branches) are written once.
+
+**What it writes.**
+
+```text
+<out>/
+  manifest.json               versions, project name, range, counts, redactions by rule, flags, privacy
+  events/YYYY-MM-DD.jsonl     the sessions' events (schema v4, sanitized), by UTC day
+  sessions.jsonl              one per session: where it ran, its branches, commits and plan items
+  findings.jsonl              finding episodes, with how you responded
+  git/commits.jsonl  git/branches.jsonl  git/checkouts.jsonl
+  plan/items.jsonl   plan/transitions.jsonl
+  links.jsonl                 the current links between sessions, commits, branches and plan items
+<out>.review/flags.jsonl      beside the export, never inside: each flagged value, with context
+```
+
+The summary says what it wrote, how many values each rule replaced, how many were flagged and where the review file is. A flagged value is `[flagged-N]` in the export; the review file has the value and 80 characters each side, so read it before sharing, and rerun with `--allow` to put back what's fine. Copying the export folder never copies the review file.
+
+**Privacy and keys.** Every repository is private unless you say otherwise with `"export.public": true` in its entry in `~/.snagboat/config.json` (a `.snagboat.json` can't: [settings](settings.md#outside-vs-code-snagboatconfigjson-and-snagboatjson)). A private repository's commit SHAs are re-keyed, and people pseudonymized, with the repository's key, `~/.snagboat/export-keys/<hash of its first commit>.key`, made on the first export; give it to a teammate (never by committing it) and your exports join up. A public one keeps its SHAs and pseudonymizes with this machine's key, `~/.snagboat/export.key`. `export.deny` lists words to replace with `[denied-N]`. The store doesn't record remote URLs, so there are none to remove; name the project with `--name`. A container's stock user name (`vscode`, `node`, `root`) isn't replaced as a word, since it names nobody and would mangle `.vscode/`.
+
+**The final check.** Everything is written to a temporary folder beside `--out` first, and every file is searched for the values the rules removed: the project's and worktrees' paths, the home folder, the user and host names, every pseudonymized person's names and emails, denied words, and (private) the real SHAs, plus every PII and secret pattern. One hit and nothing is written: it prints the rule, the file and how many, never the value, and exits 1. Only then does the export replace `--out`, by rename.
+
+**Where `--out` may be.** Never inside the project or one of its worktrees, where it could get committed, except under the project's `.snagboat/` folder: the export then writes a `.gitignore` beside it (`*` in a folder of its own under `.snagboat/`, such as `.snagboat/exports/`; just the export's own names directly under `.snagboat/`), as the beads exporter does, since it can't ask git what's ignored. Never inside `~/.snagboat/data`.
+
+In VS Code, **Snagboat: Export Project...** does the same for the window's folder: it asks for a folder to export into (an empty one or an earlier export is used as it is; another gets `<project>-snagboat-export` inside it) and opens the review file when anything was flagged.
 
 ## Migrating to the per-user store
 
