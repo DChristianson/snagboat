@@ -24,6 +24,7 @@ import { NotWaiting, parseSuggestionAction, SuggestionsService } from './suggest
 import { SuggestionsView } from '../../discovery/suggestionsController';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
+import { GIT_RECORDS_TICK_MS, GitRecordsJob } from './gitRecordsJob';
 import { ADVISOR_PERIODS, loadAdvisorGoals } from '../../advisor/goals';
 import { MEASURES } from '../../advisor/measures';
 import { CoreAdvisors } from './advisorModels';
@@ -154,6 +155,8 @@ export interface CoreOptions {
   idleMs?: number;
   /** How often git outcomes are read (when collecting); default 6 hours, the first a minute after start. */
   gitOutcomesEveryMs?: number;
+  /** How often the repository job (git.jsonl) checks which repositories are due; default 5 minutes, the first a minute after start. */
+  gitRecordsTickMs?: number;
   /** How often advisors' period reports are checked for being due; default hourly, the first a minute after start (0: never). */
   periodEveryMs?: number;
   /** fetch for the core's model requests (tests). */
@@ -472,6 +475,14 @@ export class CoreService {
       first.unref();
       core.timers.push(first as unknown as NodeJS.Timeout);
       core.timers.push(setInterval(runGitJob, opts.gitOutcomesEveryMs ?? GIT_OUTCOMES_INTERVAL_MS));
+      // Commits, branches and checkouts into each workspace's git.jsonl: every few minutes while a session is active, hourly otherwise.
+      const gitRecords = new GitRecordsJob(opts.home, core.writer, (line) => core.log(line));
+      const tickGitRecords = () => void gitRecords.run().catch((err) => core.log(`git records failed: ${err instanceof Error ? err.message : String(err)}`));
+      const gitRecordsTickMs = opts.gitRecordsTickMs ?? GIT_RECORDS_TICK_MS;
+      const firstRecords = setTimeout(tickGitRecords, Math.min(60_000, gitRecordsTickMs));
+      firstRecords.unref();
+      core.timers.push(firstRecords as unknown as NodeJS.Timeout);
+      core.timers.push(setInterval(tickGitRecords, gitRecordsTickMs));
     }
     const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
     if (idleMs > 0) {
