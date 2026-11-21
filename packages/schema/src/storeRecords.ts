@@ -153,7 +153,8 @@ export type PlanItemStatus = 'open' | 'in_progress' | 'blocked' | 'done' | 'defe
  * A plan item: a bead, or a step inferred from the project's planning markdown. Follows Factory
  * Clock's PlanItem (its src/model/plan.ts) plus `from`, `source` and `confidence`. Keyed by `id`:
  * the bead's id, or for markdown `md-` and the first 12 hex characters of the SHA-256 of its
- * file (relative to the project) and its heading path, so it survives edits to its wording.
+ * file (relative to the project) and its heading path (a task adding its position under its heading,
+ * "#3" or "#3.1"), joined by newlines, so it survives edits to its wording (src/core/planRecords.ts).
  */
 export interface PlanItemRecord {
   record: 'item';
@@ -174,7 +175,11 @@ export interface PlanItemRecord {
   closeReason?: string;
   /** In the store, bd's assignee; in an export, person-N. */
   assignee?: string;
-  /** Cleared by Snagboat: Remove Captured Text. */
+  /** In the store, bd's owner (often an email); in an export, person-N. */
+  owner?: string;
+  /** In the store, bd's created_by; in an export, person-N or an agent's name. */
+  createdBy?: string;
+  /** Only while the project captures content; removed past retention.textDays (and, later, by Snagboat: Remove Captured Text). */
   text?: { description?: string; design?: string; notes?: string; acceptance?: string };
   source: 'beads' | 'markdown';
   /** markdown: the file and heading it came from, relative to the project. */

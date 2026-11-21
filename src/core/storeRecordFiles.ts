@@ -63,8 +63,8 @@ export async function appendStoreRecords(file: string, records: StoreRecord[]): 
 
 /**
  * When a record happened, for retention: a commit's commit time, a checkout's time, a deleted
- * branch's deletion. undefined keeps it: a branch that still exists, or a record type this
- * doesn't know.
+ * branch's deletion, a plan item's closing, a transition's time. undefined keeps it: a branch
+ * that still exists, a plan item still open, or a record type this doesn't know.
  */
 export function storeRecordTime(r: StoreRecord): string | undefined {
   switch (r.record) {
@@ -74,6 +74,10 @@ export function storeRecordTime(r: StoreRecord): string | undefined {
       return r.at;
     case 'branch':
       return r.deletedAt;
+    case 'item':
+      return r.closed;
+    case 'transition':
+      return r.at;
     default:
       return undefined;
   }
@@ -97,4 +101,25 @@ export async function pruneStoreFile(file: string, cutoff: string): Promise<numb
   await fs.promises.writeFile(temp, kept.map((r) => JSON.stringify(r) + '\n').join(''), { encoding: 'utf8', mode: 0o600 });
   await fs.promises.rename(temp, file);
   return expired.size;
+}
+
+/**
+ * Text retention (retention.textDays) for a store file: removes a plan item's text from every
+ * line whose updated time is before `cutoff` (ISO 8601), rewriting the file through a temporary
+ * file. The item and its title stay. Returns how many lines lost their text.
+ */
+export async function stripStoreText(file: string, cutoff: string): Promise<number> {
+  const lines = readStoreRecordLines(file);
+  let stripped = 0;
+  const kept = lines.map((r) => {
+    if (r.record !== 'item' || r.text === undefined || r.updated >= cutoff) return r;
+    stripped++;
+    const { text: _text, ...rest } = r;
+    return rest;
+  });
+  if (stripped === 0) return 0;
+  const temp = `${file}.${process.pid}.tmp`;
+  await fs.promises.writeFile(temp, kept.map((r) => JSON.stringify(r) + '\n').join(''), { encoding: 'utf8', mode: 0o600 });
+  await fs.promises.rename(temp, file);
+  return stripped;
 }

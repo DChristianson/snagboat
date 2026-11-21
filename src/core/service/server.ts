@@ -26,6 +26,7 @@ import { SuggestionsView } from '../../discovery/suggestionsController';
 import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
 import { GIT_RECORDS_TICK_MS, GitRecordsJob } from './gitRecordsJob';
+import { PLAN_RECORDS_TICK_MS, PlanRecordsJob } from './planRecordsJob';
 import { ADVISOR_PERIODS, loadAdvisorGoals } from '../../advisor/goals';
 import { MEASURES } from '../../advisor/measures';
 import { CoreAdvisors } from './advisorModels';
@@ -158,6 +159,8 @@ export interface CoreOptions {
   gitOutcomesEveryMs?: number;
   /** How often the repository job (git.jsonl) checks which repositories are due; default 5 minutes, the first a minute after start. */
   gitRecordsTickMs?: number;
+  /** How often the plan job (plan.jsonl) checks which projects are due; default 5 minutes, the first a minute after start. */
+  planRecordsTickMs?: number;
   /** How often advisors' period reports are checked for being due; default hourly, the first a minute after start (0: never). */
   periodEveryMs?: number;
   /** fetch for the core's model requests (tests). */
@@ -487,6 +490,14 @@ export class CoreService {
       firstRecords.unref();
       core.timers.push(firstRecords as unknown as NodeJS.Timeout);
       core.timers.push(setInterval(tickGitRecords, gitRecordsTickMs));
+      // Plan items and their transitions into each workspace's plan.jsonl: from bd, a dev container's beads export, or the project's markdown.
+      const planRecords = new PlanRecordsJob(opts.home, core.writer, { log: (line) => core.log(line) });
+      const tickPlanRecords = () => void planRecords.run().catch((err) => core.log(`plan records failed: ${err instanceof Error ? err.message : String(err)}`));
+      const planRecordsTickMs = opts.planRecordsTickMs ?? PLAN_RECORDS_TICK_MS;
+      const firstPlan = setTimeout(tickPlanRecords, Math.min(60_000, planRecordsTickMs));
+      firstPlan.unref();
+      core.timers.push(firstPlan as unknown as NodeJS.Timeout);
+      core.timers.push(setInterval(tickPlanRecords, planRecordsTickMs));
     }
     const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
     if (idleMs > 0) {

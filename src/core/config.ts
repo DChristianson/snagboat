@@ -77,11 +77,11 @@ function tighter(key: keyof typeof PRIVACY_DEFAULTS, value: unknown, than: unkno
   return days(value) <= days(than);
 }
 
-/** Team settings a project file may set freely: they change what's flagged, not what's recorded or sent. */
+/** Team settings a project file may set freely: they change what's flagged (or which of its own files are its plans), not what's recorded or sent. */
 const TEAM_PREFIXES = ['heuristics.', 'tokenBudget.', 'discovery.', 'nudges.'];
-const TEAM_KEYS = new Set(['rules', 'toolCategories']);
+const TEAM_KEYS = new Set(['rules', 'toolCategories', 'plans']);
 
-/** A setting a project may share with its team: thresholds, rules, shell categories, discovery, nudges. */
+/** A setting a project may share with its team: thresholds, rules, shell categories, discovery, nudges, where its plans are. */
 export function isTeamKey(key: string): boolean {
   return TEAM_KEYS.has(key) || TEAM_PREFIXES.some((p) => key.startsWith(p));
 }
@@ -218,7 +218,7 @@ export function effectiveSettings(home: string, dir: string): EffectiveSettings 
           continue;
         }
       } else if (!isTeamKey(key)) {
-        problems.push(`${file}: ${key} is ignored; a project file can set only heuristics, budgets, rules, shell categories, discovery and nudges, and privacy settings toward more private`);
+        problems.push(`${file}: ${key} is ignored; a project file can set only heuristics, budgets, rules, shell categories, discovery, nudges and plans, and privacy settings toward more private`);
         continue;
       }
       values[key] = value;

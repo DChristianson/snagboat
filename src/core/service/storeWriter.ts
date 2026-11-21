@@ -4,7 +4,7 @@ import { eventDay, NormalizedEvent, STORE_RECORD_FILES, StoreRecord } from '@sna
 import { effectiveSettings } from '../config';
 import { EventLog } from '../eventLog';
 import { AggregateStore, applyRetention, EventSink, oldestKeptDay, oldestTextDay, RetentionPolicy } from '../retention';
-import { appendStoreRecords, pruneStoreFile } from '../storeRecordFiles';
+import { appendStoreRecords, pruneStoreFile, stripStoreText } from '../storeRecordFiles';
 import { withoutCapturedText } from '../excerpt';
 import { listUserStores, openWorkspaceStore, userDataDir, workspaceInfoOf, workspaceKey, workspaceStoreDir } from '../userStore';
 import { Claim, claimedBy, claimOf } from './claims';
@@ -109,7 +109,7 @@ export class StoreWriter {
 
   /**
    * Applies each unclaimed workspace's retention: rolls up old days, removes captured text past
-   * textDays, and drops store records (git.jsonl) older than rawDays. Returns how many days changed.
+   * textDays (plan item text in plan.jsonl too), and drops store records (git.jsonl, plan.jsonl) older than rawDays. Returns how many days changed.
    */
   runRetention(only?: (workspace: string) => boolean): Promise<number> {
     return this.serial(() => this.retentionNow(only));
@@ -216,6 +216,8 @@ export class StoreWriter {
       const rawCutoff = `${oldestKeptDay(todayKey(this.now()), Math.max(1, Math.floor(policy.rawDays)))}T00:00:00.000Z`;
       // Not counted: the count says which days changed, and windows reload their events when it's above 0.
       for (const file of STORE_RECORD_FILE_NAMES) await pruneStoreFile(path.join(s.dir, file), rawCutoff);
+      // Plan item text follows textDays, as events' captured text does (by the item's updated time).
+      await stripStoreText(path.join(s.dir, STORE_RECORD_FILES.item), `${oldestTextDay(todayKey(this.now()), policy)}T00:00:00.000Z`);
     }
     return changed;
   }
