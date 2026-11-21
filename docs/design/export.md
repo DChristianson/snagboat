@@ -25,7 +25,7 @@ Factory Clock's scrape script ([factory-clock#31](https://github.com/DChristians
 - [The store records it](#the-store-records-it)
 - [The command](#the-command)
 - [Build order](#build-order)
-- [Open questions](#open-questions)
+- [Decided in review](#decided-in-review)
 
 ## What an export holds
 
@@ -64,14 +64,26 @@ What the export removes is what says *whose* machine this is and *where* on it t
 | The user name, the machine's host name, and names found in home paths (`/Users/<name>`, `/home/<name>`) | `[user]`, `[host]` |
 | The workspace's folder name and store key, `NormalizedEvent.workspace`, and the `raw` block (adapter refs name transcript files) | Dropped |
 | Event ids that embed a path (fallback ids like `claude-code:<file>:<offset>`) | Re-keyed by HMAC (see below) |
+| Commit SHAs, in a private repository (the default) | Re-keyed by HMAC with the repository's key (see below) |
 | Git remote URLs | Dropped. The project's name comes from `--name`. |
 | Container ids, dev container volume names, VS Code storage hashes | Dropped |
 | People (git authors and committers, `Co-Authored-By` humans, bead `owner`, `created_by`, `assignee`, actors in bead history) | Pseudonyms: `person-1`, `person-2`. Agents keep their names (`claude-code`, `copilot`, "Claude" in a co-author line), since which agent did the work is the point. |
 | Timestamps | Kept, in UTC. Git's timezone offsets are dropped, because they say roughly where you are. |
 
-Session ids, subagent ids, turn ids, commit SHAs and bead ids are kept. They're random or content-derived, and joining two exports of the same project needs them. A commit SHA identifies a public commit if the repository is public. That's the price of joining commits across exports. [Open question 1](#open-questions) asks whether a "private repository" switch should re-key them.
+Session ids, subagent ids, turn ids and bead ids are kept. They're random or content-derived, and joining two exports of the same project needs them.
 
-**Re-keying and pseudonyms are stable per machine and unreadable off it.** They're an HMAC with a key the export creates once and keeps in `~/.snagboat/export.key`. Two exports from your machine agree (`person-1` is the same person in both), and nobody without the key can test a guess at a path or a name against them. Deleting the key starts fresh numbering.
+**Commit SHAs are re-keyed for a private repository.** A SHA is a fingerprint of the commit's content and history: for a private repository it lets anyone holding the repository confirm what an export describes, and it names commits nobody outside should know exist. Snagboat can't ask GitHub whether a repository is private (the export makes no network calls), so **every repository is treated as private** unless the project says otherwise: `"export.public": true` in its entry in `~/.snagboat/config.json`, or in its `.snagboat.json`. In a private repository:
+- every SHA is re-keyed to 40 hex characters, so it still looks and sorts like one;
+- that includes SHAs and short SHAs (7 or more characters) inside commit messages, branch records, prompts, replies and commands, wherever they match a commit the store knows;
+- a run of hex characters that might be a SHA but matches no known commit is flagged (rule 4).
+
+A public repository's SHAs are kept, so its exports join with its real history.
+
+**Re-keying and pseudonyms use one keyed hash (HMAC), with a key chosen by the repository's privacy:**
+- **Private repository: the repository's key.** It's made on the first export and kept in `~/.snagboat/export-keys/<repository>.key`, where `<repository>` is a hash of its first commit, so every clone finds the same file name. Re-keyed SHAs and pseudonyms both use it. Give a teammate the key file, never by committing it, and their exports of the same repository use the same SHAs and the same `person-N` for the same people, so the two join up.
+- **Public repository: this machine's key,** kept in `~/.snagboat/export.key`. It's used for pseudonyms and for event ids that embed a path. Two exports from your machine agree, but other people's don't, since pseudonyms are only for joining your own exports.
+
+Either way, nobody without the key can test a guess at a path, a name or a SHA against the export. Deleting a key starts fresh numbering.
 
 ### 2. Anything that looks like PII or a secret
 
@@ -200,7 +212,7 @@ interface CommitRecord {
   subject: string;
   body?: string;
   files: Array<{ path: string; status: 'A' | 'M' | 'D' | 'R'; added: number; deleted: number; from?: string }>;
-  /** Pull request number from the subject, when there is one. */
+  /** Pull request number from the subject ("(#157)"), when there is one. Nothing else about pull requests is recorded: no network calls. */
   pr?: number;
   /** The commit this one reverts ("This reverts commit <sha>"). */
   reverts?: string;
@@ -251,7 +263,9 @@ interface PlanItemRecord {
   assignee?: string;           // person-N
   text?: { description?: string; design?: string; notes?: string; acceptance?: string };
   source: 'beads' | 'markdown';
-  confidence: Confidence;      // 'observed' from beads; markdown steps can be 'inferred'
+  /** markdown: the file and heading it came from, relative to the project. */
+  from?: { file: string; heading?: string };
+  confidence: Confidence;      // 'observed' from beads; 'inferred' from markdown
 }
 
 interface TransitionRecord {
@@ -268,6 +282,14 @@ interface TransitionRecord {
 ```
 
 For beads, the source is bd's own audit journal (`bd history <id> --events`), which records `created`, `claimed`, `updated`, `status_changed`, `closed` and dependency changes, each with an actor and a time. Its `updated` entries carry the bead's whole old and new state. The export keeps only the names of the fields that changed, because the text is already on the item.
+
+**Without beads, the plan is inferred from markdown.** The plan job reads the project's planning markdown: files git tracks under `docs/` by default, or the paths in the project's `plans` setting. It doesn't read a README, CONTRIBUTING or changelog unless they're named. Every item it makes is `confidence: 'inferred'`, with `from` naming the file and heading:
+- headings become epics or milestones;
+- numbered steps and `- [ ]` checklists become tasks, with status from `[x]`, "done", "built" or strikethrough;
+- dates beside them become times;
+- an item's id is a hash of its file and its heading path, so it survives edits to its wording.
+
+The lifecycle comes from watching the files. Each run compares an item with what the plan job last stored, and a change of status becomes a transition. Its time is the commit that changed the line, from `git.jsonl`, and the actor is that commit's author, both `inferred`. A project that has both beads and markdown plans uses only the beads, as factory-clock#31 does, since the two usually describe the same work twice.
 
 ### Findings: `findings.jsonl`
 
@@ -312,7 +334,7 @@ Each workspace's folder in `~/.snagboat/data` gains four files beside `events/`:
 | File | What writes it | From |
 | --- | --- | --- |
 | `git.jsonl` | A repository job in the core, beside `GitOutcomesJob` | `git log --all`, `for-each-ref`, and each worktree's HEAD reflog, read-only as the outcomes job's git already is. It runs every few minutes while a session is active in the workspace, so checkouts are seen with their times, and hourly otherwise. It appends commit, branch and checkout records, plus a branch's `merged` or `deletedAt` when it sees them. |
-| `plan.jsonl` | A plan job in the core, when the project has a `.beads` folder and `bd` is installed | `bd export` and `bd history --events`: items as they change, and every transition once |
+| `plan.jsonl` | A plan job in the core | With beads (a `.beads` folder, and `bd` installed): `bd export` and `bd history --events`, items as they change and every transition once. Without beads: plans inferred from markdown (below). |
 | `links.jsonl` | The core's linker, run as events, git records and plan records arrive | The rules in [How records are linked](#how-records-are-linked) |
 | `findings.jsonl` | The core's findings service, as each episode closes | The episode as it was shown, with its heuristic's version |
 
@@ -353,18 +375,23 @@ Each is a bead under `snagboat-93b.9` once this is reviewed. The store comes fir
 1. **Schema:** `NormalizedEvent` v4 fields, the git, plan, link, finding and session record types, their JSON Schemas in `packages/schema`, and `manifest.json`'s format.
 2. **Capture:** adapters record `toolInput`, and `refs` for tool calls that observably ran git or bd. The `capture.promptChars` and `capture.replyChars` settings replace the fixed caps, with `textTruncated` on text they cut.
 3. **Repository job:** `git.jsonl` (commits, branches, checkouts) in the core, with tests on a scratch repository: merge, squash, rebase, deleted branch, two worktrees.
-4. **Plan job:** `plan.jsonl` from bd's export and audit journal.
+4. **Plan job:** `plan.jsonl` from bd's export and audit journal, or inferred from markdown when the project has no beads.
 5. **Linker:** `links.jsonl`, with each rule tested on its own in `observed` and `inferred` cases. The git outcomes job moves onto it.
    **Findings:** the core writes closed episodes to `findings.jsonl`.
-6. **Sanitizer:** rules 1–5 as one module in `src/core/export/`, with tests on made-up data that plants every kind of value the rules name and checks none survives.
+6. **Sanitizer:** rules 1–5 as one module in `src/core/export/`, with SHA re-keying, the repository and machine keys, and `export.public`, with tests on made-up data that plants every kind of value the rules name and checks none survives.
 7. **The command:** `snagboat export` (select, sanitize, review folder, final check), and the VS Code command.
 8. **Factory Clock:** load an export folder, and `--from-export` in the scrape script (in factory-clock's own tracker).
 
 Heuristics that use git and plan state are their own beads, after step 5.
 
-## Open questions
+## Decided in review
 
-1. **Commit SHAs in a private repository.** They're kept so exports join up. Should `--private` re-key them with the HMAC? Then the export can't be matched with the repository's real history.
-2. **Pseudonyms across machines.** The key is per machine, so two people's exports of the same project number people differently. Is that fine, or should a team share a key?
-3. **Pull request detail.** Titles, reviewers and review comments are on GitHub, not on disk. Recording them means a network call from the repository job. Leave it out for now?
-4. **Markdown plans.** Without beads, factory-clock#31 reads `docs/` markdown as a plan. Should the plan job do the same, storing `confidence: 'inferred'` items, or record only beads?
+The questions the first draft left open, and how they were settled (November 20–21, 2026):
+
+1. **Everything exported comes from the store.** The export never re-reads transcripts, git or bd. The store takes on this schema and heuristics use it too.
+2. **Finding episodes are recorded as they happen.** This was a gap in the original design, separate from export.
+3. **The store's text caps become settings**, `capture.promptChars` and `capture.replyChars`.
+4. **Commit SHAs are re-keyed for a private repository**, and every repository counts as private unless the project sets `export.public`.
+5. **Pseudonyms use the same key as the SHAs for a private repository**, so a team that shares the repository's key gets exports that join up. A public repository uses this machine's key.
+6. **No pull request detail.** Only the number in a commit's subject, so the repository job and the export make no network calls.
+7. **Without beads, plans are inferred from markdown**, with `confidence: 'inferred'` and their lifecycle from the files' git history.
