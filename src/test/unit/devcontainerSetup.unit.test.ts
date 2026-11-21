@@ -5,7 +5,7 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 import * as jsonc from 'jsonc-parser';
 import { runCli } from '../../cli/main';
-import { applyDevcontainerPlan, describePlan, personalConfigPath, planDevcontainer, SAME_PATH_MOUNT, unifiedDiff } from '../../core/devcontainerSetup';
+import { applyDevcontainerPlan, BEADS_EXPORT_SCRIPT, BEADS_EXPORT_START, describePlan, personalConfigPath, planDevcontainer, SAME_PATH_MOUNT, unifiedDiff } from '../../core/devcontainerSetup';
 
 // `snagboat containers allow` checks the folder's dev container and, with --edit, sets it up (bead snagboat-05p).
 
@@ -137,6 +137,68 @@ test('CLAUDE_CONFIG_DIR and root decide where the transcripts mount goes', () =>
   assert.match(planDevcontainer(p.folder)!.after, /target=\/root\/\.claude\/projects,type=bind/);
 });
 
+test('no .beads: no beads exporter', () => {
+  const { folder } = project();
+  const plan = planDevcontainer(folder)!;
+  assert.strictEqual(plan.beadsExportPath, undefined);
+  assert.strictEqual(plan.writesBeadsExport, false);
+  assert.ok(!jsonc.parse(plan.after).postStartCommand.includes('beads-export'));
+});
+
+test('with .beads: writes .snagboat/bin/beads-export.sh and starts it last on start; then ready; an old copy is updated', () => {
+  const { folder } = project();
+  fs.mkdirSync(path.join(folder, '.beads'));
+  const script = path.join(folder, '.snagboat', 'bin', 'beads-export.sh');
+  const plan = planDevcontainer(folder)!;
+  assert.strictEqual(plan.state, 'changes');
+  assert.strictEqual(plan.beadsExportPath, script);
+  assert.ok(plan.writesBeadsExport);
+  const post: string = jsonc.parse(plan.after).postStartCommand;
+  assert.ok(post.endsWith(`; echo started; ${BEADS_EXPORT_START}`), post);
+  assert.ok(plan.changes.some((c) => /starts \.snagboat\/bin\/beads-export\.sh last/.test(c)), plan.changes.join('\n'));
+  assert.match(describePlan(plan), /\.snagboat\/bin\/beads-export\.sh to write/);
+
+  const wrote = applyDevcontainerPlan(plan);
+  assert.ok(wrote.includes('wrote .snagboat/bin/beads-export.sh'), wrote.join('\n'));
+  assert.strictEqual(fs.readFileSync(script, 'utf8'), BEADS_EXPORT_SCRIPT);
+  assert.strictEqual(fs.statSync(script).mode & 0o777, 0o755);
+  assert.strictEqual(planDevcontainer(folder)!.state, 'ready');
+
+  fs.writeFileSync(script, '#!/bin/sh\n# an older one\n');
+  const update = planDevcontainer(folder)!;
+  assert.strictEqual(update.state, 'changes');
+  assert.ok(update.writesBeadsExport && !update.writesConfig);
+  assert.match(describePlan(update), /beads-export\.sh to update/);
+  applyDevcontainerPlan(update);
+  assert.strictEqual(fs.readFileSync(script, 'utf8'), BEADS_EXPORT_SCRIPT);
+
+  // The start step is a no-op where the script isn't there (a collaborator's clone of an in-place config).
+  fs.rmSync(script);
+  const run = spawnSync('sh', ['-c', BEADS_EXPORT_START.replace('${containerWorkspaceFolder}', folder)], { cwd: folder, encoding: 'utf8' });
+  assert.strictEqual(run.status, 0, run.stderr);
+});
+
+test('with .beads: in place too; a config that starts its own beads-export.sh needs no copy; a linked script is refused', () => {
+  let p = project();
+  fs.mkdirSync(path.join(p.folder, '.beads'));
+  applyDevcontainerPlan(planDevcontainer(p.folder, { inPlace: true })!);
+  assert.ok(jsonc.parse(fs.readFileSync(p.configPath, 'utf8')).postStartCommand.endsWith(BEADS_EXPORT_START));
+  assert.ok(fs.existsSync(path.join(p.folder, '.snagboat', 'bin', 'beads-export.sh')));
+  assert.strictEqual(planDevcontainer(p.folder, { inPlace: true })!.state, 'ready');
+
+  p = project(SHARED.replace('"echo started"', '"bash .devcontainer/beads-export.sh start"'));
+  fs.mkdirSync(path.join(p.folder, '.beads'));
+  const own = planDevcontainer(p.folder)!;
+  assert.strictEqual(own.beadsExportPath, undefined);
+  assert.ok(!own.changes.some((c) => c.includes('beads')), own.changes.join('\n'));
+
+  p = project();
+  fs.mkdirSync(path.join(p.folder, '.beads'));
+  fs.mkdirSync(path.join(p.folder, '.snagboat', 'bin'), { recursive: true });
+  fs.symlinkSync(path.join(p.root, 'elsewhere.sh'), path.join(p.folder, '.snagboat', 'bin', 'beads-export.sh'));
+  assert.match(planDevcontainer(p.folder)!.problem!, /beads-export\.sh is a link or a folder/);
+});
+
 test('unifiedDiff', () => {
   assert.strictEqual(unifiedDiff('a\nb\n', 'a\nb\n', 'x', 'y'), '');
   const d = unifiedDiff(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'].join('\n'), ['1', '2', '3', '4', 'five', '6', '7', '8', '9', '10', '11', '12', '13'].join('\n'), 'a/f', 'b/f');
@@ -179,6 +241,12 @@ test('snagboat containers allow shows the change, --edit makes it, status report
     assert.strictEqual(JSON.parse(r.out).folders[0].devcontainer, 'set up (.devcontainer/snagboat/devcontainer.json)');
     r = await run(['containers', 'allow', '--json']);
     assert.strictEqual(JSON.parse(r.out).devcontainer.state, 'ready');
+
+    fs.mkdirSync(path.join(folder, '.beads'));
+    r = await run(['containers', 'allow']);
+    assert.match(r.out, /\+ write \.snagboat\/bin\/beads-export\.sh \(the container runs it on start/);
+    r = await run(['containers', 'allow', '--edit']);
+    assert.match(r.out, /Done: wrote \.devcontainer\/snagboat\/devcontainer\.json; wrote \.snagboat\/bin\/beads-export\.sh\./);
 
     fs.writeFileSync(personalConfigPath(folder), '{}');
     r = await run(['containers', 'allow', '--edit']);

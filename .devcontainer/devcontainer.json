@@ -59,8 +59,10 @@
   // Runs once when the container is created.
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   // Runs every time the container starts: checks that nothing has set up git
-  // hooks that would run on the host.
-  "postStartCommand": "git config --global --get-all safe.directory 2>/dev/null | grep -qxF \"${containerWorkspaceFolder}\" || git config --global --add safe.directory \"${containerWorkspaceFolder}\"; bash .devcontainer/check-host-safety.sh; bash .devcontainer/carry-transcripts.sh start",
+  // hooks that would run on the host, and starts the beads exporter in the
+  // background (bd export to .snagboat/beads/ every minute, for Snagboat on the
+  // host; see README "Beads for Snagboat on the host").
+  "postStartCommand": "git config --global --get-all safe.directory 2>/dev/null | grep -qxF \"${containerWorkspaceFolder}\" || git config --global --add safe.directory \"${containerWorkspaceFolder}\"; bash .devcontainer/check-host-safety.sh; bash .devcontainer/carry-transcripts.sh start; sh .devcontainer/beads-export.sh start \"${containerWorkspaceFolder}\"",
 
   "customizations": {
     "vscode": {

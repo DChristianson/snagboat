@@ -18,6 +18,10 @@ out/
 .beads/proxieddb/
 *.gate.lock*
 
+# What the dev container's beads exporter writes for Snagboat on the host
+# (.devcontainer/beads-export.sh; it also writes its own .gitignore there).
+.snagboat/beads/
+
 # The Claude Code plugin's built files (npm run build:plugin)
 plugins/snagboat/dist/
 plugins/snagboat/hooks/forward.sh

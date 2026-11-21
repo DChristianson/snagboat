@@ -6,7 +6,11 @@
  *     name the same folder on both sides;
  *   - its ~/.claude/projects bind-mounted to <folder>/.snagboat/claude-projects, which `snagboat containers allow` lets
  *     the core read;
- *   - the project folder marked as a git safe.directory on start (its path in the container changes with the mount).
+ *   - the project folder marked as a git safe.directory on start (its path in the container changes with the mount);
+ *   - in a project with beads (a .beads folder), the beads exporter started on start (snagboat-93b.10.8): bd runs only in
+ *     the container, so .snagboat/bin/beads-export.sh writes bd export and bd history to .snagboat/beads/ every minute,
+ *     for the core here to read (beadsExport.ts). The script is written into the project (it's git-ignored with the rest
+ *     of .snagboat/), and the start step does nothing where it's missing.
  *
  * devcontainer.json is usually committed and shared, so nothing here edits it unasked. By default the changes go in a
  * personal config, .devcontainer/snagboat/devcontainer.json: the shared one plus the changes, with paths relative to the
@@ -24,10 +28,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import * as jsonc from 'jsonc-parser';
+import { BEADS_EXPORT_SCRIPT } from './beadsExportScript';
 
 export const SAME_PATH_MOUNT = 'source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind';
 export const SAFE_DIRECTORY =
   'git config --global --get-all safe.directory 2>/dev/null | grep -qxF "${containerWorkspaceFolder}" || git config --global --add safe.directory "${containerWorkspaceFolder}"';
+/** Where --edit writes the beads exporter in a project, relative to the folder. */
+export const BEADS_EXPORT_REL = '.snagboat/bin/beads-export.sh';
+/** The postStartCommand step that starts it in the background; a no-op where the script isn't there (a collaborator's clone). */
+export const BEADS_EXPORT_START = '[ ! -f .snagboat/bin/beads-export.sh ] || sh .snagboat/bin/beads-export.sh start "${containerWorkspaceFolder}"';
+export { BEADS_EXPORT_SCRIPT };
 const HEADER_MARK = '// snagboat-personal-config';
 
 export interface DevcontainerOptions {
@@ -66,9 +76,21 @@ export interface DevcontainerPlan {
   transcriptsDir: string;
   /** transcriptsDir doesn't exist yet (Docker won't start with a missing bind source). */
   createsTranscriptsDir: boolean;
+  /** The beads exporter's path in the project, when the folder has beads and its container should run it. */
+  beadsExportPath?: string;
+  /** beadsExportPath is missing or isn't this version's script. */
+  writesBeadsExport: boolean;
   /** The file to add ignoreLines to: .gitignore with inPlace, else this clone's .git/info/exclude. */
   ignoreFile?: string;
   ignoreLines: string[];
+}
+
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /** The folder's devcontainer.json, if it has one. */
@@ -131,6 +153,7 @@ export function planDevcontainer(folder: string, options: DevcontainerOptions = 
     writesConfig: false,
     transcriptsDir,
     createsTranscriptsDir: false,
+    writesBeadsExport: false,
     ignoreLines: [],
   };
   const refuse = (problem: string): DevcontainerPlan => ({ ...plan, state: 'refused', problem, changes: [], after: plan.before, writesConfig: false });
@@ -189,19 +212,41 @@ export function planDevcontainer(folder: string, options: DevcontainerOptions = 
     }
   }
 
-  // 3. git safe.directory on start.
+  // 3. git safe.directory on start, and (with beads) the beads exporter. A postStartCommand that already starts a
+  // beads-export.sh of its own (this repository's .devcontainer one) needs neither the step nor the script.
   const post = config.postStartCommand;
+  const beadsExport = path.join(folder, ...BEADS_EXPORT_REL.split('/'));
+  const hasBeads = isDirectory(path.join(folder, '.beads'));
+  const ownExporter = typeof post === 'string' && post.includes('beads-export.sh') && !post.includes(BEADS_EXPORT_REL);
   if (post === undefined || typeof post === 'string') {
-    if (!post?.includes('safe.directory')) {
-      set(['postStartCommand'], post ? `${SAFE_DIRECTORY}; ${post}` : SAFE_DIRECTORY);
+    let next = post ?? '';
+    if (!next.includes('safe.directory')) {
+      next = next ? `${SAFE_DIRECTORY}; ${next}` : SAFE_DIRECTORY;
       needed.push('postStartCommand: marks the project folder as a git safe.directory first');
     }
+    if (hasBeads && !ownExporter && !next.includes(BEADS_EXPORT_REL)) {
+      next = `${next}; ${BEADS_EXPORT_START}`;
+      needed.push(`postStartCommand: starts ${BEADS_EXPORT_REL} last, which exports bd's issues and history to .snagboat/beads/ every minute for the core here`);
+    }
+    if (next !== (post ?? '')) set(['postStartCommand'], next);
   } else {
-    plan.notes.push(`postStartCommand isn't a string; add this to it yourself:\n  ${SAFE_DIRECTORY}`);
+    plan.notes.push(`postStartCommand isn't a string; add this to it yourself:\n  ${SAFE_DIRECTORY}${hasBeads ? `\n  ${BEADS_EXPORT_START}` : ''}`);
+  }
+  if (hasBeads && !ownExporter) {
+    plan.beadsExportPath = beadsExport;
+    let current: string | undefined;
+    try {
+      current = fs.readFileSync(beadsExport, 'utf8');
+    } catch {
+      current = undefined;
+    }
+    plan.writesBeadsExport = current !== BEADS_EXPORT_SCRIPT;
   }
 
   // The transcripts folder must be a real folder in the project: a link would hand the container somewhere else on this machine.
-  for (const p of [path.join(folder, '.snagboat'), transcriptsDir]) {
+  // So must the beads exporter's folder, and the script a real file (it's replaced, never written through).
+  const dirs = [path.join(folder, '.snagboat'), transcriptsDir, ...(plan.beadsExportPath ? [path.dirname(plan.beadsExportPath)] : [])];
+  for (const p of dirs) {
     let st: fs.Stats | undefined;
     try {
       st = fs.lstatSync(p);
@@ -209,6 +254,15 @@ export function planDevcontainer(folder: string, options: DevcontainerOptions = 
       continue;
     }
     if (!st.isDirectory()) return refuse(`${p} is a link or a file, not a folder: replace it with a real folder first`);
+  }
+  if (plan.beadsExportPath) {
+    let st: fs.Stats | undefined;
+    try {
+      st = fs.lstatSync(plan.beadsExportPath);
+    } catch {
+      st = undefined;
+    }
+    if (st && !st.isFile()) return refuse(`${plan.beadsExportPath} is a link or a folder, not a file: remove it first`);
   }
   plan.createsTranscriptsDir = !fs.existsSync(transcriptsDir);
 
@@ -301,7 +355,7 @@ export function planDevcontainer(folder: string, options: DevcontainerOptions = 
     plan.notes.push(`${folder} isn't a git repository, so nothing is set to be ignored`);
   }
 
-  if (plan.writesConfig || plan.createsTranscriptsDir || plan.ignoreLines.length) plan.state = 'changes';
+  if (plan.writesConfig || plan.createsTranscriptsDir || plan.writesBeadsExport || plan.ignoreLines.length) plan.state = 'changes';
   return plan;
 }
 
@@ -318,6 +372,16 @@ export function applyDevcontainerPlan(plan: DevcontainerPlan): string[] {
   if (plan.createsTranscriptsDir) {
     fs.mkdirSync(plan.transcriptsDir, { recursive: true });
     done.push(`created ${rel(plan.transcriptsDir)}/`);
+  }
+  if (plan.writesBeadsExport && plan.beadsExportPath) {
+    // Written beside it and renamed over it: a link put there since the plan is replaced, not followed, and a copy
+    // already running keeps reading the file it started with.
+    fs.mkdirSync(path.dirname(plan.beadsExportPath), { recursive: true });
+    const tmp = `${plan.beadsExportPath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, BEADS_EXPORT_SCRIPT, { mode: 0o755 });
+    fs.chmodSync(tmp, 0o755);
+    fs.renameSync(tmp, plan.beadsExportPath);
+    done.push(`wrote ${rel(plan.beadsExportPath)}`);
   }
   if (plan.ignoreFile && plan.ignoreLines.length) {
     const before = fs.existsSync(plan.ignoreFile) ? fs.readFileSync(plan.ignoreFile, 'utf8') : '';
@@ -337,6 +401,7 @@ export function describePlan(plan: DevcontainerPlan | undefined): string {
   const parts: string[] = [];
   if (plan.writesConfig) parts.push(fs.existsSync(plan.outPath) ? `${rel(plan.outPath)} to update` : `${rel(plan.outPath)} to write`);
   if (plan.createsTranscriptsDir) parts.push(`${rel(plan.transcriptsDir)}/ to create`);
+  if (plan.writesBeadsExport && plan.beadsExportPath) parts.push(`${rel(plan.beadsExportPath)} to ${fs.existsSync(plan.beadsExportPath) ? 'update' : 'write'}`);
   if (plan.ignoreLines.length) parts.push('git to ignore .snagboat/');
   return `not set up: ${parts.join(', ')}`;
 }
