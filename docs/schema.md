@@ -1,8 +1,8 @@
 # Common schema and transformation matrix
 
-The types below live in [packages/schema/src/types.ts](../packages/schema/src/types.ts), in the `@snagboat/schema` workspace package ([design/architecture-rfc.md](design/architecture-rfc.md)). [Factory Clock](https://github.com/DChristianson/factory-clock) keeps its own copy of it. The same shape is published as JSON Schema in [normalizedEvent.v3.schema.json](../packages/schema/src/normalizedEvent.v3.schema.json); a compile-time check keeps its field list equal to the type's, and `normalizedEventSchema.unit.test.ts` validates real events against it.
+The types below live in [packages/schema/src/types.ts](../packages/schema/src/types.ts), in the `@snagboat/schema` workspace package ([design/architecture-rfc.md](design/architecture-rfc.md)). [Factory Clock](https://github.com/DChristianson/factory-clock) keeps its own copy of it. The same shape is published as JSON Schema in [normalizedEvent.v4.schema.json](../packages/schema/src/normalizedEvent.v4.schema.json); a compile-time check keeps its field list equal to the type's, and `normalizedEventSchema.unit.test.ts` validates real events against it.
 
-**Versions.** Version 3 adds the `outcome` kind and the `outcome` field (below), `todos` and `taskOp`; version 2 added `workspace`. Each version only adds, so every version 1 and 2 event is a valid version 3 event, a reader takes all three, and older logs need no conversion. A reader that switches on `kind` should ignore kinds it doesn't know. Versions 1 and 2 stay published as [normalizedEvent.v1.schema.json](../packages/schema/src/normalizedEvent.v1.schema.json) (`normalizedEventSchemaV1`) and [normalizedEvent.v2.schema.json](../packages/schema/src/normalizedEvent.v2.schema.json) (`normalizedEventSchemaV2`). Version 3 is unreleased: it may still gain outcome types and fields before the `refactor` branch ships. The package imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`).
+**Versions.** Version 4 adds `toolInput`, `refs` and `textTruncated` (below); version 3 added the `outcome` kind and the `outcome` field, `todos` and `taskOp`; version 2 added `workspace`. Each version only adds, so every version 1, 2 and 3 event is a valid version 4 event, a reader takes all four, a version 3 reader reads version 4 events by ignoring the fields it doesn't know, and older logs need no conversion. A reader that switches on `kind` should ignore kinds it doesn't know. Versions 1 to 3 stay published as [normalizedEvent.v1.schema.json](../packages/schema/src/normalizedEvent.v1.schema.json) (`normalizedEventSchemaV1`), [normalizedEvent.v2.schema.json](../packages/schema/src/normalizedEvent.v2.schema.json) (`normalizedEventSchemaV2`) and [normalizedEvent.v3.schema.json](../packages/schema/src/normalizedEvent.v3.schema.json) (`normalizedEventSchemaV3`). Versions 3 and 4 are unreleased, and Snagboat doesn't write version 4's fields yet ([design/export.md](design/export.md)): they may still change before they ship. The package imports nothing outside itself and no Node builtins (`schemaBoundary.unit.test.ts`).
 
 ## `NormalizedEvent`
 
@@ -51,6 +51,15 @@ interface NormalizedEvent {
   contextLimit?: number; // the model's prompt budget for this call, when reported
   endsTurn?: true;       // this event ends its turn (see below)
   workspace?: string;    // v2: the workspace it was recorded in (see below)
+  toolInput?: {          // v4, tool calls: the parts of the input worth drawing (not written yet)
+    command?: string; path?: string; pattern?: string; url?: string; description?: string;
+  };
+  refs?: {               // v4, tool calls: what the call observably acted on (not written yet)
+    commit?: string;       // a full or short SHA, as the command showed it
+    branch?: string;
+    planItems?: string[];  // bead ids
+  };
+  textTruncated?: true;  // v4: promptText or textExcerpt was cut at the store's cap (not written yet)
   outcome?: {            // v3, outcome events: what was measured (see below)
     type: 'tests_green' | 'finding_response'
       | 'commit_kept' | 'commit_reverted' | 'code_survival' | 'milestone' | 'approval' | 'notified';
@@ -93,6 +102,8 @@ interface NormalizedEvent {
   - `code_survival`, 7 and 30 days after it: of the lines it added to the session's files, `linesSurviving` are still there at HEAD (`git blame`).
 
   Each has a fixed id and time, so running again adds nothing. Every commit counts, on any branch: work merged by squash counts as its branch commits and again as the squash commit (decided: count both). Multi-root workspaces aren't read yet.
+
+`toolInput`, `refs` and `textTruncated` (version 4) are for the [export](design/export.md) and for heuristics that use git and plan state; no adapter writes them yet. `toolInput` holds the parts of a tool call's input worth drawing: the command a shell tool ran, the path a file tool touched, a search's pattern, a fetched URL, and the agent's own description of the call. Never the tool's output. `refs` is set on a tool call that *observably* acted on a commit, a branch or plan items (`git commit`, `git checkout -b`, `bd close`); relations Snagboat infers are links (below), never refs. `textTruncated` says the stored text was cut at its cap (`snagboat.capture.promptChars` or `replyChars`, once those settings exist).
 
 Outcome events don't count as agent activity: they're left out of totals, the daily chart, session lists and heuristics.
 
@@ -171,3 +182,23 @@ The [goal tracking lifecycle](design/goal-tracking-lifecycle.md) adds four recor
 | `SetupEvent` | `~/.snagboat/advisor-drafts/<setup id>/setup.jsonl` while a draft, then `~/.snagboat/advisors/<id>/setup.jsonl`; one per line, append only | [setupEvent.v1.schema.json](../packages/schema/src/setupEvent.v1.schema.json) (`setupEventSchema`) | Setting up an advisor by conversation: `started` (the model you picked), `said` (your turn, and the model you switched to), `answered` (the model's reply, the model that gave it, and maybe a proposed advisor with what the + form asks for, or the problems that kept it out), `revised` (your note), then `accepted` (the advisor it made) or `discarded`. `SetupConversation` is the same, folded into turns. |
 
 `MeasureResult` (one measure, with the value it's compared with) and `AdvisorPeriod` (`daily`, `weekly` or `monthly`) are shared with the advisor code and live in the same file.
+
+## Git, plan, link and finding records
+
+Not written by Snagboat yet: these are the store's records for the [export design](design/export.md), typed in [packages/schema/src/storeRecords.ts](../packages/schema/src/storeRecords.ts) and published as JSON Schema version 1, so the jobs that will write them (and Factory Clock, which will read exports of them) share one shape. A compile-time check keeps each schema's field list equal to its type's, and `storeRecordsSchema.unit.test.ts` validates example records against them.
+
+Each workspace's folder in `~/.snagboat/data` will gain four files beside `events/`. Each line names its record type in `record`, so one file holds several, and carries `version: 1`:
+
+| File | `record` | Schema | Key |
+| --- | --- | --- | --- |
+| `git.jsonl` | `commit` | [gitRecord.v1.schema.json](../packages/schema/src/gitRecord.v1.schema.json) (`gitRecordSchema`), `$defs.commit` | `sha`, the full SHA |
+| | `branch` | `$defs.branch` | `id`: `<name>@<firstSeenAt>`, so a name deleted and made again is a new branch |
+| | `checkout` | `$defs.checkout` | `id`: `checkout-` and 16 hex characters of the SHA-256 of `<worktree>\n<at>\n<commit>` (worktree: `.` for the main one, else its name under `.git/worktrees/`) |
+| `plan.jsonl` | `item` | [planRecord.v1.schema.json](../packages/schema/src/planRecord.v1.schema.json) (`planRecordSchema`), `$defs.item` | `id`: the bead's id, or `md-` and 12 hex characters of the SHA-256 of its file and heading path |
+| | `transition` | `$defs.transition` | `id`: the bd audit event's id, or `md-t-` and 16 hex characters of the SHA-256 of `<item>\n<at>\n<type>\n<to>` |
+| `links.jsonl` | `link` | [linkRecord.v1.schema.json](../packages/schema/src/linkRecord.v1.schema.json) (`linkRecordSchema`) | `id`: `link-` and 16 hex characters of the SHA-256 of `<from.type>:<from.id>\n<to.type>:<to.id>\n<kind>\n<how>` |
+| `findings.jsonl` | `finding` | [findingRecord.v1.schema.json](../packages/schema/src/findingRecord.v1.schema.json) (`findingRecordSchema`) | `id`: `finding-` and 16 hex characters of the SHA-256 of `<heuristicId>\n<sessionId>\n<firstTs>` |
+
+The files are append only. A record that changes (a branch merged or deleted, an item's new status, a link that turned observed) is appended again with the same key, and the latest line with a key is the record: `foldStoreRecords` folds a file's lines that way, and `storeRecordKey` gives the key (`commit:<sha>`, `item:snagboat-koh`). An absent value hashes as an empty string; the full SHA-256 is never stored. A job appends nothing when a record hasn't changed, so running it again adds nothing. A link that a later record overturns gets `supersededBy`, naming the link that replaced it; `currentLinks` gives the ones an export writes. What's stored is raw (real paths, git idents, SHAs); the export applies the privacy rules to the same records.
+
+The export adds three records of its own, in [packages/schema/src/exportRecords.ts](../packages/schema/src/exportRecords.ts): `ExportedEvent` ([exportedEvent.v4.schema.json](../packages/schema/src/exportedEvent.v4.schema.json), `exportedEventSchema`), a version 4 event without `workspace` and `raw` and with `redactions`, what the rules replaced in it, by field and rule, without the values; `SessionRecord` ([sessionRecord.v1.schema.json](../packages/schema/src/sessionRecord.v1.schema.json), `sessionRecordSchema`), what `snagboat sessions --json` prints for a session plus its subagents' ids, where it ran, and its branches, commits and plan items; and `ExportManifest` ([exportManifest.v1.schema.json](../packages/schema/src/exportManifest.v1.schema.json), `exportManifestSchema`), the export's `manifest.json`.

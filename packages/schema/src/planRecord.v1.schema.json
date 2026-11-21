@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DChristianson/snagboat/schema/plan-record/v1",
+  "title": "PlanRecord",
+  "description": "One line of a workspace's plan.jsonl in the store (docs/design/export.md): a plan item or a transition, named by record. Append only; the latest line with a key is the record. It matches the PlanRecord type in storeRecords.ts; a unit test and a compile-time check keep them in step.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/item"
+    },
+    {
+      "$ref": "#/$defs/transition"
+    }
+  ],
+  "$defs": {
+    "item": {
+      "type": "object",
+      "description": "A plan item: a bead, or a step inferred from markdown. Follows Factory Clock's PlanItem. Keyed by id.",
+      "required": [
+        "record",
+        "version",
+        "id",
+        "kind",
+        "title",
+        "status",
+        "labels",
+        "created",
+        "updated",
+        "source",
+        "confidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "record": {
+          "type": "string",
+          "const": "item"
+        },
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "description": "The bead's id, or md- and 12 hex characters of SHA-256 over its file and heading path."
+        },
+        "kind": {
+          "enum": [
+            "epic",
+            "milestone",
+            "feature",
+            "task",
+            "bug",
+            "step",
+            "decision",
+            "question",
+            "note"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "in_progress",
+            "blocked",
+            "done",
+            "deferred",
+            "dropped"
+          ]
+        },
+        "priority": {
+          "type": "number"
+        },
+        "parent": {
+          "type": "string"
+        },
+        "blockedBy": {
+          "type": "array",
+          "description": "The items it depends on, by id.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "created": {
+          "type": "string"
+        },
+        "started": {
+          "type": "string"
+        },
+        "updated": {
+          "type": "string"
+        },
+        "closed": {
+          "type": "string"
+        },
+        "closeReason": {
+          "type": "string"
+        },
+        "assignee": {
+          "type": "string",
+          "description": "In an export, person-N."
+        },
+        "text": {
+          "type": "object",
+          "required": [],
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "design": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "string"
+            },
+            "acceptance": {
+              "type": "string"
+            }
+          }
+        },
+        "source": {
+          "enum": [
+            "beads",
+            "markdown"
+          ]
+        },
+        "from": {
+          "type": "object",
+          "description": "markdown: the file and heading it came from, relative to the project.",
+          "required": [
+            "file"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "heading": {
+              "type": "string"
+            }
+          }
+        },
+        "confidence": {
+          "enum": [
+            "observed",
+            "inferred"
+          ]
+        }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "description": "One step in a plan item's lifecycle. Keyed by id.",
+      "required": [
+        "record",
+        "version",
+        "id",
+        "item",
+        "at",
+        "type",
+        "actor",
+        "confidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "record": {
+          "type": "string",
+          "const": "transition"
+        },
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "description": "The bd audit event's id, or md-t- and 16 hex characters of SHA-256 over item, time, type and to."
+        },
+        "item": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "created",
+            "claimed",
+            "status_changed",
+            "updated",
+            "closed",
+            "reopened",
+            "dependency_added",
+            "dependency_removed",
+            "commented",
+            "label_added",
+            "label_removed"
+          ]
+        },
+        "from": {
+          "type": "string",
+          "description": "The old status, for status changes."
+        },
+        "to": {
+          "type": "string",
+          "description": "The new status, or the other item for a dependency."
+        },
+        "fields": {
+          "type": "array",
+          "description": "updated: which fields changed, not their values.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "actor": {
+          "type": "string",
+          "description": "In an export, person-N or an agent's name."
+        },
+        "confidence": {
+          "enum": [
+            "observed",
+            "inferred"
+          ]
+        }
+      }
+    }
+  }
+}

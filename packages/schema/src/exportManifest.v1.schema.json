@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DChristianson/snagboat/schema/export-manifest/v1",
+  "title": "ExportManifest",
+  "description": "An export folder's manifest.json (docs/design/export.md): its format and versions, project name, range, counts, and what the privacy rules replaced and flagged. It matches the ExportManifest type in exportRecords.ts; a unit test and a compile-time check keep them in step.",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "eventSchema",
+    "generatedAt",
+    "project",
+    "range",
+    "text",
+    "counts",
+    "rulesVersion",
+    "snagboatVersion",
+    "redactions",
+    "flags",
+    "repository"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "snagboat-export"
+    },
+    "version": {
+      "type": "number",
+      "const": 1,
+      "description": "The export format's version."
+    },
+    "eventSchema": {
+      "type": "number",
+      "const": 4,
+      "description": "The event schema version its events follow."
+    },
+    "generatedAt": {
+      "type": "string"
+    },
+    "project": {
+      "type": "string",
+      "description": "The project name, from --name."
+    },
+    "range": {
+      "type": "object",
+      "required": [],
+      "additionalProperties": false,
+      "properties": {
+        "since": {
+          "type": "string"
+        },
+        "until": {
+          "type": "string"
+        },
+        "first": {
+          "type": "string",
+          "description": "The first event exported."
+        },
+        "last": {
+          "type": "string",
+          "description": "The last event exported."
+        }
+      }
+    },
+    "text": {
+      "enum": [
+        "redacted",
+        "none"
+      ]
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "days",
+        "events",
+        "sessions",
+        "findings",
+        "commits",
+        "branches",
+        "checkouts",
+        "planItems",
+        "transitions",
+        "links"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "type": "number"
+        },
+        "events": {
+          "type": "number"
+        },
+        "sessions": {
+          "type": "number"
+        },
+        "findings": {
+          "type": "number"
+        },
+        "commits": {
+          "type": "number"
+        },
+        "branches": {
+          "type": "number"
+        },
+        "checkouts": {
+          "type": "number"
+        },
+        "planItems": {
+          "type": "number"
+        },
+        "transitions": {
+          "type": "number"
+        },
+        "links": {
+          "type": "number"
+        }
+      }
+    },
+    "rulesVersion": {
+      "type": "number",
+      "description": "The privacy rules' version."
+    },
+    "snagboatVersion": {
+      "type": "string"
+    },
+    "redactions": {
+      "type": "object",
+      "description": "How many values each rule replaced, by rule name.",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "flags": {
+      "type": "number",
+      "description": "How many values were flagged for review."
+    },
+    "repository": {
+      "type": "object",
+      "required": [
+        "privacy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "privacy": {
+          "enum": [
+            "private",
+            "public"
+          ]
+        }
+      }
+    }
+  }
+}

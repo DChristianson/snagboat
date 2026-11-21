@@ -117,6 +117,39 @@ export interface EventTaskOp {
   tasks?: Array<{ id: string; status: TodoStatus; subject?: string }>;
 }
 
+/**
+ * The parts of a tool call's input worth drawing (schema v4), recorded at
+ * capture. Stored raw (a path is the absolute path the agent used); the export
+ * makes paths relative and scrubs the rest. Never the tool's output.
+ */
+export interface EventToolInput {
+  /** Shell tools: the command line. */
+  command?: string;
+  /** File tools: the file or folder it read, edited or listed. */
+  path?: string;
+  /** Search tools: the pattern or query. */
+  pattern?: string;
+  /** Web tools: the URL it fetched. */
+  url?: string;
+  /** The agent's own description of the call (Bash's description, a subagent's task). */
+  description?: string;
+}
+
+/**
+ * What a tool call observably acted on (schema v4), recorded at capture: a
+ * call that ran `git commit`, `git checkout -b <branch>` or `bd close <id>`.
+ * Only what the call itself shows; inferred relations are links (links.jsonl),
+ * never refs.
+ */
+export interface EventRefs {
+  /** The commit it made or named, as the command or its result showed it (a full or short SHA). */
+  commit?: string;
+  /** The branch it created, checked out, switched to or merged, by name. */
+  branch?: string;
+  /** Plan items (bead ids) it created, claimed, updated, closed or showed. */
+  planItems?: string[];
+}
+
 export interface NormalizedEvent {
   eventId: string;
   sessionId: string;
@@ -176,6 +209,12 @@ export interface NormalizedEvent {
   workspace?: string;
   /** outcome events (schema v3): what was measured. */
   outcome?: EventOutcome;
+  /** tool_call events (schema v4): the parts of the call's input worth drawing. */
+  toolInput?: EventToolInput;
+  /** tool_call events (schema v4): the commit, branch or plan items the call observably acted on. */
+  refs?: EventRefs;
+  /** Schema v4: promptText or textExcerpt was cut at the store's cap (snagboat.capture.promptChars or replyChars). */
+  textTruncated?: true;
   raw: {
     adapter: string;
     ref: string;
