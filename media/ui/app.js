@@ -8,7 +8,8 @@
 // measures, chart, rules and voice), at #advisor=<id>; and from step 5b the
 // sessions (#view=sessions), and one session with what came of it
 // (#session=<id>), drawn with Snagboat's two session drawings (media/drawings),
-// which the core serves beside this page.
+// which the core serves beside this page. And a workspace's plan items with the sessions,
+// commits and branches linked to each (#view=plans), drawn by plans.js.
 (function () {
   'use strict';
 
@@ -79,7 +80,7 @@
     const body = await res.json().catch(() => ({}));
     if (res.status === 401) throw new Unauthorized(body.error || 'unauthorized');
     if (res.status === 409) throw new Refused(body.error || 'refused');
-    if (!res.ok) throw new Error(body.error || `the core answered ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(body.error || `the core answered ${res.status}`), { status: res.status });
     return body;
   }
 
@@ -678,12 +679,12 @@
     $('problems').hidden = !problems || problems.length === 0;
     $('problems').textContent = problems && problems.length ? `Problems in your advisors' persona.md files: ${problems.join('; ')}` : '';
   }
-  const VIEWS = ['advisors', 'advisor', 'add', 'sessions', 'session', 'suggestions', 'experiments'];
+  const VIEWS = ['advisors', 'advisor', 'add', 'sessions', 'session', 'plans', 'suggestions', 'experiments'];
   function showView(name) {
     for (const v of VIEWS) $(`view-${v}`).hidden = v !== name;
     // The nav marks the section you're in: an advisor's page is under Advisors, a session's under Sessions.
     const section = { advisor: 'advisors', add: 'advisors', session: 'sessions' }[name] || name;
-    for (const n of ['advisors', 'sessions', 'suggestions', 'experiments']) {
+    for (const n of ['advisors', 'sessions', 'plans', 'suggestions', 'experiments']) {
       $(`nav-${n}`).classList.toggle('on', n === section);
       if (n === section) $(`nav-${n}`).setAttribute('aria-current', 'page');
       else $(`nav-${n}`).removeAttribute('aria-current');
@@ -692,12 +693,12 @@
     for (const e of document.querySelectorAll('[data-advisors-only]')) e.hidden = name !== 'advisors' && name !== 'advisor';
     if (name !== 'sessions') state.sessionLimit = SESSIONS_PAGE;
   }
-  /** Which view the address names: #advisor=<id>, #session=<id>, #view=sessions|add|suggestions, else the advisors. */
+  /** Which view the address names: #advisor=<id>, #session=<id>, #view=sessions|add|plans|suggestions|experiments, else the advisors. */
   function route() {
     const f = fragment();
     if (f.get('advisor')) return ['advisor', f.get('advisor')];
     if (f.get('session')) return ['session', f.get('session')];
-    if (['sessions', 'add', 'suggestions', 'experiments'].includes(f.get('view'))) return [f.get('view')];
+    if (['sessions', 'add', 'plans', 'suggestions', 'experiments'].includes(f.get('view'))) return [f.get('view')];
     return ['advisors'];
   }
 
@@ -1297,6 +1298,123 @@
     await refreshSuggestions();
   }
 
+  // --- Plans (#view=plans) ---------------------------------------------------------------------
+  // GET /plans: the workspace's plan items (and its other worktrees'), with their transitions and the
+  // sessions, commits and branches the linker linked to each. plans.js draws them; this keeps the
+  // filters, which items are open, and the last answer, so the timer redraws only when it changes.
+  const plansUi = { statuses: null, query: '', open: new Set(), data: null, json: null, wired: false };
+  function plansKit() {
+    return window.snagboatPlans;
+  }
+  function wirePlans() {
+    if (plansUi.wired) return;
+    plansUi.wired = true;
+    const P = plansKit();
+    plansUi.statuses = new Set(P.STATUSES);
+    $('p-search').addEventListener('input', () => {
+      plansUi.query = $('p-search').value;
+      drawPlans();
+    });
+    // toggle doesn't bubble; a capturing listener on the list still hears every item's.
+    $('plans-root').addEventListener(
+      'toggle',
+      (e) => {
+        const d = e.target;
+        if (!(d instanceof HTMLElement) || !d.matches('details.pi')) return;
+        if (d.open) plansUi.open.add(d.dataset.item);
+        else plansUi.open.delete(d.dataset.item);
+      },
+      true
+    );
+    // A session of another worktree is in that workspace's store: switch to it, then open the session.
+    $('plans-root').addEventListener('click', (e) => {
+      const a = e.target instanceof Element ? e.target.closest('a[data-session]') : null;
+      const ws = a && a.dataset.workspace;
+      if (ws && ws !== state.workspace && [...$('workspace').options].some((o) => o.value === ws)) {
+        state.workspace = ws;
+        $('workspace').value = ws;
+      }
+    });
+  }
+  function statusFilters(counts) {
+    const P = plansKit();
+    $('p-statuses').replaceChildren(
+      ...P.STATUSES.map((st) => {
+        const box = el('input', { type: 'checkbox', value: st });
+        box.checked = plansUi.statuses.has(st);
+        box.addEventListener('change', () => {
+          if (box.checked) plansUi.statuses.add(st);
+          else plansUi.statuses.delete(st);
+          drawPlans();
+        });
+        return el('label', { class: `p-st st-${st}` }, [box, el('span', { text: `${P.STATUS_TEXT[st]} ` }), el('span', { class: 'muted', text: String(counts[st] || 0) })]);
+      })
+    );
+  }
+  function plansMessage(title, lines) {
+    $('plans-root').replaceChildren(el('div', { class: 'message' }, [el('b', { text: title }), ...lines.map((l) => (typeof l === 'string' ? el('span', { text: l }) : l))]));
+  }
+  const code = (t) => el('code', { text: t });
+  function drawPlans() {
+    const P = plansKit();
+    const view = plansUi.data;
+    if (!view) return;
+    const counts = P.statusCounts(view.items);
+    statusFilters(counts);
+    const others = view.workspaces.filter((w) => w !== view.workspace);
+    $('plans-note').textContent = `${plural(view.items.length, 'item')}${view.prefix ? ` · beads prefix ${view.prefix}` : ''}${others.length ? ` · with ${plural(others.length, 'other worktree')}` : ''}`;
+    $('count-plans').textContent = view.items.length ? String(view.items.length) : '';
+    if (view.items.length === 0) {
+      $('p-count').textContent = '';
+      return plansMessage('No plan records for this workspace yet', [
+        el('span', {}, [
+          "The core's plan job writes them to the workspace's ",
+          code('plan.jsonl'),
+          ': from Beads (',
+          code('bd --readonly export'),
+          ' and its history) when the project has a ',
+          code('.beads'),
+          ' folder and bd is installed here, or else from the planning markdown under ',
+          code('docs/'),
+          ' (headings, numbered steps, checklists), marked inferred. It runs every 5 minutes while a session in the project is active, hourly otherwise.',
+        ]),
+        el('span', {}, [
+          'In a dev container, where bd runs only inside: ',
+          code('snagboat containers allow --edit'),
+          ' adds the beads exporter, which writes ',
+          code('.snagboat/beads/'),
+          ' for the core here to read. Rebuild or restart the container, then give it a few minutes.',
+        ]),
+        el('span', {}, ['Links to sessions, commits and branches follow once the repository job and the linker have run.']),
+      ]);
+    }
+    const shown = P.filterTree(P.planTree(view.items), { statuses: plansUi.statuses, query: plansUi.query });
+    const hits = view.items.filter((v) => P.matches(v.item, { statuses: plansUi.statuses, query: plansUi.query })).length;
+    $('p-count').textContent = hits === view.items.length ? '' : `${hits} of ${view.items.length} shown`;
+    if (shown.length === 0) return $('plans-root').replaceChildren(el('p', { class: 'empty', text: 'No items match these filters.' }));
+    const r = P.renderers(el, { isOpen: (id) => plansUi.open.has(id) });
+    $('plans-root').replaceChildren(r.tree(shown));
+  }
+  async function renderPlans(timer = false) {
+    wirePlans();
+    const ws = state.workspace;
+    const text = JSON.stringify(await api(`/plans?workspace=${encodeURIComponent(ws)}`));
+    if (ws !== state.workspace) return;
+    if (timer && text === plansUi.json) return;
+    plansUi.json = text;
+    plansUi.data = JSON.parse(text);
+    drawPlans();
+  }
+  /** What went wrong fetching the plans, in the view. */
+  function plansError(err) {
+    plansUi.json = null;
+    plansUi.data = null;
+    if (err.status === 403) return plansMessage("This page can't read that workspace", [String(err.message), el('span', {}, ['Open the advisor UI again with ', code('snagboat open'), ' for a key that reads every workspace.'])]);
+    if (err.status === 404) return plansMessage('Nothing recorded for this workspace yet', [String(err.message), "The core makes a workspace's store with its first events: start an agent session in the project."]);
+    if (err instanceof TypeError) return plansMessage('The core is not answering', [el('span', {}, ['Start it with ', code('snagboat core start'), ' (or open this page again with ', code('snagboat open'), ', which starts it), then reload.'])]);
+    return plansMessage("Couldn't load the plans", [String(err.message || err)]);
+  }
+
   // --- The page ------------------------------------------------------------------------
   const state = { workspace: null, days: 7, advisors: [], sessionLimit: SESSIONS_PAGE };
 
@@ -1318,6 +1436,7 @@
   async function refresh(timer = false) {
     const [view, id] = route();
     if (timer && (view === 'add' || view === 'suggestions')) return;
+    if (view !== 'plans') plansUi.json = null;
     try {
       const health = await api('/health');
       setStatus('ok', `core ${health.version}`);
@@ -1326,12 +1445,14 @@
       if (view === 'advisor') await renderAdvisor(id);
       else if (view === 'session') await renderSession(id);
       else if (view === 'sessions') await renderSessions();
+      else if (view === 'plans') await renderPlans(timer);
       else if (view === 'add') await renderAdd();
       else if (view === 'suggestions') await renderSuggestions();
       else if (view === 'experiments') await renderExperiments();
       else await renderAdvisors();
     } catch (err) {
       if (err instanceof Unauthorized) return needLink('This page has lost its connection to the core: the core restarted, or the link was already used.');
+      if (view === 'plans') plansError(err);
       if (view === 'session' && /no session/.test(err.message || '')) {
         $('session-h').textContent = 'Session not found';
         $('session-meta').textContent = 'It may belong to another workspace, or be older than the store keeps.';

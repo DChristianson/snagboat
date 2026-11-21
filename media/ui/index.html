@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="drawings/drawings.css">
 <link rel="stylesheet" href="app.css">
+<script src="plans.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -21,6 +22,7 @@
       <div class="eyebrow">This workspace</div>
       <a class="side-link on" href="#" id="nav-advisors" aria-current="page">Advisors <span class="count" id="count-advisors"></span></a>
       <a class="side-link" href="#view=sessions" id="nav-sessions">Sessions <span class="count" id="count-sessions"></span></a>
+      <a class="side-link" href="#view=plans" id="nav-plans">Plans <span class="count" id="count-plans"></span></a>
       <a class="side-link" href="#view=suggestions" id="nav-suggestions">Suggestions</a>
     </nav>
     <nav class="navgroup" aria-label="Every workspace">
@@ -218,6 +220,21 @@
         <h2>Findings in this session</h2>
         <div class="flist" id="session-findings"></div>
       </div>
+    </section>
+
+    <section id="view-plans" hidden aria-labelledby="plans-h">
+      <div class="view-head">
+        <h1 id="plans-h">Plans</h1>
+        <span class="muted small" id="plans-note"></span>
+      </div>
+      <div class="filters">
+        <label class="sr-only" for="p-search">Plan item</label>
+        <input id="p-search" type="search" placeholder="Search ids or titles" autocomplete="off">
+        <div class="p-statuses" id="p-statuses" role="group" aria-label="Status"></div>
+        <span class="small muted" id="p-count"></span>
+      </div>
+      <p class="small muted p-legend">Open an item for its lifecycle and what's linked to it. Each link is <span class="lk-key observed">observed</span> (something recorded shows it) or <span class="lk-key inferred">inferred</span> (a rule guessed it); open a link for its evidence.</p>
+      <div id="plans-root"></div>
     </section>
 
     <section id="view-experiments" hidden aria-labelledby="experiments-h">
