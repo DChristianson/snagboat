@@ -145,6 +145,31 @@ async function main() {
     }
   });
 
+  test("a project's capture.promptChars and replyChars cap its text, marked textTruncated; others keep the defaults", async () => {
+    const { home, projects, repo, root } = machine();
+    const other = path.join(root, 'other');
+    fs.mkdirSync(other);
+    saveConfig(home, { version: 1, defaults: {}, projects: { [repo]: { 'capture.promptChars': 10, 'capture.replyChars': 4 } } });
+    transcript(projects, repo, 'sl');
+    transcript(projects, other, 'sm');
+    const core = await start(home, projects);
+    try {
+      await waitFor(async () => (await read(home, repo)).length === 2 && (await read(home, other)).length === 2);
+      const capped = await read(home, repo);
+      const prompt = capped.find((e) => e.kind === 'user_prompt')!;
+      assert.strictEqual(prompt.promptText, 'please fix… (+6 characters)');
+      assert.strictEqual(prompt.textTruncated, true);
+      const reply = capped.find((e) => e.kind === 'turn_stop')!;
+      assert.strictEqual(reply.textExcerpt, 'fix…');
+      assert.strictEqual(reply.textTruncated, true);
+      const whole = await read(home, other);
+      assert.ok(whole.some((e) => e.promptText === 'please fix bug 0') && whole.some((e) => e.textExcerpt === 'fixed 0'), 'defaults elsewhere');
+      assert.ok(whole.every((e) => e.textTruncated === undefined), 'nothing cut');
+    } finally {
+      await core.stop();
+    }
+  });
+
   test("a claimed workspace: what the window reads itself is dropped; a subfolder session it doesn't read is spooled", async () => {
     const { home, projects, repo } = machine();
     const window = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });

@@ -181,6 +181,7 @@ export class TranscriptTailer {
         try {
           const events = normalizeTranscriptChunk(lines, filePath, chunkStartOffset, {
             captureContent: this.ctx.captureContent(),
+            limits: this.ctx.captureLimits?.(),
             seen: this.seen,
             turns: this.turns,
             toolCalls: this.toolCalls,

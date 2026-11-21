@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { AdapterContext, NormalizedEvent } from '@snagboat/schema';
+import { AdapterContext, CaptureLimits, NormalizedEvent } from '@snagboat/schema';
+import { DEFAULT_CAPTURE_LIMITS } from '../excerpt';
 import { TranscriptGuard, TranscriptTailer } from '../../adapters/claude-code/transcriptTail';
 import { readCheckpointState, CheckpointStateV2 } from '../../adapters/claude-code/checkpointState';
 import { sanitizeCwd } from '../../adapters/claude-code/workspace';
@@ -32,6 +33,8 @@ export interface ClaudeCollectorOptions {
   workspaceFor: (projectDir: string) => string | undefined;
   /** Whether to keep captured text for a project (its captureContent setting). */
   captureContent: (projectDir: string) => boolean;
+  /** How much prompt and reply text to keep for a project (its capture.promptChars and replyChars); default 2,000 and 500. */
+  captureLimits?: (projectDir: string) => CaptureLimits;
   /** Receives each batch of events, each with its workspace set, plus the project folder they came from. */
   deliver: (events: NormalizedEvent[], projectDir: string) => Promise<unknown>;
   log?: (line: string) => void;
@@ -193,6 +196,7 @@ export class ClaudeCollector {
         this.opts.checkpoints.write(checkpointId, cp).catch((err) => this.opts.log?.(`couldn't save the read position for ${projectDir}: ${err instanceof Error ? err.message : String(err)}`)),
       reportHealth: (key, message) => message && this.opts.log?.(`${projectDir}: ${message}`),
       captureContent: () => this.opts.captureContent(projectDir),
+      captureLimits: () => this.opts.captureLimits?.(projectDir) ?? DEFAULT_CAPTURE_LIMITS,
     };
     const persist = () => {
       const state: CheckpointStateV2 = { version: 2, offsets: Object.fromEntries(offsets), recentMessageIds: seen.snapshot(), lastTurnByFile: turns.snapshot() };

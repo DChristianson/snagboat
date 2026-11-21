@@ -3,7 +3,7 @@ import * as path from 'path';
 import { mainTranscriptOf, readTranscriptSession } from '../adapters/claude-code/transcriptSession';
 import { CopilotCliState, copilotSessionNameEvent, normalizeCopilotCliChunk, readSessionName } from '../adapters/copilot/cliSessions';
 import { EventLog, eventDay } from '../core/eventLog';
-import { NormalizedEvent } from '@snagboat/schema';
+import { CaptureLimits, NormalizedEvent } from '@snagboat/schema';
 import { dayStats, DayStats, mergeDay, promptedTurns, sourceFileOf } from './merge';
 
 /**
@@ -26,7 +26,7 @@ export interface Rebuilt {
  * targetDays (default: the given days), which should include the days of any
  * events filed under the wrong day.
  */
-export async function rebuildDays(dayEvents: Map<string, NormalizedEvent[]>, opts: { captureContent: boolean }, targetDays?: Set<string>): Promise<Rebuilt> {
+export async function rebuildDays(dayEvents: Map<string, NormalizedEvent[]>, opts: { captureContent: boolean; limits?: CaptureLimits }, targetDays?: Set<string>): Promise<Rebuilt> {
   const claudeSessions = new Set<string>();
   const copilotLogs = new Set<string>();
   for (const events of dayEvents.values()) {
@@ -87,7 +87,7 @@ export interface BackfillPlan {
 export async function planBackfill(
   eventLog: EventLog,
   chosen: Map<string, NormalizedEvent[]>,
-  opts: { captureContent: boolean; oldestRawDay: string }
+  opts: { captureContent: boolean; limits?: CaptureLimits; oldestRawDay: string }
 ): Promise<BackfillPlan> {
   const dayEvents = new Map(chosen);
   const pending = [...dayEvents.values()];
@@ -102,7 +102,7 @@ export async function planBackfill(
   }
   const keepOld = (e: NormalizedEvent) => eventDay(e) < opts.oldestRawDay;
   const startedAt = new Date().toISOString();
-  const rebuilt = await rebuildDays(dayEvents, { captureContent: opts.captureContent });
+  const rebuilt = await rebuildDays(dayEvents, { captureContent: opts.captureContent, limits: opts.limits });
   const merge = (day: string, current: NormalizedEvent[]) => mergeDay(current, rebuilt.byDay.get(day) ?? [], rebuilt.reread, startedAt, keepOld);
   const merged = new Map([...dayEvents].map(([day, events]) => [day, merge(day, events)]));
   // Links are counted across every day in the plan, since a turn can cross midnight.

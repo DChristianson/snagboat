@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
-import { EventTaskOp, EventTodos, NormalizedEvent, TodoStatus } from '@snagboat/schema';
-import { makeExcerpt, makePromptText, makeTodoText, redactSecrets } from '../../core/excerpt';
+import { CaptureLimits, EventTaskOp, EventTodos, NormalizedEvent, TodoStatus } from '@snagboat/schema';
+import { CapturedText, captureReply, capturePrompt, DEFAULT_CAPTURE_LIMITS, makeTodoText, promptFields, redactSecrets, replyFields } from '../../core/excerpt';
+import { refsOf, toolInputOf } from '../../core/toolInput';
 import { sessionNameId } from '../../core/sessionNames';
 import { classifyTool } from '@snagboat/schema';
 
@@ -158,7 +159,7 @@ function toEvent(
   line: ClaudeTranscriptLine,
   filePath: string,
   chunkStartOffset: number,
-  opts: { withTokens: boolean; textExcerpt?: string }
+  opts: { withTokens: boolean; reply?: CapturedText }
 ): NormalizedEvent {
   const usage = line.message?.usage ?? {};
   return {
@@ -177,7 +178,7 @@ function toEvent(
           cacheCreation: usage.cache_creation_input_tokens,
         }
       : undefined,
-    textExcerpt: opts.textExcerpt,
+    ...replyFields(opts.reply),
     // Every line of a message repeats its stop_reason; a subagent finishing doesn't end the turn.
     endsTurn: opts.withTokens && line.message?.stop_reason === 'end_turn' && !line.agentId && !line.isSidechain ? true : undefined,
     raw: { adapter: 'claude-code', ref: `${filePath}#offset~${chunkStartOffset}` },
@@ -197,13 +198,13 @@ export function normalizeTranscriptLine(
   rawLine: string,
   filePath: string,
   chunkStartOffset: number,
-  opts: { captureContent?: boolean } = {}
+  opts: { captureContent?: boolean; limits?: CaptureLimits } = {}
 ): NormalizedEvent | undefined {
   const line = parseAssistantLine(rawLine);
   if (!line) return undefined;
   return toEvent(line, filePath, chunkStartOffset, {
     withTokens: true,
-    textExcerpt: opts.captureContent ? makeExcerpt(textBlocks(line)) : undefined,
+    reply: opts.captureContent ? captureReply(textBlocks(line), (opts.limits ?? DEFAULT_CAPTURE_LIMITS).replyChars) : undefined,
   });
 }
 
@@ -373,9 +374,18 @@ export function normalizeTranscriptChunk(
   rawLines: string[],
   filePath: string,
   chunkStartOffset: number,
-  opts: { captureContent?: boolean; seen: SeenMessages; turns?: TurnTracker; toolCalls?: { observe(line: unknown, file: string, turnId: string | undefined, captureContent?: boolean): NormalizedEvent[] } }
+  opts: {
+    captureContent?: boolean;
+    /** How much prompt and reply text to keep (snagboat.capture.promptChars and replyChars); default 2,000 and 500. */
+    limits?: CaptureLimits;
+    seen: SeenMessages;
+    turns?: TurnTracker;
+    toolCalls?: { observe(line: unknown, file: string, turnId: string | undefined, captureContent?: boolean): NormalizedEvent[] };
+  }
 ): NormalizedEvent[] {
   const turns = opts.turns ?? new TurnTracker();
+  const limits = opts.limits ?? DEFAULT_CAPTURE_LIMITS;
+  const reply = (texts: Array<string | undefined>) => (opts.captureContent ? captureReply(texts, limits.replyChars) : undefined);
   const events: NormalizedEvent[] = [];
   let group: { first: ClaudeTranscriptLine; id: string; texts: Array<string | undefined>; turnId?: string } | undefined;
 
@@ -391,7 +401,7 @@ export function normalizeTranscriptChunk(
       withAttribution(
         toEvent(group.first, filePath, chunkStartOffset, {
           withTokens: true,
-          textExcerpt: opts.captureContent ? makeExcerpt(group.texts) : undefined,
+          reply: reply(group.texts),
         }),
         group.first,
         group.turnId
@@ -423,7 +433,7 @@ export function normalizeTranscriptChunk(
 
     if (isUserPrompt(line)) {
       flushGroup();
-      events.push(promptEvent(line, filePath, chunkStartOffset, turnId, opts.captureContent));
+      events.push(promptEvent(line, filePath, chunkStartOffset, turnId, opts.captureContent ? limits.promptChars : undefined));
       continue;
     }
     if (isInterruption(line)) {
@@ -445,7 +455,7 @@ export function normalizeTranscriptChunk(
         withAttribution(
           toEvent(line, filePath, chunkStartOffset, {
             withTokens: true,
-            textExcerpt: opts.captureContent ? makeExcerpt(textBlocks(line)) : undefined,
+            reply: reply(textBlocks(line)),
           }),
           line,
           turnId
@@ -461,8 +471,8 @@ export function normalizeTranscriptChunk(
 
     flushGroup();
     if (opts.seen.has(filePath, id)) {
-      const textExcerpt = opts.captureContent ? makeExcerpt(textBlocks(line)) : undefined;
-      if (textExcerpt) events.push(withAttribution(toEvent(line, filePath, chunkStartOffset, { withTokens: false, textExcerpt }), line, turnId));
+      const captured = reply(textBlocks(line));
+      if (captured) events.push(withAttribution(toEvent(line, filePath, chunkStartOffset, { withTokens: false, reply: captured }), line, turnId));
       continue;
     }
     opts.seen.add(filePath, id);
@@ -472,7 +482,8 @@ export function normalizeTranscriptChunk(
   return events;
 }
 
-function promptEvent(line: ClaudeTranscriptLine, filePath: string, chunkStartOffset: number, turnId: string | undefined, captureContent?: boolean): NormalizedEvent {
+/** promptChars: the prompt text's cap, with capture on; undefined, capture off. */
+function promptEvent(line: ClaudeTranscriptLine, filePath: string, chunkStartOffset: number, turnId: string | undefined, promptChars?: number): NormalizedEvent {
   const event: NormalizedEvent = {
     eventId: line.uuid ?? `claude-code:${filePath}:${chunkStartOffset}:prompt`,
     sessionId: line.sessionId ?? 'unknown-session',
@@ -482,9 +493,8 @@ function promptEvent(line: ClaudeTranscriptLine, filePath: string, chunkStartOff
     status: 'unknown',
     turnId,
     raw: { adapter: 'claude-code', ref: `${filePath}#offset~${chunkStartOffset}` },
+    ...promptFields(promptChars !== undefined ? capturePrompt(promptFragments(line), promptChars) : undefined),
   };
-  const promptText = captureContent ? makePromptText(promptFragments(line)) : undefined;
-  if (promptText) event.promptText = promptText;
   return event;
 }
 
@@ -562,9 +572,9 @@ interface ClaudeHookPayload {
   tool_use_id?: string;
   hook_event_name?: string;
   tool_name?: string;
-  tool_input?: { file_path?: string; command?: string; todos?: unknown };
-  /** PostToolUse: the tool's output (a task tool's new task id, or its list). */
-  tool_response?: { error?: unknown };
+  tool_input?: { file_path?: string; command?: string; todos?: unknown; [key: string]: unknown };
+  /** PostToolUse: the tool's output (a task tool's new task id, or its list; a shell command's stdout and stderr). */
+  tool_response?: { error?: unknown; [key: string]: unknown };
   /** PostToolUseFailure: the failure's text (for Bash, "Exit code N" then its output). */
   error?: unknown;
   /** PostToolUseFailure: you interrupted it rather than it failing. */
@@ -614,6 +624,9 @@ export function normalizeHookPayload(
     const status: NormalizedEvent['status'] = failed ? (payload.is_interrupt ? 'unknown' : 'failure') : payload.tool_response?.error ? 'failure' : 'success';
     const todos = todosOf(payload.tool_name, payload.tool_input, captureContent);
     const taskOp = taskOpOf(payload.tool_name, payload.tool_input, payload.tool_response, captureContent, status !== 'success');
+    const toolInput = toolInputOf(payload.tool_name, payload.tool_input, captureContent);
+    // A failed call's output is in error (for Bash, "Exit code N" then its output).
+    const refs = refsOf(payload.tool_name, payload.tool_input, failed ? payload.error : payload.tool_response, status === 'failure');
     return {
       // Keyed by the call's tool_use_id, as tool calls rebuilt from transcripts are, so the two never both count.
       eventId: payload.tool_use_id ? `tool:${payload.tool_use_id}` : crypto.randomUUID(),
@@ -627,6 +640,8 @@ export function normalizeHookPayload(
       toolCategory: classifyTool(payload.tool_name, payload.tool_input?.command),
       ...(todos ? { todos } : {}),
       ...(taskOp ? { taskOp } : {}),
+      ...(toolInput ? { toolInput } : {}),
+      ...(refs ? { refs } : {}),
       ...attribution,
       raw: { adapter: 'claude-code', ref: `hook:${payload.hook_event_name}:${payload.tool_name ?? 'unknown'}` },
     };

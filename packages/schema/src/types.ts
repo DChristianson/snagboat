@@ -160,9 +160,9 @@ export interface NormalizedEvent {
   status: 'success' | 'failure' | 'unknown';
   model?: string;
   tokens?: EventTokens;
-  /** The agent's own reply text, truncated and redacted; present only when snagboat.captureContent is on. */
+  /** The agent's own reply text, truncated at snagboat.capture.replyChars (default 500) and redacted; present only when snagboat.captureContent is on. */
   textExcerpt?: string;
-  /** user_prompt events: the prompt's text, capped at 2,000 characters and redacted; present only when snagboat.captureContent is on. */
+  /** user_prompt events: the prompt's text, capped at snagboat.capture.promptChars (default 2,000) and redacted; present only when snagboat.captureContent is on. */
   promptText?: string;
   /** session_name events: the session's name. */
   sessionName?: string;
@@ -238,6 +238,14 @@ export interface AdapterContext {
   reportHealth(key: string, message: string | undefined): void;
   /** Whether snagboat.captureContent is on right now; read per event so toggling takes effect immediately. */
   captureContent(): boolean;
+  /** How much prompt and reply text to keep right now (snagboat.capture.promptChars and replyChars); absent: the defaults. */
+  captureLimits?(): CaptureLimits;
+}
+
+/** The most prompt and reply text an adapter stores, in UTF-16 code units (snagboat.capture.promptChars and replyChars). */
+export interface CaptureLimits {
+  promptChars: number;
+  replyChars: number;
 }
 
 export interface AgentAdapter {

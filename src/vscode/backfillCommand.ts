@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { EventLog } from '../core/eventLog';
-import { NormalizedEvent } from '@snagboat/schema';
+import { CaptureLimits, NormalizedEvent } from '@snagboat/schema';
 import { dayStats, DayStats, isRetiredCopilotMetric, sourceFileOf } from '../backfill/merge';
 import { planBackfill } from '../backfill/rebuild';
 
@@ -13,6 +13,8 @@ export interface BackfillDeps {
   /** The oldest day raw events are kept for (retention.rawDays); older days hold only daily totals. */
   oldestRawDay: () => string;
   captureContent: () => boolean;
+  /** snagboat.capture.promptChars and replyChars, for the text the rebuilt events keep. */
+  captureLimits?: () => CaptureLimits;
   output: vscode.OutputChannel;
 }
 
@@ -68,7 +70,7 @@ export async function runBackfill(deps: BackfillDeps): Promise<void> {
   const chosen = picks.map((p) => p.candidate);
 
   const plan = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Snagboat: re-reading transcripts…' }, () =>
-    planBackfill(eventLog, new Map(chosen.map((c) => [c.day, c.events])), { captureContent: deps.captureContent(), oldestRawDay: deps.oldestRawDay() })
+    planBackfill(eventLog, new Map(chosen.map((c) => [c.day, c.events])), { captureContent: deps.captureContent(), limits: deps.captureLimits?.(), oldestRawDay: deps.oldestRawDay() })
   );
   const moved = plan.days.filter((d) => !d.chosen);
 

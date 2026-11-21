@@ -149,7 +149,7 @@ export class CopilotCliTailer {
         const ctx = this.opts.contextFor && cwd ? this.opts.contextFor(cwd) : this.ctx;
         const state = this.stateFor(f);
         const captureContent = ctx?.captureContent() ?? false;
-        const events = normalizeCopilotCliChunk(lines, f, offset, state, { captureContent });
+        const events = normalizeCopilotCliChunk(lines, f, offset, state, { captureContent, limits: ctx?.captureLimits?.() });
         if (!ctx) return; // read (the session's state stays current) but not recorded
         for (const event of events) ctx.publish(event);
         if (!captureContent) return;

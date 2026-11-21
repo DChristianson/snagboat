@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
-import { NormalizedEvent, EventTokens } from '@snagboat/schema';
-import { makeExcerpt } from '../../core/excerpt';
+import { CaptureLimits, NormalizedEvent, EventTokens } from '@snagboat/schema';
+import { CapturedText, captureReply, DEFAULT_CAPTURE_LIMITS, replyFields } from '../../core/excerpt';
 import { classifyTool } from '@snagboat/schema';
 
 /**
@@ -94,7 +94,7 @@ function modelFrom(attrs: AttrRecord): string | undefined {
  * `[{ role: 'assistant', parts: [{ type: 'text', content: '...' }], finish_reason }]`.
  * Reasoning and other part types are skipped.
  */
-function assistantTextFrom(attrs: AttrRecord): string | undefined {
+function assistantTextFrom(attrs: AttrRecord, replyChars: number): CapturedText | undefined {
   const raw = pickString(attrs['gen_ai.output.messages']);
   if (!raw) return undefined;
   let messages: unknown;
@@ -111,7 +111,7 @@ function assistantTextFrom(attrs: AttrRecord): string | undefined {
       if (part?.type === 'text') texts.push(pickString(part.content));
     }
   }
-  return makeExcerpt(texts);
+  return captureReply(texts, replyChars);
 }
 
 /**
@@ -122,8 +122,9 @@ function assistantTextFrom(attrs: AttrRecord): string | undefined {
  * - `execute_tool`/`execute_hook` map to tool_call events (tool name comes
  *   from `gen_ai.tool.name` per the real GenAI semantic conventions).
  */
-export function normalizeOtlpTraces(payload: unknown, opts: { captureContent?: boolean } = {}): NormalizedEvent[] {
+export function normalizeOtlpTraces(payload: unknown, opts: { captureContent?: boolean; limits?: CaptureLimits } = {}): NormalizedEvent[] {
   const events: NormalizedEvent[] = [];
+  const replyChars = (opts.limits ?? DEFAULT_CAPTURE_LIMITS).replyChars;
   const resourceSpans = (payload as OtlpTracesPayload)?.resourceSpans ?? [];
   for (const rs of resourceSpans) {
     const resourceAttrs = attrsToRecord(rs.resource?.attributes);
@@ -179,7 +180,7 @@ export function normalizeOtlpTraces(payload: unknown, opts: { captureContent?: b
             status: spanStatus(span),
             model: modelFrom(attrs),
             tokens: Object.keys(tokens).length > 0 ? tokens : undefined,
-            textExcerpt: opts.captureContent ? assistantTextFrom(attrs) : undefined,
+            ...replyFields(opts.captureContent ? assistantTextFrom(attrs, replyChars) : undefined),
             raw: { adapter: 'copilot', ref: `otlp:span:${span.spanId ?? 'unknown'}` },
           });
           continue;

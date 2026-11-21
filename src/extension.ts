@@ -29,12 +29,12 @@ import { positiveNumberOr } from './heuristics/settings';
 import { AdvisorLimit, Nudge, Nudger, NudgeSettings, NotifyLevel } from './nudges/nudger';
 import { ResponseLog } from './heuristics/responses';
 import * as fs from 'fs';
-import { hasCapturedText, withoutCapturedText } from './core/excerpt';
+import { captureLimitsFrom, hasCapturedText, withoutCapturedText } from './core/excerpt';
 import { ContextLimits, ModelContextMarks } from './core/contextLimits';
 import { AggregateStore, RetentionPolicy, oldestKeptDay } from './core/retention';
 import { HealthRegistry } from './core/health';
 import { makeAdapterContext } from './core/adapterContext';
-import { AgentAdapter, NormalizedEvent } from '@snagboat/schema';
+import { AgentAdapter, CaptureLimits, NormalizedEvent } from '@snagboat/schema';
 import { renderStatusBar } from './ui/statusBar';
 import { buildBreakdownLines, formatCount, WaitingLink, waitingText } from './ui/format';
 import { buildDetailState, TIMELINE_LIMIT } from './ui/detailModel';
@@ -91,6 +91,12 @@ function retentionPolicy(): RetentionPolicy {
 
 function captureContentEnabled(): boolean {
   return vscode.workspace.getConfiguration('snagboat').get<boolean>('captureContent', true);
+}
+
+/** The window's snagboat.capture.promptChars and replyChars, for what it captures itself (Copilot's OpenTelemetry). */
+function captureLimitsSetting(): CaptureLimits {
+  const config = vscode.workspace.getConfiguration('snagboat');
+  return captureLimitsFrom({ 'capture.promptChars': config.get('capture.promptChars'), 'capture.replyChars': config.get('capture.replyChars') });
 }
 
 function todayKey(): string {
@@ -765,6 +771,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
         reloadFromLog,
         oldestRawDay: () => oldestKeptDay(todayKey(), retentionPolicy().rawDays),
         captureContent: captureContentEnabled,
+        captureLimits: captureLimitsSetting,
         output: outputChannel,
       })
     ),
@@ -900,7 +907,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   // only adds the hook entries to this window's folders; the core reads transcripts and receives the hooks.
   const adapters: AgentAdapter[] = [new EditTrackerAdapter(), new ClaudeCodeAdapter(), new CopilotAdapter(path.join(storage.sharedDir, 'copilot-structure'))];
   for (const adapter of adapters) {
-    const adapterCtx = makeAdapterContext(adapter.agentId, bus, undefined, health, captureContentEnabled);
+    const adapterCtx = makeAdapterContext(adapter.agentId, bus, undefined, health, captureContentEnabled, captureLimitsSetting);
     await adapter.init(adapterCtx);
     await adapter.start();
   }
