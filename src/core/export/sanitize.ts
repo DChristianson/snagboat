@@ -191,6 +191,10 @@ interface Person {
 
 // Placeholders are held out of the text as private-use sentinels while later rules run, so no
 // rule matches inside another's replacement; they're put back at the end.
+/** A URL in text: with a scheme (git+https too), or a forge link written without one (github.com/owner/repo). */
+const URL_SPAN = /(?:\b(?:git\+)?(?:https?|wss?|ftp|ssh|git|svn):\/\/|(?<![\w./@-])(?=(?:www\.)?(?:github\.com|gitlab\.com|bitbucket\.org|codeberg\.org)\/))[^\s"'`<>)\]}]+/gi;
+/** Hosts where /<owner>/<repo>/... names a repository. */
+const FORGE_HOST = /^(?:www\.)?(?:github\.com|gitlab\.com|bitbucket\.org|codeberg\.org)$/i;
 const S_OPEN = '\uE000';
 const S_CLOSE = '\uE001';
 const SENTINEL = /\uE000([\uE100-\uF8FF]{2})\uE001/g;
@@ -677,8 +681,11 @@ export class ExportSanitizer {
   text(input: Text, field: string): string {
     if (input.length === 0) return input;
     const slots: string[] = [];
-    const protect = (s: string) => {
+    // Slots that hold a value kept as written (put back by --allow or --allow-rule): not a change.
+    const kept = new Set<number>();
+    const protect = (s: string, keep = false) => {
       const i = slots.push(s) - 1;
+      if (keep) kept.add(i);
       return `${S_OPEN}${String.fromCharCode(0xe100 + (i >> 10), 0xe100 + (i & 1023))}${S_CLOSE}`;
     };
     const expand = (s: string): string => {
@@ -717,7 +724,7 @@ export class ExportSanitizer {
       if (this.allowRules.has(rule)) {
         const { before, after } = context(whole, offset, value.length);
         this.flagEntry(rule, expand(value), field, before, after, true, this.allowedId(rule, expand(value)));
-        return protect(expand(value));
+        return protect(expand(value), true);
       }
       return protect(placeholder);
     };
@@ -729,7 +736,7 @@ export class ExportSanitizer {
       const allowed = this.allowIds.has(id) || this.allowRules.has(rule);
       this.flagEntry(rule, plain, field, before, after, allowed, id);
       countAs = rule;
-      return protect(allowed ? plain : `[${id}]`);
+      return protect(allowed ? plain : `[${id}]`, allowed);
     };
 
     // Rule 2 first: secrets as captured text has them, so nothing later splits one.
@@ -817,7 +824,18 @@ export class ExportSanitizer {
       });
     }
 
-    sub(LONG_TOKEN, 'high-entropy', (m, _g, offset, whole) => (isHighEntropy(m) ? flag('high-entropy', m, offset, whole) : undefined));
+    sub(LONG_TOKEN, 'high-entropy', (m, _g, offset, whole) => {
+      // A URL path ending in a token (/code/session_01Mi...): flag only the token, when every segment
+      // before it reads as a plain word, so the rest of the URL (its host, for one) stays readable.
+      const cut = m.lastIndexOf('/');
+      if (cut > 0) {
+        const head = m.slice(0, cut + 1);
+        const last = m.slice(cut + 1);
+        const plainHead = head.split('/').every((seg) => seg.length <= 30 && !/[A-Z]/.test(seg.replace(/^[A-Z]/, '')) && !isHighEntropy(seg));
+        if (plainHead && isHighEntropy(last)) return head + flag('high-entropy', last, offset + cut + 1, whole);
+      }
+      return isHighEntropy(m) ? flag('high-entropy', m, offset, whole) : undefined;
+    });
 
     // @mentions: a known person's becomes their pseudonym, an agent's stays, anyone else's is flagged.
     sub(/(?<![\w.@/\\\]\uE001-])@([A-Za-z][A-Za-z0-9-]{1,38})(?![\w/@-])/g, 'mention', (m, [handle], offset, whole) => {
@@ -833,7 +851,42 @@ export class ExportSanitizer {
     // A part of a known person's name standing alone ("Dave", of "Dave Example").
     for (const re of this.partialNamePatterns()) sub(re, 'name', (m, _g, offset, whole) => flag('name', m, offset, whole));
 
+    // URLs as a whole, after every other rule, so a rewritten URL never still reads as a working link
+    // (a person's pseudonym in place of a GitHub login would make a valid link to someone else).
+    // A link into the project's own repository becomes [repo <what>]; any other URL a rule changed
+    // inside becomes [url-N host]. A URL no rule touched stays as written.
+    sub(URL_SPAN, 'url', (m) => {
+      const { path: url, tail } = trimTrailing(m);
+      const changed = [...url.matchAll(SENTINEL)].some(([, code]) => !kept.has(((code.charCodeAt(0) - 0xe100) << 10) + (code.charCodeAt(1) - 0xe100)));
+      const plain = expand(url);
+      const parsed = /^(?:git\+)?(?:[a-z][a-z0-9+.-]*:\/\/)?(?:[^@/\s]*@)?([^/:?#\s]+)(?::\d+)?(\/[^?#]*)?(?:\?[^#]*)?(#.*)?$/i.exec(plain);
+      if (!parsed) {
+        // A rule replaced a span that took in the host (a long token): name the host from the text as written.
+        if (!changed) return undefined;
+        const host = /^(?:git\+)?(?:[a-z][a-z0-9+.-]*:\/\/)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})/i.exec(url)?.[1];
+        return protect(host ? this.number('url', plain).replace(/\]$/, ` ${host}]`) : this.number('url', plain)) + tail;
+      }
+      const [, host, pathPart = '', fragment = ''] = parsed;
+      if (FORGE_HOST.test(host)) {
+        const segs = pathPart.split('/').filter(Boolean);
+        if (segs.length >= 2 && this.isProjectRepository(segs[1])) {
+          countAs = 'remote';
+          const what = segs.slice(2).join('/') + fragment;
+          return protect(what ? `[repo ${what}]` : '[repo]') + tail;
+        }
+      }
+      if (!changed) return undefined;
+      return protect(this.number('url', plain).replace(/\]$/, ` ${host.includes('[') ? '' : host}]`).replace(/ \]$/, ']')) + tail;
+    });
+
     return expand(t);
+  }
+
+  /** Whether a forge URL's repository name is this project's (its folder's name, or a worktree's). */
+  private isProjectRepository(name: string): boolean {
+    const repo = name.replace(/\.git$/i, '').toLowerCase();
+    const names = [this.ctx.projectRoot, ...(this.ctx.worktreeRoots ?? [])].map((r) => r.replace(/[\\/]+$/, '').split(/[\\/]/).pop()?.toLowerCase());
+    return names.includes(repo);
   }
 
   private rootReplacement(root: string, rest: string, protect: (s: string) => string): string {
