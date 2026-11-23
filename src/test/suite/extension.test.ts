@@ -376,6 +376,10 @@ suite('Snagboat core plumbing', () => {
     );
   });
 
+  test('Export Project... is registered (it runs snagboat export in-process: exportCommand.unit.test.ts tests that)', async () => {
+    assert.ok((await vscode.commands.getCommands(true)).includes('snagboat.exportProject'));
+  });
+
   test('the compact findings panel opens in its own sidebar view', async () => {
     // VS Code adds a focus command for each contributed view; it fails if the view isn't registered.
     await vscode.commands.executeCommand('snagboat.findings.focus');

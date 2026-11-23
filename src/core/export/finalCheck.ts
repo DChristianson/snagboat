@@ -42,13 +42,12 @@ export function finalCheck(files: FinalCheckFile[], spec: FinalCheckSpec): Final
   const allowed = new Set(spec.allowed.map((a) => a.toLowerCase()));
   const literals = spec.literals
     .filter((l) => !allowed.has(l.value.toLowerCase()))
-    .map((l) => ({
-      rule: l.rule,
-      re: l.word
-        ? new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(l.value)}(?![\\p{L}\\p{N}_])`, 'giu')
-        : new RegExp(escapeRegExp(l.value), 'gi'),
-      escaped: new RegExp(escapeRegExp(JSON.stringify(l.value).slice(1, -1)), 'gi'),
-    }));
+    .map((l) => {
+      // A word (a user, host or person's name) is matched as a whole word in its escaped form too,
+      // so a user named "vscode" isn't a hit in ".vscodeignore".
+      const pattern = (v: string) => (l.word ? new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(v)}(?![\\p{L}\\p{N}_])`, 'giu') : new RegExp(escapeRegExp(v), 'gi'));
+      return { rule: l.rule, re: pattern(l.value), escaped: pattern(JSON.stringify(l.value).slice(1, -1)) };
+    });
   const hits = new Map<string, FinalCheckHit>();
   const hit = (rule: RuleName, file: string, n = 1) => {
     const k = `${rule}\0${file}`;

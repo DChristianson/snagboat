@@ -158,6 +158,9 @@ export function isAgentIdentity(name: string, email: string | undefined, extra: 
   const n = name.trim().toLowerCase();
   if (email !== undefined && email !== '') {
     const e = email.trim().toLowerCase();
+    // A GitHub app's name ends in [bot], whatever email a trailer gives it (dependabot's
+    // Co-authored-by uses support@github.com): no person's account can be named that.
+    if (/\[bot\]$/.test(n)) return true;
     return (
       e === 'noreply@anthropic.com' ||
       e === 'noreply@github.com' ||
@@ -173,7 +176,11 @@ export function isAgentIdentity(name: string, email: string | undefined, extra: 
 /** Splits "Name <email>" (or a bare name). */
 export function parseIdent(raw: string): { name: string; email?: string } {
   const m = /^\s*(.*?)\s*<([^<>]*)>\s*$/.exec(raw);
-  return m ? { name: m[1], email: m[2] } : { name: raw.trim() };
+  if (m) return { name: m[1], email: m[2] };
+  const bare = raw.trim();
+  // A bare email (bd's owner often is one) is an email with no name.
+  if (/^[^\s@<>]+@[^\s@<>]+\.[A-Za-z]{2,}$/.test(bare)) return { name: '', email: bare };
+  return { name: bare };
 }
 
 interface Person {
@@ -442,6 +449,8 @@ export class ExportSanitizer {
     if (p.closed !== undefined) out.closed = utc(p.closed);
     if (p.closeReason !== undefined && !none) out.closeReason = this.text(p.closeReason, 'closeReason');
     if (p.assignee !== undefined) out.assignee = this.who(p.assignee, 'assignee');
+    if (p.owner !== undefined) out.owner = this.who(p.owner, 'owner');
+    if (p.createdBy !== undefined) out.createdBy = this.who(p.createdBy, 'createdBy');
     if (p.text && !none) {
       const t: NonNullable<PlanItemRecord['text']> = {};
       for (const k of ['description', 'design', 'notes', 'acceptance'] as const) {
@@ -572,11 +581,12 @@ export class ExportSanitizer {
     // Keyed by name when there is one, so the same person gets the same pseudonym whichever of
     // their idents (or a bd actor of the same name) an export happens to see first.
     const key = name ? `name:${name.trim().replace(/\s+/g, ' ').toLowerCase()}` : `email:${email!.toLowerCase()}`;
-    let person = this.people.get(key);
+    // An email with no name (bd's owner) is the person a git ident with that email names.
+    let person = this.people.get(key) ?? (name ? undefined : [...this.people.values()].find((p) => [...p.emails].some((e) => e.toLowerCase() === email!.toLowerCase())));
     if (!person) {
       person = { pseudonym: `person-${keyedHash(this.ctx.key, 'person', key).slice(0, 8)}`, names: new Set<string>(), emails: new Set<string>() };
-      this.people.set(key, person);
     }
+    this.people.set(key, person);
     if (name) {
       person.names.add(name);
       if (!this.personByName.has(name.toLowerCase())) this.personByName.set(name.toLowerCase(), person);
@@ -1019,7 +1029,7 @@ export function peopleIn(input: ExportInput): string[] {
     }
   }
   for (const r of input.plan ?? []) {
-    if (r.record === 'item' && r.assignee) out.add(r.assignee);
+    if (r.record === 'item') for (const p of [r.assignee, r.owner, r.createdBy]) if (p) out.add(p);
     if (r.record === 'transition') out.add(r.actor);
   }
   return [...out].filter((p) => p.trim().length > 0);

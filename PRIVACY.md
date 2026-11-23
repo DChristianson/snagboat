@@ -122,10 +122,33 @@ The files below live in one per-user store, written by the core service: a works
 | `~/.snagboat/.hook-in.<pid>` | A copy of one hook payload while the hook script delivers it, so it can try the core and then the spool. Owner-only. | Removed when the script finishes; one left by a killed script is removed by the core |
 | `~/.snagboat/data/spool/events/` | Only with the core service: events for a workspace a VS Code window is holding while a command rewrites it, and events a window sent while the core wasn't running. The same fields as the event log. Owner-only. | Moved into the workspace's event log, and deleted, once the window has let go (within 30 seconds, or when the core next starts) |
 | `~/.snagboat/data/workspaces/<workspace>/writer.json` | The process id of a VS Code window holding that workspace's folder while backfill, relabelling, removing captured text or clearing the log rewrites it, so the core service leaves it alone | Removed when the command finishes, or the window closes |
+| `~/.snagboat/export-keys/<repository>.key`, `~/.snagboat/export.key` | Only once you've run `snagboat export`: the random keys its pseudonyms and re-keyed SHAs use, one per private repository (named by a hash of its first commit) and one for this machine. Owner-only. No content. | Until you delete them (exports then get fresh pseudonyms) |
 | `~/.snagboat/bin/snagboat-hook` | The hook forwarder script that Claude Code runs | Rewritten on every activation |
 | `<project>/.claude/settings.json` | Outside Snagboat's storage: the `PostToolUse`/`PostToolUseFailure`/`Stop`/`PermissionRequest`/`PermissionDenied` hook entries Snagboat adds so Claude Code runs `snagboat-hook` (the two permission entries with `"async": true`: Claude Code runs them in the background and ignores their output, so they can't approve or deny anything) | Until removed with `Snagboat: Remove Claude Code Hooks from Project...` or by hand |
 
 Snagboat also reads data it doesn't own: Claude Code transcripts (`~/.claude/projects/…`, and a dev container's in `<folder>/.snagboat/claude-projects/…` for folders you allowed), Copilot CLI session logs and their `workspace.yaml` (`~/.copilot/session-state/…`), and Copilot's OTel export. It never modifies or deletes them.
+
+## Exports
+
+Nothing leaves your machine unless you export it. `snagboat export` (and **Snagboat: Export Project...**) writes one project's records from the store to a folder you choose, for you to share or load into Factory Clock. It reads only the store, never git, bd or transcripts, makes no network calls, and writes nothing back to the store. The full rules are in [the export design](docs/design/export.md#the-privacy-rules); in short:
+
+**What an export contains:** the project's sessions (counts, tokens, models, names, where they ran, linked branches, commits and plan items), their events (prompts, reply excerpts, tool names, categories, statuses, timings and the inputs the store kept: commands, relative paths, search patterns, URLs), finding episodes and your responses, commits (subjects, bodies, changed files and line counts), branches, checkouts, plan items (titles, text, status, lifecycle) and the links between them, a `manifest.json` with counts and what each rule replaced. `--text none` drops all text and keeps the structure.
+
+**What it removes or replaces:**
+- paths: inside the project made relative; its other worktrees `[worktree-N]`, `--match` paths `[match-N]`; under your home `~/[path]`; anything else `[path]` (keeping only a file's extension);
+- the machine: your user name `[user]` and host name `[host]` (a container's stock account such as `vscode` isn't treated as a name), the workspace's folder and store key, the stored events' `workspace` and `raw` (which name transcript files), and timezone offsets;
+- people: git authors, committers and human co-authors, bead owners, creators, assignees and actors become `person-` and 8 hex characters, the same person the same pseudonym in every export made with the same key; agents keep their names;
+- commit SHAs, in a private repository (every repository, unless its entry in `~/.snagboat/config.json` sets `"export.public": true`): re-keyed everywhere, ids that embed them or paths too;
+- secrets and PII: the capture-time secret patterns again, emails `[email-N]`, IP addresses `[ip-N]`, MAC addresses, phone and card numbers, `.env`-style values, connection-string passwords, public keys, and the words in `export.deny`;
+- anything questionable (long high-entropy strings, URLs to internal hosts, names and `@mentions` it didn't pseudonymize, paths it couldn't make relative, short hex that might be an unknown commit, stack traces from other projects) becomes `[flagged-N]`.
+
+**The review file** `<out>.review/flags.jsonl` holds each flagged value with 80 characters of context each side. It's written beside the export folder, never inside it, so copying the export never copies it; it's for you, not for sharing. `--allow` and `--allow-rule` put values back on a rerun.
+
+**The final check:** before anything reaches the export folder, every file is searched for the real values the rules removed (the project's paths, your home, user and host names, each person's names and emails, denied words, private SHAs) and every secret and PII pattern. One hit and nothing is written; the message names the rule and file, never the value.
+
+**Keys:** pseudonyms and re-keyed SHAs use a key made on the first export, owner-only: `~/.snagboat/export-keys/<hash of the repository's first commit>.key` for a private repository, `~/.snagboat/export.key` for a public one. Anyone with the key can test a guess against an export, so share it only with people who could see the repository anyway, and never commit it. Deleting it starts fresh pseudonyms.
+
+**Where the export goes:** never inside the project or its worktrees, where it could be committed, except under the project's `.snagboat/` folder, where the export writes a `.gitignore` for it. Never inside `~/.snagboat/data`.
 
 ## Retention
 

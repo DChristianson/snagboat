@@ -19,14 +19,16 @@ import { advisorReports, eventsIn, periods, reportLines } from '../advisor/repor
 import { McpReads, serveMcp } from './mcp';
 import { readStdin, statusLine, statusLineDir, Today } from './statusline';
 import { HOOK_SCRIPT } from '../adapters/claude-code/hookRoutes';
+import { exportProject, exportSummaryText, findProjectRoot, parseExportTime } from '../core/exportProject';
 
 /**
  * The snagboat CLI (docs/design/architecture-rfc.md, step 3): read the event
  * logs the VS Code extension writes, from a terminal or an agent, without VS
- * Code running. Every command prints JSON with --json. Only `migrate` and
- * `containers allow|deny` write: migrate only to the per-user store (it copies,
+ * Code running. Every command prints JSON with --json. Only `migrate`,
+ * `containers allow|deny` and `export` write: migrate only to the per-user store (it copies,
  * never moves or deletes), containers its list in ~/.snagboat/config.json and,
- * with --edit, the folder's dev container config (core/devcontainerSetup.ts).
+ * with --edit, the folder's dev container config (core/devcontainerSetup.ts), export
+ * only its --out folder (and the export key, on first use; core/exportProject.ts).
  */
 
 /** An experiment for the terminal: its status, change, scope, and the tracked measure from baseline to now. */
@@ -83,6 +85,14 @@ commands:
   core start          start the core in the background, unless it's running
   core status         whether the core is running, and where
   core stop           stop the core
+  export --out <dir> [--project <dir>] [--name <name>] [--since <date>] [--until <date>]
+         [--text redacted|none] [--allow <ids>] [--allow-rule <rule>] [--fail-on-flags]
+         [--match <path>]... [--json]
+                      export one project's records from the store, through the privacy rules,
+                      to a folder (manifest.json, events/, sessions, findings, git/, plan/,
+                      links), with what was flagged in <dir>.review/ beside it, never inside.
+                      Reads only the store: no git, bd or transcripts. --out must be outside
+                      the project, or under its .snagboat/ folder. See docs/cli.md#export
   migrate             copy every VS Code store into the per-user store (~/.snagboat/data);
                       copies only, leaving the VS Code stores as they are, and a rerun copies
                       only what's new
@@ -103,6 +113,20 @@ options:
   --dry-run           migrate: count what would be copied, and write nothing
   --verify <file>     migrate: don't copy; check the per-user store against a baseline saved
                       with \`snagboat sessions --all --json --store vscode\` before migrating
+  --project <dir>     export: the project (default: the repository containing the current folder)
+  --out <dir>         export: the folder to write (replaced whole on a rerun)
+  --name <name>       export: the project's name in the manifest (default: its folder's name)
+  --since, --until <date>
+                      export: only records from this time on / before it (YYYY-MM-DD, UTC, or an
+                      ISO time; --until's day is included)
+  --text <mode>       export: redacted (the default: text through the rules) or none (structure only)
+  --allow <ids>       export: put flagged values back (flagged-3,flagged-7, from the review file)
+  --allow-rule <rule> export: put back every value a rule flagged (internal-url, name, mention,
+                      high-entropy, unresolved-path, unknown-sha, foreign-trace) or kept (email, ip,
+                      mac, phone, card); repeatable
+  --fail-on-flags     export: write nothing if anything is flagged
+  --match <path>      export: another path whose workspaces' records are the project's (a dev
+                      container's /workspaces/<name>); repeatable
 `;
 
 export interface CliIo {
@@ -127,6 +151,16 @@ interface Options {
   edit?: boolean;
   inPlace?: boolean;
   force?: boolean;
+  project?: string;
+  out?: string;
+  name?: string;
+  since?: string;
+  until?: string;
+  text?: 'redacted' | 'none';
+  allow?: string[];
+  allowRules?: string[];
+  failOnFlags?: boolean;
+  match?: string[];
   args: string[];
 }
 
@@ -142,6 +176,26 @@ export function parseArgs(argv: string[]): Options | string {
     else if (a === '--edit') opts.edit = true;
     else if (a === '--in-place') opts.inPlace = true;
     else if (a === '--force') opts.force = true;
+    else if (a === '--fail-on-flags') opts.failOnFlags = true;
+    else if (['--project', '--out', '--name', '--since', '--until', '--text', '--allow', '--allow-rule', '--match'].includes(a)) {
+      const value = argv[++i];
+      if (value === undefined || value === '') return `${a} needs a value`;
+      const list = () => value.split(',').map((v) => v.trim()).filter((v) => v.length > 0);
+      if (a === '--project') opts.project = value;
+      else if (a === '--out') opts.out = value;
+      else if (a === '--name') opts.name = value;
+      else if (a === '--since' || a === '--until') {
+        const t = parseExportTime(value, a === '--until');
+        if (t === undefined) return `${a} takes a date (YYYY-MM-DD) or an ISO time, not ${value}`;
+        if (a === '--since') opts.since = t;
+        else opts.until = t;
+      } else if (a === '--text') {
+        if (value !== 'redacted' && value !== 'none') return `--text takes redacted or none, not ${value}`;
+        opts.text = value;
+      } else if (a === '--allow') opts.allow = [...(opts.allow ?? []), ...list()];
+      else if (a === '--allow-rule') opts.allowRules = [...(opts.allowRules ?? []), ...list()];
+      else opts.match = [...(opts.match ?? []), value];
+    }
     else if (a === '--port' || a === '--idle-minutes') {
       const value = argv[++i];
       const n = Number(value);
@@ -267,6 +321,8 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       });
       return 0;
     }
+    case 'export':
+      return exportCommand(parsed, cwd, io, version);
     case 'containers':
       return containersCommand(rest, cwd, io, print, { edit: parsed.edit === true, inPlace: parsed.inPlace === true, force: parsed.force === true, dryRun: parsed.dryRun === true });
     case 'serve': {
@@ -559,6 +615,50 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
       io.err(`unknown command ${command}\n\n${USAGE}`);
       return 2;
   }
+}
+
+/** snagboat export (core/exportProject.ts): one project's records, sanitized, to --out. */
+async function exportCommand(parsed: Options, cwd: string, io: CliIo, version: string): Promise<number> {
+  if (!parsed.out) {
+    io.err(`export needs --out <dir>\n\n${USAGE}`);
+    return 2;
+  }
+  if (parsed.since && parsed.until && parsed.since >= parsed.until) {
+    io.err('--since must be before --until\n');
+    return 2;
+  }
+  const project = parsed.project ? path.resolve(cwd, parsed.project) : findProjectRoot(cwd);
+  const started = Date.now();
+  let result;
+  try {
+    result = await exportProject({
+      home: userHome(),
+      project,
+      out: path.resolve(cwd, parsed.out),
+      name: parsed.name,
+      since: parsed.since,
+      until: parsed.until,
+      text: parsed.text,
+      allow: parsed.allow,
+      allowRules: parsed.allowRules,
+      failOnFlags: parsed.failOnFlags,
+      match: (parsed.match ?? []).map((m) => path.resolve(cwd, m)),
+      version,
+      now: io.now,
+    });
+  } catch (err) {
+    // A bad --allow or --allow-rule, or a key that can't be read.
+    io.err(`${err instanceof Error ? err.message : String(err)}\n`);
+    return 2;
+  }
+  if (!result.ok) {
+    io.err(result.message + '\n');
+    if (result.flagsByRule) io.err(`flagged: ${Object.entries(result.flagsByRule).map(([k, v]) => `${k} ${v}`).join(', ')}\n`);
+    return 1;
+  }
+  if (parsed.json) io.out(JSON.stringify(result.manifest, null, 2) + '\n');
+  else io.out(exportSummaryText(result) + `Took ${((Date.now() - started) / 1000).toFixed(1)}s.\n`);
+  return 0;
 }
 
 /** What `containers allow --json` says about the folder's dev container. */

@@ -47,6 +47,7 @@ import { vscodeHost } from './vscode/host';
 import { noticePerUserStore, resolveStorage, StorageLocations } from './vscode/storage';
 import { syncSettingsToConfig } from './vscode/configSync';
 import { registerDevcontainerSetup } from './vscode/devcontainerPrompt';
+import { registerExportProject } from './vscode/exportCommand';
 import { ClaudeCodeAdapter } from './adapters/claude-code';
 import { removeHooksConfigured } from './adapters/claude-code/hooksConfig';
 import { CopilotAdapter } from './adapters/copilot';
@@ -141,6 +142,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
   context.subscriptions.push(syncSettingsToConfig(context));
   // A workspace folder's dev container: offer to have it keep its Claude Code transcripts where the core reads them.
   context.subscriptions.push(...registerDevcontainerSetup(context));
+  context.subscriptions.push(registerExportProject(context));
   // With the core running (3c-3c), it collects and writes this workspace's folder; this window follows it.
   const core = storage.core;
   context.subscriptions.push({ dispose: () => core.close() });
