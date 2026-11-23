@@ -211,6 +211,18 @@ test('beads-export.sh: quiet without bd or .beads, one copy per folder, never th
   } finally {
     holder.kill();
   }
+  // A lock with no pid yet: another copy is starting, so it's held; over a minute old, that copy died.
+  fs.rmSync(path.join(lock, 'pid'));
+  runScript(folder, bd.bin);
+  assert.ok(!fs.existsSync(path.join(beadsExportDir(folder), 'issues.jsonl')), 'a fresh lock with no pid is held');
+  const old = new Date(Date.now() - 5 * 60_000);
+  fs.utimesSync(lock, old, old);
+  runScript(folder, bd.bin);
+  assert.ok(fs.existsSync(path.join(beadsExportDir(folder), 'issues.jsonl')), 'an old one is taken over');
+  assert.ok(!fs.existsSync(lock));
+  fs.rmSync(path.join(beadsExportDir(folder), 'issues.jsonl'));
+  fs.mkdirSync(lock);
+
   // A stale lock (its pid gone) is taken over.
   fs.writeFileSync(path.join(lock, 'pid'), '999999\n');
   runScript(folder, bd.bin);

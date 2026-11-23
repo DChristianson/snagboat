@@ -103,6 +103,9 @@ take_lock() {
   if mkdir "$lock" 2>/dev/null; then echo $$ > "$lock/pid"; return 0; fi
   old=$(cat "$lock/pid" 2>/dev/null)
   if [ -z "$old" ]; then sleep 1; old=$(cat "$lock/pid" 2>/dev/null); fi
+  # Still no pid: another copy made the lock and hasn't written it yet (a slow start), unless
+  # the lock is over a minute old, when that copy died between the two.
+  if [ -z "$old" ] && [ -z "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then return 1; fi
   if [ -n "$old" ] && [ "$old" != $$ ] && kill -0 "$old" 2>/dev/null && is_exporter "$old"; then return 1; fi
   rm -rf "$lock"
   mkdir "$lock" 2>/dev/null || return 1
