@@ -143,7 +143,7 @@ Nothing leaves your machine unless you export it. `snagboat export` (and **Snagb
 - secrets and PII: the capture-time secret patterns again, emails `[email-N]`, IP addresses `[ip-N]`, MAC addresses, phone and card numbers, `.env`-style values, connection-string passwords, public keys, and the words in `export.deny`;
 - anything questionable (long high-entropy strings, URLs to internal hosts, names and `@mentions` it didn't pseudonymize, paths it couldn't make relative, short hex that might be an unknown commit, stack traces from other projects) becomes `[flagged-N]`.
 
-**The review file** `<out>.review/flags.jsonl` holds each flagged value with 80 characters of context each side. It's written beside the export folder, never inside it, so copying the export never copies it; it's for you, not for sharing. `--allow` and `--allow-rule` put values back on a rerun.
+**The review file** `<out>.review/flags.jsonl` holds each flagged value with 80 characters of context each side. It's written beside the export folder, never inside it, so copying the export, or the zip `--zip` and **Export Project...** write, never copies it; it's for you, not for sharing. `--allow` and `--allow-rule` put values back on a rerun.
 
 **The final check:** before anything reaches the export folder, every file is searched for the real values the rules removed (the project's paths, your home, user and host names, each person's names and emails, denied words, private SHAs) and every secret and PII pattern. One hit and nothing is written; the message names the rule and file, never the value.
 

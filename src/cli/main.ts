@@ -87,10 +87,11 @@ commands:
   core stop           stop the core
   export --out <dir> [--project <dir>] [--name <name>] [--since <date>] [--until <date>]
          [--text redacted|none] [--allow <ids>] [--allow-rule <rule>] [--fail-on-flags]
-         [--match <path>]... [--json]
+         [--match <path>]... [--zip] [--json]
                       export one project's records from the store, through the privacy rules,
-                      to a folder (manifest.json, events/, sessions, findings, git/, plan/,
-                      links), with what was flagged in <dir>.review/ beside it, never inside.
+                      to a folder (README.md, manifest.json, schema/, events/, sessions, findings,
+                      git/, plan/, links), with what was flagged in <dir>.review/ beside it, never
+                      inside; --zip also writes <dir>.zip, the folder in one file to send.
                       Reads only the store: no git, bd or transcripts. --out must be outside
                       the project, or under its .snagboat/ folder. See docs/cli.md#export
   migrate             copy every VS Code store into the per-user store (~/.snagboat/data);
@@ -125,6 +126,7 @@ options:
                       high-entropy, unresolved-path, unknown-sha, foreign-trace) or kept (email, ip,
                       mac, phone, card); repeatable
   --fail-on-flags     export: write nothing if anything is flagged
+  --zip               export: also write <dir>.zip (the export folder only, never the review folder)
   --match <path>      export: another path whose workspaces' records are the project's (a dev
                       container's /workspaces/<name>); repeatable
 `;
@@ -160,6 +162,7 @@ interface Options {
   allow?: string[];
   allowRules?: string[];
   failOnFlags?: boolean;
+  zip?: boolean;
   match?: string[];
   args: string[];
 }
@@ -177,6 +180,7 @@ export function parseArgs(argv: string[]): Options | string {
     else if (a === '--in-place') opts.inPlace = true;
     else if (a === '--force') opts.force = true;
     else if (a === '--fail-on-flags') opts.failOnFlags = true;
+    else if (a === '--zip') opts.zip = true;
     else if (['--project', '--out', '--name', '--since', '--until', '--text', '--allow', '--allow-rule', '--match'].includes(a)) {
       const value = argv[++i];
       if (value === undefined || value === '') return `${a} needs a value`;
@@ -642,6 +646,7 @@ async function exportCommand(parsed: Options, cwd: string, io: CliIo, version: s
       allow: parsed.allow,
       allowRules: parsed.allowRules,
       failOnFlags: parsed.failOnFlags,
+      zip: parsed.zip,
       match: (parsed.match ?? []).map((m) => path.resolve(cwd, m)),
       version,
       now: io.now,

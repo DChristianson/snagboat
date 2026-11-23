@@ -7,7 +7,8 @@ import { snagboatHome } from '../core/userStore';
 /**
  * Snagboat: Export Project... (docs/design/export.md, "The command"): `snagboat export` for a
  * workspace folder, in-process (core/exportProject.ts, the same function the CLI calls). It asks
- * for the folder to export into and opens the review file when anything was flagged. Everything
+ * for the folder to export into, zips it (the export is usually for sending), and opens the
+ * review file when anything was flagged. Everything
  * else (selection, privacy rules, the final check, where --out may be) is the core's.
  */
 export function registerExportProject(context: vscode.ExtensionContext): vscode.Disposable {
@@ -36,7 +37,7 @@ export function registerExportProject(context: vscode.ExtensionContext): vscode.
     const usable = fs.readdirSync(chosen).length === 0 || fs.existsSync(path.join(chosen, 'manifest.json'));
     const out = usable ? chosen : path.join(chosen, `${path.basename(project)}-snagboat-export`);
     const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Snagboat: exporting ${path.basename(project)}...` }, () =>
-      exportProject({ home: snagboatHome(), project, out, version: String(context.extension.packageJSON.version ?? 'dev') }).catch((err: unknown) => ({
+      exportProject({ home: snagboatHome(), project, out, zip: true, version: String(context.extension.packageJSON.version ?? 'dev') }).catch((err: unknown) => ({
         ok: false as const,
         reason: 'refused' as const,
         message: err instanceof Error ? err.message : String(err),
@@ -48,7 +49,7 @@ export function registerExportProject(context: vscode.ExtensionContext): vscode.
       return;
     }
     const c = result.manifest.counts;
-    const summary = `Snagboat: exported ${c.sessions} sessions, ${c.events} events, ${c.commits} commits and ${c.planItems} plan items to ${out}.`;
+    const summary = `Snagboat: exported ${c.sessions} sessions, ${c.events} events, ${c.commits} commits and ${c.planItems} plan items to ${out}, and ${path.basename(out)}.zip beside it.`;
     if (result.reviewFile && result.manifest.flags > 0) {
       await vscode.window.showTextDocument(vscode.Uri.file(result.reviewFile), { preview: false });
       void vscode.window.showWarningMessage(
@@ -57,6 +58,6 @@ export function registerExportProject(context: vscode.ExtensionContext): vscode.
       return;
     }
     const reveal = await vscode.window.showInformationMessage(summary, 'Reveal');
-    if (reveal) void vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(out));
+    if (reveal) void vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.zipFile ?? out));
   });
 }

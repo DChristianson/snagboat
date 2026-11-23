@@ -17,7 +17,9 @@
     "snagboatVersion",
     "redactions",
     "flags",
-    "repository"
+    "repository",
+    "readme",
+    "schemas"
   ],
   "additionalProperties": false,
   "properties": {
@@ -148,6 +150,18 @@
             "public"
           ]
         }
+      }
+    },
+    "readme": {
+      "type": "string",
+      "const": "README.md",
+      "description": "The export's guide: what each file is, how they join, what the redaction markers mean."
+    },
+    "schemas": {
+      "type": "object",
+      "description": "Each file (a path, or a pattern like events/*.jsonl) and the JSON Schema in schema/ its records follow.",
+      "additionalProperties": {
+        "type": "string"
       }
     }
   }

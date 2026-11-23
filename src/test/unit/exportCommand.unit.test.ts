@@ -3,12 +3,14 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as zlib from 'zlib';
 import type { CommitRecord, ExportManifest, FindingRecord, GitRecord, LinkRecord, NormalizedEvent, PlanRecord, StoreRecord } from '@snagboat/schema';
 import { runCli } from '../../cli/main';
 import { saveConfig } from '../../core/config';
 import { exportKeyPath } from '../../core/export';
 import { ExportOptions, exportProject, ExportResult } from '../../core/exportProject';
 import { workspaceStoreDir } from '../../core/userStore';
+import { Schema, validate } from './schemaValidate';
 
 // snagboat export end to end (snagboat-93b.10.7): a made-up store with planted values, two
 // worktrees, a --match path, a separate clone and an unrelated project, exported to a folder.
@@ -170,6 +172,41 @@ function ok(r: ExportResult): Extract<ExportResult, { ok: true }> {
   return r as Extract<ExportResult, { ok: true }>;
 }
 
+/** A zip's entries, by name, from its central directory: enough to read back what zipFiles writes. */
+function unzip(buf: Buffer): Map<string, string> {
+  const end = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  const count = buf.readUInt16LE(end + 10);
+  let at = buf.readUInt32LE(end + 16);
+  const out = new Map<string, string>();
+  for (let i = 0; i < count; i++) {
+    assert.strictEqual(buf.readUInt32LE(at), 0x02014b50);
+    const method = buf.readUInt16LE(at + 10);
+    const crc = buf.readUInt32LE(at + 16);
+    const size = buf.readUInt32LE(at + 20);
+    const nameLen = buf.readUInt16LE(at + 28);
+    const extra = buf.readUInt16LE(at + 30);
+    const comment = buf.readUInt16LE(at + 32);
+    const local = buf.readUInt32LE(at + 42);
+    const name = buf.subarray(at + 46, at + 46 + nameLen).toString('utf8');
+    const dataAt = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+    const raw = buf.subarray(dataAt, dataAt + size);
+    const data = method === 8 ? zlib.inflateRawSync(raw) : raw;
+    assert.strictEqual(zlib.crc32(data) >>> 0, crc, `crc of ${name}`);
+    out.set(name, data.toString('utf8'));
+    at += 46 + nameLen + extra + comment;
+  }
+  return out;
+}
+
+/** The schema manifest.schemas gives a file, matching its patterns (events/*.jsonl). */
+function schemaFor(schemas: Record<string, string>, file: string): string | undefined {
+  for (const [pattern, schema] of Object.entries(schemas)) {
+    const re = new RegExp(`^${pattern.replace(/[.]/g, '\\.').replace(/\*/g, '[^/]+')}$`);
+    if (re.test(file)) return schema;
+  }
+  return undefined;
+}
+
 async function main() {
   const tests: Array<[string, () => Promise<void> | void]> = [];
   const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
@@ -178,9 +215,12 @@ async function main() {
     setUp();
     const r = ok(await exportProject(opts()));
     assert.deepStrictEqual(walk(OUT), [
-      'events/2026-11-20.jsonl', 'events/2026-11-21.jsonl', 'events/2026-11-22.jsonl', 'findings.jsonl',
+      'README.md', 'events/2026-11-20.jsonl', 'events/2026-11-21.jsonl', 'events/2026-11-22.jsonl', 'findings.jsonl',
       'git/branches.jsonl', 'git/checkouts.jsonl', 'git/commits.jsonl', 'links.jsonl', 'manifest.json',
-      'plan/items.jsonl', 'plan/transitions.jsonl', 'sessions.jsonl',
+      'plan/items.jsonl', 'plan/transitions.jsonl',
+      'schema/exportManifest.v1.schema.json', 'schema/exportedEvent.v4.schema.json', 'schema/findingRecord.v1.schema.json',
+      'schema/gitRecord.v1.schema.json', 'schema/linkRecord.v1.schema.json', 'schema/planRecord.v1.schema.json',
+      'schema/sessionRecord.v1.schema.json', 'sessions.jsonl',
     ]);
     assert.deepStrictEqual([...r.selection.workspaces].sort(), [MATCH, PROJECT, WT_INSIDE, WT_OUTSIDE].sort());
     assert.deepStrictEqual(r.selection.worktrees, [WT_INSIDE, WT_OUTSIDE].sort());
@@ -229,6 +269,45 @@ async function main() {
     assert.match(items[0].owner, /^person-[0-9a-f]{8}$/);
     assert.strictEqual(items[0].createdBy, items[0].assignee);
     assert.strictEqual(items[0].createdBy, lines<CommitRecord>('git/commits.jsonl')[0].author);
+  });
+
+  test('the export explains itself: README, schema/, and every record valid against the schema the manifest names', async () => {
+    setUp();
+    const r = ok(await exportProject(opts()));
+    assert.strictEqual(r.manifest.readme, 'README.md');
+    assert.match(read('README.md'), /^# A Snagboat export/);
+    assert.ok(read('README.md').includes('[flagged-N]') && read('README.md').includes('person-xxxxxxxx'), 'the markers are explained');
+    let checked = 0;
+    for (const file of walk(OUT).filter((f) => f.endsWith('.jsonl') || f === 'manifest.json')) {
+      const schemaFile = schemaFor(r.manifest.schemas, file);
+      assert.ok(schemaFile, `no schema named for ${file}`);
+      const schema = JSON.parse(read(schemaFile)) as Schema;
+      assert.strictEqual(schema.$id, schemaFile.slice('schema/'.length), 'the $id names no one: just the file');
+      const records = file === 'manifest.json' ? [JSON.parse(read(file))] : lines<unknown>(file);
+      for (const rec of records) {
+        assert.deepStrictEqual(validate(schema, rec), [], `${file}: ${JSON.stringify(rec).slice(0, 200)}`);
+        checked++;
+      }
+    }
+    assert.ok(checked > 20, `${checked} records checked`);
+    for (const file of walk(OUT).filter((f) => f.startsWith('schema/'))) assert.ok(!read(file).includes('github.com/'), `${file} links to a repository`);
+  });
+
+  test('--zip: the export folder in one file, the same bytes on a rerun, never the review folder', async () => {
+    setUp();
+    const r = ok(await exportProject(opts({ zip: true })));
+    assert.strictEqual(r.zipFile, `${OUT}.zip`);
+    const zipped = unzip(fs.readFileSync(r.zipFile!));
+    assert.deepStrictEqual([...zipped.keys()].sort(), walk(OUT).map((f) => `acme/${f}`));
+    for (const f of walk(OUT)) assert.strictEqual(zipped.get(`acme/${f}`), read(f), f);
+    assert.ok(r.reviewFile && fs.existsSync(r.reviewFile), 'something was flagged, beside the export');
+    const bytes = fs.readFileSync(r.zipFile!);
+    ok(await exportProject(opts({ zip: true })));
+    assert.ok(fs.readFileSync(`${OUT}.zip`).equals(bytes), 'the same store zips to the same bytes');
+    assert.deepStrictEqual(fs.readdirSync(path.dirname(OUT)).sort(), ['acme', 'acme.review', 'acme.zip']);
+    // Without --zip, an old zip would be another export's: it goes.
+    ok(await exportProject(opts()));
+    assert.ok(!fs.existsSync(`${OUT}.zip`));
   });
 
   test('--out inside the project is refused and nothing is written; under its .snagboat/ it is made ignored', async () => {

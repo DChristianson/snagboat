@@ -74,6 +74,7 @@ snagboat export --out ~/exports/acme --text none           # structure only: cou
 snagboat export --out ~/exports/acme --allow flagged-3,flagged-7 --allow-rule internal-url
 snagboat export --out ~/exports/acme --fail-on-flags --json   # for scripts: the manifest, or nothing written
 snagboat export --out ~/exports/acme --match /workspaces/acme # and sessions a dev container recorded at another path
+snagboat export --out ~/exports/acme --zip                 # and ~/exports/acme.zip, the folder in one file to send
 ```
 
 | Option | What it does |
@@ -87,6 +88,7 @@ snagboat export --out ~/exports/acme --match /workspaces/acme # and sessions a d
 | `--allow-rule <rule>` | Puts back every value a flag rule caught (`internal-url`, `name`, `mention`, `high-entropy`, `unresolved-path`, `unknown-sha`, `foreign-trace`), or keeps the rule 2 values that are sometimes the point (`email`, `ip`, `mac`, `phone`, `card`). Never secrets, keys or denied words. Repeatable. |
 | `--fail-on-flags` | Writes nothing if anything is flagged (exit 1). |
 | `--match <path>` | Another path whose workspaces' records belong to the project, such as a dev container's `/workspaces/<name>`. Its paths become `[match-1]`. Repeatable. |
+| `--zip` | Also writes `<out>.zip`: the export folder's files under one folder named like it, the same bytes for the same store. Never the review folder. A rerun without `--zip` removes an earlier zip, which would be another export's. |
 | `--json` | Prints `manifest.json` instead of the summary. |
 
 **What it selects.** The workspaces in the store whose folder is the project or inside it (its `.claude/worktrees/*` agents, say), any inside a `--match` path, and the repository's **other worktrees**. Without running git, a worktree is found from the store and the disk: a workspace whose `git.jsonl` has the project's root commit (the commit with no parents) and whose `.git` file points into the same repository. A separate clone of the same repository has its own `.git` folder and isn't included. Each workspace's working tree is where its checkouts happened, and its paths become `[worktree-1]`, `[worktree-2]` in path order. Records the worktrees share (commits, branches) are written once.
@@ -95,7 +97,10 @@ snagboat export --out ~/exports/acme --match /workspaces/acme # and sessions a d
 
 ```text
 <out>/
-  manifest.json               versions, project name, range, counts, redactions by rule, flags, privacy
+  README.md                   what each file is, how they join, what each redaction marker means
+  manifest.json               versions, project name, range, counts, redactions by rule, flags, privacy,
+                              and which schema each file follows
+  schema/                     the JSON Schemas the records follow (each $id just its file name)
   events/YYYY-MM-DD.jsonl     the sessions' events (schema v4, sanitized), by UTC day
   sessions.jsonl              one per session: where it ran, its branches, commits and plan items
   findings.jsonl              finding episodes, with how you responded
@@ -103,7 +108,10 @@ snagboat export --out ~/exports/acme --match /workspaces/acme # and sessions a d
   plan/items.jsonl   plan/transitions.jsonl
   links.jsonl                 the current links between sessions, commits, branches and plan items
 <out>.review/flags.jsonl      beside the export, never inside: each flagged value, with context
+<out>.zip                     with --zip: <out>/ in one file, never the review folder
 ```
+
+`README.md` and `schema/` are the same in every export (nothing in them names the project), so an export explains itself without this repository. The final check reads them like every other file.
 
 The summary says what it wrote, how many values each rule replaced, how many were flagged and where the review file is. A flagged value is `[flagged-N]` in the export; the review file has the value and 80 characters each side, so read it before sharing, and rerun with `--allow` to put back what's fine. Copying the export folder never copies the review file.
 
@@ -113,7 +121,7 @@ The summary says what it wrote, how many values each rule replaced, how many wer
 
 **Where `--out` may be.** Never inside the project or one of its worktrees, where it could get committed, except under the project's `.snagboat/` folder: the export then writes a `.gitignore` beside it (`*` in a folder of its own under `.snagboat/`, such as `.snagboat/exports/`; just the export's own names directly under `.snagboat/`), as the beads exporter does, since it can't ask git what's ignored. Never inside `~/.snagboat/data`.
 
-In VS Code, **Snagboat: Export Project...** does the same for the window's folder: it asks for a folder to export into (an empty one or an earlier export is used as it is; another gets `<project>-snagboat-export` inside it) and opens the review file when anything was flagged.
+In VS Code, **Snagboat: Export Project...** does the same for the window's folder: it asks for a folder to export into (an empty one or an earlier export is used as it is; another gets `<project>-snagboat-export` inside it), always writes the zip beside it, and opens the review file when anything was flagged.
 
 ## Migrating to the per-user store
 

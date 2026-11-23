@@ -85,4 +85,8 @@ export interface ExportManifest {
   flags: number;
   /** private (the default): commit SHAs are re-keyed. public: the project sets export.public. */
   repository: { privacy: 'private' | 'public' };
+  /** The export's guide: what each file is, how they join, what the redaction markers mean. */
+  readme: 'README.md';
+  /** Each file (a path, or a pattern like events/*.jsonl) and the JSON Schema in schema/ its records follow. */
+  schemas: Record<string, string>;
 }

@@ -21,6 +21,7 @@ import {
 import { denyWords, effectiveSettings, EXPORT_DENY_KEY } from './config';
 import { EventLog } from './eventLog';
 import { ensureExportKey, exportKeyPath, ExportInput, finalCheck, FinalCheckHit, RepositoryPrivacy, ReviewEntry, sanitizeExport, SanitizedExport, utc } from './export';
+import { EXPORT_SCHEMAS, readmeFile, README_FILE, schemaFiles, zipFiles } from './exportPackage';
 import { sessionRecords } from './sessionRecords';
 import { readStoreRecordLines } from './storeRecordFiles';
 import { listUserStores, UserStore } from './userStore';
@@ -54,6 +55,8 @@ export interface ExportOptions {
   allowRules?: string[];
   /** Write nothing when anything is flagged. */
   failOnFlags?: boolean;
+  /** Also write <out>.zip: the export folder's files under one folder named for it, never the review folder. */
+  zip?: boolean;
   /** --match: more paths (absolute) whose workspaces' records are the project's. */
   match?: string[];
   /** For manifest.snagboatVersion. */
@@ -85,6 +88,8 @@ export type ExportResult =
       ok: true;
       out: string;
       manifest: ExportManifest;
+      /** <out>.zip, with --zip. */
+      zipFile?: string;
       /** <out>.review/flags.jsonl, when anything was flagged (or put back). */
       reviewFile?: string;
       review: ReviewEntry[];
@@ -324,7 +329,7 @@ async function readRecords(selected: Selected[], since?: string, until?: string)
 const jsonl = (rs: unknown[]) => rs.map((r) => JSON.stringify(r) + '\n').join('');
 
 /** The export's files and manifest from the sanitized records. */
-function exportFiles(out: SanitizedExport, manifestBase: Omit<ExportManifest, 'counts' | 'range' | 'redactions' | 'flags' | 'rulesVersion'>, range: ExportManifest['range']): { files: ExportFile[]; manifest: ExportManifest } {
+function exportFiles(out: SanitizedExport, manifestBase: Omit<ExportManifest, 'counts' | 'range' | 'redactions' | 'flags' | 'rulesVersion' | 'readme' | 'schemas'>, range: ExportManifest['range']): { files: ExportFile[]; manifest: ExportManifest } {
   const days = new Map<string, unknown[]>();
   for (const e of out.events) {
     const day = e.ts.slice(0, 10);
@@ -353,6 +358,8 @@ function exportFiles(out: SanitizedExport, manifestBase: Omit<ExportManifest, 'c
     rulesVersion: out.summary.rulesVersion,
     redactions: out.summary.redactions,
     flags: out.summary.flags,
+    readme: README_FILE,
+    schemas: EXPORT_SCHEMAS,
   };
   // Key order as the schema lists them, so two manifests compare line by line.
   const ordered: ExportManifest = {
@@ -369,6 +376,8 @@ function exportFiles(out: SanitizedExport, manifestBase: Omit<ExportManifest, 'c
     redactions: manifest.redactions,
     flags: manifest.flags,
     repository: manifest.repository,
+    readme: manifest.readme,
+    schemas: manifest.schemas,
   };
   const files: ExportFile[] = [
     { file: 'manifest.json', text: JSON.stringify(ordered, null, 2) + '\n' },
@@ -381,6 +390,8 @@ function exportFiles(out: SanitizedExport, manifestBase: Omit<ExportManifest, 'c
     { file: 'plan/items.jsonl', text: jsonl(recs(out.planItems)) },
     { file: 'plan/transitions.jsonl', text: jsonl(recs(out.transitions)) },
     { file: 'links.jsonl', text: jsonl(recs(out.links)) },
+    readmeFile(),
+    ...schemaFiles(),
   ];
   return { files, manifest: ordered };
 }
@@ -424,7 +435,7 @@ function ignoreInProject(out: string, trees: string[]): void {
     return;
   }
   // Directly under .snagboat/: ignore just this export and its review folder.
-  const lines = [`/${path.basename(out)}/`, `/${path.basename(out)}.review/`, '/.*.snagboat-tmp-*'];
+  const lines = [`/${path.basename(out)}/`, `/${path.basename(out)}.review/`, `/${path.basename(out)}.zip`, '/.*.snagboat-tmp-*'];
   let text = '';
   try {
     text = fs.readFileSync(file, 'utf8');
@@ -541,22 +552,30 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
   const temp = path.join(parent, `.${path.basename(out)}.snagboat-tmp-${tag}`);
   const reviewDir = `${out}.review`;
   const reviewTemp = `${temp}.review`;
+  const zipFile = `${out}.zip`;
+  const zipTemp = `${temp}.zip`;
   const review = sanitized.summary.review;
   try {
     ignoreInProject(out, [project, ...worktrees, ...match]);
     writeFolder(temp, files);
     if (review.length > 0) writeFolder(reviewTemp, [{ file: 'flags.jsonl', text: jsonl(review) }]);
+    // The zip holds exactly the files the final check read, never the review folder.
+    if (opts.zip) fs.writeFileSync(zipTemp, zipFiles(path.basename(out), files, new Date(manifest.generatedAt)), { mode: 0o600 });
     swapIn(temp, out);
+    if (opts.zip) fs.renameSync(zipTemp, zipFile);
+    else fs.rmSync(zipFile, { force: true }); // an old zip would be another export
     if (review.length > 0) swapIn(reviewTemp, reviewDir);
     else fs.rmSync(reviewDir, { recursive: true, force: true }); // an old review would describe another export
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
     fs.rmSync(reviewTemp, { recursive: true, force: true });
+    fs.rmSync(zipTemp, { force: true });
   }
   return {
     ok: true,
     out,
     manifest,
+    ...(opts.zip ? { zipFile } : {}),
     ...(review.length > 0 ? { reviewFile: path.join(reviewDir, 'flags.jsonl') } : {}),
     review,
     selection,
@@ -581,7 +600,7 @@ function safeUserName(): string {
 export function exportSummaryText(r: Extract<ExportResult, { ok: true }>): string {
   const c = r.manifest.counts;
   const lines = [
-    `Exported ${r.manifest.project} to ${r.out}`,
+    `Exported ${r.manifest.project} to ${r.out}${r.zipFile ? `, and ${r.zipFile}` : ''}`,
     `  ${c.events} events over ${c.days} day${c.days === 1 ? '' : 's'}, ${c.sessions} sessions, ${c.findings} findings`,
     `  git: ${c.commits} commits, ${c.branches} branches, ${c.checkouts} checkouts`,
     `  plan: ${c.planItems} items, ${c.transitions} transitions; ${c.links} links`,
