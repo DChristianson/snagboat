@@ -27,6 +27,9 @@ function tmp(prefix = 'snagboat-plan-'): string {
 }
 
 const realGit = execFileSync('sh', ['-c', 'command -v git']).toString().trim();
+// These tests run git (and a fake bd, a shell script) through PATH. On Windows (not supported,
+// its CI job a signal only) sh names git by an MSYS path Node can't run, so they're POSIX only.
+const gitTest = (name: string, fn: () => Promise<void> | void) => test(name, process.platform === 'win32' ? () => undefined : fn);
 const originalPath = process.env.PATH;
 /** sh, cat and the like for the fake bd: the system's own directories, without bd (it isn't installed there). */
 const SYSTEM = ['/usr/bin', '/bin'].filter((d) => fs.existsSync(d) && !fs.existsSync(path.join(d, 'bd')));
@@ -299,7 +302,7 @@ test('plans setting: a path or paths, relative and inside the project', () => {
 
 // ---- the job: beads ------------------------------------------------------------------------
 
-test('beads with bd on PATH: items and transitions, history only for changed beads, idempotent, deleted beads dropped', async () => {
+gitTest('beads with bd on PATH: items and transitions, history only for changed beads, idempotent, deleted beads dropped', async () => {
   const p = await project();
   fs.mkdirSync(path.join(p.dir, '.beads'));
   p.commit({ 'docs/plan.md': '# Plan\n- [ ] markdown task\n' }, 'docs');
@@ -352,7 +355,7 @@ test('beads with bd on PATH: items and transitions, history only for changed bea
   });
 });
 
-test('beads: captureContent off stores no text; outcomes.git or collect off stops the job', async () => {
+gitTest('beads: captureContent off stores no text; outcomes.git or collect off stops the job', async () => {
   const p = await project();
   fs.mkdirSync(path.join(p.dir, '.beads'));
   const { issues, history } = beadsFixture(Date.now());
@@ -372,7 +375,7 @@ test('beads: captureContent off stores no text; outcomes.git or collect off stop
   }
 });
 
-test('beads from a dev container export with no bd on PATH: fresh or stale, worktrees read the main tree\'s', async () => {
+gitTest('beads from a dev container export with no bd on PATH: fresh or stale, worktrees read the main tree\'s', async () => {
   const p = await project();
   fs.mkdirSync(path.join(p.dir, '.beads'));
   p.commit({ 'a.txt': 'a\n' }, 'start');
@@ -416,7 +419,7 @@ test('beads from a dev container export with no bd on PATH: fresh or stale, work
 
 // ---- the job: markdown ---------------------------------------------------------------------
 
-test('markdown only: items from docs at HEAD, status changes become transitions at the commit that made them, by its author', async () => {
+gitTest('markdown only: items from docs at HEAD, status changes become transitions at the commit that made them, by its author', async () => {
   const p = await project();
   const v1 = ['# Roadmap', '## Phase 1', '- [ ] Parser', '- [ ] Job', '- [ ] Docs', ''].join('\n');
   const c1 = p.commit({ 'docs/roadmap.md': v1, 'docs/README.md': '- [ ] not a plan\n', 'README.md': '- [ ] nor this\n', 'notes.md': '- [ ] outside docs\n' }, 'plan', 'Ann <ann@example.com>');
@@ -475,7 +478,7 @@ test('markdown only: items from docs at HEAD, status changes become transitions 
   });
 });
 
-test('markdown: the plans setting names the files, README included when named', async () => {
+gitTest('markdown: the plans setting names the files, README included when named', async () => {
   const p = await project();
   p.commit({ 'docs/design.md': '- [ ] in docs\n', 'plans/q1.md': '# Q1\n1. First\n2. Second (done)\n', 'README.md': '- [ ] named readme\n' }, 'plans');
   saveConfig(p.home, { version: 1, defaults: {}, projects: { [p.dir]: { plans: ['plans', 'README.md'] } } });
@@ -486,7 +489,7 @@ test('markdown: the plans setting names the files, README included when named', 
   assert.deepStrictEqual(titles, ['README.md:named readme:open', 'plans/q1.md:First:open', 'plans/q1.md:Q1:in_progress', 'plans/q1.md:Second (done):done']);
 });
 
-test('markdown: a folder with no git, or no commits, records nothing', async () => {
+gitTest('markdown: a folder with no git, or no commits, records nothing', async () => {
   const p = await project({ git: false });
   fs.mkdirSync(path.join(p.dir, 'docs'));
   fs.writeFileSync(path.join(p.dir, 'docs', 'plan.md'), '- [ ] task\n');
@@ -499,7 +502,7 @@ test('markdown: a folder with no git, or no commits, records nothing', async () 
 
 // ---- cadence and retention -----------------------------------------------------------------
 
-test('cadence: hourly when idle, every tick while a session is active, one run at a time', async () => {
+gitTest('cadence: hourly when idle, every tick while a session is active, one run at a time', async () => {
   const p = await project();
   p.commit({ 'docs/plan.md': '- [ ] one\n' }, 'plan');
   let now = Date.now();
@@ -525,7 +528,7 @@ test('cadence: hourly when idle, every tick while a session is active, one run a
   job.dispose();
 });
 
-test('retention: closed items and transitions older than rawDays go and are not put back; item text follows textDays', async () => {
+gitTest('retention: closed items and transitions older than rawDays go and are not put back; item text follows textDays', async () => {
   const p = await project();
   fs.mkdirSync(path.join(p.dir, '.beads'));
   const now = Date.now();
