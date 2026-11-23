@@ -4,7 +4,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { NormalizedEvent, SessionSummary } from '@snagboat/schema';
 import { captureLimitsFrom } from '../excerpt';
-import { listUserStores, userDataDir, workspaceInfoOf } from '../userStore';
+import { listUserStores, userDataDir, workspaceInfoOf, workspaceStoreDir } from '../userStore';
 import { liveCore, readCoreFile, removeCoreFile, removeCoreRoute, writeCoreFile, writeCoreRoute } from './coreFile';
 import { hookEvent, ingestHookSpool, openHookSpool, projectDirHeader } from './hooks';
 import { ClaudeCollector, defaultProjectsDir } from './claudeCollector';
@@ -27,6 +27,9 @@ import { TestsGreen } from '../../outcomes/testsGreen';
 import { GIT_OUTCOMES_INTERVAL_MS, GitOutcomesJob } from './gitOutcomesJob';
 import { GIT_RECORDS_TICK_MS, GitRecordsJob } from './gitRecordsJob';
 import { PLAN_RECORDS_TICK_MS, PlanRecordsJob } from './planRecordsJob';
+import { LINKER_DEBOUNCE_MS, LINKER_FULL_PASS_MS, LinkerJob } from './linkerJob';
+import { FINDINGS_FILE } from '../findingRecords';
+import { plansView, PlansView } from '../plansView';
 import { ADVISOR_PERIODS, loadAdvisorGoals } from '../../advisor/goals';
 import { MEASURES } from '../../advisor/measures';
 import { CoreAdvisors } from './advisorModels';
@@ -55,7 +58,7 @@ export interface FindingResponseMessage {
 }
 
 /** What this core offers beyond 3c-2's endpoints, so a client can tell an older core apart. */
-const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
+const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings', 'plans'];
 
 /**
  * The core service (docs/design/architecture-rfc.md, step 3; handoff 3c-2):
@@ -86,6 +89,9 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings'];
  *                              "replayed" message (3c-3c: a client window's live feed)
  *   POST /flush                waits for writes in flight, then ingests the spool of
  *                              workspaces no longer claimed (a window holding its folder)
+ *   GET  /plans?workspace=w   the workspace's plan items (and its sibling worktrees'), each with its transitions
+ *                              and its linked sessions, commits and branches, every link with its confidence
+ *                              and evidence (plansView.ts); read-only
  *   GET  /findings[?workspace=w] the token's workspaces' findings and early warnings now (3c-3d);
  *                              a workspace token's stream also carries them ("findings" messages)
  *   GET  /advisors[?workspace=w&days=n&series=1&weeks=n]  each advisor's goal and measures (and, for one
@@ -181,6 +187,10 @@ export interface CoreOptions {
   copilotSessionsDir?: string;
   /** How often to apply retention to the workspaces the core owns; default every 6 hours. */
   retentionEveryMs?: number;
+  /** How long after writes or new git and plan records the linker runs (when collecting); default 5 seconds. */
+  linkerDebounceMs?: number;
+  /** How often the linker reads every workspace's events again and links them all (when collecting); default 6 hours, the first a minute after start. */
+  linkerFullPassMs?: number;
   log?: (line: string) => void;
 }
 
@@ -279,6 +289,8 @@ export class CoreService {
   private readonly reports: AdvisorReports;
   private readonly experiments: ExperimentStore;
   private readonly setups: AdvisorSetups;
+  /** links.jsonl for every workspace (linkerJob.ts); runs on its own only while collecting. */
+  private readonly linker: LinkerJob;
   /** Streams that want findings, told of each change. */
   private readonly findingsListeners = new Set<(result: WorkspaceFindings) => void>();
   private readonly workspaceTokens = new Map<string, string[]>();
@@ -323,7 +335,13 @@ export class CoreService {
       record: (workspace, events) => {
         this.writer.write(events.map((e) => ({ ...e, workspace }))).catch((err) => this.log(`couldn't record a finding response: ${err instanceof Error ? err.message : String(err)}`));
       },
+      // Each closed episode into the workspace's findings.jsonl, as it was shown (findingRecords.ts).
+      store: (workspace, records) => {
+        this.writer.appendRecords(path.join(workspaceStoreDir(opts.home, workspace), FINDINGS_FILE), records).catch((err) => this.log(`couldn't record a finding episode: ${err instanceof Error ? err.message : String(err)}`));
+      },
+      version: opts.version,
     });
+    this.linker = new LinkerJob(opts.home, this.writer, { log: (line) => this.log(line), debounceMs: (opts.collect ?? true) ? (opts.linkerDebounceMs ?? LINKER_DEBOUNCE_MS) : 0 });
     this.writer.onWritten((workspace, events) => this.findings.ingest(workspace, events));
     this.sessionPages = new SessionPages(opts.home, this.findings);
     // One set of model advisors, so a request waiting for your approval is the same one wherever it shows.
@@ -476,7 +494,7 @@ export class CoreService {
       });
       await core.copilot.start();
       // Commit outcomes from git (RFC step 4b), for the workspaces it records.
-      const gitJob = new GitOutcomesJob(opts.home, core.writer, (line) => core.log(line));
+      const gitJob = new GitOutcomesJob(opts.home, core.writer, (line) => core.log(line), undefined, core.linker);
       const runGitJob = () => void gitJob.run().catch((err) => core.log(`git outcomes failed: ${err instanceof Error ? err.message : String(err)}`));
       const first = setTimeout(runGitJob, Math.min(60_000, opts.gitOutcomesEveryMs ?? GIT_OUTCOMES_INTERVAL_MS));
       first.unref();
@@ -484,7 +502,12 @@ export class CoreService {
       core.timers.push(setInterval(runGitJob, opts.gitOutcomesEveryMs ?? GIT_OUTCOMES_INTERVAL_MS));
       // Commits, branches and checkouts into each workspace's git.jsonl: every few minutes while a session is active, hourly otherwise.
       const gitRecords = new GitRecordsJob(opts.home, core.writer, (line) => core.log(line));
-      const tickGitRecords = () => void gitRecords.run().catch((err) => core.log(`git records failed: ${err instanceof Error ? err.message : String(err)}`));
+      // New records: linked a few seconds later (only the repositories with changes).
+      const tickGitRecords = () =>
+        void gitRecords
+          .run()
+          .then((n) => n > 0 && core.linker.schedule())
+          .catch((err) => core.log(`git records failed: ${err instanceof Error ? err.message : String(err)}`));
       const gitRecordsTickMs = opts.gitRecordsTickMs ?? GIT_RECORDS_TICK_MS;
       const firstRecords = setTimeout(tickGitRecords, Math.min(60_000, gitRecordsTickMs));
       firstRecords.unref();
@@ -492,12 +515,23 @@ export class CoreService {
       core.timers.push(setInterval(tickGitRecords, gitRecordsTickMs));
       // Plan items and their transitions into each workspace's plan.jsonl: from bd, a dev container's beads export, or the project's markdown.
       const planRecords = new PlanRecordsJob(opts.home, core.writer, { log: (line) => core.log(line) });
-      const tickPlanRecords = () => void planRecords.run().catch((err) => core.log(`plan records failed: ${err instanceof Error ? err.message : String(err)}`));
+      const tickPlanRecords = () =>
+        void planRecords
+          .run()
+          .then((n) => n > 0 && core.linker.schedule())
+          .catch((err) => core.log(`plan records failed: ${err instanceof Error ? err.message : String(err)}`));
       const planRecordsTickMs = opts.planRecordsTickMs ?? PLAN_RECORDS_TICK_MS;
       const firstPlan = setTimeout(tickPlanRecords, Math.min(60_000, planRecordsTickMs));
       firstPlan.unref();
       core.timers.push(firstPlan as unknown as NodeJS.Timeout);
       core.timers.push(setInterval(tickPlanRecords, planRecordsTickMs));
+      // The linker's full pass: every workspace's events read again (what retention removed goes), every repository linked.
+      const fullLink = () => void core.linker.run({ full: true }).catch((err) => core.log(`linking failed: ${err instanceof Error ? err.message : String(err)}`));
+      const linkerFullPassMs = opts.linkerFullPassMs ?? LINKER_FULL_PASS_MS;
+      const firstLink = setTimeout(fullLink, Math.min(60_000, linkerFullPassMs));
+      firstLink.unref();
+      core.timers.push(firstLink as unknown as NodeJS.Timeout);
+      core.timers.push(setInterval(fullLink, linkerFullPassMs));
     }
     const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
     if (idleMs > 0) {
@@ -529,6 +563,7 @@ export class CoreService {
     this.containers?.stop();
     this.copilot?.stop();
     this.suggestions.dispose();
+    this.linker.dispose();
     await this.findings.dispose().catch(() => undefined);
     removeCoreRoute(this.opts.home, process.pid);
     removeCoreFile(this.opts.home, process.pid);
@@ -634,6 +669,7 @@ export class CoreService {
       if (route === 'POST /advisors') return send(201, await this.addAdvisor(await this.readBody(req, 8192)));
       if (url.pathname === '/advisor-setups' || url.pathname.startsWith('/advisor-setups/')) return send(...(await this.advisorSetup(scope, req, url)));
       if (route === 'POST /findings/respond') return send(200, await this.respond(scope, await this.readBody(req, 4096)));
+      if (route === 'GET /plans') return send(200, await this.plans(scope, url.searchParams.get('workspace')));
       if (route === 'GET /findings') return send(200, await this.currentFindings(scope, url.searchParams.get('workspace')));
       if (route === 'GET /sessions') return send(200, await this.sessions(scope, url.searchParams.get('days'), url.searchParams.get('workspace')));
       if (req.method === 'GET' && url.pathname.startsWith('/sessions/') && url.pathname.endsWith('/view')) {
@@ -1142,6 +1178,14 @@ export class CoreService {
   }
 
   /** GET /findings: the token's workspaces' findings now (the admin token names one with ?workspace=). */
+  /** GET /plans?workspace=w (a workspace token may leave it out): its plans view, with the sibling worktrees the token reads. */
+  private async plans(scope: Scope, workspace: string | null): Promise<PlansView> {
+    const w = workspace ?? (!readsAll(scope) && scope.workspaces.length === 1 ? scope.workspaces[0] : null);
+    if (w === null) throw new HttpError(400, 'name the workspace: ?workspace=<workspace>');
+    this.store(scope, w);
+    return plansView({ home: this.opts.home, workspace: w, visible: (x) => sees(scope, x) });
+  }
+
   private async currentFindings(scope: Scope, workspace: string | null): Promise<WorkspaceFindings[]> {
     const list = readsAll(scope) ? (workspace ? [workspace] : []) : workspace ? scope.workspaces.filter((w) => w === workspace) : scope.workspaces;
     if (list.length === 0) throw new HttpError(400, readsAll(scope) ? 'name the workspace: ?workspace=<workspace>' : `this token can't read ${workspace}`);

@@ -383,6 +383,45 @@ function commandRefs(command: string): CommandRefs {
   return refs;
 }
 
+/** One bd command in a command line: its subcommand, the plan items its words name, and whether it claims them. */
+export interface BdAction {
+  /** The subcommand as typed (create, update, close, show, ...). */
+  sub: string;
+  /** The bead ids among its positional arguments (none for create: the id is in its output). */
+  items: string[];
+  /** `bd update --claim`, or `bd claim`. */
+  claim: boolean;
+  /** `--status <s>`, when given. */
+  status?: string;
+}
+
+/** What a command line runs that the linker reads (links.ts): git's commit, checkout, switch and worktree add, gh pr merge, and each bd command. */
+export interface CommandActions {
+  gitCommit: boolean;
+  checkout: boolean;
+  prMerge: boolean;
+  bd: BdAction[];
+}
+
+/** The git, gh and bd commands a command line plainly runs (shellCommands' reading of it). */
+export function commandActions(command: string): CommandActions {
+  const refs = commandRefs(command);
+  const out: CommandActions = { gitCommit: refs.ran.commit, checkout: refs.ran.checkout || refs.ran.worktree, prMerge: refs.ran.prMerge, bd: [] };
+  for (const all of shellCommands(command)) {
+    const words = programWords(all);
+    if (program(words[0]) !== 'bd') continue;
+    let i = 1;
+    while (i < words.length && words[i].startsWith('-')) i += BD_VALUED.has(words[i]) ? 2 : 1;
+    const sub = words[i];
+    if (!sub) continue;
+    const { options, positional } = splitArgs(words.slice(i + 1), BD_VALUED);
+    const items = BD_ITEM_COMMANDS.has(sub) ? positional.filter((id) => isPlanItemId(id)) : [];
+    const status = optionValue(options, '--status', '-s');
+    out.bd.push({ sub, items: [...new Set(items)], claim: sub === 'claim' || options.has('--claim'), ...(status ? { status } : {}) });
+  }
+  return out;
+}
+
 /** A tool's output as text: a string, text content blocks, or a shell result's stdout and stderr. The first 64 KB. */
 export function toolOutputText(output: unknown): string {
   let text = '';

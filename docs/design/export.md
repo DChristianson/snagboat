@@ -316,7 +316,7 @@ The lifecycle comes from watching the files. Each run compares an item with what
 
 ### Findings: `findings.jsonl`
 
-Findings were half of step 9's original ask, and Factory Clock's page has shown none since step 8. One record per episode: heuristic or rule id and its version, session, turn, first and last time, the events it's about, whether it was an early warning, and your response (`useful`, `muted`, `acknowledged`, `passed`).
+Findings were half of step 9's original ask, and Factory Clock's page has shown none since step 8. One record per episode: heuristic or rule id and its version, session, turn, first and last time, the events it's about, whether an early warning came before it, and your response (`useful`, `muted`, `acknowledged`, `passed`).
 
 ```ts
 interface FindingRecord {
@@ -357,6 +357,8 @@ interface LinkRecord {
   evidence: Array<{ rule: string; refs: string[] }>;
   /** Store only: the link that replaced this one. */
   supersededBy?: string;
+  /** Store only: the time of the latest record in its evidence, for retention. */
+  at?: string;
 }
 ```
 
@@ -396,7 +398,7 @@ The core works out links as records arrive and stores them, so heuristics use th
 | commit **references** plan item | Its subject or body names the item's id (`(snagboat-79f.13)`) | Its branch's name or pull request names the item |
 | branch **merged** into branch | A merge commit, or a squash commit naming the branch's pull request | The branch's head became reachable from the target, or it disappeared after a pull request with its name merged |
 
-Bead ids are found by the project's own prefix: bd's `issue_prefix` (`bd config get issue_prefix`), else the most common `<prefix>-` among its beads. That keeps `snagboat-koh` from matching text that only looks like an id.
+Bead ids are found by the project's own prefix: bd's `issue-prefix` (in `.beads/config.yaml`, read without running bd), else the most common `<prefix>-` among its beads. That keeps `snagboat-koh` from matching text that only looks like an id.
 
 ## The store records it
 
@@ -417,7 +419,7 @@ Adapters record `toolInput`, and `refs` where a tool call observably acted on a 
 
 **Worktrees.** Each working tree of a repository is its own workspace with its own folder in the store. Each gets the repository's shared records, its commits and branches, and only its own working tree's checkouts. One run reads a repository once for all its workspaces, and a branch's `firstSeenAt` comes from whichever workspace's `git.jsonl` already has it, so the shared records are the same in each and an export of several worktrees folds them by key.
 
-**Retention.** `git.jsonl`, `plan.jsonl`, `links.jsonl` and `findings.jsonl` follow `retention.rawDays`, as events do, by each record's time: a commit's commit time, a checkout's, a branch's deletion (a branch that still exists is kept), a plan item's closing (an open one is kept), a transition's. Plan item text follows `retention.textDays`, by the item's `updated` time. Nothing older than that is appended, so a run doesn't put back what retention removed. `outcomes.git` and `collect` turned off for a project stop its git and plan jobs too. **Snagboat: Remove Captured Text** also clears commit bodies and plan item text.
+**Retention.** `git.jsonl`, `plan.jsonl`, `links.jsonl` and `findings.jsonl` follow `retention.rawDays`, as events do, by each record's time: a commit's commit time, a checkout's, a branch's deletion (a branch that still exists is kept), a plan item's closing (an open one is kept), a transition's, a link's latest evidence (`at`), a finding's `lastTs`. Plan item text follows `retention.textDays`, by the item's `updated` time. Nothing older than that is appended, so a run doesn't put back what retention removed. `outcomes.git` and `collect` turned off for a project stop its git and plan jobs too. **Snagboat: Remove Captured Text** also clears commit bodies and plan item text.
 
 **What heuristics get from it.** The point of storing it is that Snagboat can reason about the work, not only the session. These are examples, not commitments:
 - a session that claimed a bead and ended with no commit and no status change;

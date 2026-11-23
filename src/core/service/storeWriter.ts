@@ -109,7 +109,7 @@ export class StoreWriter {
 
   /**
    * Applies each unclaimed workspace's retention: rolls up old days, removes captured text past
-   * textDays (plan item text in plan.jsonl too), and drops store records (git.jsonl, plan.jsonl) older than rawDays. Returns how many days changed.
+   * textDays (plan item text in plan.jsonl too), and drops store records (git.jsonl, plan.jsonl, links.jsonl, findings.jsonl) older than rawDays. Returns how many days changed.
    */
   runRetention(only?: (workspace: string) => boolean): Promise<number> {
     return this.serial(() => this.retentionNow(only));

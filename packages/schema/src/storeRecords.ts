@@ -264,6 +264,8 @@ export interface LinkRecord {
   evidence: Array<{ rule: string; refs: string[] }>;
   /** Store only: the link that replaced this one when a later record overturned it. The export writes only current links. */
   supersededBy?: string;
+  /** Store only: the time of the latest record in its evidence (ISO 8601, UTC), for retention (retention.rawDays). */
+  at?: string;
 }
 
 // ---- findings.jsonl -----------------------------------------------------------------------

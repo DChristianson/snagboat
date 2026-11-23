@@ -123,6 +123,10 @@
     "supersededBy": {
       "type": "string",
       "description": "Store only: the link that replaced this one. Never exported."
+    },
+    "at": {
+      "type": "string",
+      "description": "Store only: the time of the latest record in its evidence (ISO 8601, UTC), for retention. Never exported."
     }
   }
 }

@@ -63,7 +63,7 @@ export async function appendStoreRecords(file: string, records: StoreRecord[]): 
 
 /**
  * When a record happened, for retention: a commit's commit time, a checkout's time, a deleted
- * branch's deletion, a plan item's closing, a transition's time. undefined keeps it: a branch
+ * branch's deletion, a plan item's closing, a transition's time, a link's `at`, a finding's lastTs. undefined keeps it: a branch
  * that still exists, a plan item still open, or a record type this doesn't know.
  */
 export function storeRecordTime(r: StoreRecord): string | undefined {
@@ -78,6 +78,10 @@ export function storeRecordTime(r: StoreRecord): string | undefined {
       return r.closed;
     case 'transition':
       return r.at;
+    case 'link':
+      return r.at;
+    case 'finding':
+      return r.lastTs;
     default:
       return undefined;
   }

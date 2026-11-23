@@ -36,13 +36,14 @@ export const runGit: GitRunner = (args, cwd) =>
 
 const DAY_MS = 86_400_000;
 /** A commit this long after a session's last event still counts as the session's. */
-const AFTER_SESSION_MS = 30 * 60_000;
+export const AFTER_SESSION_MS = 30 * 60_000;
 export const KEPT_AFTER_DAYS = 7;
 export const SURVIVAL_DAYS = [7, 30];
 /** At most this many of a commit's files are blamed. */
 const MAX_BLAME_FILES = 20;
 
-interface Session {
+/** A session as the commit rule reads it. */
+export interface GitSession {
   sessionId: string;
   agent: NormalizedEvent['agent'];
   first: number;
@@ -53,10 +54,19 @@ interface Session {
   runs: Array<{ at: number; passed: boolean }>;
 }
 
-interface Commit {
+/** A commit as the rule reads it: its SHA, commit time (ms) and repository-relative paths. */
+export interface RuleCommit {
   sha: string;
   at: number;
   files: string[];
+}
+
+/**
+ * A commit already given to a session (by the linker's session made commit links, links.jsonl):
+ * the git outcomes job's input once the store has git.jsonl.
+ */
+export interface SessionCommit extends RuleCommit {
+  sessionId: string;
 }
 
 /** The repository containing dir, or undefined if it isn't in one (or git isn't installed). */
@@ -69,7 +79,7 @@ export async function repositoryOf(dir: string, git: GitRunner = runGit): Promis
 }
 
 /** A file's path inside the repository, as git names it; undefined outside it. Tries the path as given, then its real path (macOS's /var is /private/var). */
-function repoPath(repo: string, file: string): string | undefined {
+export function repoPath(repo: string, file: string): string | undefined {
   const inside = (p: string) => {
     const rel = path.relative(repo, p);
     return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel.split(path.sep).join('/') : undefined;
@@ -84,8 +94,9 @@ function repoPath(repo: string, file: string): string | undefined {
   }
 }
 
-function sessionsIn(events: NormalizedEvent[], repo: string): Map<string, Session> {
-  const sessions = new Map<string, Session>();
+/** The sessions in `events`, each with the repository files its agent edited and its test and build runs. */
+export function gitSessions(events: NormalizedEvent[], repo: string): Map<string, GitSession> {
+  const sessions = new Map<string, GitSession>();
   for (const e of events) {
     if (e.kind === 'outcome' || e.kind === 'session_name' || e.channel === 'inline') continue;
     const at = Date.parse(e.ts);
@@ -108,9 +119,24 @@ function sessionsIn(events: NormalizedEvent[], repo: string): Map<string, Sessio
   return sessions;
 }
 
-async function commitsSince(repo: string, since: number, git: GitRunner): Promise<Commit[]> {
+/**
+ * The rule (the linker's inferred session made commit, links.ts): the session a commit belongs
+ * to, made between its first event and AFTER_SESSION_MS after its last and touching files it
+ * edited, the most files winning (the first such session on a tie); and those files.
+ */
+export function sessionForCommit<S extends GitSession>(commit: RuleCommit, sessions: Iterable<S>): { session: S; files: string[] } | undefined {
+  let best: { session: S; files: string[] } | undefined;
+  for (const s of sessions) {
+    if (s.files.size === 0 || commit.at < s.first || commit.at > s.last + AFTER_SESSION_MS) continue;
+    const files = commit.files.filter((f) => s.files.has(f));
+    if (files.length > 0 && (!best || files.length > best.files.length)) best = { session: s, files };
+  }
+  return best;
+}
+
+async function commitsSince(repo: string, since: number, git: GitRunner): Promise<RuleCommit[]> {
   const out = await git(['log', '--all', '--no-merges', `--since=${Math.floor(since / 1000)}`, '--format=%x1e%H %ct', '--name-only'], repo);
-  const commits: Commit[] = [];
+  const commits: RuleCommit[] = [];
   for (const record of out.split('\x1e')) {
     const lines = record.split('\n').filter(Boolean);
     if (lines.length === 0) continue;
@@ -165,18 +191,38 @@ const sameRepo = (sha: string, full: string) => full.startsWith(sha) || sha.star
 /**
  * The git outcomes due for a workspace's sessions in `events` (its recent
  * days, outcomes it already has included), newest checks only. `now` is when
- * the checks run.
+ * the checks run. With `commits`, the commits are the ones the linker gave a
+ * session (links.jsonl's session made commit links, with git.jsonl's times and
+ * files); without, they're read from `git log` and given to sessions by the
+ * rule (sessionForCommit), as before the store had links.
  */
-export async function gitOutcomes(opts: { repo: string; events: NormalizedEvent[]; now: number; git?: GitRunner; workspace?: string }): Promise<NormalizedEvent[]> {
+export async function gitOutcomes(opts: { repo: string; events: NormalizedEvent[]; now: number; git?: GitRunner; workspace?: string; commits?: SessionCommit[] }): Promise<NormalizedEvent[]> {
   const git = opts.git ?? runGit;
   const have = new Set(opts.events.filter((e) => e.kind === 'outcome').map((e) => e.eventId));
-  const sessions = [...sessionsIn(opts.events, opts.repo).values()].filter((s) => s.files.size > 0);
-  if (sessions.length === 0) return [];
-  const since = Math.min(...sessions.map((s) => s.first));
-  const commits = await commitsSince(opts.repo, since, git);
+  const all = gitSessions(opts.events, opts.repo);
+  const pairs: Array<{ session: GitSession; commit: RuleCommit; files: string[] }> = [];
+  if (opts.commits) {
+    for (const c of opts.commits) {
+      const session = all.get(c.sessionId);
+      if (!session) continue;
+      const own = c.files.filter((f) => session.files.has(f));
+      // An observed link to a commit of files the agent didn't edit with its edit tools (a shell edit, a generated file): all of them.
+      const files = own.length > 0 ? own : c.files;
+      if (files.length > 0) pairs.push({ session, commit: c, files });
+    }
+  } else {
+    const sessions = [...all.values()].filter((s) => s.files.size > 0);
+    if (sessions.length === 0) return [];
+    for (const commit of await commitsSince(opts.repo, Math.min(...sessions.map((s) => s.first)), git)) {
+      const best = sessionForCommit(commit, sessions);
+      if (best) pairs.push({ session: best.session, commit, files: best.files });
+    }
+  }
+  if (pairs.length === 0) return [];
+  const since = Math.min(...pairs.map((p) => Math.min(p.session.first, p.commit.at)));
   let revertedBy: Map<string, number> | undefined;
   const out: NormalizedEvent[] = [];
-  const emit = (session: Session, commit: Commit, id: string, at: number, outcome: NonNullable<NormalizedEvent['outcome']>, refs: string[]) => {
+  const emit = (session: GitSession, commit: RuleCommit, id: string, at: number, outcome: NonNullable<NormalizedEvent['outcome']>, refs: string[]) => {
     out.push({
       eventId: id,
       sessionId: session.sessionId,
@@ -190,16 +236,7 @@ export async function gitOutcomes(opts: { repo: string; events: NormalizedEvent[
     });
   };
 
-  for (const commit of commits) {
-    // The session it belongs to: made during it (or just after) and touching its files; the most files wins.
-    let best: { session: Session; files: string[] } | undefined;
-    for (const s of sessions) {
-      if (commit.at < s.first || commit.at > s.last + AFTER_SESSION_MS) continue;
-      const files = commit.files.filter((f) => s.files.has(f));
-      if (files.length > 0 && (!best || files.length > best.files.length)) best = { session: s, files };
-    }
-    if (!best) continue;
-    const { session, files } = best;
+  for (const { session, commit, files } of pairs) {
     const refs = [...new Set(files.flatMap((f) => session.files.get(f) ?? []))].slice(0, 20);
 
     const milestoneId = `outcome:milestone:${commit.sha}`;

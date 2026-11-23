@@ -1,10 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { NormalizedEvent, setShellSubCategories } from '@snagboat/schema';
+import { FindingRecord, NormalizedEvent, setShellSubCategories } from '@snagboat/schema';
 import { configHost, loadConfig } from '../config';
 import { ContextLimits, ModelContextMarks } from '../contextLimits';
 import { EventLog } from '../eventLog';
 import { EventStore } from '../eventStore';
+import { findingId, readFindings, ruleVersion } from '../findingRecords';
 import { userDataDir, workspaceInfoOf, workspaceStoreDir } from '../userStore';
 import { builtInHeuristics, heuristicSettingsSection } from '../../heuristics';
 import { EVENT_STORE_MAX_EVENTS, EVENT_STORE_WINDOW_MS, HeuristicsEngine } from '../../heuristics/engine';
@@ -78,7 +79,23 @@ interface Watch {
   /** The rules among them, as data (discovery's worker builds its heuristics from them). */
   rules?: Rule[];
   settingsFor?: (id: string) => Record<string, unknown>;
+  /** Each open episode as shown so far, by heuristic: for its findings.jsonl record when it closes. */
+  shown: Map<string, ShownEpisode>;
+  /** Heuristics showing an early warning and no finding yet: an episode that starts from one was warned early. */
+  warned: Set<string>;
+  /** Each heuristic's version when it was last built (a deleted rule keeps its last). */
+  versions: Map<string, string>;
 }
+
+/** What an open episode has shown: the latest summary, every event it named, and whether an early warning came first. */
+interface ShownEpisode {
+  summary?: string;
+  eventRefs: Set<string>;
+  earlyWarning: boolean;
+}
+
+/** The most events one finding record names. */
+const MAX_FINDING_REFS = 200;
 
 export interface FindingsServiceOptions {
   home: string;
@@ -90,6 +107,10 @@ export interface FindingsServiceOptions {
   now?: () => number;
   /** Writes outcome events (finding_response) for a workspace. */
   record?: (workspace: string, events: NormalizedEvent[]) => void;
+  /** Appends finding episodes to the workspace's findings.jsonl (each as it closes, and again when a response lands). */
+  store?: (workspace: string, records: FindingRecord[]) => void;
+  /** Snagboat's version: a built-in heuristic's version in findings.jsonl. Default 'dev'. */
+  version?: string;
 }
 
 /** A workspace nothing follows is evaluated this long after its last activity. */
@@ -149,6 +170,7 @@ export class FindingsService {
    */
   ingest(workspace: string, events: NormalizedEvent[]): void {
     for (const e of events) this.contextLimits.observe(e);
+    this.responsesLanded(workspace, events);
     const watch = this.watches.get(workspace);
     if (!watch) {
       // Seeded from its log, which already holds this batch.
@@ -252,9 +274,93 @@ export class FindingsService {
         this.contextLimits.observe(e);
       }
     }
-    const watch = { workspace, store, problems: [], followers: 0, queue: Promise.resolve(), heuristicIds: new Set<string>(), lastActivity: this.nowMs() } as unknown as Watch;
-    watch.book = new ResponseBook(workspaceStoreDir(this.opts.home, workspace), (episode, refs) => this.recordResponse(watch, episode, refs));
+    const watch = { workspace, store, problems: [], followers: 0, queue: Promise.resolve(), heuristicIds: new Set<string>(), lastActivity: this.nowMs(), shown: new Map(), warned: new Set(), versions: new Map() } as unknown as Watch;
+    watch.book = new ResponseBook(
+      workspaceStoreDir(this.opts.home, workspace),
+      (episode, refs) => {
+        this.recordEpisode(watch, episode, refs);
+        this.recordResponse(watch, episode, refs);
+      },
+      () => this.now()
+    );
     return watch;
+  }
+
+  /**
+   * An ended episode into findings.jsonl, as it was shown: its heuristic's version, the session
+   * and turn of its latest event still in reach, its worst severity, latest summary, every event
+   * it named, whether an early warning came first, and how you met it.
+   */
+  private recordEpisode(watch: Watch, episode: ResponseEpisode, refs: string[]): void {
+    const shown = watch.shown.get(episode.heuristicId);
+    watch.shown.delete(episode.heuristicId);
+    if (!episode.endedAt || !this.opts.store) return;
+    const named = [...new Set([...(shown?.eventRefs ?? []), ...refs])];
+    const wanted = new Set(named);
+    const ref = watch.store.query().filter((e) => wanted.has(e.eventId)).pop();
+    const record: FindingRecord = {
+      record: 'finding',
+      version: 1,
+      id: findingId(episode.heuristicId, ref?.sessionId, episode.startedAt),
+      heuristicId: episode.heuristicId,
+      heuristicVersion: watch.versions.get(episode.heuristicId) ?? this.opts.version ?? 'dev',
+      ...(ref ? { sessionId: ref.sessionId } : {}),
+      ...(ref?.turnId ? { turnId: ref.turnId } : {}),
+      severity: episode.severity,
+      ...(shown?.summary !== undefined ? { summary: shown.summary } : {}),
+      firstTs: episode.startedAt,
+      lastTs: episode.endedAt,
+      eventRefs: named.slice(0, MAX_FINDING_REFS),
+      earlyWarning: shown?.earlyWarning ?? false,
+      response: episodeResponse(episode),
+    };
+    this.opts.store(watch.workspace, [record]);
+  }
+
+  /**
+   * finding_response outcomes written to a workspace: an episode in its findings.jsonl whose
+   * response differs is appended again under its id with the response that landed.
+   */
+  private responsesLanded(workspace: string, events: NormalizedEvent[]): void {
+    if (!this.opts.store) return;
+    const responses = events.filter((e) => e.kind === 'outcome' && e.outcome?.type === 'finding_response' && e.outcome.heuristicId && e.outcome.response);
+    if (responses.length === 0) return;
+    let stored: Map<string, FindingRecord> | undefined;
+    const changed: FindingRecord[] = [];
+    for (const e of responses) {
+      const heuristicId = e.outcome!.heuristicId!;
+      const prefix = `outcome:finding_response:${heuristicId}:`;
+      if (!e.eventId.startsWith(prefix)) continue;
+      const id = findingId(heuristicId, e.sessionId, e.eventId.slice(prefix.length));
+      stored ??= readFindings(workspaceStoreDir(this.opts.home, workspace));
+      const have = stored.get(id);
+      if (!have || have.response === e.outcome!.response) continue;
+      const next = { ...have, response: e.outcome!.response! };
+      stored.set(id, next);
+      changed.push(next);
+    }
+    if (changed.length > 0) this.opts.store(workspace, changed);
+  }
+
+  /** This evaluation's findings and early warnings, onto each open episode as shown. */
+  private trackShown(watch: Watch, findings: Finding[], progress: Progress[]): void {
+    const byId = new Map<string, Finding[]>();
+    for (const f of findings) byId.set(f.heuristicId, [...(byId.get(f.heuristicId) ?? []), f]);
+    const warning = new Set(progress.map((p) => p.heuristicId));
+    for (const id of warning) if (!byId.has(id)) watch.warned.add(id);
+    for (const id of [...watch.warned]) if (!warning.has(id) && !byId.has(id)) watch.warned.delete(id);
+    for (const [id, list] of byId) {
+      let shown = watch.shown.get(id);
+      if (!shown) {
+        shown = { eventRefs: new Set(), earlyWarning: watch.warned.has(id) };
+        watch.shown.set(id, shown);
+        watch.warned.delete(id);
+      }
+      // The one shown: the worst, latest.
+      const top = [...list].sort((a, b) => (a.severity === b.severity ? b.detectedAt.localeCompare(a.detectedAt) : a.severity === 'warn' ? -1 : 1))[0];
+      shown.summary = top.summary;
+      for (const f of list) for (const r of f.eventRefs) if (shown.eventRefs.size < MAX_FINDING_REFS) shown.eventRefs.add(r);
+    }
   }
 
   /** An ended episode as a finding_response outcome. */
@@ -323,8 +429,11 @@ export class FindingsService {
     await this.rebuild(watch, host);
     const now = this.now();
     const findings = [...watch.engine!.tick(now).values()].flat();
+    const progress = watch.engine!.progress(now);
+    // An episode starts with the first evaluation that shows it, so what it showed is noted before the book can end one.
+    this.trackShown(watch, findings, progress);
     watch.book.update(findings);
-    return { workspace: watch.workspace, findings, progress: watch.engine!.progress(now), problems: watch.problems, responses: watch.book.states(), muted: watch.book.mutedHeuristics(), at: now };
+    return { workspace: watch.workspace, findings, progress, problems: watch.problems, responses: watch.book.states(), muted: watch.book.mutedHeuristics(), at: now };
   }
 
   /** (Re)builds the workspace's heuristics when its rules changed. */
@@ -360,6 +469,9 @@ export class FindingsService {
     }
     const heuristics = [...builtInHeuristics(), ...ruleSet.rules.map(ruleHeuristic)];
     watch.heuristicIds = new Set(heuristics.map((h) => h.id));
+    // Versions for findings.jsonl: a built-in's is Snagboat's; a saved rule's, a hash of its definition.
+    const rules = new Map(ruleSet.rules.map((r) => [r.id, ruleVersion(r)]));
+    for (const h of heuristics) watch.versions.set(h.id, rules.get(h.id) ?? this.opts.version ?? 'dev');
     const settingsFor = (id: string) => (id.includes(':') ? {} : host.section(heuristicSettingsSection(id)));
     watch.heuristics = heuristics;
     watch.rules = ruleSet.rules;

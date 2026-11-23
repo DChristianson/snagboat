@@ -6,7 +6,9 @@ import * as path from 'path';
 import { NormalizedEvent } from '@snagboat/schema';
 import { saveConfig } from '../../core/config';
 import { EventLog } from '../../core/eventLog';
-import { GitOutcomesJob } from '../../core/service/gitOutcomesJob';
+import { GitOutcomesJob, storedSessionCommits } from '../../core/service/gitOutcomesJob';
+import { GitRecordsJob } from '../../core/service/gitRecordsJob';
+import { LinkerJob } from '../../core/service/linkerJob';
 import { StoreWriter } from '../../core/service/storeWriter';
 import { workspaceStoreDir } from '../../core/userStore';
 import { gitOutcomes, GitRunner, runGit } from '../../outcomes/gitOutcomes';
@@ -123,6 +125,38 @@ async function main() {
     assert.strictEqual(await job.run(), 0, 'nothing twice');
     const stored = (await new EventLog(workspaceStoreDir(home, dir)).readAll()).filter((e) => e.kind === 'outcome').map((e) => e.outcome!.type).sort();
     assert.deepStrictEqual(stored, ['code_survival', 'commit_kept', 'milestone']);
+  });
+
+  test('on stored links: the repository job, the linker and the outcomes job give the outcomes the git log rule gives', async () => {
+    const { root, dir, commit } = repo();
+    const home = path.join(root, '.snagboat');
+    // Inside the days the outcomes job reads (32), with the 30-day check due for the first commit.
+    const t0 = Date.now() - 31.5 * DAY;
+    commit(t0 - DAY, { 'a.ts': '', 'b.ts': '' }, 'start');
+    const events = [edit('s1', t0, path.join(dir, 'a.ts')), testRun('s1', t0 + 5 * MIN, false), testRun('s1', t0 + 10 * MIN, true)];
+    commit(t0 + 15 * MIN, { 'a.ts': lines(10, 'mine') }, 'feature');
+    commit(t0 + DAY, { 'a.ts': lines(3, 'theirs') + lines(10, 'mine').split('\n').slice(3).join('\n') }, 'tweak');
+    events.push(edit('s2', t0 + 2 * DAY, path.join(dir, 'b.ts')));
+    const c3 = commit(t0 + 2 * DAY + 5 * MIN, { 'b.ts': lines(4, 'risky') }, 'risky change');
+    commit(t0 + 3 * DAY, { 'b.ts': '' }, `Revert "risky change"\n\nThis reverts commit ${c3}.`);
+    commit(t0 + 20 * DAY, { 'c.ts': 'x\n' }, 'unrelated');
+    // Each session needs a prompt to be one; the rule reads only its edits and runs.
+    const stored = [...events, ...['s1', 's2'].map((s, i) => ({ ...ev(s, t0 + i * 2 * DAY - MIN, { kind: 'user_prompt' }) }))].map((e) => ({ ...e, workspace: dir }));
+
+    const expected = await gitOutcomes({ repo: dir, events: stored, now: Date.now(), workspace: dir });
+    assert.deepStrictEqual([...new Set(expected.map((e) => e.outcome!.type))].sort(), ['code_survival', 'commit_kept', 'commit_reverted', 'milestone']);
+    const writer = new StoreWriter(home);
+    await writer.write(stored);
+    assert.ok((await new GitRecordsJob(home, writer).run({ force: true })) > 0);
+    const linker = new LinkerJob(home, writer, { debounceMs: 0 });
+    const job = new GitOutcomesJob(home, writer, () => undefined, runGit, linker);
+    assert.strictEqual(await job.run(), expected.length);
+    linker.dispose();
+    const store = workspaceStoreDir(home, dir);
+    assert.ok(storedSessionCommits(store)?.length === 2, 'read from links.jsonl');
+    const outcomes = (await new EventLog(store).readAll()).filter((e) => e.kind === 'outcome');
+    const key = (e: NormalizedEvent) => JSON.stringify([e.eventId, e.sessionId, e.ts, e.outcome]);
+    assert.deepStrictEqual(outcomes.map(key).sort(), expected.map(key).sort());
   });
 
   let failures = 0;
