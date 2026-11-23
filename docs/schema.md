@@ -204,7 +204,7 @@ Each workspace's folder in `~/.snagboat/data` will gain four files beside `event
 | `git.jsonl` | `commit` | [gitRecord.v1.schema.json](../packages/schema/src/gitRecord.v1.schema.json) (`gitRecordSchema`), `$defs.commit` | `sha`, the full SHA |
 | | `branch` | `$defs.branch` | `id`: `<name>@<firstSeenAt>`, so a name deleted and made again is a new branch |
 | | `checkout` | `$defs.checkout` | `id`: `checkout-` and 16 hex characters of the SHA-256 of `<worktree>\n<at>\n<commit>` (worktree: `.` for the main one, else its name under `.git/worktrees/`) |
-| `plan.jsonl` | `item` | [planRecord.v1.schema.json](../packages/schema/src/planRecord.v1.schema.json) (`planRecordSchema`), `$defs.item` | `id`: the bead's id, or `md-` and 12 hex characters of the SHA-256 of its file and heading path |
+| `plan.jsonl` | `item` | [planRecord.v1.schema.json](../packages/schema/src/planRecord.v1.schema.json) (`planRecordSchema`), `$defs.item` | `id`: the bead's id, or `md-` and 12 hex characters of the SHA-256 of its file and heading path, joined by newlines (a task adds `#<position>` under its heading: `#3`, `#3.1`) |
 | | `transition` | `$defs.transition` | `id`: the bd audit event's id, or `md-t-` and 16 hex characters of the SHA-256 of `<item>\n<at>\n<type>\n<to>` |
 | `links.jsonl` | `link` | [linkRecord.v1.schema.json](../packages/schema/src/linkRecord.v1.schema.json) (`linkRecordSchema`) | `id`: `link-` and 16 hex characters of the SHA-256 of `<from.type>:<from.id>\n<to.type>:<to.id>\n<kind>\n<how>` |
 | `findings.jsonl` | `finding` | [findingRecord.v1.schema.json](../packages/schema/src/findingRecord.v1.schema.json) (`findingRecordSchema`) | `id`: `finding-` and 16 hex characters of the SHA-256 of `<heuristicId>\n<sessionId>\n<firstTs>` |

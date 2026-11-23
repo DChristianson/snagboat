@@ -40,7 +40,7 @@
         },
         "id": {
           "type": "string",
-          "description": "The bead's id, or md- and 12 hex characters of SHA-256 over its file and heading path."
+          "description": "The bead's id, or md- and 12 hex characters of SHA-256 over its file and heading path (and a task's position under its heading), joined by newlines."
         },
         "kind": {
           "enum": [
@@ -105,6 +105,14 @@
         "assignee": {
           "type": "string",
           "description": "In an export, person-N."
+        },
+        "owner": {
+          "type": "string",
+          "description": "bd's owner (often an email). In an export, person-N."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Who created it: bd's created_by. In an export, person-N or an agent's name."
         },
         "text": {
           "type": "object",

@@ -134,11 +134,12 @@ Layers, lowest first:
 
 VS Code copies only settings someone set, and only Snagboat's own. `storage.*` stays in VS Code, and so do the advisor settings only VS Code uses (`advisor.headlines`, `advisor.auditPayloads`). Which advisors exist (`advisors`, `advisor.providers`) and which one each ability uses (`advisor.defaults`, and the older `advisor.explainProvider`) are copied, so the advisor UI can ask the local ones; the core reads those from your defaults only, never a project's or a `.snagboat.json`, and API keys are never settings. A key VS Code doesn't have, such as `collect`, is left as you wrote it. When something else changes a setting in `config.json` (the advisor UI applying a threshold, or you), VS Code takes it into its own settings.
 
-Two keys exist only here, for the core service, which records every Claude Code and Copilot CLI project on the machine while it runs:
+These keys exist only here, for the core service, which records every Claude Code and Copilot CLI project on the machine while it runs:
 
 | Key | Default | Where | Purpose |
 | --- | --- | --- | --- |
 | `collect` | `true` | defaults, a project entry, or `.snagboat.json` | `false` stops Snagboat recording that project (its Claude Code transcripts and hooks, and its Copilot CLI sessions). |
+| `plans` | `docs` | a project entry, or `.snagboat.json` | Where the project's plans are, when it has no beads: a path, or a list of paths, relative to the project folder (folders or files, as git pathspecs). The plan job infers plan items from the markdown git tracks there at HEAD. A README, CONTRIBUTING or CHANGELOG is read only when named as a file. Ignored for a project with `.beads`: beads win. See [data-sources.md](data-sources.md). |
 | `collect.unopened` | `true` | `config.json` `"defaults"` only | `false` records only projects inside a workspace Snagboat knows: one with a folder in `~/.snagboat/data`, one in `"projects"` here, or one a VS Code window registered. |
 
 ### Dev containers: `containers.allow`
@@ -160,7 +161,7 @@ The container should mount the project at the same path as on your machine, so i
 
 `claude-projects` is written by agents in the container, possibly with their permissions off, so the core treats it as untrusted: it refuses symlinks anywhere from the allowed folder down to each project folder, session and `subagents` folder, and transcript, opens each transcript without following links and only if it's a regular file, skips lines over 8 MB, and reads only Claude Code's transcript layout (a project's `memory/` and anything else is ignored). It logs counts and paths, never contents. Its read positions are kept apart from those for `~/.claude/projects`, so nothing is read twice.
 
-**`.snagboat.json` is shared with everyone who clones the project**, so it can set only team settings: heuristic thresholds, token budgets, `rules`, `toolCategories`, discovery and nudges. Privacy settings it can only make more private: turn `captureContent`, `copilot.captureStructure` or `claudeCode.configureHooks` off, shorten retention, lower `capture.promptChars` or `capture.replyChars`, or set `"collect": false`. Anything else in it is ignored, and `snagboat config` says why.
+**`.snagboat.json` is shared with everyone who clones the project**, so it can set only team settings: heuristic thresholds, token budgets, `rules`, `toolCategories`, discovery, nudges and `plans`. Privacy settings it can only make more private: turn `captureContent`, `copilot.captureStructure` or `claudeCode.configureHooks` off, shorten retention, lower `capture.promptChars` or `capture.replyChars`, or set `"collect": false`. Anything else in it is ignored, and `snagboat config` says why.
 
 ```json
 { "settings": { "heuristics.toolChurn.minCalls": 12, "captureContent": false } }

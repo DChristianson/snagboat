@@ -122,23 +122,12 @@ function readBelow(folder: string, file: string, max: number): Read {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/**
- * The folder's exported beads, or undefined when there's no export (no .snagboat/beads/issues.jsonl, or it's refused:
- * then problems would say why, so a refused one comes back with no issues and the problem).
- */
-export function readBeadsExport(folder: string, options: ReadBeadsExportOptions = {}): BeadsExport | undefined {
-  const dir = beadsExportDir(folder);
-  const issuesFile = path.join(dir, 'issues.jsonl');
-  const read = readBelow(folder, issuesFile, MAX_ISSUES_BYTES);
-  if (!('text' in read)) {
-    if (read.missing) return undefined;
-    return { dir, issues: [], events: new Map(), missingHistory: [], fresh: false, issuesChanged: new Date(0), problems: [`refused ${read.problem}`] };
-  }
-  const problems: string[] = [];
+/** The bd issues in `bd export` output (JSON Lines): lines that aren't issues, or repeat an id, are counted in bad. */
+export function parseBeadsIssues(text: string): { issues: BeadsIssue[]; bad: number } {
   const issues: BeadsIssue[] = [];
   const seen = new Set<string>();
   let bad = 0;
-  for (const line of read.text.split('\n')) {
+  for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let value: unknown;
     try {
@@ -155,6 +144,45 @@ export function readBeadsExport(folder: string, options: ReadBeadsExportOptions 
     seen.add(value.id);
     issues.push(value as BeadsIssue);
   }
+  return { issues, bad };
+}
+
+/**
+ * One bead's audit events from parsed `bd history <id> --events --json` output, oldest first (bd lists newest first);
+ * undefined when it isn't a list. Entries that aren't this bead's events are dropped and counted in skipped.
+ */
+export function parseBeadsHistory(value: unknown, id: string): { events: BeadsEvent[]; skipped: number } | undefined {
+  // bd prints null, not [], for a bead with no events.
+  const list = value === null ? [] : value;
+  if (!Array.isArray(list)) return undefined;
+  const kept = list.filter(
+    (e): e is BeadsEvent => isObject(e) && typeof e.id === 'string' && e.issue_id === id && typeof e.event_type === 'string' && typeof e.created_at === 'string'
+  );
+  // Oldest first; events at the same second keep bd's order, reversed.
+  const ordered = kept.reverse().map((e, i) => ({ e, i, t: Date.parse(e.created_at) }));
+  ordered.sort((a, b) => (Number.isNaN(a.t) || Number.isNaN(b.t) || a.t === b.t ? a.i - b.i : a.t - b.t));
+  return { events: ordered.map((o) => o.e), skipped: list.length - kept.length };
+}
+
+/** An id bd could have made: anything else isn't used as a file name or passed to bd. */
+export function isBeadId(id: string): boolean {
+  return ID.test(id);
+}
+
+/**
+ * The folder's exported beads, or undefined when there's no export (no .snagboat/beads/issues.jsonl, or it's refused:
+ * then problems would say why, so a refused one comes back with no issues and the problem).
+ */
+export function readBeadsExport(folder: string, options: ReadBeadsExportOptions = {}): BeadsExport | undefined {
+  const dir = beadsExportDir(folder);
+  const issuesFile = path.join(dir, 'issues.jsonl');
+  const read = readBelow(folder, issuesFile, MAX_ISSUES_BYTES);
+  if (!('text' in read)) {
+    if (read.missing) return undefined;
+    return { dir, issues: [], events: new Map(), missingHistory: [], fresh: false, issuesChanged: new Date(0), problems: [`refused ${read.problem}`] };
+  }
+  const problems: string[] = [];
+  const { issues, bad } = parseBeadsIssues(read.text);
   if (bad) problems.push(`skipped ${bad} line(s) of ${issuesFile} that aren't bd issues`);
 
   let status: BeadsExportStatus | undefined;
@@ -190,21 +218,14 @@ export function readBeadsExport(folder: string, options: ReadBeadsExportOptions 
       problems.push(`${file} isn't JSON`);
       continue;
     }
-    // bd prints null, not [], for a bead with no events.
-    const list = value === null ? [] : value;
-    if (!Array.isArray(list)) {
+    const parsed = parseBeadsHistory(value, issue.id);
+    if (!parsed) {
       missingHistory.push(issue.id);
       problems.push(`${file} isn't a list of events`);
       continue;
     }
-    const kept = list.filter(
-      (e): e is BeadsEvent => isObject(e) && typeof e.id === 'string' && e.issue_id === issue.id && typeof e.event_type === 'string' && typeof e.created_at === 'string'
-    );
-    if (kept.length !== list.length) problems.push(`skipped ${list.length - kept.length} event(s) in ${file} that aren't this bead's audit events`);
-    // Oldest first; events at the same second keep bd's order, reversed (bd lists newest first).
-    const ordered = kept.reverse().map((e, i) => ({ e, i, t: Date.parse(e.created_at) }));
-    ordered.sort((a, b) => (Number.isNaN(a.t) || Number.isNaN(b.t) || a.t === b.t ? a.i - b.i : a.t - b.t));
-    events.set(issue.id, ordered.map((o) => o.e));
+    if (parsed.skipped) problems.push(`skipped ${parsed.skipped} event(s) in ${file} that aren't this bead's audit events`);
+    events.set(issue.id, parsed.events);
   }
 
   const now = options.now ?? new Date();

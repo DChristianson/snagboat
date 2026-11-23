@@ -265,7 +265,7 @@ Plan items follow Factory Clock's `PlanItem` (its `src/model/plan.ts`), so its v
 interface PlanItemRecord {
   record: 'item';
   version: 1;
-  id: string;                  // the bead's id, or 'md-' + 12 hex of SHA-256(file, heading path)
+  id: string;                  // the bead's id, or 'md-' + 12 hex of SHA-256(file, heading path[, '#' + a task's position])
   kind: 'epic' | 'milestone' | 'feature' | 'task' | 'bug' | 'step' | 'decision' | 'question' | 'note';
   title: string;
   status: 'open' | 'in_progress' | 'blocked' | 'done' | 'deferred' | 'dropped';
@@ -279,6 +279,8 @@ interface PlanItemRecord {
   closed?: string;
   closeReason?: string;
   assignee?: string;           // person-N
+  owner?: string;              // person-N (bd's owner)
+  createdBy?: string;          // person-N or an agent's name (bd's created_by)
   text?: { description?: string; design?: string; notes?: string; acceptance?: string };
   source: 'beads' | 'markdown';
   /** markdown: the file and heading it came from, relative to the project. */
@@ -308,9 +310,9 @@ For beads, the source is bd's own audit journal (`bd history <id> --events`), wh
 - headings become epics or milestones;
 - numbered steps and `- [ ]` checklists become tasks, with status from `[x]`, "done", "built" or strikethrough;
 - dates beside them become times;
-- an item's id is a hash of its file and its heading path, so it survives edits to its wording.
+- an item's id is a hash of its file and its heading path (and, for a task, its position under its heading), so it survives edits to its wording; a task inserted above it shifts it.
 
-The lifecycle comes from watching the files. Each run compares an item with what the plan job last stored, and a change of status becomes a transition. Its time is the commit that changed the line, from `git.jsonl`, and the actor is that commit's author, both `inferred`. A project that has both beads and markdown plans uses only the beads, as factory-clock#31 does, since the two usually describe the same work twice.
+The lifecycle comes from watching the files. Each run compares an item with what the plan job last stored, and a change of status becomes a transition. Its time is the commit that changed the line (`git blame` of HEAD, which the plan job reads, as it reads the files at HEAD), and the actor is that commit's author, both `inferred`. A project that has both beads and markdown plans uses only the beads, as factory-clock#31 does, since the two usually describe the same work twice.
 
 ### Findings: `findings.jsonl`
 
@@ -405,7 +407,7 @@ Each workspace's folder in `~/.snagboat/data` gains four files beside `events/`:
 | File | What writes it | From |
 | --- | --- | --- |
 | `git.jsonl` | A repository job in the core, beside `GitOutcomesJob` | `git log --all`, `for-each-ref`, and each worktree's HEAD reflog, read-only as the outcomes job's git already is. It runs every few minutes while a session is active in the workspace, so checkouts are seen with their times, and hourly otherwise. It appends commit, branch and checkout records, plus a branch's `merged` or `deletedAt` when it sees them. |
-| `plan.jsonl` | A plan job in the core | With beads (a `.beads` folder, and `bd` installed): `bd export` and `bd history --events`, items as they change and every transition once. Without beads: plans inferred from markdown (below). |
+| `plan.jsonl` | A plan job in the core | With beads (a `.beads` folder, and `bd` installed): `bd export` and `bd history --events`, items as they change and every transition once. Where bd runs only in a dev container, what its exporter writes to `.snagboat/beads/`. Without beads: plans inferred from markdown ([above](#plan-planitemsjsonl-plantransitionsjsonl)). |
 | `links.jsonl` | The core's linker, run as events, git records and plan records arrive | The rules in [How records are linked](#how-records-are-linked) |
 | `findings.jsonl` | The core's findings service, as each episode closes | The episode as it was shown, with its heuristic's version |
 
@@ -415,7 +417,7 @@ Adapters record `toolInput`, and `refs` where a tool call observably acted on a 
 
 **Worktrees.** Each working tree of a repository is its own workspace with its own folder in the store. Each gets the repository's shared records, its commits and branches, and only its own working tree's checkouts. One run reads a repository once for all its workspaces, and a branch's `firstSeenAt` comes from whichever workspace's `git.jsonl` already has it, so the shared records are the same in each and an export of several worktrees folds them by key.
 
-**Retention.** `git.jsonl`, `plan.jsonl`, `links.jsonl` and `findings.jsonl` follow `retention.rawDays`, as events do, by each record's time: a commit's commit time, a checkout's, a branch's deletion (a branch that still exists is kept). Nothing older than that is appended, so a run doesn't put back what retention removed. `outcomes.git` and `collect` turned off for a project stop its git and plan jobs too. **Snagboat: Remove Captured Text** also clears commit bodies and plan item text.
+**Retention.** `git.jsonl`, `plan.jsonl`, `links.jsonl` and `findings.jsonl` follow `retention.rawDays`, as events do, by each record's time: a commit's commit time, a checkout's, a branch's deletion (a branch that still exists is kept), a plan item's closing (an open one is kept), a transition's. Plan item text follows `retention.textDays`, by the item's `updated` time. Nothing older than that is appended, so a run doesn't put back what retention removed. `outcomes.git` and `collect` turned off for a project stop its git and plan jobs too. **Snagboat: Remove Captured Text** also clears commit bodies and plan item text.
 
 **What heuristics get from it.** The point of storing it is that Snagboat can reason about the work, not only the session. These are examples, not commitments:
 - a session that claimed a bead and ended with no commit and no status change;
