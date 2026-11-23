@@ -36,37 +36,7 @@ import {
 // enums against the TypeScript unions, and example records (the design's own) against the
 // schemas. As with events, nothing validates at run time.
 
-type Schema = Record<string, any>;
-
-/** Validates the subset of JSON Schema the record schemas use, $ref to $defs included; returns the problems found. */
-function validate(schema: Schema, value: unknown, at = '$', root: Schema = schema): string[] {
-  const problems: string[] = [];
-  if (schema.$ref) {
-    const name = /^#\/\$defs\/(.+)$/.exec(schema.$ref)?.[1];
-    if (!name || !root.$defs?.[name]) return [`${at}: unresolved ${schema.$ref}`];
-    return validate(root.$defs[name], value, at, root);
-  }
-  if (schema.const !== undefined && value !== schema.const) problems.push(`${at}: expected ${JSON.stringify(schema.const)}`);
-  if (schema.enum && !schema.enum.includes(value)) problems.push(`${at}: ${JSON.stringify(value)} not in enum`);
-  if (schema.pattern && (typeof value !== 'string' || !new RegExp(schema.pattern).test(value))) problems.push(`${at}: does not match ${schema.pattern}`);
-  if (schema.type) {
-    const actual = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
-    if (actual !== schema.type) problems.push(`${at}: expected ${schema.type}, got ${actual}`);
-  }
-  if (schema.items && Array.isArray(value)) value.forEach((v, i) => problems.push(...validate(schema.items, v, `${at}[${i}]`, root)));
-  if (schema.anyOf && !schema.anyOf.some((s: Schema) => validate(s, value, at, root).length === 0)) problems.push(`${at}: matches none of anyOf`);
-  if (schema.type === 'object' && value && typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    for (const key of schema.required ?? []) if (!(key in obj)) problems.push(`${at}.${key}: required`);
-    for (const [key, v] of Object.entries(obj)) {
-      const sub = schema.properties?.[key];
-      if (sub) problems.push(...validate(sub, v, `${at}.${key}`, root));
-      else if (schema.additionalProperties === false) problems.push(`${at}.${key}: not in schema`);
-      else if (typeof schema.additionalProperties === 'object') problems.push(...validate(schema.additionalProperties, v, `${at}.${key}`, root));
-    }
-  }
-  return problems;
-}
+import { Schema, validate } from './schemaValidate';
 
 const ok = (schema: unknown, value: unknown) => assert.deepStrictEqual(validate(schema as Schema, JSON.parse(JSON.stringify(value))), []);
 const bad = (schema: unknown, value: unknown, why: string) => assert.ok(validate(schema as Schema, JSON.parse(JSON.stringify(value))).length > 0, why);
@@ -264,6 +234,7 @@ async function main() {
       range: { since: '2026-11-01', first: '2026-11-01T09:00:00Z', last: '2026-11-21T04:00:00Z' }, text: 'redacted',
       counts: { days: 21, events: 50_000, sessions: 120, findings: 40, commits: 160, branches: 80, checkouts: 300, planItems: 200, transitions: 900, links: 1_500 },
       rulesVersion: 1, snagboatVersion: '0.9.0', redactions: { 'home-path': 12, email: 3 }, flags: 2, repository: { privacy: 'private' },
+      readme: 'README.md', schemas: { 'manifest.json': 'schema/exportManifest.v1.schema.json', 'events/*.jsonl': 'schema/exportedEvent.v4.schema.json' },
     };
     const schema = exportManifestSchema as Schema;
     ok(schema, manifest);

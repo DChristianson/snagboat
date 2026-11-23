@@ -33,7 +33,9 @@ One workspace from the store: a git repository's working tree, with its other wo
 
 ```text
 <out>/
+  README.md                   what each file is, how they join, what each redaction marker means
   manifest.json               what this is: versions, project name, range, counts, rules applied
+  schema/*.schema.json        the JSON Schemas the records follow
   events/YYYY-MM-DD.jsonl     the sessions' events (schema v4, sanitized), UTC days
   sessions.jsonl              one record per session, with its branch, commits and plan items
   findings.jsonl              findings and early warnings, with how you responded
@@ -44,7 +46,10 @@ One workspace from the store: a git repository's working tree, with its other wo
   plan/transitions.jsonl      each item's lifecycle: created, claimed, status changes, closed, reopened
   links.jsonl                 typed edges between sessions, commits, branches and plan items
 <out>.review/                 never shipped: what was flagged, with the values, for you to read
+<out>.zip                     with --zip: <out>/ in one file to send, never the review folder
 ```
+
+An export explains itself: `README.md` and `schema/` are static text, the same in every export, so a reader needs nothing from Snagboat's repository. The schema copies' `$id` is just the file name, since the published one is a URL into Snagboat's repository and names its owner. A web page reads the folder (`<input type="file" webkitdirectory>`, or a dropped folder) or the zip; it should refuse a folder without `manifest.json` at its top, which is how it avoids loading the review folder beside it.
 
 Everything is JSON Lines, apart from the manifest, so a large project streams and two exports can be compared line by line. Ids join the files. Nothing in the export is an absolute path.
 
@@ -383,6 +388,8 @@ interface ExportManifest {
   redactions: Record<string, number>;  // values replaced, by rule
   flags: number;               // values flagged; the review folder is never named
   repository: { privacy: 'private' | 'public' };
+  readme: 'README.md';
+  schemas: Record<string, string>;   // each file or pattern (events/*.jsonl) and its schema in schema/
 }
 ```
 
@@ -443,8 +450,9 @@ snagboat export --project <dir> --out <dir> [--name <name>] [--since <date>] [--
 - `--project` defaults to the current folder's repository (the nearest folder with a `.git`). Records are selected when their workspace is the project, inside it, another worktree of its repository, or a `--match` path. Without git, another worktree is a workspace whose `git.jsonl` has the project's root commit and whose `.git` file points into the same repository (a separate clone, with its own `.git` folder, isn't one); its working tree is where its checkouts happened. These are factory-clock#31's rules, applied to the store Snagboat knows.
 - `--out` must be outside the project and its worktrees, so an export never gets committed. Since the command runs no git, it can't ask what's ignored: the one place inside allowed is under the project's `.snagboat/` folder, where it writes a `.gitignore` for the export (as the beads exporter does for `.snagboat/beads/`).
 - It prints what it wrote, what each rule replaced (counts), how many flags there are and where the review file is. `--json` prints the same as `manifest.json`.
-- In VS Code: **Snagboat: Export Project...** runs it for the window's folder and opens the review file when anything was flagged.
-- Factory Clock loads an export folder as it loads daily event files today, and its scrape script takes `--from-export <dir>` in place of `--events`.
+- `--zip` also writes `<out>.zip`, the export folder only, stamped with the manifest's time so the same store zips to the same bytes.
+- In VS Code: **Snagboat: Export Project...** runs it for the window's folder, writes the zip (the export is usually for sending), and opens the review file when anything was flagged.
+- Factory Clock loads an export folder or zip as it loads daily event files today, and its scrape script takes `--from-export <dir|zip>` in place of `--events`.
 
 ## Build order
 
