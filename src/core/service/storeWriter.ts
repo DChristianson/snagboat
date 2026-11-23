@@ -1,9 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { eventDay, NormalizedEvent } from '@snagboat/schema';
+import { eventDay, NormalizedEvent, STORE_RECORD_FILES, StoreRecord } from '@snagboat/schema';
 import { effectiveSettings } from '../config';
 import { EventLog } from '../eventLog';
-import { AggregateStore, applyRetention, EventSink, oldestTextDay, RetentionPolicy } from '../retention';
+import { AggregateStore, applyRetention, EventSink, oldestKeptDay, oldestTextDay, RetentionPolicy } from '../retention';
+import { appendStoreRecords, pruneStoreFile } from '../storeRecordFiles';
 import { withoutCapturedText } from '../excerpt';
 import { listUserStores, openWorkspaceStore, userDataDir, workspaceInfoOf, workspaceKey, workspaceStoreDir } from '../userStore';
 import { Claim, claimedBy, claimOf } from './claims';
@@ -39,6 +40,9 @@ export type WrittenListener = (workspace: string, events: NormalizedEvent[]) => 
 export function spoolDir(home: string): string {
   return path.join(userDataDir(home), 'spool', 'events');
 }
+
+/** The store record files retention prunes. */
+const STORE_RECORD_FILE_NAMES = [...new Set(Object.values(STORE_RECORD_FILES))];
 
 const todayKey = (now = Date.now()) => new Date(now).toISOString().slice(0, 10);
 
@@ -98,7 +102,15 @@ export class StoreWriter {
     return this.serial(() => this.ingestNow());
   }
 
-  /** Applies each unclaimed workspace's retention: rolls up old days and removes captured text past textDays. */
+  /** Appends records to a store record file (git.jsonl, ...), serialized with retention, which rewrites those files. */
+  appendRecords(file: string, records: StoreRecord[]): Promise<void> {
+    return this.serial(() => appendStoreRecords(file, records));
+  }
+
+  /**
+   * Applies each unclaimed workspace's retention: rolls up old days, removes captured text past
+   * textDays, and drops store records (git.jsonl) older than rawDays. Returns how many days changed.
+   */
   runRetention(only?: (workspace: string) => boolean): Promise<number> {
     return this.serial(() => this.retentionNow(only));
   }
@@ -195,10 +207,15 @@ export class StoreWriter {
         continue;
       }
       const store = await this.open(s.workspace);
-      const result = await applyRetention(store.log, store.aggregates, retentionPolicyFor(this.home, s.workspace), todayKey(this.now()));
+      const policy = retentionPolicyFor(this.home, s.workspace);
+      const result = await applyRetention(store.log, store.aggregates, policy, todayKey(this.now()));
       // Days rolled up or rewritten: their ids are re-read the next time they're written.
       for (const day of [...result.rolledUp, ...result.textRemoved]) store.known.delete(day);
       changed += result.rolledUp.length + result.textRemoved.length;
+      // The store's record files follow rawDays too, by each record's time (storeRecordTime).
+      const rawCutoff = `${oldestKeptDay(todayKey(this.now()), Math.max(1, Math.floor(policy.rawDays)))}T00:00:00.000Z`;
+      // Not counted: the count says which days changed, and windows reload their events when it's above 0.
+      for (const file of STORE_RECORD_FILE_NAMES) await pruneStoreFile(path.join(s.dir, file), rawCutoff);
     }
     return changed;
   }
