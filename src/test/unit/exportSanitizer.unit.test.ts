@@ -426,7 +426,7 @@ async function main() {
       assert.throws(() => exportKeyPath(dir, 'private'));
       const k1 = ensureExportKey(file);
       assert.strictEqual(k1.length, 32);
-      assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600);
+      if (process.platform !== 'win32') assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600);
       assert.deepStrictEqual(ensureExportKey(file), k1);
       assert.deepStrictEqual(readExportKey(file), k1);
     } finally {
