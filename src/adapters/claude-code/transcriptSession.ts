@@ -1,8 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { classifyTool } from '@snagboat/schema';
-import { NormalizedEvent } from '@snagboat/schema';
+import { CaptureLimits, EventToolInput, NormalizedEvent } from '@snagboat/schema';
 import { EventTaskOp, EventTodos } from '@snagboat/schema';
+import { refsOf, toolInputOf } from '../../core/toolInput';
 import { normalizeTranscriptChunk, SeenMessages, TASK_TOOLS, TurnTracker, taskOpOf, todosOf } from './normalize';
 
 /**
@@ -41,10 +42,14 @@ function resultOutput(line: any, block: any): unknown {
   return results.length === 1 && line.toolUseResult !== undefined ? line.toolUseResult : block.content;
 }
 
-/** A tool call from its tool_use block, with status and time from its tool_result when there is one. */
+/**
+ * A tool call from its tool_use block, with status and time from its
+ * tool_result when there is one, and refs from its command and the result's
+ * output (refsOf; only for shell tools).
+ */
 function toolCallEvent(
-  use: { id?: string; name?: string; input?: { file_path?: unknown; command?: unknown }; todos?: EventTodos; taskOp?: EventTaskOp; sessionId?: string; agentId?: string; ts: string; fallbackId: string },
-  result: { failed: boolean; ts: string } | undefined,
+  use: { id?: string; name?: string; input?: { file_path?: unknown; command?: unknown }; toolInput?: EventToolInput; todos?: EventTodos; taskOp?: EventTaskOp; sessionId?: string; agentId?: string; ts: string; fallbackId: string },
+  result: { failed: boolean; ts: string; output?: unknown } | undefined,
   file: string,
   turnId: string | undefined
 ): NormalizedEvent {
@@ -66,6 +71,9 @@ function toolCallEvent(
   };
   if (use.todos) event.todos = use.todos;
   if (use.taskOp) event.taskOp = use.taskOp;
+  if (use.toolInput) event.toolInput = use.toolInput;
+  const refs = refsOf(use.name, input, result?.output, result?.failed === true);
+  if (refs) event.refs = refs;
   if (turnId) event.turnId = turnId;
   if (use.agentId) event.agentId = use.agentId;
   return event;
@@ -78,13 +86,14 @@ function toolCallEvent(
  * both are on, whichever comes first counts and the other is dropped; where
  * the project has no hooks (the core collects every project, VS Code adds
  * hooks only to those it opens), this is where its tool calls come from. Only
- * a call's name, file path or command (and a TodoWrite call's todo list, its
- * text only with capture on, or a task tool's input) are kept while it waits;
+ * a call's name, file path or command, its toolInput (toolInputOf), a
+ * TodoWrite call's todo list (its text only with capture on) and a task
+ * tool's input are kept while it waits;
  * one whose result comes after a restart is lost. A task tool's change to the
  * plan is read when its result arrives, which holds a new task's id.
  */
 export class LiveToolCalls {
-  private readonly pending = new Map<string, { name?: string; input: { file_path?: unknown; command?: unknown }; todos?: EventTodos; taskInput?: unknown; sessionId?: string; agentId?: string; ts: string; turnId?: string }>();
+  private readonly pending = new Map<string, { name?: string; input: { file_path?: unknown; command?: unknown }; toolInput?: EventToolInput; todos?: EventTodos; taskInput?: unknown; sessionId?: string; agentId?: string; ts: string; turnId?: string }>();
 
   constructor(private readonly maxPending = 2_000) {}
 
@@ -98,7 +107,8 @@ export class LiveToolCalls {
         const todos = todosOf(b.name, input, captureContent);
         // Only what taskOpOf reads; the subject is dropped there without capture.
         const taskInput = TASK_TOOLS.has(b.name) ? { subject: input.subject, taskId: input.taskId, id: input.id, task_id: input.task_id, status: input.status } : undefined;
-        this.pending.set(b.id, { name: b.name, input: { file_path: input.file_path, command: input.command }, ...(todos ? { todos } : {}), ...(taskInput ? { taskInput } : {}), sessionId: line.sessionId, agentId: line.agentId, ts: line.timestamp, turnId });
+        const toolInput = toolInputOf(b.name, input, captureContent);
+        this.pending.set(b.id, { name: b.name, input: { file_path: input.file_path, command: input.command }, ...(toolInput ? { toolInput } : {}), ...(todos ? { todos } : {}), ...(taskInput ? { taskInput } : {}), sessionId: line.sessionId, agentId: line.agentId, ts: line.timestamp, turnId });
         if (this.pending.size > this.maxPending) this.pending.delete(this.pending.keys().next().value!);
       }
       return [];
@@ -112,8 +122,9 @@ export class LiveToolCalls {
       this.pending.delete(b.tool_use_id);
       const failed = b.is_error === true;
       const { taskInput, ...rest } = use;
-      const taskOp = taskInput ? taskOpOf(use.name, taskInput, resultOutput(line, b), captureContent, failed) : undefined;
-      out.push(toolCallEvent({ ...rest, ...(taskOp ? { taskOp } : {}), id: b.tool_use_id, fallbackId: `tool:${b.tool_use_id}` }, { failed, ts: line.timestamp ?? use.ts }, file, use.turnId));
+      const output = resultOutput(line, b);
+      const taskOp = taskInput ? taskOpOf(use.name, taskInput, output, captureContent, failed) : undefined;
+      out.push(toolCallEvent({ ...rest, ...(taskOp ? { taskOp } : {}), id: b.tool_use_id, fallbackId: `tool:${b.tool_use_id}` }, { failed, ts: line.timestamp ?? use.ts, output }, file, use.turnId));
     }
     return out;
   }
@@ -138,20 +149,21 @@ export function transcriptToolCalls(lines: any[], file: string, turns: TurnTrack
       const todos = todosOf(b.name, b.input, captureContent);
       // A task tool's change needs its result (a new task's id); with none yet, there's nothing to apply.
       const taskOp = result ? taskOpOf(b.name, b.input, result.output, captureContent, result.failed) : undefined;
-      events.push(toolCallEvent({ id: b.id, name: b.name, input: b.input, ...(todos ? { todos } : {}), ...(taskOp ? { taskOp } : {}), sessionId: d.sessionId, agentId: d.agentId, ts: d.timestamp, fallbackId: `tool:${d.uuid}:${index}` }, result, file, turnId));
+      const toolInput = toolInputOf(b.name, b.input, captureContent);
+      events.push(toolCallEvent({ id: b.id, name: b.name, input: b.input, ...(toolInput ? { toolInput } : {}), ...(todos ? { todos } : {}), ...(taskOp ? { taskOp } : {}), sessionId: d.sessionId, agentId: d.agentId, ts: d.timestamp, fallbackId: `tool:${d.uuid}:${index}` }, result, file, turnId));
     });
   }
   return events;
 }
 
 /** Events for a session from each of its files' lines (main transcript first), in time order. */
-export function normalizeTranscriptSession(files: Array<{ file: string; lines: string[] }>, opts: { captureContent: boolean }): NormalizedEvent[] {
+export function normalizeTranscriptSession(files: Array<{ file: string; lines: string[] }>, opts: { captureContent: boolean; limits?: CaptureLimits }): NormalizedEvent[] {
   const turns = new TurnTracker();
   const seen = new SeenMessages();
   const events: NormalizedEvent[] = [];
   for (const { file, lines } of files) {
     const raw = lines.filter((l) => l.trim());
-    events.push(...normalizeTranscriptChunk(raw, file, 0, { captureContent: opts.captureContent, seen, turns }));
+    events.push(...normalizeTranscriptChunk(raw, file, 0, { captureContent: opts.captureContent, limits: opts.limits, seen, turns }));
     const parsed = raw.map((l) => {
       try {
         return JSON.parse(l);
@@ -165,7 +177,7 @@ export function normalizeTranscriptSession(files: Array<{ file: string; lines: s
 }
 
 /** Reads a session's transcripts from disk; files that can't be read are reported, not thrown. */
-export async function readTranscriptSession(mainFile: string, opts: { captureContent: boolean }): Promise<{ events: NormalizedEvent[]; files: string[]; missing: string[] }> {
+export async function readTranscriptSession(mainFile: string, opts: { captureContent: boolean; limits?: CaptureLimits }): Promise<{ events: NormalizedEvent[]; files: string[]; missing: string[] }> {
   const names = sessionFiles(mainFile, (dir) => fs.readdirSync(dir));
   const files: Array<{ file: string; lines: string[] }> = [];
   const missing: string[] = [];

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as path from 'path';
 import { NormalizedEvent, SessionSummary } from '@snagboat/schema';
+import { captureLimitsFrom } from '../excerpt';
 import { listUserStores, userDataDir, workspaceInfoOf } from '../userStore';
 import { liveCore, readCoreFile, removeCoreFile, removeCoreRoute, writeCoreFile, writeCoreRoute } from './coreFile';
 import { hookEvent, ingestHookSpool, openHookSpool, projectDirHeader } from './hooks';
@@ -425,6 +426,7 @@ export class CoreService {
         checkpoints,
         workspaceFor: (projectDir) => core.workspaceFor(projectDir),
         captureContent: (projectDir) => core.settingsFor(projectDir).captureContent !== false,
+        captureLimits: (projectDir) => captureLimitsFrom(core.settingsFor(projectDir)),
         deliver: (events, projectDir) => {
           // Collecting counts as activity: the core stays up while an agent is working.
           core.lastActivity = Date.now();
@@ -443,6 +445,7 @@ export class CoreService {
         hostProjectsDir: opts.claudeProjectsDir ?? defaultProjectsDir(),
         workspaceFor: (projectDir) => core.workspaceFor(projectDir),
         captureContent: (projectDir) => core.settingsFor(projectDir).captureContent !== false,
+        captureLimits: (projectDir) => captureLimitsFrom(core.settingsFor(projectDir)),
         deliver: (events) => {
           // Collected events count as activity, as the host's do: the core stays up while an agent in a container works.
           core.lastActivity = Date.now();
@@ -457,6 +460,7 @@ export class CoreService {
         sessionsDir: opts.copilotSessionsDir,
         workspaceFor: (cwd) => core.workspaceFor(cwd),
         captureContent: (cwd) => core.settingsFor(cwd).captureContent !== false,
+        captureLimits: (cwd) => captureLimitsFrom(core.settingsFor(cwd)),
         deliver: (events, cwd) => {
           core.lastActivity = Date.now();
           // A window of an earlier Snagboat writing its folder itself reads the Copilot sessions started inside it: drop those.

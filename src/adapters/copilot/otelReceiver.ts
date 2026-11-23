@@ -67,7 +67,7 @@ export class OtelReceiver {
 
     // Metrics and logs are accepted but not turned into events: the per-call
     // spans carry the same token counts, and counting both would double them.
-    const events = url.includes('/v1/traces') ? normalizeOtlpTraces(json, { captureContent: this.ctx.captureContent() }) : [];
+    const events = url.includes('/v1/traces') ? normalizeOtlpTraces(json, { captureContent: this.ctx.captureContent(), limits: this.ctx.captureLimits?.() }) : [];
     for (const event of events) {
       this.ctx.publish(event);
     }

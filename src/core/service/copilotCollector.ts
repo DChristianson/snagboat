@@ -1,4 +1,5 @@
-import { AdapterContext, NormalizedEvent } from '@snagboat/schema';
+import { AdapterContext, CaptureLimits, NormalizedEvent } from '@snagboat/schema';
+import { DEFAULT_CAPTURE_LIMITS } from '../excerpt';
 import { CopilotCliTailer, readCliCheckpoint } from '../../adapters/copilot/cliTailer';
 import { resolveCopilotSessionsDir } from '../../adapters/copilot/cliSessions';
 import { CheckpointStore } from '../checkpointStore';
@@ -20,6 +21,8 @@ export interface CopilotCollectorOptions {
   /** The workspace to record a session started in cwd under; undefined to not record it. */
   workspaceFor: (cwd: string) => string | undefined;
   captureContent: (cwd: string) => boolean;
+  /** How much prompt and reply text to keep for a session started in cwd; default 2,000 and 500. */
+  captureLimits?: (cwd: string) => CaptureLimits;
   deliver: (events: NormalizedEvent[], cwd: string) => Promise<unknown>;
   log?: (line: string) => void;
   sessionsDir?: string;
@@ -86,6 +89,7 @@ export class CopilotCollector {
         this.opts.checkpoints.write(CHECKPOINT_ID, cp).catch((err) => this.opts.log?.(`couldn't save the Copilot read position: ${err instanceof Error ? err.message : String(err)}`)),
       reportHealth: (_key, message) => message && this.opts.log?.(`Copilot${cwd ? ` (${cwd})` : ''}: ${message}`),
       captureContent: () => this.opts.captureContent(cwd),
+      captureLimits: () => this.opts.captureLimits?.(cwd) ?? DEFAULT_CAPTURE_LIMITS,
     };
     this.contexts.set(cwd, ctx);
     return ctx;

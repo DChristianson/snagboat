@@ -165,7 +165,23 @@
         "snagboat.captureContent": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Store text from your agent sessions: your prompts (up to 2,000 characters each), agent reply excerpts (up to 500 characters), and session names. Common secret formats (API keys, tokens, private keys, passwords in `key=value` form) are redacted before anything is stored. Prompts and replies are kept for `#snagboat.retention.textDays#` days; session names for as long as the session's events (`#snagboat.retention.rawDays#`). Nothing is sent off-machine. **Snagboat: Remove Captured Text** deletes what's already stored. For Copilot editor features' reply text, also requires `github.copilot.chat.otel.captureContent`."
+          "markdownDescription": "Store text from your agent sessions: your prompts (up to `#snagboat.capture.promptChars#` characters each, 2,000 by default), agent reply excerpts (up to `#snagboat.capture.replyChars#`, 500 by default), the commands, search patterns, URLs and descriptions of tool calls, and session names. Common secret formats (API keys, tokens, private keys, passwords in `key=value` form) are redacted before anything is stored. Prompts and replies are kept for `#snagboat.retention.textDays#` days; session names for as long as the session's events (`#snagboat.retention.rawDays#`). Nothing is sent off-machine. **Snagboat: Remove Captured Text** deletes what's already stored. For Copilot editor features' reply text, also requires `github.copilot.chat.otel.captureContent`."
+        },
+        "snagboat.capture.promptChars": {
+          "type": "integer",
+          "default": 2000,
+          "minimum": 1,
+          "maximum": 100000,
+          "scope": "resource",
+          "markdownDescription": "The most of a prompt's text that's stored when `#snagboat.captureContent#` is on, in characters. 98% of real prompts fit the default whole; longer ones are cut, with a note of how much, and marked as cut. Secrets are redacted from the whole prompt before it's cut. A new value applies to prompts captured from then on; text already stored stays as it was."
+        },
+        "snagboat.capture.replyChars": {
+          "type": "integer",
+          "default": 500,
+          "minimum": 1,
+          "maximum": 100000,
+          "scope": "resource",
+          "markdownDescription": "The most of an agent reply's text that's stored when `#snagboat.captureContent#` is on, in characters. Longer replies are cut, with an ellipsis, and marked as cut. Secrets are redacted from the whole reply before it's cut. A new value applies to replies captured from then on; text already stored stays as it was."
         },
         "snagboat.claudeCode.configureHooks": {
           "type": "boolean",

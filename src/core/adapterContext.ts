@@ -1,4 +1,4 @@
-import { AdapterContext, NormalizedEvent } from '@snagboat/schema';
+import { AdapterContext, CaptureLimits, NormalizedEvent } from '@snagboat/schema';
 import { EventBus } from './eventBus';
 import { CheckpointStore } from './checkpointStore';
 import { HealthRegistry } from './health';
@@ -9,7 +9,8 @@ export function makeAdapterContext(
   bus: EventBus,
   checkpoints: CheckpointStore | undefined,
   health: HealthRegistry,
-  captureContent: () => boolean = () => false
+  captureContent: () => boolean = () => false,
+  captureLimits?: () => CaptureLimits
 ): AdapterContext {
   return {
     publish(event: NormalizedEvent) {
@@ -25,5 +26,6 @@ export function makeAdapterContext(
       health.report(adapterId, key, message);
     },
     captureContent,
+    ...(captureLimits ? { captureLimits } : {}),
   };
 }

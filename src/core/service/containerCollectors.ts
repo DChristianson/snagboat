@@ -1,5 +1,6 @@
 import * as fs from 'fs';
-import { NormalizedEvent } from '@snagboat/schema';
+import { CaptureLimits, NormalizedEvent } from '@snagboat/schema';
+import { DEFAULT_CAPTURE_LIMITS } from '../excerpt';
 import { CheckpointStore } from '../checkpointStore';
 import { containersAllowed, loadConfig } from '../config';
 import {
@@ -30,6 +31,7 @@ export interface ContainerCollectorsOptions {
   hostProjectsDir: string;
   workspaceFor: (projectDir: string) => string | undefined;
   captureContent: (projectDir: string) => boolean;
+  captureLimits?: (projectDir: string) => CaptureLimits;
   deliver: (events: NormalizedEvent[], projectDir: string) => Promise<unknown>;
   log: (line: string) => void;
   discoveryIntervalMs?: number;
@@ -96,6 +98,7 @@ export class ContainerCollectors {
         projectFor: (cwd) => containerProjectFor(folder, cwd),
         workspaceFor: (projectDir) => this.opts.workspaceFor(projectDir),
         captureContent: (projectDir) => this.opts.captureContent(projectDir),
+        captureLimits: (projectDir) => this.opts.captureLimits?.(projectDir) ?? DEFAULT_CAPTURE_LIMITS,
         deliver: (events, projectDir) => {
           const seen = this.unsaved.get(folder) ?? { at: 0, events: 0 };
           this.unsaved.set(folder, { at: Date.now(), events: seen.events + events.length });

@@ -50,6 +50,9 @@ export const PROJECT_FILE = '.snagboat.json';
  */
 export const PRIVACY_DEFAULTS = {
   captureContent: true,
+  /** The most prompt and reply text stored (core/excerpt.ts); a project file may only lower them. */
+  'capture.promptChars': 2000,
+  'capture.replyChars': 500,
   'retention.rawDays': 90,
   'retention.textDays': 30,
   'retention.aggregateDays': -1,

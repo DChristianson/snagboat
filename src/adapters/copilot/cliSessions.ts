@@ -1,9 +1,10 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { NormalizedEvent } from '@snagboat/schema';
+import { CaptureLimits, NormalizedEvent } from '@snagboat/schema';
 import { classifyTool } from '@snagboat/schema';
-import { makeExcerpt, makePromptText, redactSecrets } from '../../core/excerpt';
+import { captureReply, capturePrompt, DEFAULT_CAPTURE_LIMITS, promptFields, redactSecrets, replyFields } from '../../core/excerpt';
+import { refsOf, toolInputOf } from '../../core/toolInput';
 import { sessionNameId } from '../../core/sessionNames';
 
 /**
@@ -98,9 +99,10 @@ export function normalizeCopilotCliChunk(
   filePath: string,
   chunkStartOffset: number,
   state: CopilotCliState,
-  opts: { captureContent?: boolean } = {}
+  opts: { captureContent?: boolean; limits?: CaptureLimits } = {}
 ): NormalizedEvent[] {
   const events: NormalizedEvent[] = [];
+  const limits = opts.limits ?? DEFAULT_CAPTURE_LIMITS;
   const fallbackSession = path.basename(path.dirname(filePath));
   for (const raw of rawLines) {
     let e: CliEvent;
@@ -126,8 +128,8 @@ export function normalizeCopilotCliChunk(
     };
 
     if (e.type === 'user.message') {
-      const promptText = opts.captureContent ? makePromptText([str(data.content)]) : undefined;
-      events.push({ ...base, eventId: e.id ?? `${filePath}:${chunkStartOffset}:prompt`, kind: 'user_prompt', status: 'unknown', ...(promptText ? { promptText } : {}) });
+      const prompt = opts.captureContent ? capturePrompt([str(data.content)], limits.promptChars) : undefined;
+      events.push({ ...base, eventId: e.id ?? `${filePath}:${chunkStartOffset}:prompt`, kind: 'user_prompt', status: 'unknown', ...promptFields(prompt) });
     } else if (e.type === 'session.usage_record') {
       const u = data.usage ?? {};
       const cacheRead = num(u.cacheReadTokens) ?? 0;
@@ -146,8 +148,8 @@ export function normalizeCopilotCliChunk(
     } else if (e.type === 'assistant.message') {
       // A reply that requests no tools finishes the turn.
       const ends = Array.isArray(data.toolRequests) && data.toolRequests.length === 0 && !str(data.parentToolCallId);
-      const textExcerpt = opts.captureContent ? makeExcerpt([str(data.content)]) : undefined;
-      if (ends || textExcerpt) {
+      const reply = opts.captureContent ? captureReply([str(data.content)], limits.replyChars) : undefined;
+      if (ends || reply) {
         events.push({
           ...base,
           eventId: `${e.id ?? `${filePath}:${chunkStartOffset}`}:${ends ? 'end' : 'reply'}`,
@@ -155,7 +157,7 @@ export function normalizeCopilotCliChunk(
           status: 'unknown',
           model: str(data.model),
           ...(ends ? { endsTurn: true } : {}),
-          ...(textExcerpt ? { textExcerpt } : {}),
+          ...replyFields(reply),
         });
       }
     } else if (e.type === 'tool.execution_start' && str(data.toolCallId)) {
@@ -166,15 +168,21 @@ export function normalizeCopilotCliChunk(
       const args = start?.args ?? {};
       const command = str(args.command);
       const exitCode = num(data.shellExecution?.exitCode);
+      const status: NormalizedEvent['status'] = data.success === false || (exitCode !== undefined && exitCode !== 0) ? 'failure' : data.success === true ? 'success' : 'unknown';
+      const toolInput = toolInputOf(name, args, opts.captureContent === true);
+      // From the command alone: the output's shape in this log isn't verified, so it isn't read.
+      const refs = refsOf(name, args, undefined, status === 'failure');
       events.push({
         ...base,
         eventId: e.id ?? `${filePath}:${chunkStartOffset}:tool`,
         kind: 'tool_call',
         target: command ?? str(args.path) ?? str(args.file_path) ?? str(args.filePath),
-        status: data.success === false || (exitCode !== undefined && exitCode !== 0) ? 'failure' : data.success === true ? 'success' : 'unknown',
+        status,
         toolName: name,
         toolCategory: classifyTool(name, command),
         model: str(data.model),
+        ...(toolInput ? { toolInput } : {}),
+        ...(refs ? { refs } : {}),
       });
     }
   }
