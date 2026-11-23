@@ -194,7 +194,10 @@ async function main() {
     assert.deepStrictEqual(m.repository, { privacy: 'private' });
     assert.ok(m.redactions.path > 0 && m.redactions.email > 0 && m.redactions.person > 0 && m.redactions.deny > 0, JSON.stringify(m.redactions));
     const sessions = lines<{ sessionId: string; where: string; commits: Array<{ sha: string }> }>('sessions.jsonl');
-    assert.deepStrictEqual(Object.fromEntries(sessions.map((s) => [s.sessionId, s.where])), {
+    // The rules make POSIX paths relative. On Windows (not supported, its CI job a signal only)
+    // a C:\ path is hidden as [path] instead: never leaked, as the planted-values test checks.
+    const posix = process.platform !== 'win32';
+    if (posix) assert.deepStrictEqual(Object.fromEntries(sessions.map((s) => [s.sessionId, s.where])), {
       'sess-1': '.',
       'sess-in': `[worktree-${r.selection.worktrees.indexOf(WT_INSIDE) + 1}]`,
       'sess-2': `[worktree-${r.selection.worktrees.indexOf(WT_OUTSIDE) + 1}]`,
@@ -203,7 +206,7 @@ async function main() {
     const commits = lines<CommitRecord>('git/commits.jsonl');
     assert.strictEqual(sessions.find((s) => s.sessionId === 'sess-1')!.commits[0].sha, commits[1].sha, 'ids join across files');
     const checkouts = lines<{ where: string }>('git/checkouts.jsonl').map((c) => c.where).sort();
-    assert.deepStrictEqual(checkouts, ['.', '[worktree-1]', '[worktree-2]']);
+    if (posix) assert.deepStrictEqual(checkouts, ['.', '[worktree-1]', '[worktree-2]']);
     const events = lines<{ eventId: string }>('events/2026-11-22.jsonl');
     assert.deepStrictEqual(events.map((e) => e.eventId), ['stop-1'], 'UTC days');
     assert.ok(fs.existsSync(exportKeyPath(SNAGBOAT_HOME, 'private', SHA1)), 'the repository key, named by the first commit');
