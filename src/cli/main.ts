@@ -572,6 +572,8 @@ function devcontainerJson(plan: DevcontainerPlan | undefined, edit: boolean, wro
     changes: plan.changes,
     ignoreLines: plan.ignoreLines,
     createsTranscriptsDir: plan.createsTranscriptsDir,
+    beadsExport: plan.beadsExportPath,
+    writesBeadsExport: plan.writesBeadsExport,
     notes: plan.notes,
     wrote: edit ? wrote : undefined,
   };
@@ -598,6 +600,9 @@ function devcontainerText(plan: DevcontainerPlan | undefined, edit: boolean, wro
     lines.push('Dev container: the config is set up.');
   }
   if (plan.createsTranscriptsDir) lines.push(`  + create ${rel(plan.transcriptsDir)}/ (Docker won't start with a missing mount source)`);
+  if (plan.writesBeadsExport && plan.beadsExportPath) {
+    lines.push(`  + ${fs.existsSync(plan.beadsExportPath) ? 'update' : 'write'} ${rel(plan.beadsExportPath)} (the container runs it on start: bd export and bd history to .snagboat/beads/ every minute)`);
+  }
   if (plan.ignoreLines.length && plan.ignoreFile) lines.push(`  + add ${plan.ignoreLines.join(' and ')} to ${plan.ignoreFile.startsWith(plan.folder + path.sep) ? rel(plan.ignoreFile) : plan.ignoreFile}`);
   for (const n of plan.notes) lines.push(`note: ${n}`);
   if (!edit) {

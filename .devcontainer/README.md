@@ -42,6 +42,7 @@ JetBrains and the `devcontainer` CLI read it too.
 | `init-project.sh` | Run once by hand: `git init` + `bd init --skip-hooks` |
 | `check-host-safety.sh` | Runs on every start: warns if git hooks have been configured (see below) |
 | `postStartCommand` | Also marks the project folder as a git `safe.directory` on every start: the folder is mounted from the host, so its owner isn't the container's user, and git, `gh` and `bd` would otherwise refuse to use it ("detected dubious ownership") |
+| `beads-export.sh` | `start` runs on every start: exports bd's issues and their history to `.snagboat/beads/` every minute, in the background, for Snagboat on the host (see [Beads for Snagboat on the host](#beads-for-snagboat-on-the-host)) |
 | `carry-transcripts.sh` | `start` runs on every start: moves Claude Code's transcripts from the old `/workspaces/snagboat` name to the project's new path. `save` is run once by hand before the first rebuild with the transcript mount (see below) |
 
 ## First use
@@ -176,6 +177,40 @@ Before running it, decide whether `.beads/` is committed, ignored or kept
 outside the repo (see `docs/design/handoff-3c.md`), and run it on a branch,
 not `refactor`. Then: `bd create "Build X" -p 1`, `bd ready`, and have Claude
 work through the queue.
+
+## Beads for Snagboat on the host
+
+`bd` runs only in here, and the beads database's git copy
+(`refs/dolt/data`) is Dolt's binary format, so Snagboat on the host can't
+read the beads itself. Instead, `beads-export.sh` (started by
+`postStartCommand`, with `nohup`, at low priority) writes them to the
+project folder every 60 seconds, and the host reads them at the same path:
+
+| File in `.snagboat/beads/` | What |
+|---|---|
+| `issues.jsonl` | `bd export`: every issue, one per line |
+| `history/<id>.json` | `bd history <id> --events --json`: the bead's audit events (created, claimed, updated, closed...), fetched again only when its `updated_at` changes |
+| `status.json` | when it last ran, how many issues and history files, `bd`'s version, the last error |
+| `export.log` | what it wrote, and errors; capped at 256 KB |
+| `state.tsv`, `export.lock/` | its own bookkeeping: each bead's last `updated_at`, and the lock that keeps it to one copy per folder |
+
+Each file is written to a temporary file and renamed, so the host never
+reads half of one. It only reads `bd` (`bd --readonly`) and writes nothing
+outside `.snagboat/beads/`, which git ignores. The first run fetches every
+bead's history (about 0.1 s each, 10 s for this repo's ~100 beads); after
+that a run takes about a third of a second. It exits quietly where `bd`
+isn't installed; with no `.beads` folder it writes only `status.json`.
+
+```bash
+sh .devcontainer/beads-export.sh once     # run it now, in the foreground
+cat .snagboat/beads/status.json
+tail .snagboat/beads/export.log
+```
+
+It's the same script `snagboat containers allow --edit` writes to another
+project with beads, as `.snagboat/bin/beads-export.sh`
+([docs/cli.md](../docs/cli.md#setting-up-the-dev-container)). A change to
+`postStartCommand` takes effect when the container is rebuilt.
 
 ## Safety model
 
