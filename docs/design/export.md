@@ -58,17 +58,17 @@ What the export removes is what says *whose* machine this is and *where* on it t
 
 | What | Becomes |
 | --- | --- |
-| A path inside the project, or inside one of its worktrees | Relative to the project root: `src/core/export.ts`. A worktree's own path becomes `[worktree-1]`. |
-| The home folder, or a path under it outside the project | `~` and `[path]`, keeping only the extension: `[path].ts`. |
+| A path inside the project, or inside one of its worktrees or `--match` paths | Relative to the project root: `src/core/export.ts`. A worktree's own path becomes `[worktree-1]`, and a path in it `[worktree-1]/src/core/export.ts`; a `--match` path likewise `[match-1]`. |
+| The home folder, or a path under it outside the project | `~`, and `~/[path]` keeping only the extension: `~/[path].ts`. |
 | Any other absolute path (`/tmp/...`, `/var/...`, `C:\...`), including inside commands and text | `[path]`, with its extension |
 | The user name, the machine's host name, and names found in home paths (`/Users/<name>`, `/home/<name>`) | `[user]`, `[host]` |
 | The workspace's folder name and store key, `NormalizedEvent.workspace`, and the `raw` block (adapter refs name transcript files) | Dropped |
-| Event ids that embed a path (fallback ids like `claude-code:<file>:<offset>`) | Re-keyed by HMAC (see below) |
+| Event ids that embed a path (fallback ids like `claude-code:<file>:<offset>`) | Re-keyed by HMAC (see below). A SHA inside an id (`outcome:milestone:<sha>`) is re-keyed like any SHA. |
 | Store record ids hashed from a SHA or a path (checkout and link ids, [below](#the-normalized-schema)), since anyone with the repository could test a guess against them | Re-keyed by HMAC, the same everywhere the id appears |
 | Commit SHAs, in a private repository (the default) | Re-keyed by HMAC with the repository's key (see below) |
 | Git remote URLs | Dropped. The project's name comes from `--name`. |
 | Container ids, dev container volume names, VS Code storage hashes | Dropped |
-| People (git authors and committers, `Co-Authored-By` humans, bead `owner`, `created_by`, `assignee`, actors in bead history) | Pseudonyms: `person-1`, `person-2`. Agents keep their names (`claude-code`, `copilot`, "Claude" in a co-author line), since which agent did the work is the point. |
+| People (git authors and committers, `Co-Authored-By` humans, bead `owner`, `created_by`, `assignee`, actors in bead history) | Pseudonyms: `person-` and 8 hex characters of the keyed hash of the name (`person-3f9a0c21`), so the same person gets the same pseudonym in every export made with the same key, whichever records it holds. A bd actor with the same name as a git ident is the same person. Agents keep their names (`claude-code`, `copilot`, "Claude" in a co-author line), since which agent did the work is the point. |
 | Timestamps | Kept, in UTC. Git's timezone offsets are dropped, because they say roughly where you are. |
 
 Session ids, subagent ids, turn ids and bead ids are kept. They're random or content-derived, and joining two exports of the same project needs them.
@@ -81,7 +81,7 @@ Session ids, subagent ids, turn ids and bead ids are kept. They're random or con
 A public repository's SHAs are kept, so its exports join with its real history.
 
 **Re-keying and pseudonyms use one keyed hash (HMAC), with a key chosen by the repository's privacy:**
-- **Private repository: the repository's key.** It's made on the first export and kept in `~/.snagboat/export-keys/<repository>.key`, where `<repository>` is a hash of its first commit, so every clone finds the same file name. Re-keyed SHAs and pseudonyms both use it. Give a teammate the key file, never by committing it, and their exports of the same repository use the same SHAs and the same `person-N` for the same people, so the two join up.
+- **Private repository: the repository's key.** It's made on the first export and kept in `~/.snagboat/export-keys/<repository>.key`, where `<repository>` is a hash of its first commit, so every clone finds the same file name. Re-keyed SHAs and pseudonyms both use it. Give a teammate the key file, never by committing it, and their exports of the same repository use the same SHAs and the same pseudonyms for the same people, so the two join up.
 - **Public repository: this machine's key,** kept in `~/.snagboat/export.key`. It's used for pseudonyms and for event ids that embed a path. Two exports from your machine agree, but other people's don't, since pseudonyms are only for joining your own exports.
 
 Either way, nobody without the key can test a guess at a path, a name or a SHA against the export. Deleting a key starts fresh numbering.
@@ -129,7 +129,7 @@ Some things aren't clearly fine or clearly not. Each of these is **flagged**:
 - a path that couldn't be made relative and is still named, such as a Windows share or a URL with a file path;
 - any rule that hit a value and was then overridden by `--allow`.
 
-A flagged value is replaced with `[flagged-N]` in the export. The review folder, `<out>.review/flags.jsonl`, lists each one: its number, the rule, the record and field, the value, and 80 characters of context each side. It's written beside the export, never inside it, so copying the export folder never copies it. Running the export again with `--allow flagged-3,flagged-7` (or `--allow-rule internal-url`) puts those values back. `--fail-on-flags` writes nothing if anything is flagged, for scripts.
+A flagged value is replaced with `[flagged-N]` in the export. The review folder, `<out>.review/flags.jsonl`, lists each one: its number, the rule, the record and field, the value, and 80 characters of context each side. It's written beside the export, never inside it, so copying the export folder never copies it. Running the export again with `--allow flagged-3,flagged-7` (or `--allow-rule internal-url`) puts those values back. Flags are numbered in the order the export meets them, so the same selection numbers them the same way again. `--allow-rule` takes any rule 4 flag, and the rule 2 values that are sometimes the point (`email`, `ip`, `mac`, `phone`, `card`); never secrets, keys or denied words. A rule 2 value it keeps is listed in the review file as `allowed-N`, numbered apart from the flags so allowing a rule never renumbers them. `--fail-on-flags` writes nothing if anything is flagged, for scripts.
 
 ### 5. The final check
 
