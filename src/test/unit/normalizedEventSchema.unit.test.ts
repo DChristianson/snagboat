@@ -1,11 +1,11 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { EventOutcome, NormalizedEvent, NormalizedEventKind, normalizedEventSchema, normalizedEventSchemaV1, normalizedEventSchemaV2, TOOL_CATEGORY_LABELS } from '@snagboat/schema';
+import { EventOutcome, exportedEventSchema, NormalizedEvent, NormalizedEventKind, normalizedEventSchema, normalizedEventSchemaV1, normalizedEventSchemaV2, normalizedEventSchemaV3, Redaction, TOOL_CATEGORY_LABELS } from '@snagboat/schema';
 import { sessionEvents } from '../../scripts/replayHeuristics';
 import { syntheticEvents } from '../fixtures/synthetic';
 import { normalizeHookPayload } from '../../adapters/claude-code/normalize';
 
-// The JSON Schema in @snagboat/schema (normalizedEvent.v3.schema.json) must describe the
+// The JSON Schema in @snagboat/schema (normalizedEvent.v4.schema.json) must describe the
 // events Snagboat actually writes. A compile-time check in jsonSchema.ts keeps its field
 // list equal to NormalizedEvent's; this test checks the values: enums against the
 // TypeScript unions, and real events (the Claude Code fixture, the synthetic
@@ -119,8 +119,10 @@ async function main() {
       assert.deepStrictEqual(validate(schema, JSON.parse(JSON.stringify(normalizeHookPayload(payload)))), [], payload.hook_event_name);
     }
     assert.ok(validate(schema, { ...green, outcome: { type: 'approval', decision: 'maybe' } }).length > 0);
-    assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in v2.properties)).sort(), ['outcome', 'taskOp', 'todos']);
-    assert.deepStrictEqual(Object.keys(v2.properties).filter((k) => !(k in props)), []);
+    const v3 = normalizedEventSchemaV3 as Schema;
+    assert.deepStrictEqual(validate(v3, green), []);
+    assert.deepStrictEqual(Object.keys(v3.properties).filter((k) => !(k in v2.properties)).sort(), ['outcome', 'taskOp', 'todos']);
+    assert.deepStrictEqual(Object.keys(v2.properties).filter((k) => !(k in v3.properties)), []);
     for (const e of syntheticEvents()) assert.deepStrictEqual(validate(v2, JSON.parse(JSON.stringify(e))), [], e.eventId);
   });
 
@@ -155,6 +157,52 @@ async function main() {
     assert.ok(validate(schema, { ...ok, taskOp: { id: '1' } }).length > 0);
     assert.ok(validate(schema, { ...ok, taskOp: { op: 'list', tasks: [{ id: '1', status: 'deleted' }] } }).length > 0, 'a listed task is never deleted');
     assert.ok(validate(schema, { ...ok, taskOp: { op: 'create', id: '1', description: 'd' } }).length > 0);
+  });
+
+  test('version 4 adds toolInput, refs and textTruncated; every version 1, 2 and 3 event is a valid version 4 event', () => {
+    const v1 = normalizedEventSchemaV1 as Schema;
+    const v2 = normalizedEventSchemaV2 as Schema;
+    const v3 = normalizedEventSchemaV3 as Schema;
+    assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in v3.properties)).sort(), ['refs', 'textTruncated', 'toolInput']);
+    assert.deepStrictEqual(Object.keys(v3.properties).filter((k) => !(k in props)), []);
+    // Everything else is unchanged from version 3, so a version 3 reader reads version 4 events.
+    for (const k of Object.keys(v3.properties)) assert.deepStrictEqual(props[k], v3.properties[k], k);
+    assert.deepStrictEqual(schema.required, v3.required);
+    const ok = { eventId: 'tool:toolu_1', sessionId: 's', agent: 'claude-code', ts: '2026-11-21T00:00:00Z', kind: 'tool_call', status: 'success', raw: { adapter: 'a', ref: 'r' } };
+    const commit = { ...ok, toolName: 'Bash', toolCategory: 'version-control', toolInput: { command: 'git commit -m "x (snagboat-koh)"', description: 'Commit' }, refs: { commit: '48150b0', branch: 'export-schema', planItems: ['snagboat-koh'] } };
+    assert.deepStrictEqual(validate(schema, commit), []);
+    assert.deepStrictEqual(validate(schema, { ...ok, toolInput: { path: '/w/p/src/a.ts' } }), []);
+    assert.deepStrictEqual(validate(schema, { ...ok, toolInput: { pattern: 'TODO' } }), []);
+    assert.deepStrictEqual(validate(schema, { ...ok, toolInput: { url: 'https://example.com' } }), []);
+    assert.deepStrictEqual(validate(schema, { ...ok, kind: 'user_prompt', promptText: 'x', textTruncated: true }), []);
+    assert.ok(validate(v3, commit).length > 0, 'version 3 has no toolInput or refs');
+    assert.ok(validate(schema, { ...ok, toolInput: { output: 'x' } }).length > 0, 'never tool output');
+    assert.ok(validate(schema, { ...ok, refs: { planItems: 'snagboat-koh' } }).length > 0);
+    assert.ok(validate(schema, { ...ok, refs: { issue: 'x' } }).length > 0);
+    assert.ok(validate(schema, { ...ok, textTruncated: false }).length > 0);
+    assert.ok(validate(schema, { ...ok, redactions: [] }).length > 0, 'redactions are export only');
+    for (const e of syntheticEvents()) {
+      const event = JSON.parse(JSON.stringify(e));
+      for (const older of [v1, v2, v3]) if (validate(older, event).length === 0) assert.deepStrictEqual(validate(schema, event), [], e.eventId);
+    }
+  });
+
+  test('an exported event is a version 4 event without workspace and raw, with redactions', () => {
+    const exported = exportedEventSchema as Schema;
+    assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in exported.properties)).sort(), ['raw', 'workspace']);
+    assert.deepStrictEqual(Object.keys(exported.properties).filter((k) => !(k in props)), ['redactions']);
+    for (const k of Object.keys(exported.properties)) if (k !== 'redactions') assert.deepStrictEqual(exported.properties[k], props[k], k);
+    for (const e of syntheticEvents()) {
+      const { raw: _raw, workspace: _workspace, ...rest } = JSON.parse(JSON.stringify(e));
+      assert.deepStrictEqual(validate(exported, rest), [], e.eventId);
+    }
+    const ok = { eventId: 'e', sessionId: 's', agent: 'claude-code', ts: '2026-11-21T00:00:00Z', kind: 'user_prompt', status: 'unknown', promptText: 'see [path].ts and [email-1]' };
+    const redactions: Redaction[] = [{ field: 'promptText', rule: 'outside-path', count: 1 }, { field: 'promptText', rule: 'email', count: 1 }];
+    assert.deepStrictEqual(validate(exported, { ...ok, redactions }), []);
+    assert.ok(validate(exported, { ...ok, raw: { adapter: 'a', ref: 'r' } }).length > 0, 'raw is never exported');
+    assert.ok(validate(exported, { ...ok, workspace: '/w/p' }).length > 0, 'workspace is never exported');
+    assert.ok(validate(exported, { ...ok, redactions: [{ field: 'promptText', rule: 'email' }] }).length > 0);
+    assert.ok(validate(exported, { ...ok, redactions: [{ field: 'promptText', rule: 'email', count: 1, value: 'a@b.c' }] }).length > 0, 'never the value');
   });
 
   test('every event in the synthetic sessions is valid', () => {

@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DChristianson/snagboat/schema/link-record/v1",
+  "title": "LinkRecord",
+  "description": "One line of a workspace's links.jsonl in the store (docs/design/export.md, How records are linked): a typed edge between sessions, commits, branches, plan items and transitions. Keyed by id, link- and 16 hex characters of SHA-256 over from, to, kind and how; append only, the latest line with an id is the link. It matches the LinkRecord type in storeRecords.ts; a unit test and a compile-time check keep them in step.",
+  "type": "object",
+  "required": [
+    "record",
+    "version",
+    "id",
+    "from",
+    "to",
+    "kind",
+    "confidence",
+    "evidence"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "record": {
+      "type": "string",
+      "const": "link"
+    },
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "id": {
+      "type": "string"
+    },
+    "from": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "session",
+            "commit",
+            "branch",
+            "plan-item",
+            "transition"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "to": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "session",
+            "commit",
+            "branch",
+            "plan-item",
+            "transition"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "kind": {
+      "enum": [
+        "made",
+        "worked-on",
+        "touched",
+        "references",
+        "merged",
+        "made-in"
+      ]
+    },
+    "how": {
+      "enum": [
+        "created",
+        "claimed",
+        "updated",
+        "closed",
+        "mentioned"
+      ],
+      "description": "touched: how the session touched the item."
+    },
+    "confidence": {
+      "enum": [
+        "observed",
+        "inferred"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "description": "Why: rule names and the ids of the records that show it.",
+      "items": {
+        "type": "object",
+        "required": [
+          "rule",
+          "refs"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "rule": {
+            "type": "string"
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "supersededBy": {
+      "type": "string",
+      "description": "Store only: the link that replaced this one. Never exported."
+    }
+  }
+}

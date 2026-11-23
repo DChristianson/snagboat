@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DChristianson/snagboat/schema/finding-record/v1",
+  "title": "FindingRecord",
+  "description": "One line of a workspace's findings.jsonl in the store (docs/design/export.md): a finding episode, written as it closes, as it was shown. Keyed by id, finding- and 16 hex characters of SHA-256 over the heuristic, session and first time. It matches the FindingRecord type in storeRecords.ts; a unit test and a compile-time check keep them in step.",
+  "type": "object",
+  "required": [
+    "record",
+    "version",
+    "id",
+    "heuristicId",
+    "heuristicVersion",
+    "severity",
+    "firstTs",
+    "lastTs",
+    "eventRefs",
+    "earlyWarning",
+    "response"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "record": {
+      "type": "string",
+      "const": "finding"
+    },
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "id": {
+      "type": "string"
+    },
+    "heuristicId": {
+      "type": "string",
+      "description": "The heuristic's or saved rule's id."
+    },
+    "heuristicVersion": {
+      "type": "string",
+      "description": "A built-in's Snagboat version, or a hash of a saved rule's definition."
+    },
+    "sessionId": {
+      "type": "string",
+      "description": "The session of its latest event."
+    },
+    "turnId": {
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "info",
+        "warn"
+      ],
+      "description": "The worst severity it reached."
+    },
+    "summary": {
+      "type": "string",
+      "description": "The latest finding's summary, as shown."
+    },
+    "firstTs": {
+      "type": "string"
+    },
+    "lastTs": {
+      "type": "string"
+    },
+    "eventRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "earlyWarning": {
+      "type": "boolean"
+    },
+    "response": {
+      "enum": [
+        "useful",
+        "muted",
+        "acknowledged",
+        "passed"
+      ]
+    }
+  }
+}

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DChristianson/snagboat/schema/session-record/v1",
+  "title": "SessionRecord",
+  "description": "One line of an export's sessions.jsonl (docs/design/export.md): what snagboat sessions --json prints for a session, plus where it ran and the branches, commits and plan items linked to it. It matches the SessionRecord type in exportRecords.ts; a unit test and a compile-time check keep them in step.",
+  "type": "object",
+  "required": [
+    "sessionId",
+    "agent",
+    "firstTs",
+    "lastTs",
+    "models",
+    "prompts",
+    "modelCalls",
+    "toolCalls",
+    "tokens",
+    "subagents",
+    "days",
+    "subagentIds",
+    "where",
+    "branches",
+    "commits",
+    "planItems"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "type": "string"
+    },
+    "agent": {
+      "type": "string"
+    },
+    "firstTs": {
+      "type": "string"
+    },
+    "lastTs": {
+      "type": "string"
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "prompts": {
+      "type": "number"
+    },
+    "modelCalls": {
+      "type": "number"
+    },
+    "toolCalls": {
+      "type": "number"
+    },
+    "tokens": {
+      "type": "number"
+    },
+    "subagents": {
+      "type": "number",
+      "description": "How many subagents it ran."
+    },
+    "days": {
+      "type": "array",
+      "description": "UTC days holding its events, oldest first.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "name": {
+      "type": "string"
+    },
+    "subagentIds": {
+      "type": "array",
+      "description": "The subagents' ids.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "where": {
+      "type": "string",
+      "description": "'.' for the project root, or '[worktree-N]'."
+    },
+    "branches": {
+      "type": "array",
+      "description": "Branches checked out during it, in order, by name.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "sha",
+          "confidence"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "sha": {
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "observed",
+              "inferred"
+            ]
+          }
+        }
+      }
+    },
+    "planItems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "how",
+          "confidence"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "how": {
+            "enum": [
+              "created",
+              "claimed",
+              "updated",
+              "closed",
+              "mentioned"
+            ]
+          },
+          "confidence": {
+            "enum": [
+              "observed",
+              "inferred"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

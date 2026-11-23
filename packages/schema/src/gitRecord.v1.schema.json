@@ -1,0 +1,279 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DChristianson/snagboat/schema/git-record/v1",
+  "title": "GitRecord",
+  "description": "One line of a workspace's git.jsonl in the store (docs/design/export.md): a commit, a branch or a checkout, named by record. Append only; the latest line with a key is the record. It matches the GitRecord type in storeRecords.ts; a unit test and a compile-time check keep them in step.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/commit"
+    },
+    {
+      "$ref": "#/$defs/branch"
+    },
+    {
+      "$ref": "#/$defs/checkout"
+    }
+  ],
+  "$defs": {
+    "commit": {
+      "type": "object",
+      "description": "A commit, merges included. Keyed by sha.",
+      "required": [
+        "record",
+        "version",
+        "sha",
+        "parents",
+        "kind",
+        "authoredAt",
+        "committedAt",
+        "author",
+        "committer",
+        "coAuthors",
+        "subject",
+        "files",
+        "onBranches"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "record": {
+          "type": "string",
+          "const": "commit"
+        },
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "sha": {
+          "type": "string",
+          "description": "The full SHA: the record's key."
+        },
+        "parents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "kind": {
+          "enum": [
+            "commit",
+            "merge",
+            "squash"
+          ],
+          "description": "merge: two or more parents. squash: one parent, and its subject names a pull request."
+        },
+        "authoredAt": {
+          "type": "string",
+          "description": "ISO 8601, UTC."
+        },
+        "committedAt": {
+          "type": "string",
+          "description": "ISO 8601, UTC."
+        },
+        "author": {
+          "type": "string",
+          "description": "In the store, git's ident (Name <email>); in an export, person-N or an agent's name."
+        },
+        "committer": {
+          "type": "string"
+        },
+        "coAuthors": {
+          "type": "array",
+          "description": "From Co-Authored-By trailers.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "subject": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "status",
+              "added",
+              "deleted"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Relative to the repository's root."
+              },
+              "status": {
+                "enum": [
+                  "A",
+                  "M",
+                  "D",
+                  "R"
+                ]
+              },
+              "added": {
+                "type": "number"
+              },
+              "deleted": {
+                "type": "number"
+              },
+              "from": {
+                "type": "string",
+                "description": "R: the path it was renamed from."
+              }
+            }
+          }
+        },
+        "pr": {
+          "type": "number",
+          "description": "Pull request number from the subject, when there is one."
+        },
+        "reverts": {
+          "type": "string",
+          "description": "The commit this one reverts."
+        },
+        "onBranches": {
+          "type": "array",
+          "description": "Branches whose history contains it when it was recorded, by name.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "branch": {
+      "type": "object",
+      "description": "A branch. Keyed by id, since a name can be deleted and made again.",
+      "required": [
+        "record",
+        "version",
+        "id",
+        "name",
+        "firstSeenAt",
+        "head"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "record": {
+          "type": "string",
+          "const": "branch"
+        },
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "description": "<name>@<firstSeenAt>."
+        },
+        "name": {
+          "type": "string"
+        },
+        "firstSeenAt": {
+          "type": "string",
+          "description": "When the repository job first saw it."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Its first reflog entry, when the reflog still has it."
+        },
+        "from": {
+          "type": "string",
+          "description": "The commit it started from."
+        },
+        "head": {
+          "type": "string",
+          "description": "Its last known commit."
+        },
+        "merged": {
+          "type": "object",
+          "description": "Where it went, if it did.",
+          "required": [
+            "into",
+            "at",
+            "via",
+            "commit"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "into": {
+              "type": "string",
+              "description": "The branch it was merged into, by name."
+            },
+            "at": {
+              "type": "string"
+            },
+            "via": {
+              "enum": [
+                "merge",
+                "squash",
+                "rebase",
+                "fast-forward"
+              ]
+            },
+            "commit": {
+              "type": "string"
+            },
+            "pr": {
+              "type": "number"
+            }
+          }
+        },
+        "deletedAt": {
+          "type": "string",
+          "description": "When Snagboat saw it gone."
+        }
+      }
+    },
+    "checkout": {
+      "type": "object",
+      "description": "A HEAD move in one working tree, from its reflog. Keyed by id.",
+      "required": [
+        "record",
+        "version",
+        "id",
+        "at",
+        "from",
+        "to",
+        "commit",
+        "where"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "record": {
+          "type": "string",
+          "const": "checkout"
+        },
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "description": "checkout- and 16 hex characters of SHA-256 over the worktree, time and commit."
+        },
+        "at": {
+          "type": "string",
+          "description": "The reflog entry's time."
+        },
+        "from": {
+          "type": "string",
+          "description": "Branch name, or a short SHA when detached."
+        },
+        "to": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string",
+          "description": "The commit HEAD moved to."
+        },
+        "where": {
+          "type": "string",
+          "description": "In the store, the working tree's absolute path; in an export, '.' or '[worktree-N]'."
+        }
+      }
+    }
+  }
+}

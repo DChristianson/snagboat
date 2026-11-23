@@ -64,6 +64,7 @@ What the export removes is what says *whose* machine this is and *where* on it t
 | The user name, the machine's host name, and names found in home paths (`/Users/<name>`, `/home/<name>`) | `[user]`, `[host]` |
 | The workspace's folder name and store key, `NormalizedEvent.workspace`, and the `raw` block (adapter refs name transcript files) | Dropped |
 | Event ids that embed a path (fallback ids like `claude-code:<file>:<offset>`) | Re-keyed by HMAC (see below) |
+| Store record ids hashed from a SHA or a path (checkout and link ids, [below](#the-normalized-schema)), since anyone with the repository could test a guess against them | Re-keyed by HMAC, the same everywhere the id appears |
 | Commit SHAs, in a private repository (the default) | Re-keyed by HMAC with the repository's key (see below) |
 | Git remote URLs | Dropped. The project's name comes from `--name`. |
 | Container ids, dev container volume names, VS Code storage hashes | Dropped |
@@ -140,6 +141,13 @@ The schema extends what Snagboat already records rather than starting over. Even
 
 This is the **store's** schema, not only the export's. The core writes these records into each workspace's folder in `~/.snagboat/data`, heuristics and advisors read them there, and the export writes the same records with the privacy rules applied. Fields marked *export only* are added by the privacy step and never stored.
 
+The types and JSON Schemas are in `packages/schema` (`storeRecords.ts` and `exportRecords.ts`; [schema.md](../schema.md#git-plan-link-and-finding-records) lists the schema files). Every store record also carries:
+- `record`, its type, since one store file holds several: `'commit'`, `'branch'` or `'checkout'` in `git.jsonl`; `'item'` or `'transition'` in `plan.jsonl`; `'link'` in `links.jsonl`; `'finding'` in `findings.jsonl`. It's `record`, not `type`, because a transition already has a `type`. The export splits `git.jsonl` and `plan.jsonl` into one file per `record` and keeps the field.
+- `version: 1`.
+- A stable key: a commit's `sha`, every other record's `id` (given with each record below). The files are append only: a record that changes is appended again with the same key, the latest line with a key is the record, and a job appends nothing when a record hasn't changed, so running it again adds nothing. Hashed ids are the first hex characters of a SHA-256 of the fields named, joined by newlines.
+
+The records below show the fields the export writes, so a person is `person-N` and a worktree `[worktree-N]`. The store holds the raw values: git idents (`Name <email>`), bd's actor names, a worktree's absolute path.
+
 ```mermaid
 erDiagram
   SESSION ||--o{ EVENT : "has"
@@ -168,22 +176,16 @@ Version 4 is version 3 with these changes, so a v3 reader still reads the events
 | `textTruncated` | New, optional: the prompt or reply text was cut at the store's cap. |
 | `redactions` | New, *export only*: `{ field, rule, count }[]`, saying what rules 1, 2 and 4 replaced in this event, without the values. |
 
+Since an exported event has no `raw`, which a stored event requires, it has its own schema: `ExportedEvent` (`exportedEvent.v4.schema.json`), version 4 without `workspace` and `raw`, with `redactions`. The store's schema (`normalizedEvent.v4.schema.json`) has no `redactions`.
+
 ### Sessions: `sessions.jsonl`
 
-What `snagboat sessions --json` prints for a session (id, agent, first and last time, prompts, tool calls, tokens, models, name), plus:
+What `snagboat sessions --json` prints for a session (`SessionSummary`: id, agent, first and last time, prompts, model calls, tool calls, tokens, models, subagent count, days, name), plus:
 
 ```ts
-interface SessionRecord {
-  sessionId: string;
-  agent: AgentId;
-  firstTs: string;
-  lastTs: string;
-  prompts: number;
-  toolCalls: number;
-  tokens: number;
-  models: string[];
-  name?: string;
-  subagents: string[];
+interface SessionRecord extends SessionSummary {
+  /** The subagents' ids. (SessionSummary.subagents stays their count.) */
+  subagentIds: string[];
   /** '.' for the project root, or '[worktree-1]' for another worktree. */
   where: string;
   /** Branches checked out during the session, in order (from checkouts and links). */
@@ -191,16 +193,20 @@ interface SessionRecord {
   /** Commits linked to the session, with each link's confidence. */
   commits: Array<{ sha: string; confidence: Confidence }>;
   /** Plan items linked to the session, and how it touched each. */
-  planItems: Array<{ id: string; how: 'created' | 'claimed' | 'updated' | 'closed' | 'mentioned'; confidence: Confidence }>;
+  planItems: Array<{ id: string; how: 'created' | 'claimed' | 'updated' | 'closed' | 'mentioned'; confidence: Confidence }>;  // one per item and way
 }
 type Confidence = 'observed' | 'inferred';
 ```
 
 ### Git: `git/commits.jsonl`, `git/branches.jsonl`, `git/checkouts.jsonl`
 
+In the store, all three are `git.jsonl`.
+
 ```ts
 interface CommitRecord {
-  sha: string;
+  record: 'commit';
+  version: 1;
+  sha: string;                 // the key
   parents: string[];
   /** 'merge': two or more parents. 'squash': one parent, and its subject names a pull request ("(#157)"). */
   kind: 'commit' | 'merge' | 'squash';
@@ -221,7 +227,11 @@ interface CommitRecord {
 }
 
 interface BranchRecord {
+  record: 'branch';
+  version: 1;
+  id: string;                  // `${name}@${firstSeenAt}`: a name deleted and made again is a new branch
   name: string;                // scrubbed by the rules like any text: a user name in it becomes [user]
+  firstSeenAt: string;         // when the repository job first saw it
   createdAt?: string;          // first reflog entry
   from?: string;               // the commit it started from
   head: string;                // its last known commit
@@ -232,9 +242,14 @@ interface BranchRecord {
 }
 
 interface CheckoutRecord {
+  record: 'checkout';
+  version: 1;
+  /** 'checkout-' + 16 hex of SHA-256(worktree, at, commit); worktree is '.' or its name under .git/worktrees/. Not HEAD@{n}, which shifts. */
+  id: string;
   at: string;
   from: string;                // branch name, or a short SHA when detached
   to: string;
+  commit: string;              // the commit HEAD moved to
   /** '.' or '[worktree-N]', since each worktree has its own HEAD. */
   where: string;
 }
@@ -248,12 +263,15 @@ Plan items follow Factory Clock's `PlanItem` (its `src/model/plan.ts`), so its v
 
 ```ts
 interface PlanItemRecord {
-  id: string;                  // the bead's id
+  record: 'item';
+  version: 1;
+  id: string;                  // the bead's id, or 'md-' + 12 hex of SHA-256(file, heading path)
   kind: 'epic' | 'milestone' | 'feature' | 'task' | 'bug' | 'step' | 'decision' | 'question' | 'note';
   title: string;
   status: 'open' | 'in_progress' | 'blocked' | 'done' | 'deferred' | 'dropped';
   priority?: number;
   parent?: string;
+  blockedBy?: string[];        // the items it depends on (bd's blocking dependencies)
   labels: string[];
   created: string;
   started?: string;
@@ -269,7 +287,9 @@ interface PlanItemRecord {
 }
 
 interface TransitionRecord {
-  id: string;
+  record: 'transition';
+  version: 1;
+  id: string;                  // the bd audit event's id, or 'md-t-' + 16 hex of SHA-256(item, at, type, to)
   item: string;
   at: string;
   type: 'created' | 'claimed' | 'status_changed' | 'updated' | 'closed' | 'reopened' | 'dependency_added' | 'dependency_removed' | 'commented' | 'label_added' | 'label_removed';
@@ -278,6 +298,7 @@ interface TransitionRecord {
   /** For 'updated': which fields changed, not their values (the item has its current text). */
   fields?: string[];
   actor: string;               // person-N, or an agent's name
+  confidence: Confidence;      // 'observed' from bd's journal; 'inferred' from markdown
 }
 ```
 
@@ -295,18 +316,68 @@ The lifecycle comes from watching the files. Each run compares an item with what
 
 Findings were half of step 9's original ask, and Factory Clock's page has shown none since step 8. One record per episode: heuristic or rule id and its version, session, turn, first and last time, the events it's about, whether it was an early warning, and your response (`useful`, `muted`, `acknowledged`, `passed`).
 
+```ts
+interface FindingRecord {
+  record: 'finding';
+  version: 1;
+  id: string;                  // 'finding-' + 16 hex of SHA-256(heuristicId, sessionId, firstTs)
+  heuristicId: string;         // a heuristic's or saved rule's id
+  heuristicVersion: string;    // a built-in's Snagboat version, or a hash of a saved rule's definition
+  sessionId?: string;          // the session of its latest event; absent for a finding about no one session
+  turnId?: string;
+  severity: 'info' | 'warn';   // the worst it reached
+  summary?: string;            // the latest finding's summary, as shown
+  firstTs: string;
+  lastTs: string;
+  eventRefs: string[];
+  earlyWarning: boolean;
+  response: 'useful' | 'muted' | 'acknowledged' | 'passed';
+}
+```
+
 Today the store keeps only your responses (`finding_response` outcomes, `finding-responses.jsonl`); the core works episodes out live from events. Replaying the heuristics at export time would break "the export only selects", and would give different answers once a heuristic changes. So the core also writes each episode to the workspace's `findings.jsonl` when it closes, as it was shown, and the export selects from that.
 
 ### Links: `links.jsonl`
 
 ```ts
 interface LinkRecord {
+  record: 'link';
+  version: 1;
+  /** 'link-' + 16 hex of SHA-256(from, to, kind, how): confidence isn't part of it, so a link that turns observed is the same link. */
+  id: string;
   from: { type: 'session' | 'commit' | 'branch' | 'plan-item' | 'transition'; id: string };
   to: { type: 'session' | 'commit' | 'branch' | 'plan-item' | 'transition'; id: string };
   kind: 'made' | 'worked-on' | 'touched' | 'references' | 'merged' | 'made-in';
+  /** touched: how the session touched the item. */
+  how?: 'created' | 'claimed' | 'updated' | 'closed' | 'mentioned';
   confidence: Confidence;
   /** Why: rule names and the ids of the records that show it. */
   evidence: Array<{ rule: string; refs: string[] }>;
+  /** Store only: the link that replaced this one. */
+  supersededBy?: string;
+}
+```
+
+A link's ends name records by their key: a session's id, a commit's SHA, a branch's, item's or transition's `id`.
+
+### The manifest: `manifest.json`
+
+```ts
+interface ExportManifest {
+  format: 'snagboat-export';
+  version: 1;                  // the export format's version
+  eventSchema: 4;
+  generatedAt: string;
+  project: string;             // from --name
+  range: { since?: string; until?: string; first?: string; last?: string };  // asked for; first and last event exported
+  text: 'redacted' | 'none';
+  counts: { days: number; events: number; sessions: number; findings: number; commits: number; branches: number;
+            checkouts: number; planItems: number; transitions: number; links: number };
+  rulesVersion: number;        // the privacy rules' version
+  snagboatVersion: string;
+  redactions: Record<string, number>;  // values replaced, by rule
+  flags: number;               // values flagged; the review folder is never named
+  repository: { privacy: 'private' | 'public' };
 }
 ```
 
