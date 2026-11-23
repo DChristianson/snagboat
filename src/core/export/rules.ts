@@ -8,10 +8,10 @@ import { SECRET_PATTERNS } from '../excerpt';
  */
 
 /** The rule set's version, for manifest.json's rulesVersion. Bump it when a rule changes what an export holds. */
-export const RULES_VERSION = 1;
+export const RULES_VERSION = 2;
 
 /** Rule 1: the machine and the workspace's place on it. */
-export const MACHINE_RULES = ['path', 'user', 'host', 'person', 'sha', 'remote', 'id'] as const;
+export const MACHINE_RULES = ['path', 'user', 'host', 'person', 'sha', 'remote', 'url', 'id'] as const;
 /** Rule 2: anything that looks like PII or a secret. */
 export const PII_RULES = ['secret', 'public-key', 'connection-string', 'env', 'email', 'ip', 'mac', 'phone', 'card', 'deny'] as const;
 /** Rule 4: what's flagged for review, replaced with [flagged-N]. */

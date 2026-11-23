@@ -474,6 +474,32 @@ async function main() {
     assert.strictEqual(out.summary.flags, 0);
   });
 
+  test('a rewritten URL never reads as a link: [repo <what>] for the project, [url-N host] otherwise', () => {
+    const repo = path.basename(PROJECT);
+    const text = [
+      `PR https://github.com/${LOGIN}/${repo}/pull/158).`,
+      `doc https://github.com/${LOGIN}/${repo}/blob/main/docs/cli.md#export and git+https://github.com/${LOGIN}/${repo}.git`,
+      `other https://github.com/${LOGIN}/other-repo/pull/31 and github.com/${LOGIN}/other-repo`,
+      'public https://github.com/microsoft/vscode/issues/123 stays',
+      `session https://claude.ai/code/${HIGH_ENTROPY}`,
+    ].join('\n');
+    const out = sanitizeExport({ events: [ev({ eventId: 'e', kind: 'user_prompt', promptText: text })] }, ctx({ deny: [], remotes: [], people: [`${LOGIN} <${LOGIN_EMAIL}>`] }));
+    const lines = out.events[0].promptText!.split('\n');
+    assert.strictEqual(lines[0], 'PR [repo pull/158]).');
+    assert.strictEqual(lines[1], 'doc [repo blob/main/docs/cli.md#export] and [repo]');
+    assert.strictEqual(lines[2], 'other [url-1 github.com] and [url-2 github.com]');
+    assert.strictEqual(lines[3], 'public https://github.com/microsoft/vscode/issues/123 stays');
+    assert.strictEqual(lines[4], 'session [url-3 claude.ai]');
+    // Nothing rewritten is left as a URL: every URL in the output is one that was kept as written.
+    for (const url of out.events[0].promptText!.match(/(?:https?:\/\/|github\.com\/)\S+/g) ?? []) assert.ok(url.includes('microsoft/vscode'), url);
+    const rules = new Map(out.events[0].redactions!.map((r) => [r.rule, r.count]));
+    assert.strictEqual(rules.get('remote'), 3);
+    assert.strictEqual(rules.get('url'), 3);
+    // Allowing the session token puts the whole URL back as written.
+    const allowed = sanitizeExport({ events: [ev({ eventId: 'e', kind: 'user_prompt', promptText: `x https://claude.ai/code/${HIGH_ENTROPY}` })] }, ctx({ deny: [], remotes: [], allowRules: ['high-entropy'] }));
+    assert.strictEqual(allowed.events[0].promptText, `x https://claude.ai/code/${HIGH_ENTROPY}`);
+  });
+
   let failures = 0;
   for (const [name, fn] of tests) {
     try {
