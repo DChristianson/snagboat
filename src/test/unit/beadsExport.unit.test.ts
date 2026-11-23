@@ -28,7 +28,8 @@ function exported(): string {
 }
 
 test('the embedded script is .devcontainer/beads-export.sh', () => {
-  assert.strictEqual(BEADS_EXPORT_SCRIPT, fs.readFileSync(script, 'utf8'), 'copy .devcontainer/beads-export.sh into src/core/beadsExportScript.ts');
+  // A Windows checkout may have turned the script's line endings into CRLF.
+  assert.strictEqual(BEADS_EXPORT_SCRIPT, fs.readFileSync(script, 'utf8').replace(/\r\n/g, '\n'), 'copy .devcontainer/beads-export.sh into src/core/beadsExportScript.ts');
 });
 
 test('reads issues and each bead\'s events, oldest first, and the status', () => {
@@ -176,7 +177,12 @@ test('beads-export.sh: exports, fetches history only for changed beads, drops de
   assert.ok(fs.readFileSync(path.join(dir, 'export.log'), 'utf8').includes('wrote 2 history file(s), 1 failed'));
 });
 
+// The script runs only in a Linux dev container. Its lock reads POSIX pids and /proc, and
+// Windows (not supported, its CI job a signal only) has neither /bin/sh nor those pids.
+const posixOnly = process.platform === 'win32';
+
 test('beads-export.sh: quiet without bd or .beads, one copy per folder, never through a link', () => {
+  if (posixOnly) return;
   const root = tmp();
   const folder = path.join(root, 'proj');
   fs.mkdirSync(folder);
@@ -223,6 +229,7 @@ test('beads-export.sh: quiet without bd or .beads, one copy per folder, never th
 });
 
 test('beads-export.sh start returns at once and leaves one copy running', () => {
+  if (posixOnly) return;
   const root = tmp();
   const folder = path.join(root, 'proj');
   fs.mkdirSync(path.join(folder, '.beads'), { recursive: true });

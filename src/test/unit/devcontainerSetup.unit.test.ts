@@ -161,7 +161,7 @@ test('with .beads: writes .snagboat/bin/beads-export.sh and starts it last on st
   const wrote = applyDevcontainerPlan(plan);
   assert.ok(wrote.includes('wrote .snagboat/bin/beads-export.sh'), wrote.join('\n'));
   assert.strictEqual(fs.readFileSync(script, 'utf8'), BEADS_EXPORT_SCRIPT);
-  assert.strictEqual(fs.statSync(script).mode & 0o777, 0o755);
+  if (process.platform !== 'win32') assert.strictEqual(fs.statSync(script).mode & 0o777, 0o755);
   assert.strictEqual(planDevcontainer(folder)!.state, 'ready');
 
   fs.writeFileSync(script, '#!/bin/sh\n# an older one\n');
