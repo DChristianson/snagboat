@@ -27,12 +27,16 @@ export interface RepoLocation {
 export async function locateRepo(folder: string, git: GitRunner = runGit): Promise<RepoLocation | undefined> {
   let out: string;
   try {
-    out = await git(['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel'], folder);
+    out = await git(['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel', '--show-cdup'], folder);
   } catch {
     return undefined;
   }
-  const [gitDir, commonDir, toplevel] = out.split('\n').map((l) => l.trim());
-  if (!gitDir || !commonDir || !toplevel) return undefined;
+  const [gitDir, commonDir, shown, cdup] = out.split('\n').map((l) => l.trim());
+  if (!gitDir || !commonDir || !shown) return undefined;
+  // The working tree as the folder's own path spells it (cdup is the way up to it, empty at the
+  // top), so `where` matches the store's folder. git's own spelling can differ: on Windows it's
+  // C:/Users/... where the folder may be C:\Users\RUNNER~1\...
+  const toplevel = cdup === undefined ? path.resolve(shown) : path.resolve(folder, cdup);
   const same = path.resolve(gitDir) === path.resolve(commonDir);
   return { toplevel, gitDir, commonDir, worktree: same ? '.' : path.basename(gitDir) };
 }
