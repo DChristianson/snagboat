@@ -3,7 +3,7 @@ import { escapeRegExp, spans } from './util';
 
 // A home folder's name: up to the next separator or delimiter.
 const NAME = `[^/\\\\\\s"'\`<>|;,:)\\]}]+`;
-const POSIX = new RegExp(`(?<![\\w.~/\\\\-])(?<![A-Za-z]:)(?:file://)?(?<home>/(?:Users|home)/(?!Shared(?![^/\\\\\\s]))${NAME})`, 'g');
+const POSIX = new RegExp(`(?<![\\w.~/\\\\-])(?<!(?:^|[^\\w])[A-Za-z]:)(?:file://)?(?<home>/(?:Users|home)/(?!Shared(?![^/\\\\\\s]))${NAME})`, 'g');
 const WINDOWS = new RegExp(`(?<![\\w/\\\\])(?:file:///)?(?<home>[A-Za-z]:[\\\\/](?:Users|Documents and Settings)[\\\\/]${NAME})`, 'gi');
 const TILDE = /(?<![\w~/\\.-])~[A-Za-z_][A-Za-z0-9_.-]*(?=\/)/g;
 

@@ -19,7 +19,8 @@ import { advisorReports, eventsIn, periods, reportLines } from '../advisor/repor
 import { McpReads, serveMcp } from './mcp';
 import { readStdin, statusLine, statusLineDir, Today } from './statusline';
 import { HOOK_SCRIPT } from '../adapters/claude-code/hookRoutes';
-import { exportProject, exportSummaryText, findProjectRoot, parseExportTime } from '../core/exportProject';
+import { exportProject, exportSummaryText, findProjectRoot, parseExportTime, reviewSummaryText } from '../core/exportProject';
+import { Action, parseRuleOption } from '../core/filter';
 
 /**
  * The snagboat CLI (docs/design/architecture-rfc.md, step 3): read the event
@@ -28,7 +29,8 @@ import { exportProject, exportSummaryText, findProjectRoot, parseExportTime } fr
  * `containers allow|deny` and `export` write: migrate only to the per-user store (it copies,
  * never moves or deletes), containers its list in ~/.snagboat/config.json and,
  * with --edit, the folder's dev container config (core/devcontainerSetup.ts), export
- * only its --out folder (and the export key, on first use; core/exportProject.ts).
+ * its --out folder and, in the project's folder of the store, its privacy filter's decisions and
+ * review file (core/exportProject.ts).
  */
 
 /** An experiment for the terminal: its status, change, scope, and the tracked measure from baseline to now. */
@@ -86,14 +88,16 @@ commands:
   core status         whether the core is running, and where
   core stop           stop the core
   export --out <dir> [--project <dir>] [--name <name>] [--since <date>] [--until <date>]
-         [--text redacted|none] [--allow <ids>] [--allow-rule <rule>] [--fail-on-flags]
+         [--text redacted|none] [--rule <rule>=<action>]... [--rewrite-all | --no-filter]
          [--match <path>]... [--zip] [--json]
-                      export one project's records from the store, through the privacy rules,
+                      export one project's records from the store, through the privacy filter,
                       to a folder (README.md, manifest.json, schema/, events/, sessions, findings,
-                      git/, plan/, links), with what was flagged in <dir>.review/ beside it, never
-                      inside; --zip also writes <dir>.zip, the folder in one file to send.
-                      Reads only the store: no git, bd or transcripts. --out must be outside
-                      the project, or under its .snagboat/ folder. See docs/cli.md#export
+                      git/, plan/, links); --zip also writes <dir>.zip, the folder in one file.
+                      While values the filter found are undecided it writes nothing, writes a
+                      review file in the store, says where, and exits 3: decide each value there
+                      and run it again. Reads only the store: no git, bd or transcripts. --out
+                      must be outside the project, or under its .snagboat/ folder. See
+                      docs/cli.md#export
   migrate             copy every VS Code store into the per-user store (~/.snagboat/data);
                       copies only, leaving the VS Code stores as they are, and a rerun copies
                       only what's new
@@ -121,12 +125,13 @@ options:
                       export: only records from this time on / before it (YYYY-MM-DD, UTC, or an
                       ISO time; --until's day is included)
   --text <mode>       export: redacted (the default: text through the rules) or none (structure only)
-  --allow <ids>       export: put flagged values back (flagged-3,flagged-7, from the review file)
-  --allow-rule <rule> export: put back every value a rule flagged (internal-url, name, mention,
-                      high-entropy, unresolved-path, unknown-sha, foreign-trace) or kept (email, ip,
-                      mac, phone, card); repeatable
-  --fail-on-flags     export: write nothing if anything is flagged
-  --zip               export: also write <dir>.zip (the export folder only, never the review folder)
+  --rule <rule>=<action>
+                      export: a filter rule's action for this run: review (decide each value),
+                      rewrite, keep or off (email=rewrite, sha=keep); repeatable, or comma-separated
+  --rewrite-all       export: every filter rule rewrites what it finds (values you decided to
+                      keep stay kept; a --rule still applies to its rule)
+  --no-filter         export: turn the privacy filter off; nothing is rewritten
+  --zip               export: also write <dir>.zip (the export folder only)
   --match <path>      export: another path whose workspaces' records are the project's (a dev
                       container's /workspaces/<name>); repeatable
 `;
@@ -159,9 +164,9 @@ interface Options {
   since?: string;
   until?: string;
   text?: 'redacted' | 'none';
-  allow?: string[];
-  allowRules?: string[];
-  failOnFlags?: boolean;
+  rules?: Record<string, Action>;
+  rewriteAll?: boolean;
+  noFilter?: boolean;
   zip?: boolean;
   match?: string[];
   args: string[];
@@ -179,9 +184,10 @@ export function parseArgs(argv: string[]): Options | string {
     else if (a === '--edit') opts.edit = true;
     else if (a === '--in-place') opts.inPlace = true;
     else if (a === '--force') opts.force = true;
-    else if (a === '--fail-on-flags') opts.failOnFlags = true;
+    else if (a === '--rewrite-all') opts.rewriteAll = true;
+    else if (a === '--no-filter') opts.noFilter = true;
     else if (a === '--zip') opts.zip = true;
-    else if (['--project', '--out', '--name', '--since', '--until', '--text', '--allow', '--allow-rule', '--match'].includes(a)) {
+    else if (['--project', '--out', '--name', '--since', '--until', '--text', '--rule', '--match'].includes(a)) {
       const value = argv[++i];
       if (value === undefined || value === '') return `${a} needs a value`;
       const list = () => value.split(',').map((v) => v.trim()).filter((v) => v.length > 0);
@@ -196,9 +202,13 @@ export function parseArgs(argv: string[]): Options | string {
       } else if (a === '--text') {
         if (value !== 'redacted' && value !== 'none') return `--text takes redacted or none, not ${value}`;
         opts.text = value;
-      } else if (a === '--allow') opts.allow = [...(opts.allow ?? []), ...list()];
-      else if (a === '--allow-rule') opts.allowRules = [...(opts.allowRules ?? []), ...list()];
-      else opts.match = [...(opts.match ?? []), value];
+      } else if (a === '--rule') {
+        for (const item of list()) {
+          const r = parseRuleOption(item);
+          if (typeof r === 'string') return r;
+          opts.rules = { ...(opts.rules ?? {}), [r.id]: r.action };
+        }
+      } else opts.match = [...(opts.match ?? []), value];
     }
     else if (a === '--port' || a === '--idle-minutes') {
       const value = argv[++i];
@@ -621,7 +631,7 @@ export async function runCli(argv: string[], io: CliIo, version: string): Promis
   }
 }
 
-/** snagboat export (core/exportProject.ts): one project's records, sanitized, to --out. */
+/** snagboat export (core/exportProject.ts): one project's records, through the privacy filter, to --out. */
 async function exportCommand(parsed: Options, cwd: string, io: CliIo, version: string): Promise<number> {
   if (!parsed.out) {
     io.err(`export needs --out <dir>\n\n${USAGE}`);
@@ -643,22 +653,27 @@ async function exportCommand(parsed: Options, cwd: string, io: CliIo, version: s
       since: parsed.since,
       until: parsed.until,
       text: parsed.text,
-      allow: parsed.allow,
-      allowRules: parsed.allowRules,
-      failOnFlags: parsed.failOnFlags,
+      rules: parsed.rules,
+      rewriteAll: parsed.rewriteAll,
+      noFilter: parsed.noFilter,
       zip: parsed.zip,
       match: (parsed.match ?? []).map((m) => path.resolve(cwd, m)),
       version,
       now: io.now,
     });
   } catch (err) {
-    // A bad --allow or --allow-rule, or a key that can't be read.
+    // A --rule naming no rule, or --no-filter with --rule or --rewrite-all.
     io.err(`${err instanceof Error ? err.message : String(err)}\n`);
     return 2;
   }
+  if (!result.ok && result.reason === 'review') {
+    // Values to decide: nothing written. Exit 3, so a script can tell it from a failure.
+    if (parsed.json) io.out(JSON.stringify({ reviewFile: result.reviewFile, pending: result.pendingByRule, notes: result.notes }, null, 2) + '\n');
+    else io.err(reviewSummaryText(result));
+    return 3;
+  }
   if (!result.ok) {
     io.err(result.message + '\n');
-    if (result.flagsByRule) io.err(`flagged: ${Object.entries(result.flagsByRule).map(([k, v]) => `${k} ${v}`).join(', ')}\n`);
     return 1;
   }
   if (parsed.json) io.out(JSON.stringify(result.manifest, null, 2) + '\n');

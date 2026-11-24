@@ -27,6 +27,9 @@ run([
     const home = j('/tmp/x1/', USER);
     assert.strictEqual(rewritten(`${home}/notes/todo.md`, { homes: [home] }, [homePath]), '~/notes/todo.md');
   }],
+  ['after a colon, as in an event id that names a transcript file', () => {
+    assert.strictEqual(rewritten(`claude-code:${HOME}/.claude/projects/s.jsonl:123`, {}, [homePath]), 'claude-code:~/.claude/projects/s.jsonl:123');
+  }],
   ['not ~/ (already relative), /Users/Shared, or /home inside a URL or another path', () => {
     findsNothing(homePath, ['~/notes/todo.md', '/Users/Shared/x', 'https://example.com/home/page', '/srv/home/x', 'home and Users']);
   }],

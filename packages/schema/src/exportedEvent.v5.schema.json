@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/DChristianson/snagboat/schema/exported-event/v4",
+  "$id": "https://github.com/DChristianson/snagboat/schema/exported-event/v5",
   "title": "ExportedEvent",
-  "description": "One line of an export's events/YYYY-MM-DD.jsonl (docs/design/export.md): a version 4 NormalizedEvent after the privacy rules, without workspace and raw (never exported), plus redactions, what the rules replaced in it. It matches the ExportedEvent type in exportRecords.ts; a unit test and a compile-time check keep them in step.",
+  "description": "One line of an export's events/YYYY-MM-DD.jsonl (docs/design/export.md): a version 4 NormalizedEvent after the privacy filter, without workspace and raw (never exported). Version 5 of this schema; version 4 also had redactions, what the rules replaced in each event, which the manifest's per-rule counts replace. It matches the ExportedEvent type in exportRecords.ts; a unit test and a compile-time check keep them in step.",
   "type": "object",
   "required": [
     "eventId",
@@ -370,33 +370,6 @@
       "type": "boolean",
       "const": true,
       "description": "promptText or textExcerpt was cut at the store's cap."
-    },
-    "redactions": {
-      "type": "array",
-      "description": "What rules 1, 2 and 4 replaced in this event, by field and rule, without the values.",
-      "items": {
-        "type": "object",
-        "required": [
-          "field",
-          "rule",
-          "count"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "field": {
-            "type": "string",
-            "description": "The field, as a dotted path: promptText, toolInput.command, todos.items."
-          },
-          "rule": {
-            "type": "string",
-            "description": "The rule that replaced it, as the manifest names it."
-          },
-          "count": {
-            "type": "number",
-            "description": "How many values it replaced there."
-          }
-        }
-      }
     }
   }
 }

@@ -62,20 +62,21 @@ export const PRIVACY_DEFAULTS = {
   collect: true,
   /** Read the project's git history (read-only) for commit outcomes (RFC step 4b). */
   'outcomes.git': true,
-  /**
-   * snagboat export keeps this project's commit SHAs, and pseudonymizes with this machine's key
-   * (docs/design/export.md, rule 1). Config only, not a VS Code setting; a project file may only
-   * leave it off, so a clone can't make your exports of it public.
-   */
-  'export.public': false,
 } as const;
 
 /**
- * export.deny: words and phrases snagboat export replaces with [denied-N] (a client's name, a
- * codename). Config only. A project file's list adds to yours, never replaces it: more words
- * denied is only ever more private.
+ * export.deny: words and phrases snagboat export's filter rewrites as [denied-N] (a client's
+ * name, a codename). Config only. A project file's list adds to yours, never replaces it: more
+ * words denied is only ever more private.
  */
 export const EXPORT_DENY_KEY = 'export.deny';
+
+/**
+ * export.rules: each export filter rule's action, { "sha": "rewrite", "ip": "keep" }
+ * (core/filter/actions.ts). Config only, in defaults or a project's entry: a project file can't
+ * set it, since a clone could use it to keep what you'd rewrite.
+ */
+export const EXPORT_RULES_KEY = 'export.rules';
 
 /** The strings in an export.deny value (anything else ignored). */
 export function denyWords(value: unknown): string[] {

@@ -5,28 +5,16 @@ import type { Confidence, PlanItemTouch } from './storeRecords';
 /**
  * The records only an export has (docs/design/export.md, "What an export holds"): its events,
  * its sessions, and manifest.json. The export also writes the store's git, plan, link and
- * finding records (storeRecords.ts), sanitized, as they are: git.jsonl's records go to
+ * finding records (storeRecords.ts), through the privacy filter, as they are: git.jsonl's records go to
  * git/commits.jsonl, git/branches.jsonl and git/checkouts.jsonl by `record`, and plan.jsonl's to
  * plan/items.jsonl and plan/transitions.jsonl. Nothing validates against the schemas at run time.
  */
 
-/** What the privacy rules replaced in one field of an exported event, without the values. */
-export interface Redaction {
-  /** The field, as a dotted path: promptText, toolInput.command, todos.items. */
-  field: string;
-  /** The rule that replaced it, as the manifest's redactions name it. */
-  rule: string;
-  /** How many values it replaced there. */
-  count: number;
-}
-
 /**
- * One line of an export's events/YYYY-MM-DD.jsonl: a version 4 event after the privacy rules.
- * workspace and raw are never exported; redactions is export only, never stored.
+ * One line of an export's events/YYYY-MM-DD.jsonl (exportedEvent.v5.schema.json): a version 4
+ * event after the privacy filter. workspace and raw are never exported.
  */
-export interface ExportedEvent extends Omit<NormalizedEvent, 'workspace' | 'raw'> {
-  redactions?: Redaction[];
-}
+export type ExportedEvent = Omit<NormalizedEvent, 'workspace' | 'raw'>;
 
 /**
  * One line of an export's sessions.jsonl: what `snagboat sessions --json` prints for a session
@@ -35,7 +23,7 @@ export interface ExportedEvent extends Omit<NormalizedEvent, 'workspace' | 'raw'
 export interface SessionRecord extends SessionSummary {
   /** The subagents' ids (SessionSummary.subagents counts them). */
   subagentIds: string[];
-  /** '.' for the project root, or '[worktree-N]' for another worktree. */
+  /** Its working tree: '.' or '[worktree-N]' once the filter rewrote the path, else the path. */
   where: string;
   /** Branches checked out during the session, in order (from checkouts and links), by name. */
   branches: string[];
@@ -60,11 +48,14 @@ export interface ExportCounts {
   links: number;
 }
 
-/** An export folder's manifest.json: what it is, and what the privacy rules did to it. */
+/** What each rule did, by rule id: distinct values rewritten and kept. */
+export type ExportRuleCounts = Record<string, { rewritten: number; kept: number }>;
+
+/** An export folder's manifest.json (exportManifest.v2.schema.json): what it is, and what the privacy filter did to it. */
 export interface ExportManifest {
   format: 'snagboat-export';
   /** The export format's version. */
-  version: 1;
+  version: 2;
   /** The event schema version its events follow. */
   eventSchema: 4;
   generatedAt: string;
@@ -75,17 +66,13 @@ export interface ExportManifest {
   /** --text: redacted (the default) or none, structure only. */
   text: 'redacted' | 'none';
   counts: ExportCounts;
-  /** The privacy rules' version. */
-  rulesVersion: number;
   /** The Snagboat version that wrote it. */
   snagboatVersion: string;
-  /** How many values each rule replaced, by rule name. */
-  redactions: Record<string, number>;
-  /** How many values were flagged for review (<out>.review/flags.jsonl, never in the export). */
-  flags: number;
-  /** private (the default): commit SHAs are re-keyed. public: the project sets export.public. */
-  repository: { privacy: 'private' | 'public' };
-  /** The export's guide: what each file is, how they join, what the redaction markers mean. */
+  /** reviewed: every rule ran, each value decided by its rule's action or by you. rewrite-all: --rewrite-all. none: --no-filter. */
+  filter: 'reviewed' | 'rewrite-all' | 'none';
+  /** Distinct values each rule found, rewritten and kept; rules that found nothing are left out. */
+  rules: ExportRuleCounts;
+  /** The export's guide: what each file is, how they join, what the placeholders mean. */
   readme: 'README.md';
   /** Each file (a path, or a pattern like events/*.jsonl) and the JSON Schema in schema/ its records follow. */
   schemas: Record<string, string>;

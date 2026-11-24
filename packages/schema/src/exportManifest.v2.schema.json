@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/DChristianson/snagboat/schema/export-manifest/v1",
+  "$id": "https://github.com/DChristianson/snagboat/schema/export-manifest/v2",
   "title": "ExportManifest",
-  "description": "An export folder's manifest.json (docs/design/export.md): its format and versions, project name, range, counts, and what the privacy rules replaced and flagged. It matches the ExportManifest type in exportRecords.ts; a unit test and a compile-time check keep them in step.",
+  "description": "An export folder's manifest.json (docs/design/export.md): its format and versions, project name, range, counts, how the privacy filter ran, and what each rule rewrote and kept. Version 2; version 1 had rulesVersion, redactions, flags and repository.privacy. It matches the ExportManifest type in exportRecords.ts; a unit test and a compile-time check keep them in step.",
   "type": "object",
   "required": [
     "format",
@@ -13,11 +13,9 @@
     "range",
     "text",
     "counts",
-    "rulesVersion",
     "snagboatVersion",
-    "redactions",
-    "flags",
-    "repository",
+    "filter",
+    "rules",
     "readme",
     "schemas"
   ],
@@ -29,7 +27,7 @@
     },
     "version": {
       "type": "number",
-      "const": 1,
+      "const": 2,
       "description": "The export format's version."
     },
     "eventSchema": {
@@ -119,36 +117,34 @@
         }
       }
     },
-    "rulesVersion": {
-      "type": "number",
-      "description": "The privacy rules' version."
-    },
     "snagboatVersion": {
       "type": "string"
     },
-    "redactions": {
-      "type": "object",
-      "description": "How many values each rule replaced, by rule name.",
-      "additionalProperties": {
-        "type": "number"
-      }
-    },
-    "flags": {
-      "type": "number",
-      "description": "How many values were flagged for review."
-    },
-    "repository": {
-      "type": "object",
-      "required": [
-        "privacy"
+    "filter": {
+      "enum": [
+        "reviewed",
+        "rewrite-all",
+        "none"
       ],
-      "additionalProperties": false,
-      "properties": {
-        "privacy": {
-          "enum": [
-            "private",
-            "public"
-          ]
+      "description": "How the privacy filter ran: reviewed (every rule, each value decided by its rule's action or by you), rewrite-all (--rewrite-all) or none (--no-filter)."
+    },
+    "rules": {
+      "type": "object",
+      "description": "Distinct values each rule found, by rule id, and how many were rewritten and kept. Rules that found nothing are left out.",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "rewritten",
+          "kept"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "rewritten": {
+            "type": "number"
+          },
+          "kept": {
+            "type": "number"
+          }
         }
       }
     },

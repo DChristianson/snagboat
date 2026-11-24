@@ -77,7 +77,7 @@
     },
     "where": {
       "type": "string",
-      "description": "'.' for the project root, or '[worktree-N]'."
+      "description": "The working tree: '.' or '[worktree-N]' once the filter rewrote its path, else the path."
     },
     "branches": {
       "type": "array",

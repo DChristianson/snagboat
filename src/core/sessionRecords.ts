@@ -4,8 +4,8 @@ import { CheckoutRecord, currentLinks, GitRecord, isConversationEvent, LinkRecor
  * A workspace's sessions as sessions.jsonl has them (SessionRecord, packages/schema
  * exportRecords.ts): what `snagboat sessions --json` prints for each, plus its subagents' ids,
  * where it ran, and the branches, commits and plan items the linker linked it to. The store's
- * values, raw: `where` is the working tree's absolute path, which the export's privacy rules
- * make '.' or '[worktree-N]'. The export command and the plans view (GET /plans) build them here.
+ * values, raw: `where` is the working tree's absolute path, which the export's privacy filter
+ * rewrites as '.' or '[worktree-N]'. The export command and the plans view (GET /plans) build them here.
  */
 export interface SessionRecordInput {
   /** The workspace's events (any order; outcomes and names included or not). */

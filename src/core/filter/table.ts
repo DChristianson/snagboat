@@ -10,7 +10,7 @@ import { CATEGORIES } from './types';
  */
 
 /** The docs that carry the rule table, from the repository's root. */
-export const RULE_TABLE_DOCS = ['docs/design/export.md'];
+export const RULE_TABLE_DOCS = ['docs/design/export.md', 'PRIVACY.md'];
 
 export const TABLE_START = '<!-- rule-table:start -->';
 export const TABLE_END = '<!-- rule-table:end -->';

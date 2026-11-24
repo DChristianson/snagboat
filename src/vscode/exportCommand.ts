@@ -7,9 +7,10 @@ import { snagboatHome } from '../core/userStore';
 /**
  * Snagboat: Export Project... (docs/design/export.md, "The command"): `snagboat export` for a
  * workspace folder, in-process (core/exportProject.ts, the same function the CLI calls). It asks
- * for the folder to export into, zips it (the export is usually for sending), and opens the
- * review file when anything was flagged. Everything
- * else (selection, privacy rules, the final check, where --out may be) is the core's.
+ * for the folder to export into and zips it (the export is usually for sending). While values the
+ * privacy filter found are undecided, nothing is written: it says how many, with a button that
+ * opens the review file (a review page comes later). Everything else (selection, the filter,
+ * decisions, where --out may be) is the core's.
  */
 export function registerExportProject(context: vscode.ExtensionContext): vscode.Disposable {
   return vscode.commands.registerCommand('snagboat.exportProject', async () => {
@@ -44,19 +45,21 @@ export function registerExportProject(context: vscode.ExtensionContext): vscode.
         notes: [],
       }))
     );
+    if (!result.ok && result.reason === 'review') {
+      const n = result.pending.length;
+      const open = await vscode.window.showWarningMessage(
+        `Snagboat: nothing exported yet. ${n} value${n === 1 ? '' : 's'} the privacy filter found need${n === 1 ? 's' : ''} a decision. Set each one's "decision" to "rewrite" or "keep" in the review file (${result.reviewFile}), save it, and export again.`,
+        'Open Review File'
+      );
+      if (open) await vscode.window.showTextDocument(vscode.Uri.file(result.reviewFile), { preview: false });
+      return;
+    }
     if (!result.ok) {
-      void vscode.window.showErrorMessage(`Snagboat: nothing exported. ${result.message}`, { modal: result.reason === 'final-check' });
+      void vscode.window.showErrorMessage(`Snagboat: nothing exported. ${result.message}`);
       return;
     }
     const c = result.manifest.counts;
     const summary = `Snagboat: exported ${c.sessions} sessions, ${c.events} events, ${c.commits} commits and ${c.planItems} plan items to ${out}, and ${path.basename(out)}.zip beside it.`;
-    if (result.reviewFile && result.manifest.flags > 0) {
-      await vscode.window.showTextDocument(vscode.Uri.file(result.reviewFile), { preview: false });
-      void vscode.window.showWarningMessage(
-        `${summary} ${result.manifest.flags} value${result.manifest.flags === 1 ? ' was' : 's were'} flagged and replaced with [flagged-N]; the review file beside the export lists them. \`snagboat export --allow flagged-N\` puts one back.`
-      );
-      return;
-    }
     const reveal = await vscode.window.showInformationMessage(summary, 'Reveal');
     if (reveal) void vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.zipFile ?? out));
   });

@@ -7,13 +7,14 @@ import * as zlib from 'zlib';
 import type { CommitRecord, ExportManifest, FindingRecord, GitRecord, LinkRecord, NormalizedEvent, PlanRecord, StoreRecord } from '@snagboat/schema';
 import { runCli } from '../../cli/main';
 import { saveConfig } from '../../core/config';
-import { exportKeyPath } from '../../core/export';
 import { ExportOptions, exportProject, ExportResult } from '../../core/exportProject';
+import { decisionId, DECISIONS_FILE, REVIEW_FILE, ReviewFile } from '../../core/filter';
 import { workspaceStoreDir } from '../../core/userStore';
 import { Schema, validate } from './schemaValidate';
 
-// snagboat export end to end (snagboat-93b.10.7): a made-up store with planted values, two
-// worktrees, a --match path, a separate clone and an unrelated project, exported to a folder.
+// snagboat export end to end (snagboat-93b.10.7, the filter snagboat-93b.11): a made-up store with
+// planted values, two worktrees, a --match path, a separate clone and an unrelated project,
+// exported to a folder. Each filter rule's own cases are in filterRule-<id>.unit.test.ts.
 // Planted values are assembled, so none appears whole in the repository.
 const j = (...parts: string[]) => parts.join('');
 const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'snagboat-export-')));
@@ -48,7 +49,6 @@ const PLANTED: Array<[string, string]> = [
   ['clone session', CLONE_ONLY], ['other session', OTHER_ONLY], ['clone path', CLONE], ['other path', OTHER],
 ];
 
-const MACHINE = { homeDir: HOME, userName: USER, hostName: HOST };
 const NOW = new Date('2026-11-23T12:00:00.000Z');
 
 const ev = (workspace: string, o: Partial<NormalizedEvent> & Pick<NormalizedEvent, 'eventId' | 'kind' | 'sessionId'>): NormalizedEvent => ({
@@ -155,8 +155,14 @@ function setUp(): void {
 const OUT = path.join(ROOT, 'exports', 'acme');
 
 const opts = (over: Partial<ExportOptions> = {}): ExportOptions => ({
-  home: SNAGBOAT_HOME, project: PROJECT, out: OUT, match: [MATCH], version: 'test', now: NOW, machine: MACHINE, ...over,
+  home: SNAGBOAT_HOME, project: PROJECT, out: OUT, match: [MATCH], version: 'test', now: NOW, homeDir: HOME, ...over,
 });
+
+/** --rewrite-all: every value found rewritten, so nothing waits for review. */
+const all = (over: Partial<ExportOptions> = {}) => opts({ rewriteAll: true, ...over });
+
+/** The project's folder of the store, which keeps the filter's decisions and review file. */
+const STATE = () => workspaceStoreDir(SNAGBOAT_HOME, PROJECT);
 
 /** Every file under dir, relative, sorted. */
 function walk(dir: string, base = dir): string[] {
@@ -213,12 +219,12 @@ async function main() {
 
   test('layout and counts: the project, its worktrees and the --match path; not the clone or the other project', async () => {
     setUp();
-    const r = ok(await exportProject(opts()));
+    const r = ok(await exportProject(all()));
     assert.deepStrictEqual(walk(OUT), [
       'README.md', 'events/2026-11-20.jsonl', 'events/2026-11-21.jsonl', 'events/2026-11-22.jsonl', 'findings.jsonl',
       'git/branches.jsonl', 'git/checkouts.jsonl', 'git/commits.jsonl', 'links.jsonl', 'manifest.json',
       'plan/items.jsonl', 'plan/transitions.jsonl',
-      'schema/exportManifest.v1.schema.json', 'schema/exportedEvent.v4.schema.json', 'schema/findingRecord.v1.schema.json',
+      'schema/exportManifest.v2.schema.json', 'schema/exportedEvent.v5.schema.json', 'schema/findingRecord.v1.schema.json',
       'schema/gitRecord.v1.schema.json', 'schema/linkRecord.v1.schema.json', 'schema/planRecord.v1.schema.json',
       'schema/sessionRecord.v1.schema.json', 'sessions.jsonl',
     ]);
@@ -228,14 +234,16 @@ async function main() {
     const m = JSON.parse(read('manifest.json')) as ExportManifest;
     assert.deepStrictEqual(m, r.manifest);
     assert.strictEqual(m.format, 'snagboat-export');
+    assert.strictEqual(m.version, 2);
     assert.strictEqual(m.project, 'acme-app');
     assert.deepStrictEqual(m.counts, { days: 3, events: 6, sessions: 4, findings: 1, commits: 2, branches: 1, checkouts: 3, planItems: 1, transitions: 1, links: 2 });
     assert.deepStrictEqual(m.range, { first: '2026-11-20T10:00:00.000Z', last: '2026-11-22T04:30:00.000Z' });
-    assert.deepStrictEqual(m.repository, { privacy: 'private' });
-    assert.ok(m.redactions.path > 0 && m.redactions.email > 0 && m.redactions.person > 0 && m.redactions.deny > 0, JSON.stringify(m.redactions));
+    assert.strictEqual(m.filter, 'rewrite-all');
+    for (const rule of ['project-path', 'home-path', 'email', 'person', 'deny', 'secret', 'ip', 'phone', 'internal-host', 'sha']) {
+      assert.ok(m.rules[rule]?.rewritten > 0 && m.rules[rule].kept === 0, `${rule}: ${JSON.stringify(m.rules)}`);
+    }
     const sessions = lines<{ sessionId: string; where: string; commits: Array<{ sha: string }> }>('sessions.jsonl');
-    // The rules make POSIX paths relative. On Windows (not supported, its CI job a signal only)
-    // a C:\ path is hidden as [path] instead: never leaked, as the planted-values test checks.
+    // POSIX paths: on Windows (not supported, its CI job a signal only) the roots are C:\ paths.
     const posix = process.platform !== 'win32';
     if (posix) assert.deepStrictEqual(Object.fromEntries(sessions.map((s) => [s.sessionId, s.where])), {
       'sess-1': '.',
@@ -245,38 +253,123 @@ async function main() {
     });
     const commits = lines<CommitRecord>('git/commits.jsonl');
     assert.strictEqual(sessions.find((s) => s.sessionId === 'sess-1')!.commits[0].sha, commits[1].sha, 'ids join across files');
+    assert.strictEqual(lines<{ to: { id: string } }>('links.jsonl').find((l) => l.to.id.startsWith('[commit-'))!.to.id, commits[1].sha);
     const checkouts = lines<{ where: string }>('git/checkouts.jsonl').map((c) => c.where).sort();
     if (posix) assert.deepStrictEqual(checkouts, ['.', '[worktree-1]', '[worktree-2]']);
     const events = lines<{ eventId: string }>('events/2026-11-22.jsonl');
     assert.deepStrictEqual(events.map((e) => e.eventId), ['stop-1'], 'UTC days');
-    assert.ok(fs.existsSync(exportKeyPath(SNAGBOAT_HOME, 'private', SHA1)), 'the repository key, named by the first commit');
+    assert.ok(read('events/2026-11-20.jsonl').includes('./src/app.ts'), 'paths in the project relative to it');
   });
 
-  test('nothing planted survives in any file; the review file is beside the export, never inside', async () => {
+  test('--rewrite-all: nothing planted survives in any file, and nothing is written beside the export', async () => {
     setUp();
-    const r = ok(await exportProject(opts()));
+    ok(await exportProject(all()));
     for (const file of walk(OUT)) {
       const text = read(file).toLowerCase();
       for (const [what, value] of PLANTED) assert.ok(!text.includes(value.toLowerCase()), `${what} survived in ${file}`);
-      assert.ok(!text.includes('"workspace"') && !text.includes('"raw"'), `workspace or raw in ${file}`);
+      assert.ok(!text.includes('"workspace"') && !text.includes('"raw"') && !text.includes('"redactions"'), `workspace, raw or redactions in ${file}`);
     }
-    assert.strictEqual(r.reviewFile, path.join(`${OUT}.review`, 'flags.jsonl'));
-    assert.ok(!walk(OUT).some((f) => f.includes('review') || f.includes('flags')));
-    const review = fs.readFileSync(r.reviewFile!, 'utf8').split('\n').filter((l) => l).map((l) => JSON.parse(l) as { id: string; rule: string; value: string });
-    assert.ok(review.some((f) => f.rule === 'internal-url' && f.value.includes('build-box')), JSON.stringify(review));
-    assert.strictEqual(r.manifest.flags, review.length);
+    assert.deepStrictEqual(fs.readdirSync(path.dirname(OUT)), ['acme'], 'no review folder beside the export');
     const items = lines<{ owner: string; createdBy: string; assignee: string }>('plan/items.jsonl');
-    assert.match(items[0].owner, /^person-[0-9a-f]{8}$/);
+    assert.match(items[0].owner, /^\[person-\d+\]$/);
+    assert.notStrictEqual(items[0].owner, items[0].createdBy);
     assert.strictEqual(items[0].createdBy, items[0].assignee);
-    assert.strictEqual(items[0].createdBy, lines<CommitRecord>('git/commits.jsonl')[0].author);
+    const commits = lines<CommitRecord>('git/commits.jsonl');
+    assert.strictEqual(items[0].createdBy, commits[0].author, 'a bd actor by name is the git ident of that name');
+    assert.strictEqual(commits[1].coAuthors.length, 0);
+    assert.ok(commits[1].body!.includes('Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'), 'an agent is no person: its trailer stays');
+  });
+
+  test('writes nothing while values are undecided: a review file in the store, and a rerun with decisions writes', async () => {
+    setUp();
+    ok(await exportProject(all()));
+    const before = walk(OUT).map((f) => read(f)).join('\n');
+    const r = await exportProject(opts({ now: new Date('2026-12-01T00:00:00Z') }));
+    assert.ok(!r.ok && r.reason === 'review', JSON.stringify(r).slice(0, 300));
+    assert.strictEqual(walk(OUT).map((f) => read(f)).join('\n'), before, 'an earlier export is left as it was');
+    assert.strictEqual(r.reviewFile, path.join(STATE(), REVIEW_FILE), 'in the project\'s folder of the store, never the project');
+    assert.ok(r.pendingByRule.email >= 1 && r.pendingByRule['project-path'] >= 1 && !('deny' in r.pendingByRule) && !('sha' in r.pendingByRule), JSON.stringify(r.pendingByRule));
+    const review = JSON.parse(fs.readFileSync(r.reviewFile, 'utf8')) as ReviewFile;
+    assert.strictEqual(review.project, PROJECT);
+    assert.strictEqual(review.items.length, r.pending.length);
+    const email = review.items.find((i) => i.rule === 'email' && i.value === PERSON_EMAIL)!;
+    assert.ok(email && email.count >= 2 && email.snippets.length >= 1 && email.decision === null && email.becomes === '[email-N]', JSON.stringify(email));
+    assert.strictEqual(email.id, decisionId('email', PERSON_EMAIL));
+
+    // Decide all but one: still nothing written, and only the undecided one is asked again.
+    // Robin is kept; the email inside "Robin <email>" is still rewritten (nested, decided apart).
+    const robin = review.items.find((i) => i.rule === 'person' && i.value === PERSON_NAME)!;
+    assert.ok(robin, 'every form of the person is one value, their name');
+    for (const i of review.items) i.decision = i.rule === 'ip' ? null : i === robin ? 'keep' : 'rewrite';
+    fs.writeFileSync(r.reviewFile, JSON.stringify(review, null, 2));
+    const r2 = await exportProject(opts());
+    assert.ok(!r2.ok && r2.reason === 'review');
+    assert.deepStrictEqual(r2.pending.map((p) => p.rule), ['ip']);
+    const decisions = fs.readFileSync(path.join(STATE(), 'export-decisions.json'), 'utf8');
+    assert.ok(!decisions.includes(PERSON_EMAIL) && !decisions.includes(IPV4), 'decisions hold hashes, never values');
+    assert.strictEqual(DECISIONS_FILE, 'export-decisions.json');
+
+    const review2 = JSON.parse(fs.readFileSync(r2.reviewFile, 'utf8')) as ReviewFile;
+    review2.items[0].decision = 'rewrite';
+    fs.writeFileSync(r2.reviewFile, JSON.stringify(review2));
+    const done = ok(await exportProject(opts()));
+    assert.strictEqual(done.manifest.filter, 'reviewed');
+    assert.ok(!fs.existsSync(r.reviewFile), 'the review file goes once nothing is undecided');
+    const prompt = read('events/2026-11-20.jsonl');
+    assert.ok(prompt.includes(`for ${PERSON_NAME} ([email-1])`), 'the person you kept, the email inside rewritten');
+    assert.ok(!prompt.includes(IPV4) && prompt.includes('[ip-1]'), 'the address you rewrote');
+    assert.ok(prompt.includes(SHA2.slice(0, 8)), 'SHAs are kept by default');
+    assert.deepStrictEqual(done.manifest.rules.person, { rewritten: 1, kept: 1 }, 'Robin kept, the owner rewritten');
+    // A later export asks about nothing it asked before.
+    ok(await exportProject(opts()));
+    assert.ok(!fs.existsSync(r.reviewFile));
+  });
+
+  test('--no-filter: the records as stored, nothing rewritten, nothing asked', async () => {
+    setUp();
+    const r = ok(await exportProject(opts({ noFilter: true })));
+    assert.strictEqual(r.manifest.filter, 'none');
+    assert.deepStrictEqual(r.manifest.rules, {});
+    const prompt = read('events/2026-11-20.jsonl');
+    for (const v of [PROJECT, PERSON_EMAIL, AWS, SHA2.slice(0, 8)]) assert.ok(prompt.includes(v));
+    assert.ok(!read('events/2026-11-20.jsonl').includes('"workspace"'), 'workspace and raw still never exported');
+    assert.ok(!fs.existsSync(path.join(STATE(), REVIEW_FILE)));
+    await assert.rejects(exportProject(opts({ noFilter: true, rewriteAll: true })), /--no-filter/);
+  });
+
+  test('actions: the export.rules setting, and --rule over it', async () => {
+    setUp();
+    const rewrite = { 'project-path': 'rewrite', 'home-path': 'rewrite', secret: 'rewrite', email: 'keep', phone: 'rewrite', ip: 'rewrite', 'internal-host': 'rewrite', 'unknown-hex': 'rewrite', 'high-entropy': 'rewrite', person: 'keep' };
+    saveConfig(SNAGBOAT_HOME, { version: 1, defaults: { 'export.deny': [DENY], 'export.rules': rewrite }, projects: {} });
+    const r = ok(await exportProject(opts()));
+    assert.strictEqual(r.manifest.filter, 'reviewed');
+    assert.ok(read('events/2026-11-20.jsonl').includes(PERSON_EMAIL), 'export.rules keeps emails');
+    ok(await exportProject(opts({ rules: { email: 'rewrite' } })));
+    assert.ok(!read('events/2026-11-20.jsonl').includes(PERSON_EMAIL), '--rule rewrites them');
+    ok(await exportProject(opts({ rules: { sha: 'rewrite' } })));
+    assert.ok(!read('events/2026-11-20.jsonl').includes(SHA2.slice(0, 8)) && read('git/commits.jsonl').includes('[commit-'), '--rule sha=rewrite');
+    saveConfig(SNAGBOAT_HOME, { version: 1, defaults: { 'export.rules': { email: 'sometimes' } }, projects: {} });
+    const bad = await exportProject(all());
+    assert.ok(bad.ok && bad.notes.some((n) => n.includes('export.rules')), 'a bad setting is noted and ignored');
+  });
+
+  test("a SHA outside the export's range is a known commit: the whole git.jsonl is read", async () => {
+    setUp();
+    // Only u-1 (10:00), which names SHA2 by 8 characters; SHA2's commit (10:30) is outside.
+    const r = ok(await exportProject(all({ since: '2026-11-20T09:59:00.000Z', until: '2026-11-20T10:01:00.000Z' })));
+    assert.strictEqual(r.manifest.counts.commits, 0);
+    const prompt = read('events/2026-11-20.jsonl');
+    assert.ok(prompt.includes('see [commit-1]') && !prompt.includes('[hex-'), prompt);
+    assert.ok(!('unknown-hex' in r.manifest.rules));
   });
 
   test('the export explains itself: README, schema/, and every record valid against the schema the manifest names', async () => {
     setUp();
-    const r = ok(await exportProject(opts()));
+    const r = ok(await exportProject(all()));
     assert.strictEqual(r.manifest.readme, 'README.md');
     assert.match(read('README.md'), /^# A Snagboat export/);
-    assert.ok(read('README.md').includes('[flagged-N]') && read('README.md').includes('person-xxxxxxxx'), 'the markers are explained');
+    assert.ok(read('README.md').includes('| `person` |') && read('README.md').includes('[person-N]'), 'the rule table explains the placeholders');
+    assert.ok(!read('README.md').includes('{{RULE_TABLE}}'));
     let checked = 0;
     for (const file of walk(OUT).filter((f) => f.endsWith('.jsonl') || f === 'manifest.json')) {
       const schemaFile = schemaFor(r.manifest.schemas, file);
@@ -293,32 +386,31 @@ async function main() {
     for (const file of walk(OUT).filter((f) => f.startsWith('schema/'))) assert.ok(!read(file).includes('github.com/'), `${file} links to a repository`);
   });
 
-  test('--zip: the export folder in one file, the same bytes on a rerun, never the review folder', async () => {
+  test('--zip: the export folder in one file, the same bytes on a rerun', async () => {
     setUp();
-    const r = ok(await exportProject(opts({ zip: true })));
+    const r = ok(await exportProject(all({ zip: true })));
     assert.strictEqual(r.zipFile, `${OUT}.zip`);
     const zipped = unzip(fs.readFileSync(r.zipFile!));
     assert.deepStrictEqual([...zipped.keys()].sort(), walk(OUT).map((f) => `acme/${f}`));
     for (const f of walk(OUT)) assert.strictEqual(zipped.get(`acme/${f}`), read(f), f);
-    assert.ok(r.reviewFile && fs.existsSync(r.reviewFile), 'something was flagged, beside the export');
     const bytes = fs.readFileSync(r.zipFile!);
-    ok(await exportProject(opts({ zip: true })));
+    ok(await exportProject(all({ zip: true })));
     assert.ok(fs.readFileSync(`${OUT}.zip`).equals(bytes), 'the same store zips to the same bytes');
-    assert.deepStrictEqual(fs.readdirSync(path.dirname(OUT)).sort(), ['acme', 'acme.review', 'acme.zip']);
+    assert.deepStrictEqual(fs.readdirSync(path.dirname(OUT)).sort(), ['acme', 'acme.zip']);
     // Without --zip, an old zip would be another export's: it goes.
-    ok(await exportProject(opts()));
+    ok(await exportProject(all()));
     assert.ok(!fs.existsSync(`${OUT}.zip`));
   });
 
   test('--out inside the project is refused and nothing is written; under its .snagboat/ it is made ignored', async () => {
     setUp();
     for (const out of [path.join(PROJECT, 'exports'), path.join(WT_OUTSIDE, 'x'), path.join(PROJECT, '.snagboat'), path.join(SNAGBOAT_HOME, 'data', 'x')]) {
-      const r = await exportProject(opts({ out }));
+      const r = await exportProject(all({ out }));
       assert.ok(!r.ok && r.reason === 'refused', `${out}: ${JSON.stringify(r)}`);
       assert.ok(!fs.existsSync(out) || fs.readdirSync(out).length === 0, `${out} was written`);
     }
     const inside = path.join(PROJECT, '.snagboat', 'exports', 'acme');
-    ok(await exportProject(opts({ out: inside })));
+    ok(await exportProject(all({ out: inside })));
     assert.strictEqual(fs.readFileSync(path.join(PROJECT, '.snagboat', 'exports', '.gitignore'), 'utf8').split('\n').includes('*'), true);
     // And through the CLI: exit 1, with the reason.
     const prev = process.env.SNAGBOAT_HOME;
@@ -337,7 +429,7 @@ async function main() {
 
   test('--text none: structure only', async () => {
     setUp();
-    ok(await exportProject(opts({ text: 'none' })));
+    ok(await exportProject(all({ text: 'none' })));
     const events = lines<NormalizedEvent>('events/2026-11-20.jsonl');
     const prompt = events.find((e) => e.eventId === 'u-1')!;
     assert.strictEqual(prompt.kind, 'user_prompt');
@@ -347,84 +439,27 @@ async function main() {
     assert.ok(!read('findings.jsonl').includes('Retried'));
   });
 
-  test('--fail-on-flags writes nothing when anything is flagged, and leaves an earlier export as it was', async () => {
-    setUp();
-    ok(await exportProject(opts()));
-    const before = walk(OUT).map((f) => read(f)).join('\n');
-    const r = await exportProject(opts({ failOnFlags: true, now: new Date('2026-12-01T00:00:00Z') }));
-    assert.ok(!r.ok && r.reason === 'flags', JSON.stringify(r));
-    assert.ok(r.flagsByRule && r.flagsByRule['internal-url'] >= 1, JSON.stringify(r.flagsByRule));
-    assert.strictEqual(walk(OUT).map((f) => read(f)).join('\n'), before);
-    // With the flags allowed, nothing is flagged and it writes.
-    const r2 = ok(await exportProject(opts({ failOnFlags: true, allowRules: ['internal-url', 'unknown-sha', 'high-entropy', 'name', 'mention', 'unresolved-path'] })));
-    assert.strictEqual(r2.manifest.flags, 0);
-  });
-
-  test('a leak the rules miss is caught by the final check: rule and file, no value, nothing written', async () => {
-    setUp();
-    const fresh = path.join(ROOT, 'exports', 'leak');
-    const r = await exportProject(
-      opts({
-        out: fresh,
-        beforeCheck: (files) => {
-          const f = files.find((x) => x.file === 'sessions.jsonl')!;
-          f.text += JSON.stringify({ note: `mail ${PERSON_EMAIL} at ${PROJECT}/x` }) + '\n';
-        },
-      })
-    );
-    assert.ok(!r.ok && r.reason === 'final-check', JSON.stringify(r));
-    assert.deepStrictEqual(
-      r.hits!.map((h) => `${h.rule} ${h.file}`).sort(),
-      ['email sessions.jsonl', 'path sessions.jsonl', 'user sessions.jsonl']
-    );
-    assert.ok(!r.message.includes(PERSON_EMAIL) && !r.message.includes(PROJECT), r.message);
-    assert.ok(!fs.existsSync(fresh) && !fs.existsSync(`${fresh}.review`));
-    assert.deepStrictEqual(fs.readdirSync(path.dirname(fresh)).filter((f) => f.includes('snagboat-tmp')), [], 'no temporary folder left');
-  });
-
-  test("private SHAs are re-keyed; export.public keeps them; a project's .snagboat.json can't make it public", async () => {
-    setUp();
-    ok(await exportProject(opts()));
-    const privateCommits = lines<CommitRecord>('git/commits.jsonl');
-    assert.ok(privateCommits.every((c) => /^[0-9a-f]{40}$/.test(c.sha) && c.sha !== SHA1 && c.sha !== SHA2));
-
-    fs.writeFileSync(path.join(PROJECT, '.snagboat.json'), JSON.stringify({ settings: { 'export.public': true } }));
-    const viaFile = ok(await exportProject(opts()));
-    assert.strictEqual(viaFile.manifest.repository.privacy, 'private');
-    assert.ok(viaFile.notes.some((n) => n.includes('export.public')), viaFile.notes.join('\n'));
-
-    saveConfig(SNAGBOAT_HOME, { version: 1, defaults: { 'export.deny': [DENY] }, projects: { [PROJECT]: { 'export.public': true } } });
-    const pub = ok(await exportProject(opts()));
-    assert.strictEqual(pub.manifest.repository.privacy, 'public');
-    assert.strictEqual(pub.keyFile, exportKeyPath(SNAGBOAT_HOME, 'public'));
-    const commits = lines<CommitRecord>('git/commits.jsonl');
-    assert.deepStrictEqual(commits.map((c) => c.sha), [SHA1, SHA2]);
-    assert.ok(read('events/2026-11-20.jsonl').includes(SHA2.slice(0, 8)), 'a short SHA in text is kept too');
-  });
-
   test('a rerun replaces the export whole, the same bytes for the same store, with no temporary folders left', async () => {
     setUp();
-    ok(await exportProject(opts()));
+    ok(await exportProject(all()));
     const first = new Map(walk(OUT).map((f) => [f, read(f)]));
-    const review = fs.readFileSync(`${OUT}.review/flags.jsonl`, 'utf8');
     fs.writeFileSync(path.join(OUT, 'stale.jsonl'), '{}\n');
-    ok(await exportProject(opts()));
-    assert.deepStrictEqual(new Map(walk(OUT).map((f) => [f, read(f)])), first);
-    assert.strictEqual(fs.readFileSync(`${OUT}.review/flags.jsonl`, 'utf8'), review, 'flags numbered the same way');
-    assert.deepStrictEqual(fs.readdirSync(path.dirname(OUT)).sort(), ['acme', 'acme.review']);
+    ok(await exportProject(all()));
+    assert.deepStrictEqual(new Map(walk(OUT).map((f) => [f, read(f)])), first, 'placeholders numbered the same way');
+    assert.deepStrictEqual(fs.readdirSync(path.dirname(OUT)).sort(), ['acme']);
     // An existing folder that isn't an export is never replaced.
     const mine = path.join(ROOT, 'mine');
     fs.mkdirSync(mine, { recursive: true });
     fs.writeFileSync(path.join(mine, 'notes.txt'), 'keep me');
-    const r = await exportProject(opts({ out: mine }));
+    const r = await exportProject(all({ out: mine }));
     assert.ok(!r.ok && r.reason === 'refused');
     assert.strictEqual(fs.readFileSync(path.join(mine, 'notes.txt'), 'utf8'), 'keep me');
   });
 
-  test('--since and --until select by each record\'s time; the store is never written', async () => {
+  test("--since and --until select by each record's time; with nothing to decide the store is never written", async () => {
     setUp();
     const storeBefore = walk(path.join(SNAGBOAT_HOME, 'data')).map((f) => `${f}:${fs.statSync(path.join(SNAGBOAT_HOME, 'data', f)).mtimeMs}`);
-    const r = ok(await exportProject(opts({ since: '2026-11-21T00:00:00.000Z', until: '2026-11-22T00:00:00.000Z' })));
+    const r = ok(await exportProject(all({ since: '2026-11-21T00:00:00.000Z', until: '2026-11-22T00:00:00.000Z' })));
     assert.deepStrictEqual(walk(path.join(OUT, 'events')), ['2026-11-21.jsonl']);
     assert.strictEqual(r.manifest.counts.commits, 0);
     assert.strictEqual(r.manifest.counts.checkouts, 2);
@@ -434,7 +469,7 @@ async function main() {
     assert.deepStrictEqual(storeAfter, storeBefore);
   });
 
-  test('the CLI: --json prints the manifest; bad options are refused', async () => {
+  test('the CLI: --json prints the manifest; values to decide exit 3; bad options are refused', async () => {
     setUp();
     const prev = process.env.SNAGBOAT_HOME;
     process.env.SNAGBOAT_HOME = SNAGBOAT_HOME;
@@ -442,19 +477,27 @@ async function main() {
       let out = '';
       let err = '';
       const io = { out: (t: string) => (out += t), err: (t: string) => (err += t), cwd: ROOT, now: NOW };
-      const code = await runCli(['export', '--project', PROJECT, '--out', OUT, '--match', MATCH, '--name', 'acme', '--json'], io, 'test');
+      const code = await runCli(['export', '--project', PROJECT, '--out', OUT, '--match', MATCH, '--name', 'acme', '--rewrite-all', '--json'], io, 'test');
       assert.strictEqual(code, 0, err);
       const m = JSON.parse(out) as ExportManifest;
       assert.strictEqual(m.project, 'acme');
       assert.deepStrictEqual(m, JSON.parse(read('manifest.json')));
       out = '';
-      assert.strictEqual(await runCli(['export', '--project', PROJECT, '--out', OUT], io, 'test'), 0, err);
+      assert.strictEqual(await runCli(['export', '--project', PROJECT, '--out', OUT, '--rewrite-all', '--rule', 'sha=keep,email=keep'], io, 'test'), 0, err);
       assert.match(out, /Exported acme-app to /);
-      assert.match(out, /Review file \(never inside the export\)/);
+      assert.match(out, /Privacy filter \(rewrite-all\), values by rule: .*email \d+ kept/);
+      err = '';
+      assert.strictEqual(await runCli(['export', '--project', PROJECT, '--out', OUT], io, 'test'), 3);
+      assert.match(err, /Nothing exported/);
+      assert.ok(err.includes(path.join(STATE(), REVIEW_FILE)), err);
+      assert.match(err, /\n {2}email: \d+ values?\n/);
       assert.strictEqual(await runCli(['export', '--project', PROJECT], io, 'test'), 2);
       assert.strictEqual(await runCli(['export', '--project', PROJECT, '--out', OUT, '--text', 'some'], io, 'test'), 2);
       assert.strictEqual(await runCli(['export', '--project', PROJECT, '--out', OUT, '--since', 'yesterday'], io, 'test'), 2);
-      assert.strictEqual(await runCli(['export', '--project', PROJECT, '--out', OUT, '--allow-rule', 'secret'], io, 'test'), 2);
+      assert.strictEqual(await runCli(['export', '--project', PROJECT, '--out', OUT, '--rule', 'email'], io, 'test'), 2);
+      assert.strictEqual(await runCli(['export', '--project', PROJECT, '--out', OUT, '--rule', 'nope=keep'], io, 'test'), 2);
+      assert.strictEqual(await runCli(['export', '--project', PROJECT, '--out', OUT, '--no-filter', '--rewrite-all'], io, 'test'), 2);
+      assert.strictEqual(await runCli(['export', '--project', PROJECT, '--out', OUT, '--allow-rule', 'ip'], io, 'test'), 2, '--allow-rule is gone');
     } finally {
       if (prev === undefined) delete process.env.SNAGBOAT_HOME;
       else process.env.SNAGBOAT_HOME = prev;
