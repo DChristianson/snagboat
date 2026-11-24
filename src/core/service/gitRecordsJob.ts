@@ -2,8 +2,8 @@ import * as path from 'path';
 import { BranchRecord, CommitRecord, GitRecord, storeRecordKey } from '@snagboat/schema';
 import { effectiveSettings } from '../config';
 import { commitShasSince, localBranches, locateRepo, readCheckouts, readCommits, RepoLocation, updateBranches } from '../gitRecords';
-import { oldestKeptDay } from '../retention';
-import { foldStoreFile, storeRecordTime } from '../storeRecordFiles';
+import { oldestKeptDay, oldestTextDay } from '../retention';
+import { foldStoreFile, storeRecordChanged, storeRecordTime, withoutStoreText } from '../storeRecordFiles';
 import { listUserStores, UserStore } from '../userStore';
 import { GitRunner, runGit } from '../../outcomes/gitOutcomes';
 import { retentionPolicyFor, StoreWriter } from './storeWriter';
@@ -28,6 +28,11 @@ import { retentionPolicyFor, StoreWriter } from './storeWriter';
  *
  * Retention: each store keeps records from its own retention.rawDays (storeRecordTime), and
  * nothing older is appended, so retention and this job don't undo each other.
+ *
+ * A commit's body is captured text: stored only while the project captures content
+ * (captureContent), and only for commits made within retention.textDays, which storeWriter's
+ * retention also strips from older lines. A commit whose stored copy lost its body (Remove
+ * Captured Text) isn't appended again for it (storeRecordChanged).
  */
 
 export const GIT_RECORDS_TICK_MS = 5 * 60_000;
@@ -43,6 +48,10 @@ interface Member {
   file: string;
   /** The oldest record time this store keeps. */
   cutoff: string;
+  /** Commits made before this keep no body (textDays). */
+  textCutoff: string;
+  /** The project captures content. */
+  text: boolean;
 }
 
 export class GitRecordsJob {
@@ -85,8 +94,16 @@ export class GitRecordsJob {
       if (settings['outcomes.git'] === false || settings.collect === false) continue;
       const loc = await locateRepo(store.folder, this.git);
       if (!loc) continue;
-      const rawDays = Math.max(1, Math.floor(retentionPolicyFor(this.home, store.workspace).rawDays));
-      const member = { store, loc, file: path.join(store.dir, GIT_RECORDS_FILE), cutoff: `${oldestKeptDay(today, rawDays)}T00:00:00.000Z` };
+      const policy = retentionPolicyFor(this.home, store.workspace);
+      const rawDays = Math.max(1, Math.floor(policy.rawDays));
+      const member: Member = {
+        store,
+        loc,
+        file: path.join(store.dir, GIT_RECORDS_FILE),
+        cutoff: `${oldestKeptDay(today, rawDays)}T00:00:00.000Z`,
+        textCutoff: `${oldestTextDay(today, policy)}T00:00:00.000Z`,
+        text: settings.captureContent !== false,
+      };
       repos.set(loc.commonDir, [...(repos.get(loc.commonDir) ?? []), member]);
     }
     let total = 0;
@@ -135,12 +152,13 @@ export class GitRecordsJob {
       const fold = folds[i];
       let own = checkouts.get(m.loc.gitDir);
       if (!own) checkouts.set(m.loc.gitDir, (own = readCheckouts(m.loc, since)));
-      const wanted: GitRecord[] = [...commits.values(), ...branchRecords, ...own];
+      // A commit's body only while this project captures content, and only within its textDays.
+      const ownCommits = [...commits.values()].map((c) => (c.body !== undefined && (!m.text || c.committedAt < m.textCutoff) ? withoutStoreText(c) : c));
+      const wanted: GitRecord[] = [...ownCommits, ...branchRecords, ...own];
       const append = wanted.filter((r) => {
         const at = storeRecordTime(r);
         if (at !== undefined && at < m.cutoff) return false;
-        const have = fold.get(storeRecordKey(r));
-        return !have || JSON.stringify(have) !== JSON.stringify(r);
+        return storeRecordChanged(fold.get(storeRecordKey(r)), r);
       });
       if (append.length === 0) continue;
       // Commits in history order, oldest first, then branches, then checkouts.

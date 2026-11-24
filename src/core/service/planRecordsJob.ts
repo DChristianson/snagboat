@@ -16,7 +16,7 @@ import {
   parseMarkdownPlan,
 } from '../planRecords';
 import { oldestKeptDay, oldestTextDay } from '../retention';
-import { foldStoreFile, storeRecordTime } from '../storeRecordFiles';
+import { foldStoreFile, storeRecordChanged, storeRecordTime, withoutStoreText } from '../storeRecordFiles';
 import { listUserStores, UserStore } from '../userStore';
 import { GitRunner, runGit } from '../../outcomes/gitOutcomes';
 import { ACTIVE_MS } from './gitRecordsJob';
@@ -52,7 +52,9 @@ import { retentionPolicyFor, StoreWriter } from './storeWriter';
  * Retention: records follow the store's retention.rawDays by storeRecordTime (an item's closing,
  * a transition's time), and nothing older is appended. Item text (description, design, notes,
  * acceptance) is stored only while the project captures content, and only for items updated
- * within retention.textDays, which storeWriter's retention also strips from older lines.
+ * within retention.textDays, which storeWriter's retention also strips from older lines. An item
+ * whose stored copy lost its text (Remove Captured Text) isn't appended again for it
+ * (storeRecordChanged): its text comes back when the item next changes.
  */
 
 export const PLAN_RECORDS_TICK_MS = 5 * 60_000;
@@ -335,7 +337,7 @@ export class PlanRecordsJob {
       present.add(issue.id);
       if (beads.failed.has(issue.id)) continue;
       const draft = beadsItem(issue, { text: m.text, now: nowIso });
-      items.push(draft.text && draft.updated < m.textCutoff ? withoutText(draft) : draft);
+      items.push(draft.text && draft.updated < m.textCutoff ? withoutStoreText(draft) : draft);
       for (const e of beads.events.get(issue.id) ?? []) {
         const t = beadsTransition(e);
         if (t) transitions.push(t);
@@ -357,8 +359,7 @@ export class PlanRecordsJob {
     const append = wanted.filter((r) => {
       const at = storeRecordTime(r);
       if (at !== undefined && at < m.cutoff) return false;
-      const have = fold.get(storeRecordKey(r));
-      return !have || JSON.stringify(have) !== JSON.stringify(r);
+      return storeRecordChanged(fold.get(storeRecordKey(r)), r);
     });
     if (append.length === 0) return 0;
     await this.writer.appendRecords(m.file, append);
@@ -478,11 +479,6 @@ export class PlanRecordsJob {
       return undefined;
     }
   }
-}
-
-function withoutText(item: PlanItemRecord): PlanItemRecord {
-  const { text: _text, ...rest } = item;
-  return rest;
 }
 
 /** The `plans` setting: a path or a list of paths relative to the project folder; undefined when it isn't set or has none. */

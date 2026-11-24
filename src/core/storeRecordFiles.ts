@@ -6,7 +6,8 @@ import { foldStoreRecords, StoreRecord, storeRecordKey } from '@snagboat/schema'
  * Reading, appending to and pruning the store's record files (git.jsonl, and later plan.jsonl,
  * links.jsonl and findings.jsonl: packages/schema/src/storeRecords.ts). The files are append
  * only: a job appends a record again when it changes, and the latest line with a key is the
- * record. Only retention rewrites a file, through a temporary file and a rename.
+ * record. Only retention and Remove Captured Text rewrite a file, through a temporary file and a
+ * rename.
  */
 
 /** Every record in a store file, in order; a torn line (a crash mid-append) is skipped. Missing file: []. */
@@ -100,30 +101,81 @@ export async function pruneStoreFile(file: string, cutoff: string): Promise<numb
     if (at !== undefined && at < cutoff) expired.add(key);
   }
   if (expired.size === 0) return 0;
-  const kept = lines.filter((r) => !expired.has(storeRecordKey(r)));
-  const temp = `${file}.${process.pid}.tmp`;
-  await fs.promises.writeFile(temp, kept.map((r) => JSON.stringify(r) + '\n').join(''), { encoding: 'utf8', mode: 0o600 });
-  await fs.promises.rename(temp, file);
+  await rewriteStoreFile(file, lines.filter((r) => !expired.has(storeRecordKey(r))));
   return expired.size;
 }
 
+/** Whether a record carries captured text: a commit's body, a plan item's text. */
+export function hasStoreText(r: StoreRecord): boolean {
+  return (r.record === 'commit' && r.body !== undefined) || (r.record === 'item' && r.text !== undefined);
+}
+
+/** A record without its captured text (a commit's body, a plan item's text); everything else stays, the subject and title included. */
+export function withoutStoreText<T extends StoreRecord>(r: T): T {
+  if (r.record === 'commit' && r.body !== undefined) {
+    const { body: _body, ...rest } = r;
+    return rest as T;
+  }
+  if (r.record === 'item' && r.text !== undefined) {
+    const { text: _text, ...rest } = r;
+    return rest as T;
+  }
+  return r;
+}
+
 /**
- * Text retention (retention.textDays) for a store file: removes a plan item's text from every
- * line whose updated time is before `cutoff` (ISO 8601), rewriting the file through a temporary
- * file. The item and its title stay. Returns how many lines lost their text.
+ * Whether a job should append `wanted` over the stored `have`: not when they're the same, nor
+ * when the only difference is text the stored copy lost (to Remove Captured Text): a record that
+ * hasn't changed doesn't get its text back, and one that changes is stored whole again.
  */
-export async function stripStoreText(file: string, cutoff: string): Promise<number> {
+export function storeRecordChanged(have: StoreRecord | undefined, wanted: StoreRecord): boolean {
+  if (!have) return true;
+  const stored = JSON.stringify(have);
+  if (stored === JSON.stringify(wanted)) return false;
+  return hasStoreText(have) || !hasStoreText(wanted) || stored !== JSON.stringify(withoutStoreText(wanted));
+}
+
+/** The time text retention goes by: a commit's commit time, a plan item's last update. */
+function textTime(r: StoreRecord): string | undefined {
+  return r.record === 'commit' ? r.committedAt : r.record === 'item' ? r.updated : undefined;
+}
+
+/** Replaces a store file's lines with `lines` through a temporary file and a rename, so a reader never sees half of it. */
+async function rewriteStoreFile(file: string, lines: StoreRecord[]): Promise<void> {
+  const temp = `${file}.${process.pid}.tmp`;
+  await fs.promises.writeFile(temp, lines.map((r) => JSON.stringify(r) + '\n').join(''), { encoding: 'utf8', mode: 0o600 });
+  await fs.promises.rename(temp, file);
+}
+
+/**
+ * Removes captured text (withoutStoreText) from every line of a store file that `strip` picks,
+ * rewriting the file only when one had text. Returns how many lines lost their text.
+ */
+async function stripLines(file: string, strip: (r: StoreRecord) => boolean): Promise<number> {
   const lines = readStoreRecordLines(file);
   let stripped = 0;
   const kept = lines.map((r) => {
-    if (r.record !== 'item' || r.text === undefined || r.updated >= cutoff) return r;
+    if (!hasStoreText(r) || !strip(r)) return r;
     stripped++;
-    const { text: _text, ...rest } = r;
-    return rest;
+    return withoutStoreText(r);
   });
-  if (stripped === 0) return 0;
-  const temp = `${file}.${process.pid}.tmp`;
-  await fs.promises.writeFile(temp, kept.map((r) => JSON.stringify(r) + '\n').join(''), { encoding: 'utf8', mode: 0o600 });
-  await fs.promises.rename(temp, file);
+  if (stripped > 0) await rewriteStoreFile(file, kept);
   return stripped;
+}
+
+/**
+ * Text retention (retention.textDays) for a store file: removes a commit's body from every line
+ * committed before `cutoff` (ISO 8601), and a plan item's text from every line updated before it.
+ * The records, their subjects and titles stay. Returns how many lines lost their text.
+ */
+export function stripStoreText(file: string, cutoff: string): Promise<number> {
+  return stripLines(file, (r) => {
+    const at = textTime(r);
+    return at !== undefined && at < cutoff;
+  });
+}
+
+/** Snagboat: Remove Captured Text for a store file: every commit body and plan item text, from every line. Returns how many lines lost their text. */
+export function removeStoreText(file: string): Promise<number> {
+  return stripLines(file, () => true);
 }

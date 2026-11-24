@@ -8,7 +8,7 @@ import { workspaceKey } from '../userStore';
 import { claimWorkspace, releaseClaim } from './claims';
 import { CoreInfo, coreRequest } from './coreFile';
 import { ensureCore, findCore } from './lifecycle';
-import { spoolDir } from './storeWriter';
+import { removeStoreRecordText, spoolDir } from './storeWriter';
 
 /**
  * A front door's connection to the core for one workspace (3c-3c: every VS
@@ -362,6 +362,25 @@ export class CoreClient {
     } catch {
       return 0;
     }
+  }
+
+  /**
+   * Removes every commit body and plan item text from this workspace's record files (its
+   * git.jsonl and plan.jsonl, not other workspaces', other worktrees of its repository included),
+   * for Snagboat: Remove Captured Text; how many lines lost their text. The core does it, between its own appends; with no core running nothing
+   * appends, so it's done here. Throws when a core answers but can't (one older than this).
+   */
+  async removeCapturedText(): Promise<number> {
+    let res;
+    try {
+      res = await this.request401('POST', '/captured-text/remove', {}, 120_000);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ECONNREFUSED' && !(await this.find())) return removeStoreRecordText(this.opts.home, (w) => w === this.opts.workspace);
+      throw new Error(`the core didn't remove commit messages and plan text: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (res.status === 404) throw new Error('the running core is older than this extension, so commit messages and plan text were kept; stop it with "snagboat core stop" and run this again');
+    if (res.status !== 200) throw new Error(`the core answered ${res.status} to removing commit messages and plan text`);
+    return Number((res.body as { removed?: number }).removed ?? 0);
   }
 
   close(): void {
