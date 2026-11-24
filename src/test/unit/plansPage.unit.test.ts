@@ -128,7 +128,7 @@ async function main() {
     assert.strictEqual(P.shortRef(SHA), 'bbbbbbb');
     const title = P.evidenceTitle({ kind: 'touched', how: 'claimed', confidence: 'observed', evidence: [{ rule: 'bd-call', refs: ['t2', SHA] }] });
     assert.match(title, /^observed: touched \(claimed\)\nbd-call: A tool call in the session ran bd on the item.*\[t2, bbbbbbb\]$/);
-    for (const rule of ['tool-call-commit', 'git-commit-call', 'git-outcomes', 'checkout', 'tool-call-branch', 'branch-at-start', 'bd-call', 'text-mention', 'commit-references', 'active-session', 'commit-message', 'branch-name', 'pull-request']) assert.ok(P.RULES[rule], `${rule} is explained`);
+    for (const rule of ['tool-call-commit', 'git-commit-call', 'git-outcomes', 'checkout', 'tool-call-branch', 'branch-at-start', 'bd-call', 'text-mention', 'commit-references', 'active-session-touched', 'active-session-bd', 'active-session', 'commit-message', 'branch-name', 'pull-request']) assert.ok(P.RULES[rule], `${rule} is explained`);
   });
 
   test('an item: its summary line, and opened, its lifecycle, sessions, commits and branches, each link observed or inferred with its evidence', () => {

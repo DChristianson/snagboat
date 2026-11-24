@@ -263,7 +263,11 @@ export interface LinkRecord {
   confidence: Confidence;
   /** Why: rule names and the ids of the records that show it. */
   evidence: Array<{ rule: string; refs: string[] }>;
-  /** Store only: the link that replaced this one when a later record overturned it. The export writes only current links. */
+  /**
+   * Store only: the link that replaced this one when a later record overturned it, or
+   * LINK_WITHDRAWN when the rules withdrew it with nothing in its place. The export writes only
+   * current links.
+   */
   supersededBy?: string;
   /** Store only: the time of the latest record in its evidence (ISO 8601, UTC), for retention (retention.rawDays). */
   at?: string;
@@ -318,7 +322,14 @@ export function foldStoreRecords<T extends StoreRecord>(lines: Iterable<T>): T[]
   return [...latest.values()];
 }
 
-/** The links an export writes: the current ones, without any a later link superseded. */
+/**
+ * A link's supersededBy when the rules withdrew it and no link took its place (an inferred guess
+ * a stricter rule no longer makes). Not a link id, so nothing resolves it; any reader that skips
+ * superseded links skips it too.
+ */
+export const LINK_WITHDRAWN = 'withdrawn';
+
+/** The links an export writes: the current ones, without any a later link superseded or the rules withdrew. */
 export function currentLinks(lines: Iterable<LinkRecord>): LinkRecord[] {
   return foldStoreRecords(lines).filter((l) => l.supersededBy === undefined);
 }

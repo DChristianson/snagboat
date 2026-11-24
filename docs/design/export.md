@@ -395,14 +395,14 @@ interface ExportManifest {
 
 ## How records are linked
 
-The core works out links as records arrive and stores them, so heuristics use the same links the export writes. Every link says whether it was **observed** (something recorded shows it directly) or **inferred** (a heuristic guessed it), and why. Views can draw the two differently, and a wrong guess can be traced to its rule. A link that a later record overturns is replaced, not deleted: the store keeps `supersededBy`, and the export writes only the current links.
+The core works out links as records arrive and stores them, so heuristics use the same links the export writes. Every link says whether it was **observed** (something recorded shows it directly) or **inferred** (a heuristic guessed it), and why. Views can draw the two differently, and a wrong guess can be traced to its rule. A link that a later record overturns is replaced, not deleted: the store keeps `supersededBy`, and the export writes only the current links. An inferred made-in link the rules no longer give, with nothing in its place, is withdrawn the same way (`supersededBy: "withdrawn"`): no link is better than a wrong one.
 
 | Link | Observed when | Inferred when |
 | --- | --- | --- |
 | session **made** commit | A tool call in the session ran `git commit` (or `gh pr merge`), and a commit by the same committer landed within 60 seconds after it | The [git outcomes rule](../../src/outcomes/gitOutcomes.ts): a commit between the session's first event and 30 minutes after its last that touches a file the session edited |
 | session **worked-on** branch | A checkout during the session moved HEAD in the session's working tree, or a tool call ran `git checkout`, `git switch` or `git worktree add` | The branch was checked out in that working tree when the session started |
 | session **touched** plan item | A tool call ran `bd` on the item (`create`, `update --claim`, `update`, `close`, `show`), and the item's transition at that time matches. The link carries `how`. | The item's id appears in a prompt or reply, or a commit the session made references it |
-| transition **made-in** session | A tool call ran the `bd` command that made it, within a few seconds | It happened while the session was active, by the session's person, with no other session active then |
+| transition **made-in** session | A tool call ran the `bd` command that made it, within a few seconds | The session had activity within 5 minutes of it and a sign of the item: it touched the item (a `bd` call on it, its id in a prompt or reply, a commit it made referencing it; rule `active-session-touched`) or ran `bd` within those 5 minutes (`active-session-bd`). By the session's person, and no other session qualifies; otherwise no link. A session that merely spans the time isn't enough: the store may not have the session that did it |
 | commit **references** plan item | Its subject or body names the item's id (`(snagboat-79f.13)`) | Its branch's name or pull request names the item |
 | branch **merged** into branch | A merge commit, or a squash commit naming the branch's pull request | The branch's head became reachable from the target, or it disappeared after a pull request with its name merged |
 

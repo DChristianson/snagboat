@@ -179,7 +179,7 @@ function fixture(): ExportInput {
     sessions: [session],
     git: [commit1, commit, branch, checkout],
     plan: [item, transition],
-    links: [link({}), link({ id: 'link-99887766aabbccdd', to: { type: 'branch', id: branch.id }, kind: 'worked-on' }), link({ id: 'link-dead', supersededBy: 'link-00112233aabbccdd' })],
+    links: [link({}), link({ id: 'link-99887766aabbccdd', to: { type: 'branch', id: branch.id }, kind: 'worked-on' }), link({ id: 'link-dead', supersededBy: 'link-00112233aabbccdd' }), link({ id: 'link-withdrawn', kind: 'made-in', supersededBy: 'withdrawn' })],
     findings: [finding],
   };
 }

@@ -7,13 +7,14 @@ import {
   CheckoutRecord,
   CommitRecord,
   currentLinks,
+  LINK_WITHDRAWN,
   LinkRecord,
   NormalizedEvent,
   PlanItemRecord,
   storeRecordKey,
   TransitionRecord,
 } from '@snagboat/schema';
-import { ComputedLink, computeLinks, issuePrefix, LinkerInput, linkId, linksToAppend, observeEvent, SessionFacts } from '../../core/links';
+import { ComputedLink, computeLinks, issuePrefix, LinkerInput, linkId, linksToAppend, observeEvent, SessionFacts, withdrawnLink } from '../../core/links';
 import { appendStoreRecords, readStoreRecordLines } from '../../core/storeRecordFiles';
 import { LinkerJob } from '../../core/service/linkerJob';
 import { StoreWriter } from '../../core/service/storeWriter';
@@ -192,20 +193,88 @@ async function main() {
     assert.deepStrictEqual(viaCommit.map(brief), ['s1>snagboat-koh:mentioned:inferred:commit-references']);
   });
 
-  test('made-in, inferred: the one session active then, by its person; not with two sessions active', () => {
+  test('made-in, inferred: a session spanning the transition with no activity near it gets nothing (the over-attachment: 17 transitions on one long session)', () => {
+    // A long session touched snagboat-koh early, then sat idle for hours while transitions happened elsewhere.
+    const events = [prompt('s1', T0, 'pick up snagboat-koh'), bash('s1', T0 + MIN, 'ls'), bash('s1', T0 + 300 * MIN, 'ls')];
+    const transitions = Array.from({ length: 17 }, (_, i) => transition(`bd-${i + 20}`, 'snagboat-koh', T0 + (30 + i * 10) * MIN, 'updated'));
+    const out = link({ events, items: [item('snagboat-koh')], transitions });
+    assert.deepStrictEqual(pick(out, 'made-in'), [], 'none of the 17');
+  });
+
+  test('made-in, inferred: activity near it but no sign of the item, no link', () => {
     const t = transition('bd-9', 'snagboat-koh', T0 + 5 * MIN, 'updated', 'Dave', { fields: ['notes'] });
-    const one = link({ events: [prompt('s1', T0), bash('s1', T0 + 10 * MIN, 'ls')], items: [item('snagboat-koh')], transitions: [t] });
-    assert.deepStrictEqual(pick(one, 'made-in').map(brief), ['bd-9>s1:inferred:active-session']);
-    const two = link({ events: [prompt('s1', T0), bash('s1', T0 + 10 * MIN, 'ls'), prompt('s2', T0 + MIN), bash('s2', T0 + 9 * MIN, 'ls')], items: [item('snagboat-koh')], transitions: [t] });
+    const out = link({ events: [prompt('s1', T0, 'work on snagboat-zzz'), bash('s1', T0 + 4 * MIN, 'ls'), bash('s1', T0 + 10 * MIN, 'ls')], items: [item('snagboat-koh'), item('snagboat-zzz')], transitions: [t] });
+    assert.deepStrictEqual(pick(out, 'made-in'), []);
+  });
+
+  test('made-in, inferred: activity near it and the session touched the item: active-session-touched, the touched link in its evidence', () => {
+    const t = transition('bd-9', 'snagboat-koh', T0 + 5 * MIN, 'updated', 'Dave', { fields: ['notes'] });
+    const out = link({ events: [prompt('s1', T0, 'please pick up snagboat-koh'), bash('s1', T0 + 3 * MIN, 'ls'), bash('s1', T0 + 60 * MIN, 'ls')], items: [item('snagboat-koh')], transitions: [t] });
+    const madeIn = pick(out, 'made-in');
+    assert.deepStrictEqual(madeIn.map(brief), ['bd-9>s1:inferred:active-session-touched']);
+    const touched = pick(out, 'touched')[0];
+    assert.deepStrictEqual(madeIn[0].evidence, [{ rule: 'active-session-touched', refs: ['bd-9', touched.id].sort() }]);
+    // Activity just outside the window: nothing.
+    const far = link({ events: [prompt('s1', T0, 'please pick up snagboat-koh'), bash('s1', T0 + 60 * MIN, 'ls')], items: [item('snagboat-koh')], transitions: [transition('bd-9', 'snagboat-koh', T0 + 20 * MIN, 'updated')] });
+    assert.deepStrictEqual(pick(far, 'made-in'), []);
+  });
+
+  test('made-in, inferred: activity near it and a bd call then: active-session-bd, the call in its evidence', () => {
+    // bd ran on another item (a bd call is a sign of bd work), and the transition landed after the observed window.
+    const call = bash('s1', T0 + 2 * MIN, 'bd ready');
+    const t = transition('bd-9', 'snagboat-koh', T0 + 5 * MIN, 'updated');
+    const out = link({ events: [prompt('s1', T0), call, bash('s1', T0 + 90 * MIN, 'ls')], items: [item('snagboat-koh')], transitions: [t] });
+    const madeIn = pick(out, 'made-in');
+    assert.deepStrictEqual(madeIn.map(brief), ['bd-9>s1:inferred:active-session-bd']);
+    assert.deepStrictEqual(madeIn[0].evidence[0].refs, [call.eventId, 'bd-9'].sort());
+    // A bd update --claim whose transition came 4 minutes later: touched (inferred bd-call) and the bd call, both rules.
+    const claim = bash('s1', T0 + MIN, 'bd update snagboat-koh --claim', { planItems: ['snagboat-koh'] });
+    const both = pick(link({ events: [prompt('s1', T0), claim], items: [item('snagboat-koh')], transitions: [transition('bd-9', 'snagboat-koh', T0 + 5 * MIN, 'claimed')] }), 'made-in');
+    assert.deepStrictEqual(both.map(brief), ['bd-9>s1:inferred:active-session-bd+active-session-touched']);
+  });
+
+  test('made-in, inferred: two sessions qualifying, no link; only one qualifying of two active, its link; by its person', () => {
+    const t = transition('bd-9', 'snagboat-koh', T0 + 5 * MIN, 'updated', 'Dave', { fields: ['notes'] });
+    const items = [item('snagboat-koh')];
+    const two = link({ events: [prompt('s1', T0, 'snagboat-koh'), bash('s1', T0 + 4 * MIN, 'ls'), prompt('s2', T0 + MIN, 'snagboat-koh too'), bash('s2', T0 + 6 * MIN, 'ls')], items, transitions: [t] });
     assert.deepStrictEqual(pick(two, 'made-in'), []);
+    const one = link({ events: [prompt('s1', T0, 'snagboat-koh'), bash('s1', T0 + 4 * MIN, 'ls'), prompt('s2', T0 + MIN, 'something else'), bash('s2', T0 + 6 * MIN, 'ls')], items, transitions: [t] });
+    assert.deepStrictEqual(pick(one, 'made-in').map(brief), ['bd-9>s1:inferred:active-session-touched']);
     // Its person: the actor of what it observably did. Someone else's transition isn't its.
     const other = transition('bd-10', 'snagboat-koh', T0 + 6 * MIN, 'updated', 'Someone');
     const person = link({
       events: [prompt('s1', T0), bash('s1', T0 + MIN, 'bd update snagboat-koh --claim', { planItems: ['snagboat-koh'] }), bash('s1', T0 + 10 * MIN, 'ls')],
-      items: [item('snagboat-koh')],
+      items,
       transitions: [transition('bd-1', 'snagboat-koh', T0 + MIN + 500, 'claimed', 'Dave'), t, other],
     });
-    assert.deepStrictEqual(pick(person, 'made-in').map(brief).sort(), ['bd-1>s1:observed:bd-call', 'bd-9>s1:inferred:active-session']);
+    assert.deepStrictEqual(pick(person, 'made-in').map(brief).sort(), ['bd-1>s1:observed:bd-call', 'bd-9>s1:inferred:active-session-bd+active-session-touched']);
+  });
+
+  test('made-in, withdrawn: a stored over-attached link the rules no longer give is appended again with supersededBy withdrawn; again, nothing', () => {
+    const t = transition('bd-9', 'snagboat-koh', T0 + 60 * MIN, 'updated');
+    const old: LinkRecord = {
+      record: 'link', version: 1, id: linkId({ type: 'transition', id: 'bd-9' }, { type: 'session', id: 's1' }, 'made-in'),
+      from: { type: 'transition', id: 'bd-9' }, to: { type: 'session', id: 's1' }, kind: 'made-in', confidence: 'inferred', evidence: [{ rule: 'active-session', refs: ['bd-9'] }], at: iso(T0 + 60 * MIN),
+    };
+    const stored = new Map<string, LinkRecord>([[storeRecordKey(old), old]]);
+    const now = link({ events: [prompt('s1', T0), bash('s1', T0 + 300 * MIN, 'ls')], items: [item('snagboat-koh')], transitions: [t] });
+    assert.deepStrictEqual(pick(now, 'made-in'), []);
+    const appended = linksToAppend(stored, now, now, new Set(['s1']));
+    assert.deepStrictEqual(appended.map((l) => [l.id, l.supersededBy]), [[old.id, LINK_WITHDRAWN]]);
+    appended.forEach((r) => stored.set(storeRecordKey(r), r));
+    assert.deepStrictEqual(currentLinks(stored.values()), []);
+    assert.deepStrictEqual(linksToAppend(stored, now, now, new Set(['s1'])), [], 'idempotent');
+    // The retired rule's links go whether or not the session is still read; the new rules' only when it is.
+    assert.ok(withdrawnLink(old));
+    const fresh: LinkRecord = { ...old, evidence: [{ rule: 'active-session-touched', refs: ['bd-9', 'link-x'] }] };
+    assert.ok(!withdrawnLink(fresh), 'its session past retention: stays');
+    assert.ok(withdrawnLink(fresh, new Set(['s1'])));
+    assert.ok(!withdrawnLink({ ...fresh, confidence: 'observed', evidence: [{ rule: 'bd-call', refs: ['e1'] }] }, new Set(['s1'])), 'observed: never');
+    // The rules give it again later (the session touches the item near it): current again, with the new evidence.
+    const again = link({ events: [prompt('s1', T0), prompt('s1', T0 + 58 * MIN, 'snagboat-koh'), bash('s1', T0 + 300 * MIN, 'ls')], items: [item('snagboat-koh')], transitions: [t] });
+    const back = linksToAppend(stored, again, again, new Set(['s1'])).find((l) => l.id === old.id)!;
+    assert.strictEqual(back.supersededBy, undefined);
+    assert.deepStrictEqual(back.evidence.map((e) => e.rule), ['active-session-touched']);
   });
 
   // ---- commit references plan item
