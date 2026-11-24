@@ -4,7 +4,7 @@ import { eventDay, NormalizedEvent, STORE_RECORD_FILES, StoreRecord } from '@sna
 import { effectiveSettings } from '../config';
 import { EventLog } from '../eventLog';
 import { AggregateStore, applyRetention, EventSink, oldestKeptDay, oldestTextDay, RetentionPolicy } from '../retention';
-import { appendStoreRecords, pruneStoreFile, removeStoreText, stripStoreText } from '../storeRecordFiles';
+import { appendStoreRecords, pruneStoreFile, removeStoreRecords, removeStoreText, stripStoreText } from '../storeRecordFiles';
 import { withoutCapturedText } from '../excerpt';
 import { listUserStores, openWorkspaceStore, userDataDir, workspaceInfoOf, workspaceKey, workspaceStoreDir } from '../userStore';
 import { Claim, claimedBy, claimOf } from './claims';
@@ -124,6 +124,12 @@ export class StoreWriter {
   /** Appends records to a store record file (git.jsonl, ...), serialized with retention, which rewrites those files. */
   appendRecords(file: string, records: StoreRecord[]): Promise<void> {
     return this.serial(() => appendStoreRecords(file, records));
+  }
+
+  /** Removes every line of the records with these keys (storeRecordKey) from a store record file, serialized with appends and retention. */
+  removeRecords(file: string, keys: Iterable<string>): Promise<number> {
+    const set = new Set(keys);
+    return this.serial(() => removeStoreRecords(file, set));
   }
 
   /**

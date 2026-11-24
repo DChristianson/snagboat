@@ -40,7 +40,7 @@
         },
         "id": {
           "type": "string",
-          "description": "The bead's id, or md- and 12 hex characters of SHA-256 over its file and heading path (and a task's position under its heading), joined by newlines."
+          "description": "The bead's id, or md- and 12 hex characters of SHA-256 over its file and heading path (and a task's normalized text), joined by newlines: from the text as it is now, so reordering keeps it and rewording makes a new item."
         },
         "kind": {
           "enum": [

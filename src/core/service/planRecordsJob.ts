@@ -40,9 +40,15 @@ import { retentionPolicyFor, StoreWriter } from './storeWriter';
  * 4. Markdown: the files git tracks at HEAD under docs/, or under the project's `plans` setting
  *    (paths relative to the project folder), not README, CONTRIBUTING or CHANGELOG unless named.
  *    Items inferred (parseMarkdownPlan), timed and attributed by `git blame HEAD` of their lines.
- *    A status that differs from what's stored becomes a transition at the commit that changed
- *    the line, by its author. An item gone from its file that wasn't done becomes dropped, at the
- *    file's last commit. A file is blamed again only when its blob changes.
+ *    Markdown plans are a best-effort snapshot of the files as they are: an item's id comes from
+ *    its text there (reordering keeps it, rewording makes a new item), and no earlier version is
+ *    read. A status that differs from what's stored becomes a transition at the commit that
+ *    changed the line, by its author. An item gone from its file that wasn't done becomes
+ *    dropped, at the file's last commit. A file is blamed again only when its blob changes.
+ *    A changed id scheme (before snagboat-93b.10.12 a task's id was its position): when a file
+ *    has tasks both stored and at HEAD and not one id in common, the stored tasks are removed
+ *    with their transitions and the file's tasks are recorded as first seen, not as a wave of
+ *    drops and creations.
  *
  * Cadence, like the repository job: ticked every few minutes (PLAN_RECORDS_TICK_MS), a
  * repository is read when one of its workspaces had events in the last ACTIVE_MS, or an hour has
@@ -426,12 +432,17 @@ export class PlanRecordsJob {
     const storedFiles = new Set<string>();
     for (const r of fold.values()) if (r.record === 'item' && r.source === 'markdown' && r.from) storedFiles.add(r.from.file);
 
+    for (const [file, blob] of files) {
+      const read = cache.get(file);
+      if (!read || read.blob !== blob) cache.set(file, await this.readMarkdownFile(m, file, blob));
+    }
+    const replaced = await this.replaceOldIds(m, fold, files, cache);
+
     const items: PlanItemRecord[] = [];
     const transitions: TransitionRecord[] = [];
     const present = new Set<string>();
-    for (const [file, blob] of files) {
-      let read = cache.get(file);
-      if (!read || read.blob !== blob) cache.set(file, (read = await this.readMarkdownFile(m, file, blob)));
+    for (const file of files.keys()) {
+      const read = cache.get(file)!;
       for (const it of read.items) {
         const origin = read.origins.get(it.id);
         if (!origin) continue;
@@ -440,7 +451,7 @@ export class PlanRecordsJob {
         const stored = have?.record === 'item' ? have : undefined;
         items.push(markdownRecord(file, it, origin, stored));
         if (stored && stored.status !== it.status) transitions.push(markdownTransition(it.id, stored.status, it.status, origin));
-        else if (!stored && storedFiles.has(file)) transitions.push(markdownTransition(it.id, undefined, it.status, origin));
+        else if (!stored && storedFiles.has(file) && !replaced.has(file)) transitions.push(markdownTransition(it.id, undefined, it.status, origin));
       }
     }
 
@@ -458,6 +469,33 @@ export class PlanRecordsJob {
     }
     transitions.sort((a, b) => a.at.localeCompare(b.at));
     return this.appendChanged(m, fold, [...items, ...transitions]);
+  }
+
+  /**
+   * Tasks stored under an older id scheme: a file whose tasks at HEAD and stored tasks share no
+   * id. Those stored tasks go, with their transitions; returns the files whose tasks went, to be
+   * recorded as first seen. (Headings' ids didn't change, so only tasks are compared.)
+   */
+  private async replaceOldIds(m: Member, fold: Map<string, PlanRecord>, files: Map<string, string>, cache: Map<string, MarkdownFile>): Promise<Set<string>> {
+    const storedTasks = new Map<string, string[]>();
+    for (const r of fold.values()) {
+      if (r.record !== 'item' || r.source !== 'markdown' || r.kind !== 'task' || !r.from || !files.has(r.from.file)) continue;
+      storedTasks.set(r.from.file, [...(storedTasks.get(r.from.file) ?? []), r.id]);
+    }
+    const replaced = new Set<string>();
+    const stale = new Set<string>();
+    for (const [file, ids] of storedTasks) {
+      const now = new Set((cache.get(file)?.items ?? []).filter((it) => it.shape === 'task').map((it) => it.id));
+      if (now.size === 0 || ids.some((id) => now.has(id))) continue;
+      replaced.add(file);
+      for (const id of ids) stale.add(id);
+    }
+    if (stale.size === 0) return replaced;
+    const keys = [...fold.entries()].filter(([, r]) => (r.record === 'item' && stale.has(r.id)) || (r.record === 'transition' && stale.has(r.item))).map(([k]) => k);
+    await this.writer.removeRecords(m.file, keys);
+    for (const k of keys) fold.delete(k);
+    this.log(`plan from markdown in ${m.folder}: replaced ${stale.size} task(s) stored under an older id scheme in ${[...replaced].join(', ')}`);
+    return replaced;
   }
 
   private async existsAtHead(m: Member, file: string): Promise<boolean> {
