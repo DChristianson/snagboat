@@ -71,6 +71,7 @@ export interface CommitRecord {
   /** From Co-Authored-By trailers, as author is: agents by name, people as idents (person-N in an export). */
   coAuthors: string[];
   subject: string;
+  /** The message after the subject. Only while the project captures content; removed past retention.textDays and by Snagboat: Remove Captured Text. */
   body?: string;
   files: CommitFile[];
   /** Pull request number from the subject ("(#157)"), when there is one. Nothing else about pull requests is recorded. */
@@ -179,7 +180,7 @@ export interface PlanItemRecord {
   owner?: string;
   /** In the store, bd's created_by; in an export, person-N or an agent's name. */
   createdBy?: string;
-  /** Only while the project captures content; removed past retention.textDays (and, later, by Snagboat: Remove Captured Text). */
+  /** Only while the project captures content; removed past retention.textDays and by Snagboat: Remove Captured Text. */
   text?: { description?: string; design?: string; notes?: string; acceptance?: string };
   source: 'beads' | 'markdown';
   /** markdown: the file and heading it came from, relative to the project. */

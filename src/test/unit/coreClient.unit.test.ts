@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
-import { NormalizedEvent } from '@snagboat/schema';
+import { NormalizedEvent, StoreRecord } from '@snagboat/schema';
 import { sanitizeCwd } from '../../adapters/claude-code/workspace';
 import { EventLog } from '../../core/eventLog';
 import { claimedBy } from '../../core/service/claims';
@@ -11,7 +11,8 @@ import { CoreClient } from '../../core/service/client';
 import { CoreInfo, coreRequest, readCoreFile } from '../../core/service/coreFile';
 import { CoreService } from '../../core/service/server';
 import { spoolDir, StoreWriter } from '../../core/service/storeWriter';
-import { workspaceStoreDir } from '../../core/userStore';
+import { appendStoreRecords } from '../../core/storeRecordFiles';
+import { openWorkspaceStore, workspaceStoreDir } from '../../core/userStore';
 
 // A VS Code window as a client of the core (docs/design/handoff-3c.md, 3c-3c): the live
 // feed scoped to its workspace, the replay that covers a reconnect, posting events the
@@ -245,6 +246,37 @@ async function main() {
     } finally {
       await core.stop();
     }
+  });
+
+  test("Remove Captured Text's commit bodies and plan text: this workspace's store only, through the core or, with no core, in the window", async () => {
+    const { home, a, b } = machine();
+    const at = new Date().toISOString();
+    const commit = (sha: string): StoreRecord => ({ record: 'commit', version: 1, sha, parents: [], kind: 'commit', authoredAt: at, committedAt: at, author: 'a', committer: 'a', coAuthors: [], subject: 'subject', body: 'secret body', files: [], onBranches: [] });
+    const item: StoreRecord = { record: 'item', version: 1, id: 'p-1', kind: 'task', title: 'Title', status: 'open', labels: [], created: at, updated: at, text: { description: 'secret plan' }, source: 'beads', confidence: 'observed' };
+    // b stands for another worktree of the same repository: the same commit, in its own store.
+    const seed = async () => {
+      for (const w of [a, b]) {
+        const dir = await openWorkspaceStore(home, { workspace: w, folder: w });
+        await appendStoreRecords(path.join(dir, 'git.jsonl'), [commit('a'.repeat(40))]);
+        await appendStoreRecords(path.join(dir, 'plan.jsonl'), [item]);
+      }
+    };
+    const secrets = (w: string) => ['git.jsonl', 'plan.jsonl'].filter((f) => fs.readFileSync(path.join(workspaceStoreDir(home, w), f), 'utf8').includes('secret'));
+    await seed();
+    const core = await start(home);
+    const client = await CoreClient.connect({ home, cliPath: '/nowhere', workspace: a, ensure: running(home) });
+    try {
+      assert.strictEqual(await client.removeCapturedText(), 2, "a's commit body and plan text");
+      assert.deepStrictEqual(secrets(a), []);
+      assert.deepStrictEqual(secrets(b), ['git.jsonl', 'plan.jsonl'], "b's are untouched");
+    } finally {
+      await core.stop();
+    }
+    await seed();
+    assert.strictEqual(await client.removeCapturedText(), 2, 'no core running: nothing appends, so the window does it, for its own workspace');
+    assert.deepStrictEqual(secrets(a), []);
+    assert.deepStrictEqual(secrets(b), ['git.jsonl', 'plan.jsonl'], "b's are still untouched");
+    client.close();
   });
 
   test('a core from an older Snagboat (no live feed, or no findings) is refused, not waited on', async () => {

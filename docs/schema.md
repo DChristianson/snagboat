@@ -211,6 +211,8 @@ Each workspace's folder in `~/.snagboat/data` has four files beside `events/`. E
 
 The files are append only. A record that changes (a branch merged or deleted, an item's new status, a link that turned observed) is appended again with the same key, and the latest line with a key is the record: `foldStoreRecords` folds a file's lines that way, and `storeRecordKey` gives the key (`commit:<sha>`, `item:snagboat-koh`). An absent value hashes as an empty string; the full SHA-256 is never stored. A job appends nothing when a record hasn't changed, so running it again adds nothing. A link that a later record overturns gets `supersededBy`, naming the link that replaced it; `currentLinks` gives the ones an export writes. A link's `at` (store only, like `supersededBy`) is the time of the latest record in its evidence, which retention reads; a finding's is its `lastTs`.
 
+A commit's `body` and a plan item's `text` are captured text, as `promptText` is: stored only while the project's `captureContent` is on, removed from lines older than `retention.textDays` (by `committedAt`, and by the item's `updated`), and removed from every line by **Snagboat: Remove Captured Text**. Those two are the only rewrites of a file besides `rawDays` retention, each through a temporary file and a rename. A stored copy that lost its text doesn't count as changed, so a job doesn't append it again for that; a record that changes is appended whole.
+
 The linker's rules ([src/core/links.ts](../src/core/links.ts)) and the evidence `rule` each writes:
 
 | Link | Observed | Inferred |

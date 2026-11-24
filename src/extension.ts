@@ -840,8 +840,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
     vscode.commands.registerCommand('snagboat.removeCapturedText', async () => {
       const turnOff = 'Remove and Turn Off Capture';
       const choice = await vscode.window.showWarningMessage(
-        "Remove all captured prompts, reply excerpts and todo items from this workspace's event log?",
-        { modal: true, detail: 'Every event is kept; only its prompt text, reply excerpt and todo item text are removed. Session names and todo counts are kept. This cannot be undone.' },
+        "Remove all captured prompts, reply excerpts, todo items, tool inputs, commit messages and plan item text from this workspace's store?",
+        {
+          modal: true,
+          detail:
+            "Every event is kept; only its prompt text, reply excerpt, todo item text and tool input's text are removed. Session names, todo counts and tool calls' paths are kept. Commit messages (all but the subject) and plan items' text are removed from this workspace's store only; commits and plan items stay, with their subjects and titles. Other workspaces, including other worktrees of the same repository, keep theirs until they're cleared from their own window or textDays removes it. This cannot be undone.",
+        },
         'Remove',
         turnOff
       );
@@ -849,6 +853,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
       // Off first, so nothing new is captured while the log is being cleaned.
       if (choice === turnOff) await vscode.workspace.getConfiguration('snagboat').update('captureContent', false, vscode.ConfigurationTarget.Global);
       let days = 0;
+      let records = 0;
       try {
         await runStorageOp(async () => {
           await eventLog.flush();
@@ -858,12 +863,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Snagbo
             days += 1;
           }
           await reloadFromLog();
+          // Commit bodies and plan item text: the core rewrites its record files, between its own appends.
+          records = await core.removeCapturedText();
         });
       } catch (err) {
         vscode.window.showErrorMessage(`Snagboat: failed to remove captured text: ${String(err)}`);
         return;
       }
-      vscode.window.showInformationMessage(`Snagboat: removed captured text from ${days} day(s) of events${choice === turnOff ? ' and turned capture off' : ''}.`);
+      vscode.window.showInformationMessage(`Snagboat: removed captured text from ${days} day(s) of events and ${records} commit or plan record(s)${choice === turnOff ? ' and turned capture off' : ''}.`);
     }),
     vscode.commands.registerCommand('snagboat.clearLog', async () => {
       const choice = await vscode.window.showWarningMessage(

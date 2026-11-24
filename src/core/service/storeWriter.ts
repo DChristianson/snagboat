@@ -4,7 +4,7 @@ import { eventDay, NormalizedEvent, STORE_RECORD_FILES, StoreRecord } from '@sna
 import { effectiveSettings } from '../config';
 import { EventLog } from '../eventLog';
 import { AggregateStore, applyRetention, EventSink, oldestKeptDay, oldestTextDay, RetentionPolicy } from '../retention';
-import { appendStoreRecords, pruneStoreFile, stripStoreText } from '../storeRecordFiles';
+import { appendStoreRecords, pruneStoreFile, removeStoreText, stripStoreText } from '../storeRecordFiles';
 import { withoutCapturedText } from '../excerpt';
 import { listUserStores, openWorkspaceStore, userDataDir, workspaceInfoOf, workspaceKey, workspaceStoreDir } from '../userStore';
 import { Claim, claimedBy, claimOf } from './claims';
@@ -45,6 +45,25 @@ export function spoolDir(home: string): string {
 const STORE_RECORD_FILE_NAMES = [...new Set(Object.values(STORE_RECORD_FILES))];
 
 const todayKey = (now = Date.now()) => new Date(now).toISOString().slice(0, 10);
+
+/** The store record files that hold captured text: commit bodies (git.jsonl), plan item text (plan.jsonl). */
+const STORE_TEXT_FILE_NAMES = [...new Set([STORE_RECORD_FILES.commit, STORE_RECORD_FILES.item])];
+
+/**
+ * Snagboat: Remove Captured Text for the store's record files: removes every commit body and plan
+ * item text from git.jsonl and plan.jsonl in each workspace's folder (or those `only` picks),
+ * rewriting each file through a temporary file and a rename. Subjects, titles, co-authors and
+ * everything else stay. Returns how many lines lost their text. Call it through
+ * StoreWriter.removeCapturedText while a core runs, so no append lands mid-rewrite.
+ */
+export async function removeStoreRecordText(home: string, only?: (workspace: string) => boolean): Promise<number> {
+  let removed = 0;
+  for (const s of listUserStores(home)) {
+    if (only && !only(s.workspace)) continue;
+    for (const file of STORE_TEXT_FILE_NAMES) removed += await removeStoreText(path.join(s.dir, file));
+  }
+  return removed;
+}
 
 /** A workspace's retention, from its settings, with the built-in defaults. */
 export function retentionPolicyFor(home: string, workspace: string): RetentionPolicy {
@@ -108,8 +127,17 @@ export class StoreWriter {
   }
 
   /**
+   * Removes every commit body and plan item text from the record files
+   * of the workspaces `only` picks (removeStoreRecordText), serialized with the jobs' appends and retention. Record files are the
+   * core's whichever window holds a folder, so a claimed workspace is cleaned too.
+   */
+  removeCapturedText(only?: (workspace: string) => boolean): Promise<number> {
+    return this.serial(() => removeStoreRecordText(this.home, only));
+  }
+
+  /**
    * Applies each unclaimed workspace's retention: rolls up old days, removes captured text past
-   * textDays (plan item text in plan.jsonl too), and drops store records (git.jsonl, plan.jsonl, links.jsonl, findings.jsonl) older than rawDays. Returns how many days changed.
+   * textDays (commit bodies in git.jsonl and plan item text in plan.jsonl too), and drops store records (git.jsonl, plan.jsonl, links.jsonl, findings.jsonl) older than rawDays. Returns how many days changed.
    */
   runRetention(only?: (workspace: string) => boolean): Promise<number> {
     return this.serial(() => this.retentionNow(only));
@@ -216,8 +244,9 @@ export class StoreWriter {
       const rawCutoff = `${oldestKeptDay(todayKey(this.now()), Math.max(1, Math.floor(policy.rawDays)))}T00:00:00.000Z`;
       // Not counted: the count says which days changed, and windows reload their events when it's above 0.
       for (const file of STORE_RECORD_FILE_NAMES) await pruneStoreFile(path.join(s.dir, file), rawCutoff);
-      // Plan item text follows textDays, as events' captured text does (by the item's updated time).
-      await stripStoreText(path.join(s.dir, STORE_RECORD_FILES.item), `${oldestTextDay(todayKey(this.now()), policy)}T00:00:00.000Z`);
+      // Commit bodies and plan item text follow textDays, as events' captured text does (by a commit's commit time, an item's updated time).
+      const textCutoff = `${oldestTextDay(todayKey(this.now()), policy)}T00:00:00.000Z`;
+      for (const file of STORE_TEXT_FILE_NAMES) await stripStoreText(path.join(s.dir, file), textCutoff);
     }
     return changed;
   }

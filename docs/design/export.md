@@ -222,7 +222,7 @@ interface CommitRecord {
   committer: string;
   coAuthors: string[];         // from Co-Authored-By trailers: agents by name, people as person-N
   subject: string;
-  body?: string;
+  body?: string;               // only with captureContent on, for textDays; Remove Captured Text clears it
   files: Array<{ path: string; status: 'A' | 'M' | 'D' | 'R'; added: number; deleted: number; from?: string }>;
   /** Pull request number from the subject ("(#157)"), when there is one. Nothing else about pull requests is recorded: no network calls. */
   pr?: number;
@@ -427,7 +427,7 @@ Adapters record `toolInput`, and `refs` where a tool call observably acted on a 
 
 **Worktrees.** Each working tree of a repository is its own workspace with its own folder in the store. Each gets the repository's shared records, its commits and branches, and only its own working tree's checkouts. One run reads a repository once for all its workspaces, and a branch's `firstSeenAt` comes from whichever workspace's `git.jsonl` already has it, so the shared records are the same in each and an export of several worktrees folds them by key.
 
-**Retention.** `git.jsonl`, `plan.jsonl`, `links.jsonl` and `findings.jsonl` follow `retention.rawDays`, as events do, by each record's time: a commit's commit time, a checkout's, a branch's deletion (a branch that still exists is kept), a plan item's closing (an open one is kept), a transition's, a link's latest evidence (`at`), a finding's `lastTs`. Plan item text follows `retention.textDays`, by the item's `updated` time. Nothing older than that is appended, so a run doesn't put back what retention removed. `outcomes.git` and `collect` turned off for a project stop its git and plan jobs too. **Snagboat: Remove Captured Text** also clears commit bodies and plan item text.
+**Retention.** `git.jsonl`, `plan.jsonl`, `links.jsonl` and `findings.jsonl` follow `retention.rawDays`, as events do, by each record's time: a commit's commit time, a checkout's, a branch's deletion (a branch that still exists is kept), a plan item's closing (an open one is kept), a transition's, a link's latest evidence (`at`), a finding's `lastTs`. Commit bodies and plan item text are captured text: stored only while the project's `captureContent` is on, and following `retention.textDays`, by a commit's commit time and an item's `updated` time. Nothing older than that is appended, so a run doesn't put back what retention removed. `outcomes.git` and `collect` turned off for a project stop its git and plan jobs too. **Snagboat: Remove Captured Text** also clears commit bodies and plan item text in the workspace's own `git.jsonl` and `plan.jsonl` (as it does its events; other worktrees of the repository keep their copies until cleared from their own window or by `textDays`): the core rewrites each file (a temporary file, then a rename), so the text is gone from disk, not shadowed by a newer line. A job doesn't append a record again just because its stored copy lost its text; a commit or item that changes is stored whole again, with its text if capture is on.
 
 **What heuristics get from it.** The point of storing it is that Snagboat can reason about the work, not only the session. These are examples, not commitments:
 - a session that claimed a bead and ended with no commit and no status change;

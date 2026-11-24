@@ -58,7 +58,7 @@ export interface FindingResponseMessage {
 }
 
 /** What this core offers beyond 3c-2's endpoints, so a client can tell an older core apart. */
-const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings', 'plans'];
+const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings', 'plans', 'remove-captured-text'];
 
 /**
  * The core service (docs/design/architecture-rfc.md, step 3; handoff 3c-2):
@@ -134,6 +134,9 @@ const CORE_FEATURES = ['events-stream', 'flush', 'retention', 'findings', 'plans
  *                              key may make
  *   POST /retention            applies the token's workspaces' retention now (a window whose
  *                              retention settings changed) -> { changed: <days> }
+ *   POST /captured-text/remove  not a reader: removes every commit body (git.jsonl) and plan item
+ *                              text (plan.jsonl) in the token's workspaces' folders, for Snagboat:
+ *                              Remove Captured Text -> { removed: <lines> }
  *
  * POST /tokens takes { workspaces: [w], folders: [...] } for a saved multi-root workspace
  * (a .code-workspace file): projects in those folders are recorded under w while the token lives.
@@ -638,6 +641,11 @@ export class CoreService {
         req.resume();
         if (scope.reader) throw new HttpError(403, 'this token reads; it can\'t run retention');
         return send(200, { changed: await this.writer.runRetention((w) => sees(scope, w)) });
+      }
+      if (route === 'POST /captured-text/remove') {
+        req.resume();
+        if (scope.reader) throw new HttpError(403, 'this token reads; it can\'t remove captured text');
+        return send(200, { removed: await this.writer.removeCapturedText((w) => sees(scope, w)) });
       }
       if (route === 'POST /tokens') return send(200, this.mintToken(scope, await this.readBody(req)));
       if (route === 'GET /events/stream') return this.stream(scope, url.searchParams.get('changedSince'), req, res);
