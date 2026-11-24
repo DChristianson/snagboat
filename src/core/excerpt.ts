@@ -1,4 +1,5 @@
 import { CaptureLimits, NormalizedEvent } from '@snagboat/schema';
+import { SECRET_PATTERNS } from './filter/rules/secret';
 
 /** Default cap on a captured textExcerpt (agent reply), in UTF-16 code units: snagboat.capture.replyChars. */
 export const EXCERPT_MAX_CHARS = 500;
@@ -32,25 +33,11 @@ export interface CapturedText {
 export const TODO_MAX_CHARS = 200;
 
 /**
- * Secret formats replaced before any text is stored. A backstop for the
- * common cases, not a guarantee: anything in an unrecognized format stays.
+ * Secret formats are replaced before any text is stored. The patterns live with the export
+ * filter's secret rule (filter/rules/secret.ts), which finds the same formats again in text
+ * captured before a pattern was added.
  */
-export const SECRET_PATTERNS: Array<[RegExp, string]> = [
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, '[redacted private key]'],
-  [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, '[redacted AWS key]'],
-  [/\bgithub_pat_[A-Za-z0-9_]{22,}/g, '[redacted GitHub token]'],
-  [/\bgh[pousr]_[A-Za-z0-9]{36,}/g, '[redacted GitHub token]'],
-  [/\bsk-ant-[A-Za-z0-9_-]{20,}/g, '[redacted Anthropic key]'],
-  [/\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}/g, '[redacted API key]'],
-  [/\b[rs]k_live_[0-9A-Za-z]{20,}/g, '[redacted Stripe key]'],
-  [/\bxox[abposr]-[A-Za-z0-9-]{10,}/g, '[redacted Slack token]'],
-  [/\bAIza[0-9A-Za-z_-]{35}\b/g, '[redacted Google API key]'],
-  [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '[redacted JWT]'],
-  [/\b(Bearer\s+)[A-Za-z0-9._~+/-]{20,}=*/gi, '$1[redacted]'],
-  [/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:)[^\s@/]+@/gi, '$1[redacted]@'],
-  // key=value secrets: the value must look like one (8+ key-style characters, letters and digits), so code such as `token = parse(x)` is left alone.
-  [/\b((?:password|passwd|pwd|secret|api[_-]?key|access[_-]?key|auth[_-]?token|token)\b\s*[:=]\s*)(["']?)(?=[A-Za-z0-9_+/=.-]*\d)(?=[A-Za-z0-9_+/=.-]*[A-Za-z])[A-Za-z0-9_+/=.-]{8,}\2(?![A-Za-z0-9_(])/gi, '$1$2[redacted]$2'],
-];
+export { SECRET_PATTERNS };
 
 export function redactSecrets(text: string): string {
   let out = text;

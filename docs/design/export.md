@@ -85,22 +85,22 @@ The rule table below, in [PRIVACY.md](../../PRIVACY.md#exports) and in each expo
 | Category | Rule | Finds | Becomes | Default |
 | --- | --- | --- | --- | --- |
 | Local directories | `project-path` | The project's folder, its other worktrees' and the `--match` paths, wherever text names them (in `file://` URLs too). | `.`, `[worktree-N]`, `[match-N]` | review |
-| Local directories | `home-path` | Home folders, anyone's: `/Users/<name>`, `/home/<name>`, `C:\Users\<name>`, in `file://` URLs too, and `~<name>`. | `~` | review |
+| Local directories | `home-path` | Home folders, anyone's: `/Users/<name>`, `/home/<name>`, `C:\Users\<name>`, in `file://` URLs too, `~<name>`, and this machine's home wherever it is. | `~` | review |
 | Credentials | `secret` | The secret formats capture already redacts (private keys; AWS, GitHub, Anthropic, OpenAI-style, Stripe, Slack and Google keys; JWTs; bearer tokens; credentials in URLs; `password=` values), for text captured before a format was added. | `[secret]` | review |
-| Credentials | `public-key` | SSH and PGP public key blocks, and `authorized_keys` lines. | `[public-key]` | review |
+| Credentials | `public-key` | SSH and PGP public key blocks, and `authorized_keys` lines. Not secret, but they identify a person. | `[public-key]` | review |
 | Credentials | `connection-string` | Passwords in connection strings (`Server=...;Password=...`). | `[secret]` | review |
 | Credentials | `env-value` | `.env`-style values: `NAME=value` where the name ends in KEY, TOKEN, SECRET, PASSWORD, PASS, PWD or CREDENTIALS. | `[secret]` | review |
-| Entities | `person` | The people the records name (git authors, committers and co-authors, `Co-Authored-By` trailers, bd owners, creators, assignees and actors), by name, email or GitHub login, `@mentions` included. Agents and bots aren't people. | `[person-N]` | review |
-| Entities | `email` | Email addresses, except agents' and bots' (`noreply@anthropic.com`). | `[email-N]` | review |
+| Entities | `person` | The people the records name (git authors, committers and co-authors, `Co-Authored-By` trailers, bd owners, creators, assignees and actors), by name, email or GitHub login, `@mentions` included. Every form of one person is one value. Agents and bots aren't people. | `[person-N]` | review |
+| Entities | `email` | Email addresses (`users.noreply.github.com` ones too, which name a GitHub account), except agents' and bots' (`noreply@anthropic.com`). | `[email-N]` | review |
 | Entities | `phone` | Phone numbers in international or North American form. | `[phone-N]` | review |
-| Entities | `deny` | The words and phrases in the `export.deny` setting, as whole words, ignoring case. | `[denied-N]` | rewrite |
+| Entities | `deny` | The words and phrases in the `export.deny` setting (a client's name, a codename), as whole words, ignoring case. | `[denied-N]` | rewrite |
 | Network | `ip` | IPv4 and IPv6 addresses, except loopback and unspecified (`127.0.0.1`, `::1`, `0.0.0.0`). | `[ip-N]` | review |
 | Network | `mac` | MAC addresses. | `[mac-N]` | review |
 | Network | `internal-host` | Host names that aren't public (`.local`, `.internal`, `.lan`, `.corp` and the like), and a bare name in a URL (`http://buildbox/`). Not `localhost`. | `[host-N]` | review |
-| Repository | `sha` | The repository's commit SHAs, whole or 7 or more characters, from everything the store knows about it, not just the export's range. | `[commit-N]` | keep |
-| Repository | `remote` | Links into the project's own repository (`https://github.com/<owner>/<repo>`, `git@github.com:<owner>/<repo>.git`). | `[repo]` | keep |
-| Other | `high-entropy` | Long high-entropy strings matching no known format: 40 or more characters of base64, or more than 40 of hex. | `[token-N]` | review |
-| Other | `unknown-hex` | 7 to 40 hex characters that might be a commit SHA but match no commit the store knows. | `[hex-N]` | review |
+| Repository | `sha` | The repository's commit SHAs, whole or 7 or more characters, from everything the store knows about it, not just the export's range. A short SHA is the same value as the whole one. | `[commit-N]` | keep |
+| Repository | `remote` | Links into the project's own repository (`https://github.com/<owner>/<repo>`, `git@github.com:<owner>/<repo>.git`), up to the repository's name. | `[repo]` | keep |
+| Other | `high-entropy` | Long high-entropy strings matching no known format: 40 or more characters of base64, or more than 40 of hex. At the end of a URL path, only the token. | `[token-N]` | review |
+| Other | `unknown-hex` | Runs of 7 to 40 lower-case hex characters, a letter and a digit both, that might be a commit SHA but match no commit the store knows. | `[hex-N]` | review |
 | Other | `card` | Payment card numbers: 13 to 19 digits passing the Luhn check. | `[card-N]` | review |
 <!-- rule-table:end -->
 
