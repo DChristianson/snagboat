@@ -84,7 +84,7 @@ Session ids, subagent ids, turn ids and bead ids are kept. They're random or con
 - that includes SHAs and short SHAs (7 or more characters) inside commit messages, branch records, prompts, replies and commands, wherever they match a commit the store knows;
 - a run of hex characters that might be a SHA but matches no known commit is flagged (rule 4).
 
-A public repository's SHAs are kept, so its exports join with its real history.
+A public repository's SHAs are kept, so its exports join with its real history: a full or short SHA matching a commit the store knows stays as written. A run of hex that might be a SHA but matches no known commit is flagged there too, as in a private repository, since it's more often a container id or an editor's storage hash than a commit (7 to 40 hex characters with a letter and a digit, not part of a UUID; a longer run is the high-entropy rule's, so each value is flagged once).
 
 **Re-keying and pseudonyms use one keyed hash (HMAC), with a key chosen by the repository's privacy:**
 - **Private repository: the repository's key.** It's made on the first export and kept in `~/.snagboat/export-keys/<repository>.key`, where `<repository>` is a hash of its first commit, so every clone finds the same file name. Re-keyed SHAs and pseudonyms both use it. Give a teammate the key file, never by committing it, and their exports of the same repository use the same SHAs and the same pseudonyms for the same people, so the two join up.
@@ -99,7 +99,7 @@ Snagboat already redacts secret formats when it captures text (`SECRET_PATTERNS`
 | What | Becomes |
 | --- | --- |
 | Email addresses (including `users.noreply.github.com` ones, which name a GitHub account) | `[email-1]` |
-| IPv4 and IPv6 addresses, except loopback and unspecified (`127.0.0.1`, `::1`, `0.0.0.0`) | `[ip-1]` |
+| IPv4 and IPv6 addresses, except loopback and unspecified (`127.0.0.1`, `::1`, `0.0.0.0`). A dotted quad that reads as a version is kept: right after `v`, after a package's `@` (`pkg@1.2.3.4`, but not a login such as `root@` or one on an `ssh` line), after a standalone product token (`Chrome/120.0.61.109`), up to 20 characters after `version`, `ver`, `v.`, `build` or `release` on the same line with no address word (`ip`, `host`, `server`, `at`...) between, or followed by a pre-release or build suffix (`-beta`, `-rc.1`, `+build.5`). A bare one, or one after `ip` or `host`, is an address. The final check reads the context the same way. | `[ip-1]` |
 | MAC addresses | `[mac]` |
 | Phone numbers in international or North American form | `[phone]` |
 | Payment card numbers (13–19 digits passing the Luhn check) | `[card]` |
@@ -133,6 +133,7 @@ Some things aren't clearly fine or clearly not. Each of these is **flagged**:
 - a URL to a host that isn't public: no public suffix, `.local` or `.internal`, or a bare host name. `localhost` with a port is fine.
 - a person's name the export can see but didn't pseudonymize: a git author name that turns up in a prompt, or an `@mention`;
 - a path that couldn't be made relative and is still named, such as a Windows share or a URL with a file path;
+- a run of 7 to 40 hex characters that might be a SHA but matches no commit the store knows (`unknown-sha`), in a public repository as in a private one: a Docker container id or a 32-character storage hash is flagged, a known commit's SHA isn't;
 - any rule that hit a value and was then overridden by `--allow`.
 
 A flagged value is replaced with `[flagged-N]` in the export. The review folder, `<out>.review/flags.jsonl`, lists each one: its number, the rule, the record and field, the value, and 80 characters of context each side. It's written beside the export, never inside it, so copying the export folder never copies it. Running the export again with `--allow flagged-3,flagged-7` (or `--allow-rule internal-url`) puts those values back. Flags are numbered in the order the export meets them, so the same selection numbers them the same way again. `--allow-rule` takes any rule 4 flag, and the rule 2 values that are sometimes the point (`email`, `ip`, `mac`, `phone`, `card`); never secrets, keys or denied words. A rule 2 value it keeps is listed in the review file as `allowed-N`, numbered apart from the flags so allowing a rule never renumbers them. `--fail-on-flags` writes nothing if anything is flagged, for scripts.

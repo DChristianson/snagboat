@@ -8,7 +8,7 @@ import { SECRET_PATTERNS } from '../excerpt';
  */
 
 /** The rule set's version, for manifest.json's rulesVersion. Bump it when a rule changes what an export holds. */
-export const RULES_VERSION = 2;
+export const RULES_VERSION = 3;
 
 /** Rule 1: the machine and the workspace's place on it. */
 export const MACHINE_RULES = ['path', 'user', 'host', 'person', 'sha', 'remote', 'url', 'id'] as const;
@@ -74,6 +74,48 @@ export function isReportableIp(text: string): boolean {
   return false;
 }
 
+/** Words that say a nearby dotted quad is an address, not a version: "build server 10.0.0.5". */
+const ADDRESS_WORDS = new Set([
+  'ip', 'ips', 'ipv4', 'addr', 'address', 'host', 'hostname', 'server', 'node', 'machine', 'gateway', 'router', 'dns', 'subnet', 'net',
+  'network', 'at', 'on', 'from', 'to', 'via', 'peer', 'proxy', 'endpoint', 'url', 'remote', 'connect', 'connecting', 'connected', 'ping', 'ssh',
+]);
+
+/** Logins that come before @ in front of an address, never a package: root@10.0.0.5. */
+const LOGINS = new Set(['root', 'admin', 'administrator', 'user', 'ubuntu', 'ec2-user', 'centos', 'debian', 'fedora', 'pi', 'git', 'vagrant', 'deploy', 'core', 'azureuser', 'opc']);
+
+/**
+ * Whether the dotted quad at text[offset, offset + length) reads as a version, not an IP
+ * address, from what's around it: the sanitizer keeps it and the final check doesn't count it.
+ * Conservative: a bare 10.20.30.40, or one after "ip" or "host", is an address.
+ *  - right after v or V (v1.2.3.4; IPV4 doesn't match there anyway);
+ *  - right after @ following a package name (pkg@1.2.3.4, @scope/pkg@1.2.3.4), unless it reads
+ *    as a login: a common login name (root@), a URL's user, an ssh/scp/sftp/rsync/mosh/telnet
+ *    line, or followed by ":" (a prompt);
+ *  - right after a standalone Product/ token (Chrome/120.0.61.109), not a path or URL segment,
+ *    and not an address word (ip/10.0.0.1);
+ *  - up to 20 characters after version, ver, v., build or release on the same line, when nothing
+ *    in between is an address word ("build server 10.0.0.5" is an address);
+ *  - followed directly by a semver suffix: a pre-release word (-beta, -rc.1, -preview) or build
+ *    metadata (+build.5); not any dash (10.0.0.1-eth0 is an address).
+ */
+export function isVersionContext(text: string, offset: number, length: number): boolean {
+  const before = text.slice(Math.max(0, offset - 80), offset);
+  const after = text.slice(offset + length, offset + length + 40);
+  const line = before.slice(before.lastIndexOf('\n') + 1);
+  if (/[vV]$/.test(before)) return true;
+  if (/^(?:-(?:alpha|beta|rc|pre|preview|dev|snapshot|canary|nightly|next|insiders?)(?:[.-]?[0-9A-Za-z]+)*|\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)(?![\w+-])/i.test(after)) return true;
+  const pkg = /(?:^|[\s"'`(\[{,;=])((?:@[A-Za-z0-9_.-]+\/)?[A-Za-z0-9][A-Za-z0-9_.-]*)@$/.exec(line);
+  if (pkg && !LOGINS.has(pkg[1].toLowerCase()) && !/:\/\/\S*$/.test(line) && !/(?:^|[^\w-])(?:ssh|scp|sftp|rsync|mosh|telnet)(?![\w-])/i.test(line) && !after.startsWith(':')) return true;
+  const product = /(?:^|[\s"'`(\[{,;])([A-Za-z][A-Za-z0-9_.+-]*)\/$/.exec(line);
+  if (product && /[A-Za-z]{2}/.test(product[1]) && !ADDRESS_WORDS.has(product[1].toLowerCase())) return true;
+  const keyword = /(?:^|[^\p{L}\p{N}_])(?:version|ver|build|release|v\.)(?![\p{L}\p{N}_])([^\n]{0,20})$/iu.exec(line);
+  if (keyword) {
+    const words = keyword[1].toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    if (!words.some((w) => ADDRESS_WORDS.has(w))) return true;
+  }
+  return false;
+}
+
 /** Whether a 13–19 digit run (separators allowed) passes the Luhn check. */
 export function isCardNumber(text: string): boolean {
   const digits = text.replace(/[ -]/g, '');
@@ -116,7 +158,7 @@ export function findPiiValues(text: string): Array<{ rule: PiiRule; value: strin
   each(ENV_LINE, 'env', (m) => m[2]);
   each(EMAIL, 'email');
   each(MAC, 'mac');
-  each(IPV4, 'ip', (m) => (isReportableIp(m[0]) ? m[0] : undefined));
+  each(IPV4, 'ip', (m) => (isReportableIp(m[0]) && !isVersionContext(text, m.index!, m[0].length) ? m[0] : undefined));
   each(IPV6, 'ip', (m) => (isReportableIp(m[0]) ? m[0] : undefined));
   each(CARD, 'card', (m) => (isCardNumber(m[0]) ? m[0] : undefined));
   for (const pattern of PHONE_PATTERNS) each(pattern, 'phone', (m) => (isPhoneNumber(m[0]) && !isCardNumber(m[0]) ? m[0] : undefined));

@@ -31,6 +31,7 @@ import {
   isPublicHost,
   isReportableIp,
   isShaLike,
+  isVersionContext,
   LONG_TOKEN,
   MAC,
   PHONE_PATTERNS,
@@ -809,20 +810,26 @@ export class ExportSanitizer {
     });
 
     sub(MAC, 'mac', (m, _g, offset, whole) => soft('mac', m, offset, whole, '[mac]'));
-    sub(IPV4, 'ip', (m, _g, offset, whole) => (isReportableIp(m) ? soft('ip', m, offset, whole, this.number('ip', m)) : undefined));
+    // A dotted quad that reads as a version (pkg@1.2.3.4, Chrome/120.0.61.109) is kept. The context is
+    // read as the export will hold it, so the final check reads it the same way.
+    sub(IPV4, 'ip', (m, _g, offset, whole) => {
+      if (!isReportableIp(m)) return undefined;
+      const before = expand(whole.slice(0, offset));
+      if (isVersionContext(before + m + expand(whole.slice(offset + m.length)), before.length, m.length)) return undefined;
+      return soft('ip', m, offset, whole, this.number('ip', m));
+    });
     sub(IPV6, 'ip', (m, _g, offset, whole) => (isReportableIp(m) ? soft('ip', m, offset, whole, this.number('ip', m.toLowerCase())) : undefined));
     sub(CARD, 'card', (m, _g, offset, whole) => (isCardNumber(m) ? soft('card', m, offset, whole, '[card]') : undefined));
     for (const pattern of PHONE_PATTERNS) sub(pattern, 'phone', (m, _g, offset, whole) => (isPhoneNumber(m) ? soft('phone', m, offset, whole, '[phone]') : undefined));
 
-    // SHAs: re-keyed where they match a known commit, flagged where they might be one, in a private repository.
-    if (this.ctx.privacy === 'private') {
-      sub(SHA_LIKE, 'sha', (m, _g, offset, whole) => {
-        const full = this.knownPrefix(m);
-        if (full) return protect(this.rekeyedSha(full).slice(0, m.length));
-        if (!isShaLike(m)) return undefined;
-        return flag('unknown-sha', m, offset, whole);
-      });
-    }
+    // SHAs: one matching a known commit is re-keyed (private) or kept as written (public); a hex run
+    // that might be one but matches none (a container id, an editor's storage hash) is flagged either way.
+    sub(SHA_LIKE, 'sha', (m, _g, offset, whole) => {
+      const full = this.knownPrefix(m);
+      if (full) return this.ctx.privacy === 'private' ? protect(this.rekeyedSha(full).slice(0, m.length)) : undefined;
+      if (!isShaLike(m)) return undefined;
+      return flag('unknown-sha', m, offset, whole);
+    });
 
     sub(LONG_TOKEN, 'high-entropy', (m, _g, offset, whole) => {
       // A URL path ending in a token (/code/session_01Mi...): flag only the token, when every segment

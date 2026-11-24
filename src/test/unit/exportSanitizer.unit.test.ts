@@ -381,13 +381,83 @@ async function main() {
     assert.ok(!('supersededBy' in out.links[0].record));
   });
 
-  test('public repository: SHAs kept, unknown hex not flagged', () => {
-    const out = sanitizeExport(fixture(), ctx({ privacy: 'public' }));
+  test('public repository: known SHAs kept as written, unknown SHA-like hex flagged', () => {
+    const CONTAINER = j('3f4e9a', '1b2c7d');
+    const STORAGE = crypto.createHash('md5').update('workspace storage').digest('hex');
+    const UUID = j('6f1c2a9e-', '4b7d-4e2a-', '9c3f-1a2b3c4d5e6f');
+    const text = `Commit ${SHA1} and ${SHA1.slice(0, 9)} and ${SHA2.slice(0, 7)}; container ${CONTAINER}, storage ${STORAGE}, run ${UUID}, ${UNKNOWN_SHA}.`;
+    const input = fixture();
+    input.events!.push(ev({ eventId: 'hex', kind: 'user_prompt', promptText: text }));
+    const out = sanitizeExport(input, ctx({ privacy: 'public' }));
     assert.strictEqual(out.commits[1].record.sha, SHA2);
-    assert.ok(out.events[0].promptText!.includes(UNKNOWN_SHA));
-    assert.ok(!out.summary.review.some((r) => r.rule === 'unknown-sha'));
+    const got = out.events[out.events.length - 1].promptText!;
+    assert.ok(got.startsWith(`Commit ${SHA1} and ${SHA1.slice(0, 9)} and ${SHA2.slice(0, 7)}; container [flagged-`), got);
+    assert.ok(got.includes(`, run ${UUID}, [flagged-`), 'a UUID is untouched');
+    for (const v of [CONTAINER, STORAGE, UNKNOWN_SHA]) {
+      assert.ok(!got.includes(v), `${v} survived`);
+      const flags = out.summary.review.filter((r) => r.value === v && r.record === 'event:hex');
+      assert.deepStrictEqual(flags.map((r) => r.rule), ['unknown-sha'], `one unknown-sha flag for ${v}`);
+    }
+    assert.ok(!out.summary.review.some((r) => r.value.includes(SHA1.slice(0, 7)) || r.value.includes(SHA2.slice(0, 7))), 'a known SHA is not flagged');
+    assert.ok(!out.events[out.events.length - 1].redactions!.some((r) => r.rule === 'sha'), 'a kept SHA is not counted');
     assert.ok(!out.summary.finalCheck.literals.some((l) => l.rule === 'sha'));
     assert.deepStrictEqual(finalCheck(files(out), out.summary.finalCheck), []);
+    // Private: the same text, known SHAs re-keyed, the rest flagged as before, the UUID untouched.
+    const priv = sanitizeExport(input, ctx());
+    const p = priv.events[priv.events.length - 1].promptText!;
+    assert.ok(!p.includes(SHA1.slice(0, 7)) && p.includes(`, run ${UUID}, [flagged-`), p);
+    for (const v of [CONTAINER, STORAGE, UNKNOWN_SHA]) assert.deepStrictEqual(priv.summary.review.filter((r) => r.value === v && r.record === 'event:hex').map((r) => r.rule), ['unknown-sha']);
+    // A 64-character hex run is key material to the high-entropy rule, flagged once, not as a SHA.
+    const long = crypto.createHash('sha256').update('x').digest('hex');
+    const h = sanitizeExport({ events: [ev({ eventId: 'e', kind: 'user_prompt', promptText: `digest ${long}` })] }, ctx({ privacy: 'public', deny: [], remotes: [] }));
+    assert.deepStrictEqual(h.summary.review.map((r) => r.rule), ['high-entropy']);
+  });
+
+  test('a dotted quad that reads as a version is kept; an address is still replaced', () => {
+    const kept = [
+      j('pkg@', '1.2.3.4'),
+      j('@scope/pkg@', '4.3.2.1'),
+      j('Chrome/', '120.0.61.109'),
+      j('version ', '10.0.19.1'),
+      j('Version: ', '2.0.0.1'),
+      j('ver=', '1.0.0.4'),
+      j('v. ', '5.6.7.8'),
+      j('build number ', '4.3.2.1'),
+      j('release ', '3.0.0.12'),
+      j('', '1.2.3.4', '-beta'),
+      j('', '1.2.3.4', '-rc.1'),
+      j('', '1.2.3.4', '+build.5'),
+      j('v', '1.2.3.4'),
+    ];
+    const replaced = [
+      IPV4,
+      j('ip ', IPV4),
+      j('host ', '192.168.', '1.5'),
+      j('root@', '10.0.0.7'),
+      j('ssh deploy-bot@', '10.0.0.8'),
+      j('build server ', '10.0.0.9'),
+      j('version check at ', '10.0.0.10'),
+      j('ip/', '10.0.0.11'),
+      j('', '10.0.0.12', '-eth0'),
+    ];
+    const events = [...kept, ...replaced].map((t, n) => ev({ eventId: `e${n}`, kind: 'user_prompt', promptText: `see ${t} now` }));
+    const out = sanitizeExport({ events }, ctx({ deny: [], remotes: [] }));
+    kept.forEach((t, n) => {
+      assert.strictEqual(out.events[n].promptText, `see ${t} now`, t);
+      assert.strictEqual(out.events[n].redactions, undefined, `${t} counted`);
+    });
+    replaced.forEach((t, n) => {
+      const e = out.events[kept.length + n];
+      assert.match(e.promptText!, /\[ip-\d+\]/, t);
+      assert.ok(!e.promptText!.includes(t.match(/\d+(?:\.\d+){3}/)![0]), t);
+      assert.ok(e.redactions!.some((r) => r.rule === 'ip'), t);
+    });
+    assert.strictEqual(out.summary.redactions.ip, replaced.length);
+    // The final check reads a kept version the same way: no hit.
+    assert.deepStrictEqual(finalCheck(files(out), out.summary.finalCheck), []);
+    // And it still finds a planted address.
+    const hits = finalCheck([{ file: 'x.jsonl', text: JSON.stringify({ t: `host ${IPV4}` }) }], out.summary.finalCheck);
+    assert.deepStrictEqual(hits.map((h) => h.rule), ['ip']);
   });
 
   test('pseudonyms and re-keyed SHAs are stable across runs with the same key, and differ with another', () => {
