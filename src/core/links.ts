@@ -10,6 +10,7 @@ import {
   EventRefs,
   LinkEnd,
   LinkKind,
+  LINK_WITHDRAWN,
   LinkRecord,
   NormalizedEvent,
   PlanItemRecord,
@@ -37,13 +38,17 @@ import { GitSession, repoPath, sessionForCommit } from '../outcomes/gitOutcomes'
  * | session touched plan item    | bd-call: a call's refs.planItems and a matching transition (how   | bd-call: no matching transition (yet);             |
  * |                              | from bd's subcommand); a `bd show` is observed 'mentioned'        | text-mention: the id in a prompt or reply;         |
  * |                              |                                                                   | commit-references: a commit it made names it       |
- * | transition made-in session   | bd-call: the bd call that made it, within seconds                 | active-session: the one session active then, by    |
- * |                              |                                                                   | its person                                         |
+ * | transition made-in session   | bd-call: the bd call that made it, within seconds                 | the one session with an event within 5 min of it   |
+ * |                              |                                                                   | and a sign of the item, by its person:             |
+ * |                              |                                                                   | active-session-touched: it touched the item;       |
+ * |                              |                                                                   | active-session-bd: it ran bd within those 5 min    |
  * | commit references plan item  | commit-message: its subject or body names the id                  | branch-name / pull-request: its branch's name, or  |
  * |                              |                                                                   | the merge or squash commit of its branch, names it |
  * | branch merged into branch    | merge-commit / squash-commit (BranchRecord.merged.via)            | reachable: rebased or fast-forwarded               |
  *
  * Ids in text are found by the project's prefix (issuePrefix) and must be plan items the store has.
+ * 'active-session' (any session active then, first to last event) is retired: stored links with it
+ * still read, and linksToAppend withdraws them.
  */
 
 export const LINK_RULES = [
@@ -56,6 +61,9 @@ export const LINK_RULES = [
   'bd-call',
   'text-mention',
   'commit-references',
+  'active-session-touched',
+  'active-session-bd',
+  /** Retired: the old made-in guess, which over-attached. Only stored links carry it. */
   'active-session',
   'commit-message',
   'branch-name',
@@ -72,6 +80,11 @@ const COMMIT_BEFORE_CALL_MS = 2_000;
 /** A bd transition this long after the call that ran bd (a permission prompt can hold it), or a little before, is the call's. */
 export const TRANSITION_AFTER_CALL_MS = 120_000;
 const TRANSITION_BEFORE_CALL_MS = 10_000;
+/** An inferred made-in session had an event (and, for active-session-bd, a bd call) this close to the transition. */
+export const MADE_IN_NEAR_MS = 5 * 60_000;
+const MINUTE_MS = 60_000;
+/** The rules that infer made-in; a stored link with only these, which the rules no longer give, can be withdrawn. */
+const MADE_IN_INFERRED: ReadonlySet<string> = new Set<LinkRule>(['active-session-touched', 'active-session-bd', 'active-session']);
 /** The most event ids one piece of evidence names. */
 const MAX_REFS = 20;
 
@@ -103,6 +116,8 @@ export interface SessionFacts {
   /** Its first and last activity (ms), as the git outcomes rule counts it: not outcomes, names or editor-feature calls. */
   first: number;
   last: number;
+  /** The minutes (ms / 60 000, floored) it had activity in, counted as first and last are. */
+  minutes: Set<number>;
   /** Absolute paths its agent edited (file-edit tool calls), with the edits' event ids. */
   edits: Map<string, string[]>;
   /** Test and build runs, for the git outcomes rule's sessions. */
@@ -132,11 +147,12 @@ export function observeEvent(sessions: Map<string, SessionFacts>, e: NormalizedE
   if (!Number.isFinite(at)) return;
   let s = sessions.get(e.sessionId);
   if (!s) {
-    s = { sessionId: e.sessionId, agent: e.agent, first: at, last: at, edits: new Map(), runs: new Map(), calls: new Map(), mentions: new Map(), subagents: new Set() };
+    s = { sessionId: e.sessionId, agent: e.agent, first: at, last: at, minutes: new Set(), edits: new Map(), runs: new Map(), calls: new Map(), mentions: new Map(), subagents: new Set() };
     sessions.set(e.sessionId, s);
   }
   s.first = Math.min(s.first, at);
   s.last = Math.max(s.last, at);
+  s.minutes.add(Math.floor(at / MINUTE_MS));
   if (e.agentId) s.subagents.add(e.agentId);
   const text = e.kind === 'user_prompt' ? e.promptText : e.textExcerpt;
   if (text) {
@@ -527,7 +543,8 @@ export function computeLinks(input: LinkerInput): ComputedLink[] {
     }
   }
 
-  // -- transition made-in session, inferred: the one session active then, by its person.
+  // -- transition made-in session, inferred: the one session with activity near it and a sign of
+  // the item (it touched the item, or ran bd then), by its person. None, or two: no link.
   const persons = new Map<string, Set<string>>();
   const personOf = (sessionId: string) => {
     let set = persons.get(sessionId);
@@ -543,16 +560,38 @@ export function computeLinks(input: LinkerInput): ComputedLink[] {
     const c = commitBySha.get(d.to.id);
     if (c) for (const p of identParts(c.committer)) personOf(d.from.id).add(p);
   }
+  // The touched links (observed or inferred: bd calls, the id in a prompt or reply, a commit it made), by session and item.
+  const touchedLinks = new Map<string, string[]>();
+  for (const [id, d] of drafts.of('touched')) {
+    const key = `${d.from.id}\n${d.to.id}`;
+    touchedLinks.set(key, [...(touchedLinks.get(key) ?? []), id]);
+  }
+  const activeNear = (s: SessionFacts, at: number): boolean => {
+    for (let m = Math.floor((at - MADE_IN_NEAR_MS) / MINUTE_MS); m <= Math.floor((at + MADE_IN_NEAR_MS) / MINUTE_MS); m++) if (s.minutes.has(m)) return true;
+    return false;
+  };
+  const bdCallsNear = (s: SessionFacts, at: number): string[] =>
+    [...s.calls.values()]
+      .filter((c) => Math.abs(c.at - at) <= MADE_IN_NEAR_MS && (c.bd.length > 0 || (c.refs?.planItems?.length ?? 0) > 0))
+      .sort((a, b) => Math.abs(a.at - at) - Math.abs(b.at - at) || a.eventId.localeCompare(b.eventId))
+      .map((c) => c.eventId);
   const observedTransitions = new Set(drafts.of('made-in').map(([, d]) => d.from.id));
   for (const t of input.transitions) {
     if (observedTransitions.has(t.id)) continue;
     const at = ms(t.at);
-    const active = sessions.filter((o) => at >= o.s.first && at <= o.s.last);
-    if (active.length !== 1) continue;
-    const { s, workspace } = active[0];
+    if (!Number.isFinite(at)) continue;
+    const signed = sessions
+      .filter((o) => activeNear(o.s, at))
+      .map((o) => ({ o, touched: touchedLinks.get(`${o.s.sessionId}\n${t.item}`) ?? [], bd: bdCallsNear(o.s, at) }))
+      .filter((c) => c.touched.length > 0 || c.bd.length > 0);
+    if (signed.length !== 1) continue;
+    const { o, touched, bd } = signed[0];
+    const { s, workspace } = o;
     const known = persons.get(s.sessionId);
     if (known && known.size > 0 && !identParts(t.actor).some((p) => known.has(p))) continue;
-    drafts.add({ from: { type: 'transition', id: t.id }, to: sessionEnd(s), kind: 'made-in', confidence: 'inferred', rule: 'active-session', refs: [t.id], at, workspace, slot: `made-in:${t.id}` });
+    const base = { from: { type: 'transition', id: t.id } as LinkEnd, to: sessionEnd(s), kind: 'made-in' as const, confidence: 'inferred' as const, at, workspace, slot: `made-in:${t.id}` };
+    if (touched.length > 0) drafts.add({ ...base, rule: 'active-session-touched', refs: [t.id, ...touched] });
+    if (bd.length > 0) drafts.add({ ...base, rule: 'active-session-bd', refs: [t.id, ...bd] });
   }
   drafts.preferObserved('made-in');
 
@@ -581,12 +620,26 @@ export function slotOf(link: LinkRecord): string | undefined {
 }
 
 /**
+ * A stored inferred made-in link the rules no longer give, with nothing in its place, that the
+ * rules withdrew: given only by the retired 'active-session' rule (always), or by the made-in
+ * rules about a session they still read (`sessions`), so they saw its events and found too
+ * little. A link about a session they no longer read stays: its events may only be past retention.
+ */
+export function withdrawnLink(link: LinkRecord, sessions?: ReadonlySet<string>): boolean {
+  if (link.kind !== 'made-in' || link.confidence !== 'inferred' || link.evidence.length === 0) return false;
+  if (!link.evidence.every((e) => MADE_IN_INFERRED.has(e.rule))) return false;
+  return link.evidence.every((e) => e.rule === 'active-session') || (sessions?.has(link.to.id) ?? false);
+}
+
+/**
  * What to append to a links.jsonl holding `stored` (its lines, folded) so its current links are
  * `wanted`: each new or changed link, and each current stored link the rules no longer give
  * (in `all`, the repository's links) whose slot has another link now, again with supersededBy. A stored link the rules no longer
- * give with nothing in its place stays (its evidence may be past retention, or text removed).
+ * give with nothing in its place stays (its evidence may be past retention, or text removed),
+ * except an inferred made-in link the rules withdrew (withdrawnLink; `sessions`: the ids of the
+ * sessions the rules read), appended again with supersededBy LINK_WITHDRAWN.
  */
-export function linksToAppend(stored: Map<string, LinkRecord>, wanted: ComputedLink[], all: ComputedLink[] = wanted): LinkRecord[] {
+export function linksToAppend(stored: Map<string, LinkRecord>, wanted: ComputedLink[], all: ComputedLink[] = wanted, sessions?: ReadonlySet<string>): LinkRecord[] {
   const out: LinkRecord[] = [];
   const current = new Set(all.map((w) => w.link.id));
   const bySlot = new Map<string, LinkRecord[]>();
@@ -600,7 +653,10 @@ export function linksToAppend(stored: Map<string, LinkRecord>, wanted: ComputedL
     if (have.record !== 'link' || have.supersededBy !== undefined || current.has(have.id)) continue;
     const slot = slotOf(have);
     const instead = slot ? bySlot.get(slot) : undefined;
-    if (!instead || instead.length === 0) continue;
+    if (!instead || instead.length === 0) {
+      if (withdrawnLink(have, sessions)) out.push({ ...have, supersededBy: LINK_WITHDRAWN });
+      continue;
+    }
     const by = instead.find((l) => l.confidence === 'observed') ?? instead[0];
     out.push({ ...have, supersededBy: by.id });
   }

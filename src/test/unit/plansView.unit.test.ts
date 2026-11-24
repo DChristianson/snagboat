@@ -2,8 +2,9 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { CommitRecord, NormalizedEvent, PlanItemRecord, TransitionRecord } from '@snagboat/schema';
-import { appendStoreRecords } from '../../core/storeRecordFiles';
+import { CommitRecord, currentLinks, LINK_WITHDRAWN, LinkRecord, NormalizedEvent, PlanItemRecord, TransitionRecord } from '@snagboat/schema';
+import { linkId } from '../../core/links';
+import { appendStoreRecords, readStoreRecordLines } from '../../core/storeRecordFiles';
 import { coreRequest, readCoreFile } from '../../core/service/coreFile';
 import { LinkerJob } from '../../core/service/linkerJob';
 import { CoreService } from '../../core/service/server';
@@ -49,7 +50,7 @@ async function madeUpStore() {
   const linker = new LinkerJob(home, writer, { debounceMs: 0 });
   await linker.run();
   linker.dispose();
-  return { home, a, b, t0 };
+  return { home, a, b, t0, writer };
 }
 
 async function main() {
@@ -74,6 +75,37 @@ async function main() {
     assert.deepStrictEqual(koh.commits.map((c) => [c.sha, c.commit?.subject, c.links.map((l) => `${l.kind}:${l.confidence}:${l.sessionId ?? ''}`).sort()]), [[SHA, 'Volume (snagboat-koh)', ['made:observed:s1', 'references:observed:']]]);
     assert.deepStrictEqual(koh.branches, [], 'no branch links in this store');
     assert.deepStrictEqual(view.items[1].sessions, []);
+  });
+
+  test('a stored over-attached made-in link (the retired active-session rule) is withdrawn on the next pass: gone from the links, the view and GET /plans', async () => {
+    const { home, a, t0, writer } = await madeUpStore();
+    const dir = workspaceStoreDir(home, a);
+    // A transition half an hour after s1's last event, which the old rule gave to s1.
+    const late: TransitionRecord = { record: 'transition', version: 1, id: 'bd-2', item: 'snagboat-koh', at: iso(t0 + 40 * MIN), type: 'updated', actor: 'Dave', confidence: 'observed', fields: ['notes'] };
+    const from = { type: 'transition' as const, id: 'bd-2' };
+    const to = { type: 'session' as const, id: 's1' };
+    const stale: LinkRecord = { record: 'link', version: 1, id: linkId(from, to, 'made-in'), from, to, kind: 'made-in', confidence: 'inferred', evidence: [{ rule: 'active-session', refs: ['bd-2'] }], at: late.at };
+    await appendStoreRecords(path.join(dir, 'plan.jsonl'), [late]);
+    await appendStoreRecords(path.join(dir, 'links.jsonl'), [stale]);
+    const linker = new LinkerJob(home, writer, { debounceMs: 0 });
+    await linker.run({ full: true });
+    const lines = readStoreRecordLines<LinkRecord>(path.join(dir, 'links.jsonl'));
+    assert.strictEqual(lines.filter((l) => l.id === stale.id).at(-1)?.supersededBy, LINK_WITHDRAWN);
+    assert.ok(!currentLinks(lines).some((l) => l.id === stale.id));
+    assert.strictEqual((await linker.run({ full: true })).appended, 0, 'withdrawn once');
+    linker.dispose();
+    const view = await plansView({ home, workspace: a });
+    const bd2 = view.items[0].transitions.find((t) => t.transition.id === 'bd-2')!;
+    assert.deepStrictEqual(bd2.sessions, [], 'not made in s1');
+    assert.ok(!view.items[0].sessions.some((s) => s.links.some((l) => l.id === stale.id)));
+    const core = await CoreService.start({ home, version: 'test', idleMs: 0, ingestEveryMs: 60_000, collect: false });
+    try {
+      const info = readCoreFile(home)!;
+      const got = (await coreRequest(core.port, info.token, 'GET', `/plans?workspace=${encodeURIComponent(a)}`)).body as PlansView;
+      assert.ok(!JSON.stringify(got).includes(stale.id), 'GET /plans has no trace of it');
+    } finally {
+      await core.stop();
+    }
   });
 
   test('GET /plans: token auth like the other routes; a workspace token reads only its own workspace', async () => {

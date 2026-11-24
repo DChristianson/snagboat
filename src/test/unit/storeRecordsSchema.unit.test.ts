@@ -5,6 +5,7 @@ import {
   CommitRecord,
   currentLinks,
   ExportManifest,
+  LINK_WITHDRAWN,
   exportManifestSchema,
   FindingRecord,
   findingRecordSchema,
@@ -177,6 +178,7 @@ async function main() {
     const links = linkRecordSchema as Schema;
     ok(links, { ...link, how: undefined, kind: 'made', to: { type: 'commit', id: SHA }, confidence: 'inferred', evidence: [{ rule: 'git-outcomes', refs: ['e1'] }] });
     ok(links, { ...link, supersededBy: 'link-fedcba9876543210' });
+    ok(links, { ...link, supersededBy: LINK_WITHDRAWN });
     bad(links, { ...link, from: { type: 'person', id: 'x' } }, 'not a record type');
     bad(links, { ...link, kind: 'blocks' }, 'not a link kind');
     bad(links, { ...link, evidence: [{ rule: 'x' }] }, 'evidence names its records');
@@ -209,6 +211,8 @@ async function main() {
     const wrong: LinkRecord = { ...link, id: 'link-b', kind: 'made', how: undefined, to: { type: 'commit', id: PARENT }, confidence: 'inferred' };
     const right: LinkRecord = { ...wrong, id: 'link-c', to: { type: 'commit', id: SHA }, confidence: 'observed' };
     assert.deepStrictEqual(currentLinks([inferred, wrong, observed, right, { ...wrong, supersededBy: 'link-c' }]), [observed, right]);
+    // Withdrawn by the rules, with nothing in its place: not current either.
+    assert.deepStrictEqual(currentLinks([inferred, observed, { ...observed, supersededBy: LINK_WITHDRAWN }]), []);
   });
 
   test("sessions.jsonl: what snagboat sessions --json prints, plus the session's links", () => {

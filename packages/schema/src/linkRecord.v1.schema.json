@@ -122,7 +122,7 @@
     },
     "supersededBy": {
       "type": "string",
-      "description": "Store only: the link that replaced this one. Never exported."
+      "description": "Store only: the link that replaced this one, or \"withdrawn\" when the rules withdrew it with nothing in its place. Never exported."
     },
     "at": {
       "type": "string",

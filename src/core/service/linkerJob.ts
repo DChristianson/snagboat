@@ -210,7 +210,12 @@ export class LinkerJob {
       }
     }
     const workspaces = [];
-    for (const m of members) workspaces.push({ workspace: m.store.workspace, where: m.loc?.toplevel ?? m.folder, sessions: (await this.sessionsOf(m.store.workspace, m.store.dir)).values() });
+    const sessionIds = new Set<string>();
+    for (const m of members) {
+      const facts = await this.sessionsOf(m.store.workspace, m.store.dir);
+      for (const id of facts.keys()) sessionIds.add(id);
+      workspaces.push({ workspace: m.store.workspace, where: m.loc?.toplevel ?? m.folder, sessions: facts.values() });
+    }
     const computed = computeLinks({
       workspaces,
       commits: [...commits.values()],
@@ -226,7 +231,7 @@ export class LinkerJob {
         const at = storeRecordTime(c.link);
         return (c.workspace === undefined || c.workspace === m.store.workspace) && (at === undefined || at >= m.cutoff);
       });
-      const append = linksToAppend(foldStoreFile<LinkRecord>(m.file), mine, computed);
+      const append = linksToAppend(foldStoreFile<LinkRecord>(m.file), mine, computed, sessionIds);
       if (append.length === 0) continue;
       await this.writer.appendRecords(m.file, append);
       total += append.length;
