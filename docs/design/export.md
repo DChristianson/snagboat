@@ -271,7 +271,7 @@ Plan items follow Factory Clock's `PlanItem` (its `src/model/plan.ts`), so its v
 interface PlanItemRecord {
   record: 'item';
   version: 1;
-  id: string;                  // the bead's id, or 'md-' + 12 hex of SHA-256(file, heading path[, '#' + a task's position])
+  id: string;                  // the bead's id, or 'md-' + 12 hex of SHA-256(file, heading path[, a task's text])
   kind: 'epic' | 'milestone' | 'feature' | 'task' | 'bug' | 'step' | 'decision' | 'question' | 'note';
   title: string;
   status: 'open' | 'in_progress' | 'blocked' | 'done' | 'deferred' | 'dropped';
@@ -316,7 +316,7 @@ For beads, the source is bd's own audit journal (`bd history <id> --events`), wh
 - headings become epics or milestones;
 - numbered steps and `- [ ]` checklists become tasks, with status from `[x]`, "done", "built" or strikethrough;
 - dates beside them become times;
-- an item's id is a hash of its file and its heading path (and, for a task, its position under its heading), so it survives edits to its wording; a task inserted above it shifts it.
+- an item's id is a hash of its file and its heading path, and for a task its text without its status marks (and the text of any task it's nested under), so marking it done, or inserting, removing or moving other tasks around it, keeps it. Two tasks with the same text under one heading are numbered. Markdown plans are a best-effort snapshot: ids come from the text as it is now, and earlier versions aren't compared, so rewording a task makes a new item (the old one dropped). Tasks a store kept under the older position-based ids are replaced when the plan job next reads their file (a file whose stored tasks share no id with its tasks now).
 
 The lifecycle comes from watching the files. Each run compares an item with what the plan job last stored, and a change of status becomes a transition. Its time is the commit that changed the line (`git blame` of HEAD, which the plan job reads, as it reads the files at HEAD), and the actor is that commit's author, both `inferred`. A project that has both beads and markdown plans uses only the beads, as factory-clock#31 does, since the two usually describe the same work twice.
 

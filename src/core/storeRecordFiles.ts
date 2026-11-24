@@ -124,6 +124,18 @@ export function withoutStoreText<T extends StoreRecord>(r: T): T {
 }
 
 /**
+ * Drops every line of the records with these keys (storeRecordKey), rewriting the file through a
+ * temporary file. Returns how many lines went.
+ */
+export async function removeStoreRecords(file: string, keys: ReadonlySet<string>): Promise<number> {
+  const lines = readStoreRecordLines(file);
+  const kept = lines.filter((r) => !keys.has(storeRecordKey(r)));
+  if (kept.length === lines.length) return 0;
+  await rewriteStoreFile(file, kept);
+  return lines.length - kept.length;
+}
+
+/**
  * Whether a job should append `wanted` over the stored `have`: not when they're the same, nor
  * when the only difference is text the stored copy lost (to Remove Captured Text): a record that
  * hasn't changed doesn't get its text back, and one that changes is stored whole again.

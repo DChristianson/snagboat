@@ -210,6 +210,11 @@ export interface MarkdownItem {
   date?: string;
   /** A heading whose own line says its status (a marker or strikethrough), so it isn't worked out from its items. */
   ownStatus: boolean;
+  /**
+   * What tells it from its siblings, the last part of its id: a heading's key (headingKey), a
+   * task's normalized text (taskKey), either with " #2" and on for a repeat under the same parent.
+   */
+  key: string;
 }
 
 /** The first 12 hex of SHA-256 over the parts joined by newlines, after 'md-'. */
@@ -304,6 +309,23 @@ function headingKey(text: string): string {
 }
 
 /**
+ * A task's text for its id: lowercased, without the marks and notes that say its status
+ * (strikethrough, ✅, a parenthesized or bracketed note with a status word, a bold status lead
+ * like "**Done:**", a trailing "— done"), links and emphasis reduced to their text (plainTitle),
+ * punctuation trimmed from the ends, whitespace collapsed. So marking it done keeps its id.
+ */
+export function taskKey(text: string): string {
+  return plainTitle(text)
+    .replace(/[([]([^()[\]]{1,200})[)\]]/g, (m, inner: string) => (inner.split(/[;,]/).some((c) => wordStatus(c)) ? ' ' : m))
+    .replace(/^([^:.]{1,40})[:.]\s+/, (m, lead: string) => (wordStatus(lead) && lead.trim().split(/\s+/).length <= 3 ? '' : m))
+    .replace(/\s*(?:[—–-]{1,2}|:)\s*[A-Za-z' -]{2,20}[.!]?\s*$/, (m) => (wordStatus(m.replace(/^[\s—–:-]+/, '')) ? '' : m))
+    .replace(/[✅✔☑]/gu, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s.,;:!?…—–*_-]+|[\s.,;:!?…—–*_-]+$/gu, '');
+}
+
+/**
  * The plan items in one markdown file (path relative to the project), docs/design/export.md's
  * inference:
  * - `- [ ]` / `- [x]` checklists and numbered steps are tasks. `[x]` is done, `[~]` or `[/]` in
@@ -315,8 +337,10 @@ function headingKey(text: string): string {
  *   items: all done (or dropped) is done, any done or in progress is in progress, else open.
  * - Ids: a heading's is md- + SHA-256 of `file`, then each heading of its path (lowercased,
  *   without status notes, a repeated sibling heading numbered "#2"), joined by newlines. A task's
- *   adds `#` and its position under its heading ("#3", "#3.1" for a nested one). So rewording an
- *   item, or marking it done, keeps its id; inserting a task above it in the same list doesn't.
+ *   adds `- ` and the normalized text (taskKey) of each task it's nested under, then its own; a
+ *   second task with the same text under the same parent gets " #2", and so on. Ids come from
+ *   the file as it is, a best-effort snapshot: marking a task done keeps its id, and so does
+ *   inserting, removing or moving other tasks around it; rewording it makes a new item.
  * Fenced code blocks are skipped.
  */
 export function parseMarkdownPlan(file: string, text: string): MarkdownItem[] {
@@ -324,8 +348,10 @@ export function parseMarkdownPlan(file: string, text: string): MarkdownItem[] {
   const items: MarkdownItem[] = [];
   const headings: Array<{ level: number; key: string; title: string; item: MarkdownItem }> = [];
   const siblingCounts = new Map<string, number>();
-  let tasks: Array<{ indent: number; ordinal: string; item: MarkdownItem; children: number }> = [];
+  let tasks: Array<{ indent: number; ordinal: string; item: MarkdownItem; children: number; path: string[] }> = [];
   let topOrdinal = 0;
+  /** How many tasks with each key there are under each parent, for numbering repeats. */
+  const taskCounts = new Map<string, number>();
   let fence: string | undefined;
   const usedHeadings = new Set<MarkdownItem>();
 
@@ -366,6 +392,7 @@ export function parseMarkdownPlan(file: string, text: string): MarkdownItem[] {
         heading: [...headings.map((x) => x.title), title].join(' > '),
         ...(DATE.exec(h[2]) ? { date: DATE.exec(h[2])![1] } : {}),
         ownStatus: own !== undefined,
+        key,
       };
       headings.push({ level, key, title, item });
       tasks = [];
@@ -394,8 +421,14 @@ export function parseMarkdownPlan(file: string, text: string): MarkdownItem[] {
     const heading = headings[headings.length - 1]?.item;
     if (heading) for (const x of headings) usedHeadings.add(x.item);
     const date = DATE.exec(body)?.[1];
+    const base = taskKey(body) || '(empty)';
+    const siblings = `${enclosing ? enclosing.item.id : (heading?.id ?? '')}\n${base}`;
+    const n = (taskCounts.get(siblings) ?? 0) + 1;
+    taskCounts.set(siblings, n);
+    const key = n > 1 ? `${base} #${n}` : base;
+    const path = [...(enclosing ? enclosing.path : headingPath()), `- ${key}`];
     const item: MarkdownItem = {
-      id: markdownItemId([file, ...headingPath(), `#${ordinal}`]),
+      id: markdownItemId([file, ...path]),
       kind: 'task',
       title: plainTitle(body) || `(step ${ordinal})`,
       status,
@@ -405,9 +438,10 @@ export function parseMarkdownPlan(file: string, text: string): MarkdownItem[] {
       ...(headingLabel() ? { heading: headingLabel() } : {}),
       ...(date ? { date } : {}),
       ownStatus: true,
+      key,
     };
     items.push(item);
-    tasks.push({ indent, ordinal, item, children: 0 });
+    tasks.push({ indent, ordinal, item, children: 0, path });
   }
 
   // Headings with tasks below them, in file order, then their statuses from their items.

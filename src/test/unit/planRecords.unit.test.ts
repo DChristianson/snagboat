@@ -6,7 +6,7 @@ import * as path from 'path';
 import { foldStoreRecords, PlanItemRecord, PlanRecord, TransitionRecord } from '@snagboat/schema';
 import { beadsExportDir, BeadsIssue } from '../../core/beadsExport';
 import { saveConfig } from '../../core/config';
-import { beadsItem, beadsTransition, markdownItemId, parseMarkdownPlan, textStatus } from '../../core/planRecords';
+import { beadsItem, beadsTransition, markdownItemId, parseMarkdownPlan, taskKey, textStatus } from '../../core/planRecords';
 import { findOnPath, PLAN_RECORDS_FILE, PLAN_RECORDS_IDLE_MS, PlanRecordsJob, plansSetting } from '../../core/service/planRecordsJob';
 import { StoreWriter } from '../../core/service/storeWriter';
 import { appendStoreRecords, readStoreRecordLines } from '../../core/storeRecordFiles';
@@ -267,20 +267,51 @@ test('markdown: checklists and numbered steps are tasks; headings with tasks bel
   assert.strictEqual(byTitle.get('Sanitizer (planned, not started)')!.status, 'open');
   assert.strictEqual(byTitle.get('Ship it 2026-12-01')!.date, '2026-12-01');
   assert.strictEqual(byTitle.get('Write the parser')!.heading, 'Plan > Phase 1');
-  assert.strictEqual(byTitle.get('Write the parser')!.id, markdownItemId(['docs/plan.md', 'plan', 'phase 1', '#1']));
-  assert.strictEqual(byTitle.get('Nested done')!.id, markdownItemId(['docs/plan.md', 'plan', 'phase 1', '#2.1']));
+  assert.strictEqual(byTitle.get('Write the parser')!.id, markdownItemId(['docs/plan.md', 'plan', 'phase 1', '- write the parser']));
+  assert.strictEqual(byTitle.get('Nested done')!.id, markdownItemId(['docs/plan.md', 'plan', 'phase 1', '- write the job', '- nested done']));
+  assert.strictEqual(byTitle.get('Schema: types (done)')!.id, markdownItemId(['docs/plan.md', 'plan', 'steps', '- schema: types']));
   assert.ok(items.every((i) => /^md-[0-9a-f]{12}$/.test(i.id)));
 
-  // Rewording an item, or marking it done, keeps its id; so does marking a heading done.
-  const reworded = parseMarkdownPlan('docs/plan.md', text.replace('- [ ] Write the job', '- [x] Write the plan job, reworded').replace('## Phase 1', '## Phase 1 (done)'));
-  const again = new Map(reworded.map((i) => [i.id, i]));
+  // Marking a task done keeps its id; so does marking a heading done.
+  const marked = parseMarkdownPlan('docs/plan.md', text.replace('- [ ] Write the job', '- [x] ~~Write the job~~ — done.').replace('## Phase 1', '## Phase 1 (done)'));
+  const again = new Map(marked.map((i) => [i.id, i]));
   assert.strictEqual(again.get(byTitle.get('Write the job')!.id)!.status, 'done');
+  assert.strictEqual(again.get(byTitle.get('Nested done')!.id)!.parent, byTitle.get('Write the job')!.id);
   assert.strictEqual(again.get(byTitle.get('Phase 1')!.id)!.title, 'Phase 1 (done)');
+  // Rewording one makes a new item, and its children with it; the rest keep their ids.
+  const reworded = parseMarkdownPlan('docs/plan.md', text.replace('- [ ] Write the job', '- [x] Write the plan job, reworded'));
+  const ids = new Set(reworded.map((i) => i.id));
+  assert.ok(!ids.has(byTitle.get('Write the job')!.id) && !ids.has(byTitle.get('Nested done')!.id));
+  assert.ok(ids.has(byTitle.get('Write the parser')!.id) && ids.has(byTitle.get('Halfway')!.id));
   // The same file elsewhere is different items.
   assert.notStrictEqual(parseMarkdownPlan('docs/other.md', text)[0].id, items[0].id);
   // Repeated sibling headings get their own ids.
   const twice = parseMarkdownPlan('a.md', '## Notes\n- [ ] one\n## Notes\n- [ ] two\n');
   assert.strictEqual(new Set(twice.map((i) => i.id)).size, 4);
+});
+
+test('markdown ids: from the text, not the position; repeats numbered', () => {
+  const ids = (text: string) => parseMarkdownPlan('p.md', text).map((i) => [i.title, i.id] as const);
+  const v1 = ids('## A\n- [ ] one\n- [ ] two\n');
+  const v2 = ids('## A\n- [ ] zero\n- [ ] one\n- [ ] two\n');
+  assert.strictEqual(v2[2][1], v1[1][1], 'inserting above keeps one');
+  assert.strictEqual(v2[3][1], v1[2][1], 'and two');
+  const moved = ids('## A\n- [ ] two\n- [ ] one\n');
+  assert.deepStrictEqual(new Set(moved.map(([, id]) => id)), new Set(v1.map(([, id]) => id)), 'reordering keeps ids');
+  // The same text twice under one heading: distinct ids, the second numbered.
+  const twins = parseMarkdownPlan('p.md', '## A\n- [ ] Same\n- [ ] same.\n');
+  assert.notStrictEqual(twins[1].id, twins[2].id);
+  assert.deepStrictEqual([twins[1].key, twins[2].key], ['same', 'same #2']);
+  assert.strictEqual(twins[2].id, markdownItemId(['p.md', 'a', '- same #2']));
+  // The same text under different parents: different items.
+  const nested = parseMarkdownPlan('p.md', '## A\n- [ ] x\n  - [ ] same\n- [ ] y\n  - [ ] same\n');
+  assert.strictEqual(new Set(nested.map((i) => i.id)).size, 5);
+  // Status marks and notes aren't part of the text.
+  assert.strictEqual(taskKey('~~Write the job~~ (done)'), 'write the job');
+  assert.strictEqual(taskKey('**Done:** the thing.'), 'the thing');
+  assert.strictEqual(taskKey('Capture — built.'), 'capture');
+  assert.strictEqual(taskKey('Linker (blocked on 3)'), 'linker');
+  assert.strictEqual(taskKey('Fix it  (see #12) ✅'), 'fix it (see #12)');
 });
 
 test('textStatus: markers, not prose', () => {
@@ -437,9 +468,11 @@ gitTest('markdown only: items from docs at HEAD, status changes become transitio
     const docs = items.find((i) => i.title === 'Docs')!.id;
     const phase = items.find((i) => i.title === 'Phase 1')!.id;
 
-    // Bob checks off Parser and rewords Job; a new task appears; a commit to another file changes nothing.
-    const v2 = v1.replace('- [ ] Parser', '- [x] Parser').replace('- [ ] Job', '- [ ] The plan job').replace('- [ ] Docs', '- [ ] Docs\n- [ ] Tests');
-    const c2 = p.commit({ 'docs/roadmap.md': v2 }, 'progress', 'Bob <bob@example.com>');
+    // Bob checks off Parser and rewords Job, then a new task appears; a commit to another file changes nothing.
+    const v2a = v1.replace('- [ ] Parser', '- [x] Parser').replace('- [ ] Job', '- [ ] The plan job');
+    const c2 = p.commit({ 'docs/roadmap.md': v2a }, 'progress', 'Bob <bob@example.com>');
+    const v2 = v2a.replace('- [ ] Docs', '- [ ] Docs\n- [ ] Tests');
+    const c2b = p.commit({ 'docs/roadmap.md': v2 }, 'tests', 'Bob <bob@example.com>');
     p.commit({ 'src.txt': 'x\n' }, 'unrelated', 'Cy <cy@example.com>');
     await job.run({ force: true });
     items = [...p.items().values()];
@@ -447,16 +480,18 @@ gitTest('markdown only: items from docs at HEAD, status changes become transitio
     assert.strictEqual(byId.get(parser)!.status, 'done');
     assert.strictEqual(byId.get(parser)!.closed, c2);
     assert.strictEqual(byId.get(parser)!.created, c1);
-    assert.strictEqual(byId.get(job2)!.title, 'The plan job', 'reworded, same id');
+    // Reworded: a snapshot can't tell, so the old item is dropped and a new one made.
+    assert.strictEqual(byId.get(job2)!.status, 'dropped');
+    assert.ok(items.some((i) => i.title === 'The plan job' && i.id !== job2 && i.status === 'open'));
     assert.strictEqual(byId.get(phase)!.status, 'in_progress');
     const ts = p.transitions();
     const closed = ts.find((t) => t.item === parser)!;
     assert.deepStrictEqual([closed.type, closed.from, closed.to, closed.at, closed.actor, closed.confidence], ['closed', 'open', 'done', c2, 'Bob <bob@example.com>', 'inferred']);
     assert.ok(/^md-t-[0-9a-f]{16}$/.test(closed.id));
     const phaseT = ts.find((t) => t.item === phase)!;
-    assert.deepStrictEqual([phaseT.type, phaseT.from, phaseT.to, phaseT.at], ['status_changed', 'open', 'in_progress', c2]);
+    assert.deepStrictEqual([phaseT.type, phaseT.from, phaseT.to, phaseT.at], ['status_changed', 'open', 'in_progress', c2b], 'a heading changes with its latest item');
     const tests = items.find((i) => i.title === 'Tests')!;
-    assert.deepStrictEqual(ts.filter((t) => t.item === tests.id).map((t) => [t.type, t.to, t.at]), [['created', 'open', c2]]);
+    assert.deepStrictEqual(ts.filter((t) => t.item === tests.id).map((t) => [t.type, t.to, t.at]), [['created', 'open', c2b]]);
 
     // Idempotent.
     const before = p.lines().length;
@@ -471,11 +506,76 @@ gitTest('markdown only: items from docs at HEAD, status changes become transitio
     const after = p.transitions();
     const reopened = after.find((t) => t.item === parser && t.type === 'reopened')!;
     assert.deepStrictEqual([reopened.from, reopened.to, reopened.at, reopened.actor], ['done', 'open', c3, 'Cy <cy@example.com>']);
-    // Removing Docs shifted Tests into its place: positions are ids (a documented limit), so Docs' id now names Tests.
-    assert.strictEqual(p.items().get(docs)!.title, 'Tests');
-    assert.strictEqual(p.items().get(tests.id)!.status, 'dropped');
-    assert.strictEqual(after.find((t) => t.item === tests.id && t.to === 'dropped')!.at, c3);
+    // Docs is dropped; Tests, below it, keeps its id.
+    assert.strictEqual(p.items().get(docs)!.status, 'dropped');
+    assert.strictEqual(after.find((t) => t.item === docs && t.to === 'dropped')!.at, c3);
+    assert.strictEqual(p.items().get(tests.id)!.status, 'open');
+    assert.strictEqual(p.items().get(tests.id)!.title, 'Tests');
   });
+});
+
+gitTest('markdown ids in the snapshot: inserting above, rewording, marking done', async () => {
+  const p = await project();
+  const v1 = ['# Plan', '- [ ] Alpha', '- [ ] Beta', '- [ ] Gamma', ''].join('\n');
+  p.commit({ 'docs/plan.md': v1 }, 'plan');
+  await withPath([gitOnlyDir(), ...SYSTEM], async () => {
+    const job = new PlanRecordsJob(p.home, p.writer);
+    await job.run();
+    const id = (title: string) => [...p.items().values()].find((i) => i.title === title)?.id;
+    const alpha = id('Alpha')!;
+    const beta = id('Beta')!;
+    const gamma = id('Gamma')!;
+
+    // Inserting a task above the others: their ids stay, the only transition is the new one's creation.
+    const v2 = v1.replace('- [ ] Alpha', '- [ ] Zero\n- [ ] Alpha');
+    const c2 = p.commit({ 'docs/plan.md': v2 }, 'insert');
+    await job.run({ force: true });
+    assert.deepStrictEqual([id('Alpha'), id('Beta'), id('Gamma')], [alpha, beta, gamma]);
+    assert.deepStrictEqual(p.transitions().map((t) => [t.item, t.type, t.at]), [[id('Zero'), 'created', c2]]);
+    assert.ok([...p.items().values()].every((i) => i.status !== 'dropped'));
+
+    // Marking one done keeps its id, with a closed transition.
+    const v3 = v2.replace('- [ ] Beta', '- [x] ~~Beta~~ — done.');
+    const c3 = p.commit({ 'docs/plan.md': v3 }, 'done', 'Bob <bob@example.com>');
+    await job.run({ force: true });
+    assert.strictEqual(p.items().get(beta)!.status, 'done');
+    assert.deepStrictEqual(p.transitions().filter((t) => t.item === beta).map((t) => [t.type, t.from, t.to, t.at, t.actor]), [['closed', 'open', 'done', c3, 'Bob <bob@example.com>']]);
+
+    // Rewording one: the snapshot can't tell, so it's the old item dropped and a new one created.
+    const c4 = p.commit({ 'docs/plan.md': v3.replace('- [ ] Gamma', '- [ ] Gamma, reworded') }, 'reword');
+    await new PlanRecordsJob(p.home, p.writer).run();
+    const reworded = id('Gamma, reworded')!;
+    assert.notStrictEqual(reworded, gamma);
+    assert.strictEqual(p.items().get(gamma)!.status, 'dropped');
+    const at4 = p.transitions().filter((t) => t.at === c4).map((t) => `${t.item === gamma ? 'old' : t.item === reworded ? 'new' : t.item}:${t.type}:${t.to}`).sort();
+    assert.deepStrictEqual(at4, ['new:created:open', 'old:status_changed:dropped']);
+  });
+});
+
+gitTest('markdown: items stored under the old position ids are replaced, not left open', async () => {
+  const p = await project();
+  const c1 = p.commit({ 'docs/plan.md': '# Plan\n- [ ] Alpha\n- [x] Beta\n' }, 'plan');
+  // What an earlier version stored: position ids, and a transition for one.
+  const old = (n: number, title: string, status: 'open' | 'done') => ({
+    record: 'item', version: 1, id: markdownItemId(['docs/plan.md', 'plan', `#${n}`]), kind: 'task', title, status, labels: [], created: c1, updated: c1,
+    source: 'markdown', from: { file: 'docs/plan.md', heading: 'Plan' }, confidence: 'inferred',
+  });
+  const oldAlpha = old(1, 'Alpha', 'open');
+  await p.writer.appendRecords(path.join(p.store, PLAN_RECORDS_FILE), [
+    oldAlpha as PlanItemRecord,
+    old(2, 'Beta', 'done') as PlanItemRecord,
+    { record: 'transition', version: 1, id: 'md-t-0000000000000000', item: oldAlpha.id, at: c1, type: 'created', to: 'open', actor: 'Ann <ann@example.com>', confidence: 'inferred' },
+  ]);
+  await withPath([gitOnlyDir(), ...SYSTEM], async () => {
+    const lines: string[] = [];
+    await new PlanRecordsJob(p.home, p.writer, { log: (l) => lines.push(l) }).run();
+    assert.ok(lines.some((l) => l.includes('replaced 2 task(s)')));
+  });
+  const items = [...p.items().values()];
+  assert.deepStrictEqual(items.map((i) => `${i.title}:${i.status}`).sort(), ['Alpha:open', 'Beta:done', 'Plan:in_progress']);
+  assert.ok(!items.some((i) => i.id === oldAlpha.id));
+  assert.ok(!p.lines().some((r) => r.id === oldAlpha.id || (r.record === 'transition' && r.item === oldAlpha.id)), 'their lines are gone');
+  assert.strictEqual(p.transitions().length, 0, 'the file is first seen again');
 });
 
 gitTest('markdown: the plans setting names the files, README included when named', async () => {
