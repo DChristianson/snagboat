@@ -221,7 +221,7 @@ run([
     assert.strictEqual(new Set(RULES.map((r) => r.id)).size, RULES.length, 'rule ids are unique');
     const root = path.resolve(__dirname, '..', '..', '..');
     for (const doc of RULE_TABLE_DOCS) {
-      const text = fs.readFileSync(path.join(root, doc), 'utf8');
+      const text = fs.readFileSync(path.join(root, doc), 'utf8').replace(/\r\n/g, '\n');
       const start = text.indexOf(TABLE_START);
       const end = text.indexOf(TABLE_END);
       assert.ok(start >= 0 && end > start, `${doc} has no rule-table markers`);

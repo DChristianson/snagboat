@@ -14,6 +14,10 @@ run([
   ['at the end of a URL path only the token, so the host stays readable', () => {
     assert.strictEqual(rewritten(`session https://claude.ai/code/${HIGH_ENTROPY}`, {}, [highEntropy]), 'session https://claude.ai/code/[token-1]');
   }],
+  ['an absolute path is never one token: only a segment that is itself high-entropy', () => {
+    findsNothing(highEntropy, ['/private/var/folders/q2/p1t6rgxj5fj32g1dc7dmd49r0000gn/T/snagboat-export-Ab12Cd/home/someone/work/acme-app/src/app.ts']);
+    assert.strictEqual(rewritten(`see /var/cache/${HIGH_ENTROPY}/data`, {}, [highEntropy]), 'see /var/cache/[token-1]/data');
+  }],
   ['not a SHA (40 hex), identifiers, words, or short tokens', () => {
     findsNothing(highEntropy, [
       crypto.createHash('sha1').update('c').digest('hex'),

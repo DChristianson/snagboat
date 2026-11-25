@@ -470,6 +470,9 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
   const project = path.resolve(opts.project);
   const out = path.resolve(opts.out);
   const match = (opts.match ?? []).map((m) => path.resolve(m));
+  // --match names a path as other machines' records write it (/workspaces/acme in a container):
+  // the filter looks for it as written when it's absolute there, never as this OS resolves it.
+  const matchAsWritten = (opts.match ?? []).map((m) => (path.posix.isAbsolute(m) || path.win32.isAbsolute(m) ? m.replace(/[\\/]+$/, '') : path.resolve(m)));
   const { selected, firstCommit } = selectWorkspaces(opts.home, project, match);
   const worktrees = [...new Set(selected.map((s) => s.root))]
     .filter((r) => !same(r, project) && !match.some((m) => inside(r, m)) && path.isAbsolute(r))
@@ -496,7 +499,7 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
   const ctx = makeContext({
     projectRoot: project,
     worktrees,
-    matchPaths: match,
+    matchPaths: matchAsWritten,
     homes: [opts.homeDir ?? os.homedir()],
     people: peopleIn({ git: [...allGit, ...(input.git ?? [])], plan: input.plan }),
     commits: commitsIn(allGit),

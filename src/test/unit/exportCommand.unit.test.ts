@@ -331,7 +331,7 @@ async function main() {
     assert.strictEqual(r.manifest.filter, 'none');
     assert.deepStrictEqual(r.manifest.rules, {});
     const prompt = read('events/2026-11-20.jsonl');
-    for (const v of [PROJECT, PERSON_EMAIL, AWS, SHA2.slice(0, 8)]) assert.ok(prompt.includes(v));
+    for (const v of [PROJECT, PERSON_EMAIL, AWS, SHA2.slice(0, 8)]) assert.ok(prompt.includes(JSON.stringify(v).slice(1, -1)), v); // as JSON writes it (a C:\ path's backslashes escaped)
     assert.ok(!read('events/2026-11-20.jsonl').includes('"workspace"'), 'workspace and raw still never exported');
     assert.ok(!fs.existsSync(path.join(STATE(), REVIEW_FILE)));
     await assert.rejects(exportProject(opts({ noFilter: true, rewriteAll: true })), /--no-filter/);

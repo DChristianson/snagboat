@@ -30,6 +30,17 @@ export const highEntropy: Rule = {
       // A URL path ending in a token (/code/session_01Mi...): only the token, when every segment
       // before it reads as a plain word, so the rest (its host, for one) stays readable.
       const cut = token.lastIndexOf('/');
+      // An absolute path (/private/var/folders/q2/p1t6.../T/tmp-Ab12Cd/src/app) with a plain word
+      // among its folders: only a segment that is itself high-entropy, never the whole path.
+      const segs = token.split('/');
+      if (token.startsWith('/') && segs.some((seg) => /^[a-z][a-z-]{2,}$/.test(seg))) {
+        let at = m.index;
+        for (const seg of segs) {
+          if (isHighEntropy(seg)) out.push({ start: at, end: at + seg.length, value: seg });
+          at += seg.length + 1;
+        }
+        continue;
+      }
       if (cut > 0) {
         const head = token.slice(0, cut + 1);
         const last = token.slice(cut + 1);
