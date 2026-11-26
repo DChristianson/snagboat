@@ -18,19 +18,35 @@ import {
   SessionRecord,
   TransitionRecord,
 } from '@snagboat/schema';
-import { denyWords, effectiveSettings, EXPORT_DENY_KEY } from './config';
+import { denyWords, effectiveSettings, EXPORT_DENY_KEY, EXPORT_RULES_KEY } from './config';
 import { EventLog } from './eventLog';
-import { ensureExportKey, exportKeyPath, ExportInput, finalCheck, FinalCheckHit, RepositoryPrivacy, ReviewEntry, sanitizeExport, SanitizedExport, utc } from './export';
+import { commitsIn, ExportInput, ExportRecords, exportRecords, peopleIn, utc } from './exportFields';
 import { EXPORT_SCHEMAS, readmeFile, README_FILE, schemaFiles, zipFiles } from './exportPackage';
+import {
+  Action,
+  Filter,
+  FilterMode,
+  foldReviewFile,
+  loadDecisions,
+  makeContext,
+  removeReviewFile,
+  resolveActions,
+  ReviewItem,
+  RuleCounts,
+  RULES,
+  writeReviewFile,
+} from './filter';
 import { sessionRecords } from './sessionRecords';
 import { readStoreRecordLines } from './storeRecordFiles';
 import { listUserStores, UserStore } from './userStore';
 
 /**
- * snagboat export (docs/design/export.md, "The command"): one project's records from the
- * per-user store, through the privacy rules (src/core/export), written as an export folder plus
- * <out>.review/ beside it. It only reads the store: no git, no bd, no transcripts, and nothing
- * is written back to the store (the export key, ~/.snagboat/export-keys/, is made on first use).
+ * snagboat export (docs/design/export.md, "The command"): plumbing. It selects one project's
+ * records from the per-user store, runs them through the privacy filter (core/filter, by way of
+ * the one adapter that knows the records' fields, exportFields.ts), and either writes the export
+ * folder or, while values the filter found are undecided, writes nothing and returns them for
+ * review. It reads no git, no bd and no transcripts. In the store it writes only the filter's
+ * state, in the project's own folder: its decisions, and the review file while one is pending.
  *
  * The CLI (`snagboat export`) and the VS Code command (Snagboat: Export Project...) both call
  * exportProject; neither does anything else but ask for the options and show the result.
@@ -49,23 +65,21 @@ export interface ExportOptions {
   since?: string;
   until?: string;
   text?: 'redacted' | 'none';
-  /** --allow: flag ids (flagged-3) put back. */
-  allow?: string[];
-  /** --allow-rule: rules put back. */
-  allowRules?: string[];
-  /** Write nothing when anything is flagged. */
-  failOnFlags?: boolean;
-  /** Also write <out>.zip: the export folder's files under one folder named for it, never the review folder. */
+  /** --rule id=action, by rule id. */
+  rules?: Record<string, Action>;
+  /** --rewrite-all: every rule rewrites (a value you decided to keep stays kept). */
+  rewriteAll?: boolean;
+  /** --no-filter: every rule off. */
+  noFilter?: boolean;
+  /** Also write <out>.zip: the export folder's files under one folder named for it. */
   zip?: boolean;
   /** --match: more paths (absolute) whose workspaces' records are the project's. */
   match?: string[];
   /** For manifest.snagboatVersion. */
   version: string;
   now?: Date;
-  /** This machine, for rule 1; default os.homedir(), os.userInfo().username, os.hostname(). */
-  machine?: { homeDir: string; userName: string; hostName: string };
-  /** Tests only: changes the files after sanitizing and before the final check. */
-  beforeCheck?: (files: ExportFile[]) => void;
+  /** This machine's home folder, for the home-path rule; default os.homedir(). */
+  homeDir?: string;
 }
 
 /** One file of the export, by its path relative to the export folder. */
@@ -79,7 +93,7 @@ export interface ExportSelection {
   workspaces: string[];
   /** Their working trees other than the project's: [worktree-1], [worktree-2], in this order. */
   worktrees: string[];
-  /** The project's first commit, which names its export key; absent without git records. */
+  /** The project's first commit; absent without git records. */
   firstCommit?: string;
 }
 
@@ -90,23 +104,28 @@ export type ExportResult =
       manifest: ExportManifest;
       /** <out>.zip, with --zip. */
       zipFile?: string;
-      /** <out>.review/flags.jsonl, when anything was flagged (or put back). */
-      reviewFile?: string;
-      review: ReviewEntry[];
       selection: ExportSelection;
-      keyFile: string;
       files: string[];
       notes: string[];
     }
   | {
       ok: false;
-      reason: 'refused' | 'no-records' | 'flags' | 'final-check';
+      reason: 'refused' | 'no-records';
       message: string;
-      /** final-check: which rule hit which file, how often. Never the values. */
-      hits?: FinalCheckHit[];
-      /** flags: how many values were flagged, by rule. */
-      flagsByRule?: Record<string, number>;
       selection?: ExportSelection;
+      notes: string[];
+    }
+  | {
+      ok: false;
+      reason: 'review';
+      message: string;
+      /** The review file, in the project's folder of the store: it holds the values. */
+      reviewFile: string;
+      /** The values still to decide. */
+      pending: ReviewItem[];
+      /** How many values each rule has undecided. */
+      pendingByRule: Record<string, number>;
+      selection: ExportSelection;
       notes: string[];
     };
 
@@ -231,19 +250,14 @@ export function checkOut(out: string, home: string, trees: string[]): string | u
     return `--out ${out} is inside the project (${t}), where an export could get committed. Give a folder outside it, or one under its .snagboat/ folder (the export makes that ignored).`;
   }
   if (inside(out, path.join(home, 'data'))) return `--out ${out} is inside Snagboat's store (${path.join(home, 'data')}); the export writes nothing there.`;
-  for (const dir of [out, `${out}.review`]) {
-    let st: fs.Stats;
-    try {
-      st = fs.statSync(dir);
-    } catch {
-      continue;
-    }
-    if (!st.isDirectory()) return `${dir} exists and isn't a folder.`;
-    const entries = fs.readdirSync(dir);
-    if (entries.length === 0) continue;
-    if (dir === out && !isExportFolder(out)) return `${out} already holds something that isn't a Snagboat export; give an empty or new folder.`;
-    if (dir !== out && entries.some((e) => e !== 'flags.jsonl')) return `${dir} holds more than an export's review file; move it first.`;
+  let st: fs.Stats;
+  try {
+    st = fs.statSync(out);
+  } catch {
+    return undefined;
   }
+  if (!st.isDirectory()) return `${out} exists and isn't a folder.`;
+  if (fs.readdirSync(out).length > 0 && !isExportFolder(out)) return `${out} already holds something that isn't a Snagboat export; give an empty or new folder.`;
   return undefined;
 }
 
@@ -328,8 +342,13 @@ async function readRecords(selected: Selected[], since?: string, until?: string)
 
 const jsonl = (rs: unknown[]) => rs.map((r) => JSON.stringify(r) + '\n').join('');
 
-/** The export's files and manifest from the sanitized records. */
-function exportFiles(out: SanitizedExport, manifestBase: Omit<ExportManifest, 'counts' | 'range' | 'redactions' | 'flags' | 'rulesVersion' | 'readme' | 'schemas'>, range: ExportManifest['range']): { files: ExportFile[]; manifest: ExportManifest } {
+
+/** The export's files and manifest from the filtered records. */
+function exportFiles(
+  out: ExportRecords,
+  manifestBase: Pick<ExportManifest, 'generatedAt' | 'project' | 'text' | 'snagboatVersion' | 'filter' | 'rules'>,
+  range: ExportManifest['range']
+): { files: ExportFile[]; manifest: ExportManifest } {
   const days = new Map<string, unknown[]>();
   for (const e of out.events) {
     const day = e.ts.slice(0, 10);
@@ -337,12 +356,17 @@ function exportFiles(out: SanitizedExport, manifestBase: Omit<ExportManifest, 'c
     if (!list) days.set(day, (list = []));
     list.push(e);
   }
-  const recs = <T>(xs: Array<{ record: T }>) => xs.map((x) => x.record);
   const first = out.events[0]?.ts;
   const last = out.events[out.events.length - 1]?.ts;
+  // Key order as the schema lists them, so two manifests compare line by line.
   const manifest: ExportManifest = {
-    ...manifestBase,
+    format: FORMAT,
+    version: 2,
+    eventSchema: 4,
+    generatedAt: manifestBase.generatedAt,
+    project: manifestBase.project,
     range: { ...range, ...(first ? { first } : {}), ...(last ? { last } : {}) },
+    text: manifestBase.text,
     counts: {
       days: days.size,
       events: out.events.length,
@@ -355,45 +379,27 @@ function exportFiles(out: SanitizedExport, manifestBase: Omit<ExportManifest, 'c
       transitions: out.transitions.length,
       links: out.links.length,
     },
-    rulesVersion: out.summary.rulesVersion,
-    redactions: out.summary.redactions,
-    flags: out.summary.flags,
+    snagboatVersion: manifestBase.snagboatVersion,
+    filter: manifestBase.filter,
+    rules: manifestBase.rules,
     readme: README_FILE,
     schemas: EXPORT_SCHEMAS,
   };
-  // Key order as the schema lists them, so two manifests compare line by line.
-  const ordered: ExportManifest = {
-    format: manifest.format,
-    version: manifest.version,
-    eventSchema: manifest.eventSchema,
-    generatedAt: manifest.generatedAt,
-    project: manifest.project,
-    range: manifest.range,
-    text: manifest.text,
-    counts: manifest.counts,
-    rulesVersion: manifest.rulesVersion,
-    snagboatVersion: manifest.snagboatVersion,
-    redactions: manifest.redactions,
-    flags: manifest.flags,
-    repository: manifest.repository,
-    readme: manifest.readme,
-    schemas: manifest.schemas,
-  };
   const files: ExportFile[] = [
-    { file: 'manifest.json', text: JSON.stringify(ordered, null, 2) + '\n' },
+    { file: 'manifest.json', text: JSON.stringify(manifest, null, 2) + '\n' },
     ...[...days.keys()].sort().map((day) => ({ file: `events/${day}.jsonl`, text: jsonl(days.get(day)!) })),
-    { file: 'sessions.jsonl', text: jsonl(recs(out.sessions)) },
-    { file: 'findings.jsonl', text: jsonl(recs(out.findings)) },
-    { file: 'git/commits.jsonl', text: jsonl(recs(out.commits)) },
-    { file: 'git/branches.jsonl', text: jsonl(recs(out.branches)) },
-    { file: 'git/checkouts.jsonl', text: jsonl(recs(out.checkouts)) },
-    { file: 'plan/items.jsonl', text: jsonl(recs(out.planItems)) },
-    { file: 'plan/transitions.jsonl', text: jsonl(recs(out.transitions)) },
-    { file: 'links.jsonl', text: jsonl(recs(out.links)) },
+    { file: 'sessions.jsonl', text: jsonl(out.sessions) },
+    { file: 'findings.jsonl', text: jsonl(out.findings) },
+    { file: 'git/commits.jsonl', text: jsonl(out.commits) },
+    { file: 'git/branches.jsonl', text: jsonl(out.branches) },
+    { file: 'git/checkouts.jsonl', text: jsonl(out.checkouts) },
+    { file: 'plan/items.jsonl', text: jsonl(out.planItems) },
+    { file: 'plan/transitions.jsonl', text: jsonl(out.transitions) },
+    { file: 'links.jsonl', text: jsonl(out.links) },
     readmeFile(),
     ...schemaFiles(),
   ];
-  return { files, manifest: ordered };
+  return { files, manifest };
 }
 
 /** Writes files under a new folder (owner-only). */
@@ -434,8 +440,8 @@ function ignoreInProject(out: string, trees: string[]): void {
     fs.writeFileSync(file, '# Snagboat exports (snagboat export): never committed.\n*\n');
     return;
   }
-  // Directly under .snagboat/: ignore just this export and its review folder.
-  const lines = [`/${path.basename(out)}/`, `/${path.basename(out)}.review/`, `/${path.basename(out)}.zip`, '/.*.snagboat-tmp-*'];
+  // Directly under .snagboat/: ignore just this export and its zip.
+  const lines = [`/${path.basename(out)}/`, `/${path.basename(out)}.zip`, '/.*.snagboat-tmp-*'];
   let text = '';
   try {
     text = fs.readFileSync(file, 'utf8');
@@ -448,12 +454,25 @@ function ignoreInProject(out: string, trees: string[]): void {
   fs.writeFileSync(file, (text && !text.endsWith('\n') ? text + '\n' : text) + (text ? '' : '# Snagboat exports (snagboat export): never committed.\n') + missing.join('\n') + '\n');
 }
 
-/** Runs one export. Writes nothing unless every check passes. */
+
+/**
+ * The store folder that keeps the project's filter state (decisions, the review file): the
+ * project's own workspace's, else the first selected.
+ */
+function filterStateDir(selected: Selected[], project: string): string {
+  return (selected.find((s) => s.store.folder && same(s.store.folder, project)) ?? selected[0]).store.dir;
+}
+
+/** Runs one export. Writes nothing while values are undecided, or when a check fails. */
 export async function exportProject(opts: ExportOptions): Promise<ExportResult> {
   const notes: string[] = [];
+  const now = opts.now ?? new Date();
   const project = path.resolve(opts.project);
   const out = path.resolve(opts.out);
   const match = (opts.match ?? []).map((m) => path.resolve(m));
+  // --match names a path as other machines' records write it (/workspaces/acme in a container):
+  // the filter looks for it as written when it's absolute there, never as this OS resolves it.
+  const matchAsWritten = (opts.match ?? []).map((m) => (path.posix.isAbsolute(m) || path.win32.isAbsolute(m) ? m.replace(/[\\/]+$/, '') : path.resolve(m)));
   const { selected, firstCommit } = selectWorkspaces(opts.home, project, match);
   const worktrees = [...new Set(selected.map((s) => s.root))]
     .filter((r) => !same(r, project) && !match.some((m) => inside(r, m)) && path.isAbsolute(r))
@@ -468,132 +487,86 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
 
   const input = await readRecords(selected, opts.since, opts.until);
 
-  // Privacy, deny words and the key, from the project's settings (config.ts: a .snagboat.json can't make it public).
+  // The filter: what it knows about the project, and each rule's action (config.ts: a
+  // .snagboat.json can set neither export.rules nor anything that makes an export less private).
   const settings = effectiveSettings(opts.home, project);
   for (const p of settings.problems) notes.push(`setting ignored: ${p}`);
-  const privacy: RepositoryPrivacy = settings.values['export.public'] === true ? 'public' : 'private';
-  let keyFile: string;
-  if (privacy === 'private' && firstCommit) keyFile = exportKeyPath(opts.home, 'private', firstCommit);
-  else {
-    keyFile = exportKeyPath(opts.home, 'public');
-    if (privacy === 'private') notes.push("the store has no commits for this project, so its pseudonyms use this machine's key (~/.snagboat/export.key), not a repository key");
-  }
-  const key = ensureExportKey(keyFile);
-  notes.push('remote URLs: the store records none, so none are searched for; name the project with --name, never its remote');
-
-  const machine = opts.machine ?? { homeDir: os.homedir(), userName: safeUserName(), hostName: os.hostname() };
-  // A container's stock account (vscode, node, root) names nobody, and replacing it as a word
-  // would turn .vscode/settings.json into .[user]/settings.json. The home folder is still a path.
-  const genericUser = GENERIC_USERS.has(machine.userName.toLowerCase());
-  if (genericUser) notes.push(`the user name "${machine.userName}" is a stock account name, so it isn't replaced as a word (paths under ${machine.homeDir} still are)`);
-  const sanitized = sanitizeExport(input, {
+  const { actions, mode, problems } = resolveActions(RULES, { setting: settings.values[EXPORT_RULES_KEY], rules: opts.rules, rewriteAll: opts.rewriteAll, noFilter: opts.noFilter });
+  for (const p of problems) notes.push(`setting ignored: ${p}`);
+  // Commits the repository has, from each workspace's whole git.jsonl, so a SHA outside the
+  // export's range is still a known commit; people from the whole of it too.
+  const allGit = selected.flatMap((s) => s.git);
+  const ctx = makeContext({
     projectRoot: project,
-    worktreeRoots: worktrees,
-    matchPaths: match,
-    homeDir: machine.homeDir,
-    userName: genericUser ? '' : machine.userName,
-    hostName: machine.hostName,
-    privacy,
-    key,
-    text: opts.text ?? 'redacted',
+    worktrees,
+    matchPaths: matchAsWritten,
+    homes: [opts.homeDir ?? os.homedir()],
+    people: peopleIn({ git: [...allGit, ...(input.git ?? [])], plan: input.plan }),
+    commits: commitsIn(allGit),
     deny: denyWords(settings.values[EXPORT_DENY_KEY]),
-    remotes: [],
-    allow: opts.allow ?? [],
-    allowRules: opts.allowRules ?? [],
   });
+  const filter = new Filter(RULES, ctx, actions);
+  const text = opts.text ?? 'redacted';
+  exportRecords(input, (s) => (filter.scan(s), s), { text });
 
-  const flagsByRule: Record<string, number> = {};
-  for (const r of sanitized.summary.review) if (!r.allowed) flagsByRule[r.rule] = (flagsByRule[r.rule] ?? 0) + 1;
-  if (opts.failOnFlags && sanitized.summary.flags > 0) {
+  // Decisions: what the review file says now, folded into what was decided before.
+  const stateDir = filterStateDir(selected, project);
+  const folded = foldReviewFile(stateDir, now);
+  for (const p of folded.problems) notes.push(`review file: ${p}`);
+  const decisions = loadDecisions(stateDir);
+  const pending = filter.settle((id) => decisions.get(id));
+  if (pending.length > 0) {
+    const reviewFile = writeReviewFile(stateDir, project, pending, now);
+    const pendingByRule: Record<string, number> = {};
+    for (const p of pending) pendingByRule[p.rule] = (pendingByRule[p.rule] ?? 0) + 1;
     return {
       ok: false,
-      reason: 'flags',
-      message: `${sanitized.summary.flags} value${sanitized.summary.flags === 1 ? ' was' : 's were'} flagged for review, and --fail-on-flags writes nothing then. Run without it to see them in the review file.`,
-      flagsByRule,
+      reason: 'review',
+      message: `${pending.length} value${pending.length === 1 ? '' : 's'} the privacy filter found need${pending.length === 1 ? 's' : ''} a decision before anything is exported.`,
+      reviewFile,
+      pending,
+      pendingByRule,
       selection,
       notes,
     };
   }
 
+  const records = exportRecords(input, (s) => filter.apply(s), { text });
   const range: ExportManifest['range'] = { ...(opts.since ? { since: opts.since } : {}), ...(opts.until ? { until: opts.until } : {}) };
   const { files, manifest } = exportFiles(
-    sanitized,
-    {
-      format: FORMAT,
-      version: 1,
-      eventSchema: 4,
-      generatedAt: (opts.now ?? new Date()).toISOString(),
-      project: opts.name ?? path.basename(project),
-      text: opts.text ?? 'redacted',
-      snagboatVersion: opts.version,
-      repository: { privacy },
-    },
+    records,
+    { generatedAt: now.toISOString(), project: opts.name ?? path.basename(project), text, snagboatVersion: opts.version, filter: mode, rules: filter.counts() },
     range
   );
-  opts.beforeCheck?.(files);
-
-  // Rule 5: the final check over every file, before anything reaches --out.
-  const hits = finalCheck(files, sanitized.summary.finalCheck);
-  if (hits.length > 0) {
-    return {
-      ok: false,
-      reason: 'final-check',
-      message: `The final check found values the rules should have removed, so nothing was written:\n${hits.map((h) => `  ${h.rule} in ${h.file} (${h.count})`).join('\n')}\nThis is a bug in the privacy rules; please report the rule and file (not the value).`,
-      hits,
-      selection,
-      notes,
-    };
-  }
 
   // Write beside --out, then rename into place: a rerun replaces the export whole, or not at all.
   const parent = path.dirname(out);
   fs.mkdirSync(parent, { recursive: true });
   const tag = `${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
   const temp = path.join(parent, `.${path.basename(out)}.snagboat-tmp-${tag}`);
-  const reviewDir = `${out}.review`;
-  const reviewTemp = `${temp}.review`;
   const zipFile = `${out}.zip`;
   const zipTemp = `${temp}.zip`;
-  const review = sanitized.summary.review;
   try {
     ignoreInProject(out, [project, ...worktrees, ...match]);
     writeFolder(temp, files);
-    if (review.length > 0) writeFolder(reviewTemp, [{ file: 'flags.jsonl', text: jsonl(review) }]);
-    // The zip holds exactly the files the final check read, never the review folder.
     if (opts.zip) fs.writeFileSync(zipTemp, zipFiles(path.basename(out), files, new Date(manifest.generatedAt)), { mode: 0o600 });
     swapIn(temp, out);
     if (opts.zip) fs.renameSync(zipTemp, zipFile);
     else fs.rmSync(zipFile, { force: true }); // an old zip would be another export
-    if (review.length > 0) swapIn(reviewTemp, reviewDir);
-    else fs.rmSync(reviewDir, { recursive: true, force: true }); // an old review would describe another export
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
-    fs.rmSync(reviewTemp, { recursive: true, force: true });
     fs.rmSync(zipTemp, { force: true });
   }
-  return {
-    ok: true,
-    out,
-    manifest,
-    ...(opts.zip ? { zipFile } : {}),
-    ...(review.length > 0 ? { reviewFile: path.join(reviewDir, 'flags.jsonl') } : {}),
-    review,
-    selection,
-    keyFile,
-    files: files.map((f) => f.file),
-    notes,
-  };
+  removeReviewFile(stateDir);
+  return { ok: true, out, manifest, ...(opts.zip ? { zipFile } : {}), selection, files: files.map((f) => f.file), notes };
 }
 
-/** Accounts dev containers and CI images run as: no one's name. */
-const GENERIC_USERS = new Set(['root', 'vscode', 'node', 'codespace', 'ubuntu', 'debian', 'user', 'dev', 'developer', 'admin', 'runner']);
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-function safeUserName(): string {
-  try {
-    return os.userInfo().username;
-  } catch {
-    return path.basename(os.homedir());
-  }
+/** What each rule did, for people: "email 2 rewritten, sha 14 kept". */
+export function ruleCountsText(rules: RuleCounts): string {
+  const parts = Object.entries(rules).map(([id, c]) => [id, ...(c.rewritten ? [`${c.rewritten} rewritten`] : []), ...(c.kept ? [`${c.kept} kept`] : [])].join(' '));
+  return parts.length ? parts.join(', ') : 'nothing found';
 }
 
 /** The human summary `snagboat export` prints. */
@@ -601,23 +574,26 @@ export function exportSummaryText(r: Extract<ExportResult, { ok: true }>): strin
   const c = r.manifest.counts;
   const lines = [
     `Exported ${r.manifest.project} to ${r.out}${r.zipFile ? `, and ${r.zipFile}` : ''}`,
-    `  ${c.events} events over ${c.days} day${c.days === 1 ? '' : 's'}, ${c.sessions} sessions, ${c.findings} findings`,
+    `  ${c.events} events over ${plural(c.days, 'day')}, ${c.sessions} sessions, ${c.findings} findings`,
     `  git: ${c.commits} commits, ${c.branches} branches, ${c.checkouts} checkouts`,
     `  plan: ${c.planItems} items, ${c.transitions} transitions; ${c.links} links`,
-    `  from ${r.selection.workspaces.length} workspace${r.selection.workspaces.length === 1 ? '' : 's'}${r.selection.worktrees.length ? ` (${r.selection.worktrees.length} other worktree${r.selection.worktrees.length === 1 ? '' : 's'})` : ''}`,
-    `  repository: ${r.manifest.repository.privacy}${r.manifest.repository.privacy === 'private' ? ' (commit SHAs re-keyed)' : ' (export.public: SHAs kept)'}; key ${r.keyFile}`,
+    `  from ${plural(r.selection.workspaces.length, 'workspace')}${r.selection.worktrees.length ? ` (${plural(r.selection.worktrees.length, 'other worktree')})` : ''}`,
     `  text: ${r.manifest.text}`,
+    r.manifest.filter === 'none' ? 'Privacy filter: off (--no-filter); nothing was rewritten' : `Privacy filter (${r.manifest.filter}), values by rule: ${ruleCountsText(r.manifest.rules)}`,
   ];
-  const red = Object.entries(r.manifest.redactions);
-  lines.push(red.length ? `Replaced, by rule: ${red.map(([k, v]) => `${k} ${v}`).join(', ')}` : 'Replaced: nothing');
-  const flags = new Map<string, number>();
-  for (const e of r.review) if (!e.allowed) flags.set(e.rule, (flags.get(e.rule) ?? 0) + 1);
-  const allowed = r.review.filter((e) => e.allowed).length;
-  if (r.manifest.flags > 0) {
-    lines.push(`Flagged for review: ${r.manifest.flags} (${[...flags.entries()].map(([k, v]) => `${k} ${v}`).join(', ')}), each [flagged-N] in the export.`);
-  } else lines.push('Flagged for review: nothing');
-  if (allowed > 0) lines.push(`Put back by --allow / --allow-rule: ${allowed}`);
-  if (r.reviewFile) lines.push(`Review file (never inside the export): ${r.reviewFile}`, '  --allow flagged-3,flagged-7 or --allow-rule <rule> on a rerun puts values back.');
+  for (const n of r.notes) lines.push(`note: ${n}`);
+  return lines.join('\n') + '\n';
+}
+
+/** What `snagboat export` prints while values are undecided. */
+export function reviewSummaryText(r: Extract<ExportResult, { reason: 'review' }>): string {
+  const lines = [
+    `Nothing exported: ${r.message}`,
+    ...Object.entries(r.pendingByRule).map(([rule, n]) => `  ${rule}: ${plural(n, 'value')}`),
+    `Review file (in Snagboat's store, never in the project; it holds the values): ${r.reviewFile}`,
+    '  Set each item\'s "decision" to "rewrite" or "keep" and run the export again; decisions are kept for later exports.',
+    '  Or decide a whole rule: --rule <rule>=rewrite (or keep), or --rewrite-all.',
+  ];
   for (const n of r.notes) lines.push(`note: ${n}`);
   return lines.join('\n') + '\n';
 }

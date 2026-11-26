@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { EventOutcome, exportedEventSchema, NormalizedEvent, NormalizedEventKind, normalizedEventSchema, normalizedEventSchemaV1, normalizedEventSchemaV2, normalizedEventSchemaV3, Redaction, TOOL_CATEGORY_LABELS } from '@snagboat/schema';
+import { EventOutcome, exportedEventSchema, NormalizedEvent, NormalizedEventKind, normalizedEventSchema, normalizedEventSchemaV1, normalizedEventSchemaV2, normalizedEventSchemaV3, TOOL_CATEGORY_LABELS } from '@snagboat/schema';
 import { sessionEvents } from '../../scripts/replayHeuristics';
 import { syntheticEvents } from '../fixtures/synthetic';
 import { normalizeHookPayload } from '../../adapters/claude-code/normalize';
@@ -187,22 +187,21 @@ async function main() {
     }
   });
 
-  test('an exported event is a version 4 event without workspace and raw, with redactions', () => {
+  test('an exported event (schema v5) is a version 4 event without workspace and raw, and nothing else', () => {
     const exported = exportedEventSchema as Schema;
     assert.deepStrictEqual(Object.keys(props).filter((k) => !(k in exported.properties)).sort(), ['raw', 'workspace']);
-    assert.deepStrictEqual(Object.keys(exported.properties).filter((k) => !(k in props)), ['redactions']);
-    for (const k of Object.keys(exported.properties)) if (k !== 'redactions') assert.deepStrictEqual(exported.properties[k], props[k], k);
+    assert.deepStrictEqual(Object.keys(exported.properties).filter((k) => !(k in props)), [], 'v5 dropped redactions');
+    for (const k of Object.keys(exported.properties)) assert.deepStrictEqual(exported.properties[k], props[k], k);
+    assert.match(String((exportedEventSchema as { $id: string }).$id), /exported-event\/v5$/);
     for (const e of syntheticEvents()) {
       const { raw: _raw, workspace: _workspace, ...rest } = JSON.parse(JSON.stringify(e));
       assert.deepStrictEqual(validate(exported, rest), [], e.eventId);
     }
-    const ok = { eventId: 'e', sessionId: 's', agent: 'claude-code', ts: '2026-11-21T00:00:00Z', kind: 'user_prompt', status: 'unknown', promptText: 'see [path].ts and [email-1]' };
-    const redactions: Redaction[] = [{ field: 'promptText', rule: 'outside-path', count: 1 }, { field: 'promptText', rule: 'email', count: 1 }];
-    assert.deepStrictEqual(validate(exported, { ...ok, redactions }), []);
+    const ok = { eventId: 'e', sessionId: 's', agent: 'claude-code', ts: '2026-11-21T00:00:00Z', kind: 'user_prompt', status: 'unknown', promptText: 'see ~/x.ts and [email-1]' };
+    assert.deepStrictEqual(validate(exported, ok), []);
     assert.ok(validate(exported, { ...ok, raw: { adapter: 'a', ref: 'r' } }).length > 0, 'raw is never exported');
     assert.ok(validate(exported, { ...ok, workspace: '/w/p' }).length > 0, 'workspace is never exported');
-    assert.ok(validate(exported, { ...ok, redactions: [{ field: 'promptText', rule: 'email' }] }).length > 0);
-    assert.ok(validate(exported, { ...ok, redactions: [{ field: 'promptText', rule: 'email', count: 1, value: 'a@b.c' }] }).length > 0, 'never the value');
+    assert.ok(validate(exported, { ...ok, redactions: [{ field: 'promptText', rule: 'email', count: 1 }] }).length > 0, 'v5 has no redactions');
   });
 
   test('every event in the synthetic sessions is valid', () => {

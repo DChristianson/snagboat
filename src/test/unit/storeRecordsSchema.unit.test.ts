@@ -232,21 +232,25 @@ async function main() {
     bad(schema, { ...session, commits: [{ sha: SHA, confidence: 'maybe' }] }, 'not a confidence');
   });
 
-  test("manifest.json: the export's versions, range, counts, redactions and privacy", () => {
+  test("manifest.json (v2): the export's versions, range, counts, and what the filter rewrote and kept", () => {
     const manifest: ExportManifest = {
-      format: 'snagboat-export', version: 1, eventSchema: 4, generatedAt: '2026-11-21T05:00:00Z', project: 'snagboat',
+      format: 'snagboat-export', version: 2, eventSchema: 4, generatedAt: '2026-11-21T05:00:00Z', project: 'snagboat',
       range: { since: '2026-11-01', first: '2026-11-01T09:00:00Z', last: '2026-11-21T04:00:00Z' }, text: 'redacted',
       counts: { days: 21, events: 50_000, sessions: 120, findings: 40, commits: 160, branches: 80, checkouts: 300, planItems: 200, transitions: 900, links: 1_500 },
-      rulesVersion: 1, snagboatVersion: '0.9.0', redactions: { 'home-path': 12, email: 3 }, flags: 2, repository: { privacy: 'private' },
-      readme: 'README.md', schemas: { 'manifest.json': 'schema/exportManifest.v1.schema.json', 'events/*.jsonl': 'schema/exportedEvent.v4.schema.json' },
+      snagboatVersion: '0.9.0', filter: 'reviewed', rules: { 'home-path': { rewritten: 2, kept: 0 }, email: { rewritten: 3, kept: 1 } },
+      readme: 'README.md', schemas: { 'manifest.json': 'schema/exportManifest.v2.schema.json', 'events/*.jsonl': 'schema/exportedEvent.v5.schema.json' },
     };
     const schema = exportManifestSchema as Schema;
     ok(schema, manifest);
-    ok(schema, { ...manifest, range: {}, text: 'none', redactions: {}, repository: { privacy: 'public' } });
+    ok(schema, { ...manifest, range: {}, text: 'none', filter: 'none', rules: {} });
+    ok(schema, { ...manifest, filter: 'rewrite-all' });
     bad(schema, { ...manifest, format: 'some-other-export' }, 'not an export');
+    bad(schema, { ...manifest, version: 1 }, 'version 2');
     bad(schema, { ...manifest, eventSchema: 3 }, 'events are version 4');
-    bad(schema, { ...manifest, redactions: { email: 'three' } }, 'redactions are counts');
-    bad(schema, { ...manifest, repository: { privacy: 'internal' } }, 'private or public');
+    bad(schema, { ...manifest, filter: 'some' }, 'reviewed, rewrite-all or none');
+    bad(schema, { ...manifest, rules: { email: { rewritten: 'three', kept: 0 } } }, 'counts are numbers');
+    bad(schema, { ...manifest, rules: { email: { rewritten: 3 } } }, 'rewritten and kept both');
+    for (const old of ['rulesVersion', 'redactions', 'flags', 'repository']) bad(schema, { ...manifest, [old]: {} }, `v1's ${old} is gone`);
     bad(schema, { ...manifest, counts: { ...manifest.counts, links: undefined } }, 'every count');
     bad(schema, { ...manifest, review: '/Users/dave/out.review' }, 'the review folder is never named in the export');
   });

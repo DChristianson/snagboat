@@ -1,17 +1,17 @@
-# Export: privacy rules and the normalized schema
+# Export: the privacy filter and the normalized schema
 
 The design for step 9 of the [Factory Clock plan](factory-clock-plan.md), how Snagboat exports what it knows about a project for Factory Clock (and anything else) to load. Written November 20, 2026, and tracked in Beads under `snagboat-93b.9`; built under `snagboat-93b.10` (the command is documented in [cli.md](../cli.md#export)).
 
 ## Decision
 
-Snagboat owns the sanitizing rules. Factory Clock reads files and never sees a raw store. In the maintainer's words: "snagboat should own the sanitizing rules. in order for the export to be meaningful I think we have to be able to export a fair amount of detail."
+Snagboat owns the privacy filter. Factory Clock reads files and never sees a raw store. In the maintainer's words: "snagboat should own the sanitizing rules. in order for the export to be meaningful I think we have to be able to export a fair amount of detail."
 
-So the export keeps prompts, replies and tool calls, and removes what identifies the machine, the person, or the workspace's place on disk. Anything it isn't sure about is flagged for you to review. It doesn't silently pass or silently drop.
+So the export keeps prompts, replies and tool calls, and the filter finds what might identify the machine, a person, or the workspace's place on disk, and asks you about each. It's your data and your decision: the filter supports it, and doesn't promise to catch everything (see [The privacy filter](#the-privacy-filter)).
 
-**Everything exported comes from the Snagboat store.** The export never re-reads transcripts, git or bd. The store takes on the schema below: git state, plan state, and the links between them and sessions are recorded by the core as they happen, for heuristics as much as for export. The export does two things only: it selects one workspace's records, then applies the privacy rules. In the maintainer's words: "the export will just be selecting data for a given workspace and then applying the privacy rules." What the store doesn't hold, the export can't give.
+**Everything exported comes from the Snagboat store.** The export never re-reads transcripts, git or bd. The store takes on the schema below: git state, plan state, and the links between them and sessions are recorded by the core as they happen, for heuristics as much as for export. The export does two things only: it selects one workspace's records, then applies the privacy filter. In the maintainer's words: "the export will just be selecting data for a given workspace and then applying the privacy rules." What the store doesn't hold, the export can't give.
 
 Two more decisions came out of review:
-- **The store keeps more text, by setting.** The caps on stored prompt and reply text become settings (see [rule 3](#3-whats-preserved)).
+- **The store keeps more text, by setting.** The caps on stored prompt and reply text become settings (see [What's preserved](#whats-preserved)).
 - **The core records finding episodes as they happen.** Until now the store kept only your responses to findings. The maintainer called that "a gap in our original design", separate from export.
 
 Factory Clock's scrape script ([factory-clock#31](https://github.com/DChristianson/factory-clock/pull/31)) was the first attempt at this from the other side. Its rules are a good start and this design takes most of them, but they belong here: Snagboat knows its own store layout, its own capture-time redaction, and which fields carry what. Once `snagboat export` exists, the scrape script reads its output instead of `~/.snagboat/data`. It can keep its own leak check as a second look.
@@ -19,7 +19,7 @@ Factory Clock's scrape script ([factory-clock#31](https://github.com/DChristians
 ## Contents
 
 - [What an export holds](#what-an-export-holds)
-- [The privacy rules](#the-privacy-rules)
+- [The privacy filter](#the-privacy-filter)
 - [The normalized schema](#the-normalized-schema)
 - [How records are linked](#how-records-are-linked)
 - [The store records it](#the-store-records-it)
@@ -29,14 +29,14 @@ Factory Clock's scrape script ([factory-clock#31](https://github.com/DChristians
 
 ## What an export holds
 
-One workspace from the store: a git repository's working tree, with its other worktrees and any other paths you name. It covers a time range, all of what the store holds by default. Each file is the store's own records for that workspace, sanitized. The export is a folder:
+One workspace from the store: a git repository's working tree, with its other worktrees and any other paths you name. It covers a time range, all of what the store holds by default. Each file is the store's own records for that workspace, through the privacy filter. The export is a folder:
 
 ```text
 <out>/
-  README.md                   what each file is, how they join, what each redaction marker means
-  manifest.json               what this is: versions, project name, range, counts, rules applied
+  README.md                   what each file is, how they join, what each placeholder means
+  manifest.json               what this is: versions, project name, range, counts, what each rule rewrote
   schema/*.schema.json        the JSON Schemas the records follow
-  events/YYYY-MM-DD.jsonl     the sessions' events (schema v4, sanitized), UTC days
+  events/YYYY-MM-DD.jsonl     the sessions' events (schema v4, filtered), UTC days
   sessions.jsonl              one record per session, with its branch, commits and plan items
   findings.jsonl              findings and early warnings, with how you responded
   git/commits.jsonl           commits, merges included
@@ -45,114 +45,150 @@ One workspace from the store: a git repository's working tree, with its other wo
   plan/items.jsonl            plan items (beads issues, or markdown plan steps)
   plan/transitions.jsonl      each item's lifecycle: created, claimed, status changes, closed, reopened
   links.jsonl                 typed edges between sessions, commits, branches and plan items
-<out>.review/                 never shipped: what was flagged, with the values, for you to read
-<out>.zip                     with --zip: <out>/ in one file to send, never the review folder
+<out>.zip                     with --zip: <out>/ in one file to send
 ```
 
-An export explains itself: `README.md` and `schema/` are static text, the same in every export, so a reader needs nothing from Snagboat's repository. The schema copies' `$id` is just the file name, since the published one is a URL into Snagboat's repository and names its owner. A web page reads the folder (`<input type="file" webkitdirectory>`, or a dropped folder) or the zip; it should refuse a folder without `manifest.json` at its top, which is how it avoids loading the review folder beside it.
+An export explains itself: `README.md` and `schema/` are static text, the same in every export, so a reader needs nothing from Snagboat's repository. The schema copies' `$id` is just the file name, since the published one is a URL into Snagboat's repository and names its owner. A web page reads the folder (`<input type="file" webkitdirectory>`, or a dropped folder) or the zip; it should refuse a folder without `manifest.json` at its top. The review file, which holds the values the filter found, is never beside the export: it's in the store ([Decisions](#decisions)).
 
-Everything is JSON Lines, apart from the manifest, so a large project streams and two exports can be compared line by line. Ids join the files. Nothing in the export is an absolute path.
+Everything is JSON Lines, apart from the manifest, so a large project streams and two exports can be compared line by line. Ids join the files. A path is absolute only where you chose to keep one.
 
-## The privacy rules
+## The privacy filter
 
-The rules run in order on every string the export writes. They don't depend on where the string sits in a record. A rule that removes something leaves a typed placeholder, so a view can still say "a path outside the project was here" or "the same email again". Placeholders are numbered per export: the same value gets the same placeholder throughout one export, and the value itself appears nowhere.
+*Rebuilt under `snagboat-93b.11` (November 24, 2026). The first version ran some thirty rules in sequence over each string, each hiding its output from the next, detected everything a second time in a final check, and kept its policy inline in each rule, so every fix touched many files. This replaces it.*
 
-### 1. The machine and the workspace's place on it
+**It's your data, and your decision to export it.** The filter is decision support: it finds values that might hurt you or your project if they left your machine, shows you each one with where it appears, and rewrites the ones you say to. It doesn't promise to catch everything, and it doesn't decide for you. By default nothing is written until you've decided every value it found.
 
-What the export removes is what says *whose* machine this is and *where* on it the project lives. What the project is stays, under the name you give it.
+The filter lives in `src/core/filter/` and knows nothing about exports: it imports nothing from the export code. The export hands it strings and writes back what it returns. One adapter, `src/core/exportFields.ts`, is the only code that knows the export's record structure: which fields of each record are free text, which name people, which are ids. `src/core/exportProject.ts` is plumbing: select the records, run them through the adapter and the filter, and either write the package or return what's still to be decided.
 
-| What | Becomes |
-| --- | --- |
-| A path inside the project, or inside one of its worktrees or `--match` paths | Relative to the project root: `src/core/export.ts`. A worktree's own path becomes `[worktree-1]`, and a path in it `[worktree-1]/src/core/export.ts`; a `--match` path likewise `[match-1]`. |
-| The home folder, or a path under it outside the project | `~`, and `~/[path]` keeping only the extension: `~/[path].ts`. |
-| Any other absolute path (`/tmp/...`, `/var/...`, `C:\...`), including inside commands and text | `[path]`, with its extension |
-| The user name, the machine's host name, and names found in home paths (`/Users/<name>`, `/home/<name>`) | `[user]`, `[host]` |
-| The workspace's folder name and store key, `NormalizedEvent.workspace`, and the `raw` block (adapter refs name transcript files) | Dropped |
-| Event ids that embed a path (fallback ids like `claude-code:<file>:<offset>`) | Re-keyed by HMAC (see below). A SHA inside an id (`outcome:milestone:<sha>`) is re-keyed like any SHA. |
-| Store record ids hashed from a SHA or a path (checkout and link ids, [below](#the-normalized-schema)), since anyone with the repository could test a guess against them | Re-keyed by HMAC, the same everywhere the id appears |
-| Commit SHAs, in a private repository (the default) | Re-keyed by HMAC with the repository's key (see below) |
-| Git remote URLs | Dropped. The project's name comes from `--name`. |
-| URLs | Handled whole, never edited inside, so a rewritten URL never still reads as a working link (a pseudonym in place of a GitHub login would be a valid link to someone else's account). A link into the project's own repository (a forge URL, `github.com/<owner>/<repo>/...`, whose repository is the project's name) becomes `[repo <what>]`: `[repo pull/158]`, `[repo blob/main/docs/cli.md#export]`. Any other URL a rule changed inside (a person, a token, an email) becomes `[url-N host]`. A URL no rule touched, naming nobody, stays as written. Rule `remote` counts the first, `url` the second. |
-| Container ids, dev container volume names, VS Code storage hashes | Dropped |
-| People (git authors and committers, `Co-Authored-By` humans, bead `owner`, `created_by`, `assignee`, actors in bead history) | Pseudonyms: `person-` and 8 hex characters of the keyed hash of the name (`person-3f9a0c21`), so the same person gets the same pseudonym in every export made with the same key, whichever records it holds. A bd actor with the same name as a git ident is the same person. Agents keep their names (`claude-code`, `copilot`, "Claude" in a co-author line), since which agent did the work is the point. |
-| Timestamps | Kept, in UTC. Git's timezone offsets are dropped, because they say roughly where you are. |
+### Rules
 
-Session ids, subagent ids, turn ids and bead ids are kept. They're random or content-derived, and joining two exports of the same project needs them.
+Each rule is one file, `src/core/filter/rules/<id>.ts`, exporting a `Rule`:
 
-**Commit SHAs are re-keyed for a private repository.** A SHA is a fingerprint of the commit's content and history: for a private repository it lets anyone holding the repository confirm what an export describes, and it names commits nobody outside should know exist. Snagboat can't ask GitHub whether a repository is private (the export makes no network calls), so **every repository is treated as private** unless the project says otherwise: `"export.public": true` in its entry in `~/.snagboat/config.json`. A project's `.snagboat.json` can't set it, since a file anyone can commit may only make settings more private. In a private repository:
-- every SHA is re-keyed to 40 hex characters, so it still looks and sorts like one;
-- that includes SHAs and short SHAs (7 or more characters) inside commit messages, branch records, prompts, replies and commands, wherever they match a commit the store knows;
-- a run of hex characters that might be a SHA but matches no known commit is flagged (rule 4).
+```ts
+interface Rule {
+  id: string;                    // 'email'
+  category: Category;            // 'Entities'
+  describe: string;              // what it finds, for the generated rule table
+  becomes: string;               // what a rewritten value reads as: '[email-N]'
+  defaultAction: Action;         // 'review' | 'rewrite' | 'keep' | 'off'
+  detect(text: string, ctx: FilterContext): Match[];             // spans in the ORIGINAL text
+  replace(value: string, n: number, ctx: FilterContext): string; // the placeholder for value number n
+}
+interface Match { start: number; end: number; value: string }
+```
 
-A public repository's SHAs are kept, so its exports join with its real history.
+`detect` sees only the original text, never another rule's output, so no rule depends on another having run. A match's `value` is what you decide on, which isn't always the text matched: every form of one person (their name, their email, `Name <email>`, their GitHub login) is one value, the person's name; a short SHA's value is the full SHA it abbreviates; a home path's value is the home folder (`/Users/dave`), not the whole path. Shared regex helpers live in `rules/util.ts`. `FilterContext` is what the caller knows about the project: its root, worktrees and `--match` paths, the people its records name, the commits its repository has, the repository's names, and `export.deny`.
 
-**Re-keying and pseudonyms use one keyed hash (HMAC), with a key chosen by the repository's privacy:**
-- **Private repository: the repository's key.** It's made on the first export and kept in `~/.snagboat/export-keys/<repository>.key`, where `<repository>` is a hash of its first commit, so every clone finds the same file name. Re-keyed SHAs and pseudonyms both use it. Give a teammate the key file, never by committing it, and their exports of the same repository use the same SHAs and the same pseudonyms for the same people, so the two join up.
-- **Public repository: this machine's key,** kept in `~/.snagboat/export.key`. It's used for pseudonyms and for event ids that embed a path. Two exports from your machine agree, but other people's don't, since pseudonyms are only for joining your own exports.
+The rule table below, in [PRIVACY.md](../../PRIVACY.md#exports) and in each export's `README.md` is generated from the rules (`ruleTable()` in the filter), and a test checks the docs' copies, so changing a rule means changing its file and its test, and running `npm run docs:rules`.
 
-Either way, nobody without the key can test a guess at a path, a name or a SHA against the export. Deleting a key starts fresh numbering.
+<!-- rule-table:start -->
+| Category | Rule | Finds | Becomes | Default |
+| --- | --- | --- | --- | --- |
+| Local directories | `project-path` | The project's folder, its other worktrees' and the `--match` paths, wherever text names them (in `file://` URLs too). | `.`, `[worktree-N]`, `[match-N]` | review |
+| Local directories | `home-path` | Home folders, anyone's: `/Users/<name>`, `/home/<name>`, `C:\Users\<name>`, in `file://` URLs too, `~<name>`, and this machine's home wherever it is. | `~` | review |
+| Credentials | `secret` | The secret formats capture already redacts (private keys; AWS, GitHub, Anthropic, OpenAI-style, Stripe, Slack and Google keys; JWTs; bearer tokens; credentials in URLs; `password=` values), for text captured before a format was added. | `[secret]` | review |
+| Credentials | `public-key` | SSH and PGP public key blocks, and `authorized_keys` lines. Not secret, but they identify a person. | `[public-key]` | review |
+| Credentials | `connection-string` | Passwords in connection strings (`Server=...;Password=...`). | `[secret]` | review |
+| Credentials | `env-value` | `.env`-style values: `NAME=value` where the name ends in KEY, TOKEN, SECRET, PASSWORD, PASS, PWD or CREDENTIALS. | `[secret]` | review |
+| Entities | `person` | The people the records name (git authors, committers and co-authors, `Co-Authored-By` trailers, bd owners, creators, assignees and actors), by name, email or GitHub login, `@mentions` included. Every form of one person is one value. Agents and bots aren't people. | `[person-N]` | review |
+| Entities | `email` | Email addresses (`users.noreply.github.com` ones too, which name a GitHub account), except agents' and bots' (`noreply@anthropic.com`). | `[email-N]` | review |
+| Entities | `phone` | Phone numbers in international or North American form. | `[phone-N]` | review |
+| Entities | `deny` | The words and phrases in the `export.deny` setting (a client's name, a codename), as whole words, ignoring case. | `[denied-N]` | rewrite |
+| Network | `ip` | IPv4 and IPv6 addresses, except loopback and unspecified (`127.0.0.1`, `::1`, `0.0.0.0`). | `[ip-N]` | review |
+| Network | `mac` | MAC addresses. | `[mac-N]` | review |
+| Network | `internal-host` | Host names that aren't public (`.local`, `.internal`, `.lan`, `.corp` and the like), and a bare name in a URL (`http://buildbox/`). Not `localhost`. | `[host-N]` | review |
+| Repository | `sha` | The repository's commit SHAs, whole or 7 or more characters, from everything the store knows about it, not just the export's range. A short SHA is the same value as the whole one. | `[commit-N]` | keep |
+| Repository | `remote` | Links into the project's own repository (`https://github.com/<owner>/<repo>`, `git@github.com:<owner>/<repo>.git`), up to the repository's name. | `[repo]` | keep |
+| Other | `high-entropy` | Long high-entropy strings matching no known format: 40 or more characters of base64, or more than 40 of hex. At the end of a URL path, only the token. | `[token-N]` | review |
+| Other | `unknown-hex` | Runs of 7 to 40 lower-case hex characters, a letter and a digit both, that might be a commit SHA but match no commit the store knows. | `[hex-N]` | review |
+| Other | `card` | Payment card numbers: 13 to 19 digits passing the Luhn check. | `[card-N]` | review |
+<!-- rule-table:end -->
 
-### 2. Anything that looks like PII or a secret
+`deny` defaults to rewrite, since listing a word in `export.deny` already says what you want. The repository's own SHAs and links default to keep, since they're what joins an export to its history. Everything else defaults to review.
 
-Snagboat already redacts secret formats when it captures text (`SECRET_PATTERNS` in `src/core/excerpt.ts`): private keys, AWS, GitHub, Anthropic and OpenAI-style keys, Stripe, Slack and Google keys, JWTs, bearer tokens, credentials in URLs, and `password=` style values. The export runs them again, because a value captured before a pattern was added is still in the store. It also adds:
+Placeholders are numbered per export, in the order values are first met, and consistent within it: the same value is the same placeholder in every file, so ids still join. Only rewritten values are numbered, so a gap never hints that something was kept. The adapter also drops what's never exported (an event's `workspace` and `raw`, and any field it doesn't know) and writes times in UTC, without git's timezone offsets; neither is a rule.
 
-| What | Becomes |
-| --- | --- |
-| Email addresses (including `users.noreply.github.com` ones, which name a GitHub account) | `[email-1]` |
-| IPv4 and IPv6 addresses, except loopback and unspecified (`127.0.0.1`, `::1`, `0.0.0.0`) | `[ip-1]` |
-| MAC addresses | `[mac]` |
-| Phone numbers in international or North American form | `[phone]` |
-| Payment card numbers (13–19 digits passing the Luhn check) | `[card]` |
-| `.env`-style lines (`NAME=value` where the name ends in KEY, TOKEN, SECRET, PASSWORD, PASS, PWD or CREDENTIALS, whatever the value looks like) | `NAME=[redacted]` |
-| Connection strings with a password (`postgres://user:pw@`, `mongodb+srv://...`, `Server=...;Password=...`) | the password as `[redacted]` |
-| SSH and PGP public key blocks, `authorized_keys` lines | `[public key]`. Not secret, but they identify a person. |
-| Words you list in `export.deny` in `~/.snagboat/config.json` (a client's name, a codename) | `[denied-1]` |
+### The engine
 
-### 3. What's preserved
+`src/core/filter/engine.ts` runs every enabled rule over a text and settles overlaps by one policy:
+- **Nested spans are separate items, and an outer rewrite wins.** If the outer value is rewritten, nothing inside it is applied; if it's kept, what's inside is applied as decided. So a project path inside the home folder is one item and the home folder another, and keeping the project path while rewriting the home folder gives `~/work/app/src`. A span nested in one of the same rule and value is dropped, since it can't be decided differently.
+- **Crossing spans: the one that starts earlier wins, then the longer one,** then the rule listed first. The loser is dropped for that occurrence.
+
+It groups matches by rule and value into **review items**, each with how often it occurs and a few snippets of context, and applies the decisions in one pass over the original text. There are no sentinels: applying with every value kept gives back the text unchanged.
+
+### Actions, and how one is chosen
+
+A rule's action is one of:
+- `review`: you decide each value; until you have, nothing is written.
+- `rewrite`: values are replaced, unless you decided to keep one.
+- `keep`: values are kept, unless you decided to rewrite one.
+- `off`: the rule doesn't run.
+
+Each layer overrides the one before:
+1. the rule's default;
+2. `export.rules` in `~/.snagboat/config.json` (its defaults or the project's entry), such as `{ "sha": "rewrite", "ip": "keep" }`. A project's `.snagboat.json` can't set it;
+3. the command line: `--rule <id>=<action>` (repeatable), `--rewrite-all` (every rule `rewrite`), `--no-filter` (every rule `off`). A `--rule` beats `--rewrite-all` for its rule; `--no-filter` takes neither;
+4. your decision on a value.
+
+### Decisions
+
+Decisions are kept per workspace in the store, in the project's own folder: `~/.snagboat/data/workspaces/<key>/export-decisions.json`. Each is keyed by a hash of its rule and value, so the file never holds the values. A later export asks only about values you haven't decided.
+
+**Reviewing.** When values are undecided, the export writes nothing. It writes a review file, `export-review.json`, in the same folder of the store (it holds the values, so never in the project), prints where it is and how many values each rule found, and exits 3. Each item has its rule, value, count, a few snippets and `"decision": null`:
+
+```json
+{
+  "version": 1,
+  "project": "/Users/dave/workspace/acme-app",
+  "createdAt": "2026-11-24T18:00:00.000Z",
+  "help": "Set each decision to \"rewrite\" or \"keep\", then run the export again. ...",
+  "items": [
+    { "id": "3f9a0c21…", "rule": "email", "category": "Entities", "value": "robin@example.org", "count": 4,
+      "becomes": "[email-N]", "snippets": ["…please mail robin@example.org about the…"], "decision": null }
+  ]
+}
+```
+
+Set each `decision` to `"rewrite"` or `"keep"` and run the export again. It folds those into the decisions file, asks again only about what's still `null`, and once nothing is undecided writes the export and removes the review file. `--rewrite-all` or a `--rule` settles a run without deciding values one by one. The review file and the decisions are the core's (the CLI and VS Code are thin clients). A review page in VS Code comes later; until then **Export Project...** says how many values are undecided, with a button that opens the review file.
+
+### No longer done
+
+Dropped with the rebuild:
+- the public/private distinction (`export.public`) and the export key (`~/.snagboat/export-keys/`): SHAs are kept or become `[commit-N]`, and people become `[person-N]`, numbered per export, so two exports don't share pseudonyms;
+- the final check, which was a second detector to keep in step with the first;
+- `--allow`, `--allow-rule` and `--fail-on-flags`, which decisions replace, and the `<out>.review/` folder;
+- rewriting other absolute paths (`/tmp/...`) and the user and host names as words, flagging stack traces from other projects, `@mentions` of people the records don't name, and parts of names;
+- re-keying ids hashed from SHAs or paths: checkout and link ids keep their hashes, and paths inside event ids are filtered like any text.
+
+### What's preserved
 
 Everything else, which is most of the detail:
 
-- **Prompts and replies**, as the store holds them. The export doesn't go back to the transcripts for more. How much the store keeps is up to you, in two new settings beside `captureContent`:
-  - `snagboat.capture.promptChars`: the most of a prompt's text that's stored. Default 2,000, today's cap, which 98% of real prompts fit whole.
-  - `snagboat.capture.replyChars`: the most of a reply's text that's stored. Default 500, today's cap.
+- **Prompts and replies**, as the store holds them. The export doesn't go back to the transcripts for more. How much the store keeps is up to you, in two settings beside `captureContent`:
+  - `snagboat.capture.promptChars`: the most of a prompt's text that's stored. Default 2,000, which 98% of real prompts fit whole.
+  - `snagboat.capture.replyChars`: the most of a reply's text that's stored. Default 500.
 
   Both take up to 100,000 characters. They're resource-scoped like `captureContent`, and copied into `~/.snagboat/config.json`, so the core applies them per project. A raised cap applies to what's captured from then on. Text already stored stays as it was, and `textTruncated` says it was cut. Secret redaction runs on the whole text either way. Retention is unchanged: text is still removed after `retention.textDays`.
-- **Tool calls**: tool name and category, status, timing, turn, subagent, and the input that matters to a view: the file it touched (made relative), the command it ran, the search pattern, the URL it fetched. The store records these as `toolInput` (schema v4) when the call is captured; today it keeps only one of them, in `target`. Tool *output* is neither stored nor exported, apart from a test or build run's pass/fail, which is already the call's status. Output is where pasted logs, file contents and stack traces live, which is most of the risk and little of the value.
+- **Tool calls**: tool name and category, status, timing, turn, subagent, and the input that matters to a view: the file it touched, the command it ran, the search pattern, the URL it fetched (`toolInput`, schema v4). Tool *output* is neither stored nor exported, apart from a test or build run's pass/fail, which is already the call's status. Output is where pasted logs, file contents and stack traces live, which is most of the risk and little of the value.
 - **Plans**: todo lists, task tools, and plan items' titles, descriptions, design, notes, acceptance criteria and close reasons.
 - **Git**: commit subjects and bodies, branch names, changed files with line counts.
 - **Session names, compactions, model calls and tokens, findings and outcomes**, as stored.
+- **Ids**: session, subagent, turn, bead, checkout, link and finding ids, so two exports of the same project join.
 
-`--text none` exports structure only (counts, kinds, times, relative paths, links), for sharing where even scrubbed text is too much.
-
-### 4. Flagging what's questionable
-
-Some things aren't clearly fine or clearly not. Each of these is **flagged**:
-
-- a long high-entropy string that matches no known key format (40+ characters of base64 or hex, outside a SHA or a UUID);
-- a prompt or reply that pastes a large block from outside the project, a stack trace with frames from other projects, or a file's contents that the agent read from outside the project;
-- a URL to a host that isn't public: no public suffix, `.local` or `.internal`, or a bare host name. `localhost` with a port is fine.
-- a person's name the export can see but didn't pseudonymize: a git author name that turns up in a prompt, or an `@mention`;
-- a path that couldn't be made relative and is still named, such as a Windows share or a URL with a file path;
-- any rule that hit a value and was then overridden by `--allow`.
-
-A flagged value is replaced with `[flagged-N]` in the export. The review folder, `<out>.review/flags.jsonl`, lists each one: its number, the rule, the record and field, the value, and 80 characters of context each side. It's written beside the export, never inside it, so copying the export folder never copies it. Running the export again with `--allow flagged-3,flagged-7` (or `--allow-rule internal-url`) puts those values back. Flags are numbered in the order the export meets them, so the same selection numbers them the same way again. `--allow-rule` takes any rule 4 flag, and the rule 2 values that are sometimes the point (`email`, `ip`, `mac`, `phone`, `card`); never secrets, keys or denied words. A rule 2 value it keeps is listed in the review file as `allowed-N`, numbered apart from the flags so allowing a rule never renumbers them. `--fail-on-flags` writes nothing if anything is flagged, for scripts.
-
-### 5. The final check
-
-After everything is written to a temporary folder, the export searches every file. It looks for the project's absolute paths and its worktrees', the home folder, the user and host names, every person's real name and email the pseudonyms replaced, and every rule 2 pattern. One hit and the export stops, writes nothing, and says which rule hit and in which file, without printing the value. It's the same fail-closed check as factory-clock#31's, run by the side that knows what the values were.
+`--text none` exports structure only (counts, kinds, times, paths, links), for sharing where even filtered text is too much.
 
 ## The normalized schema
 
 The schema extends what Snagboat already records rather than starting over. Events stay `NormalizedEvent` (version 4), and sessions stay what `snagboat sessions --json` prints, with more fields. Git and plan history are new records that sit beside them, joined by ids.
 
-This is the **store's** schema, not only the export's. The core writes these records into each workspace's folder in `~/.snagboat/data`, heuristics and advisors read them there, and the export writes the same records with the privacy rules applied. Fields marked *export only* are added by the privacy step and never stored.
+This is the **store's** schema, not only the export's. The core writes these records into each workspace's folder in `~/.snagboat/data`, heuristics and advisors read them there, and the export writes the same records through the privacy filter.
 
 The types and JSON Schemas are in `packages/schema` (`storeRecords.ts` and `exportRecords.ts`; [schema.md](../schema.md#git-plan-link-and-finding-records) lists the schema files). Every store record also carries:
 - `record`, its type, since one store file holds several: `'commit'`, `'branch'` or `'checkout'` in `git.jsonl`; `'item'` or `'transition'` in `plan.jsonl`; `'link'` in `links.jsonl`; `'finding'` in `findings.jsonl`. It's `record`, not `type`, because a transition already has a `type`. The export splits `git.jsonl` and `plan.jsonl` into one file per `record` and keeps the field.
 - `version: 1`.
 - A stable key: a commit's `sha`, every other record's `id` (given with each record below). The files are append only: a record that changes is appended again with the same key, the latest line with a key is the record, and a job appends nothing when a record hasn't changed, so running it again adds nothing. Hashed ids are the first hex characters of a SHA-256 of the fields named, joined by newlines.
 
-The records below show the fields the export writes, so a person is `person-N` and a worktree `[worktree-N]`. The store holds the raw values: git idents (`Name <email>`), bd's actor names, a worktree's absolute path.
+The records below show the fields as the store holds them: git idents (`Name <email>`), bd's actor names, a worktree's absolute path. An export writes them through the filter, so with the defaults a person may read `[person-1]` and a worktree `[worktree-1]`.
 
 ```mermaid
 erDiagram
@@ -180,9 +216,8 @@ Version 4 is version 3 with these changes, so a v3 reader still reads the events
 | `toolInput` | New, optional, recorded at capture: `{ command?, path?, pattern?, url?, description? }`, the parts of a tool call's input worth drawing. Today only `target` holds one of them. |
 | `refs` | New, optional, recorded at capture: `{ commit?, branch?, planItems? }`, set on an event that *observably* acted on one: a tool call that ran `git commit`, `git checkout -b`, or `bd close snagboat-koh`. Inferred relations go in `links.jsonl`, not here. |
 | `textTruncated` | New, optional: the prompt or reply text was cut at the store's cap. |
-| `redactions` | New, *export only*: `{ field, rule, count }[]`, saying what rules 1, 2 and 4 replaced in this event, without the values. |
 
-Since an exported event has no `raw`, which a stored event requires, it has its own schema: `ExportedEvent` (`exportedEvent.v4.schema.json`), version 4 without `workspace` and `raw`, with `redactions`. The store's schema (`normalizedEvent.v4.schema.json`) has no `redactions`.
+Since an exported event has no `raw`, which a stored event requires, it has its own schema: `ExportedEvent` (`exportedEvent.v5.schema.json`), version 4 without `workspace` and `raw`. Its version 4 also had `redactions`, what the rules replaced in each event; version 5 drops it, since the manifest counts what each rule rewrote.
 
 ### Sessions: `sessions.jsonl`
 
@@ -192,7 +227,7 @@ What `snagboat sessions --json` prints for a session (`SessionSummary`: id, agen
 interface SessionRecord extends SessionSummary {
   /** The subagents' ids. (SessionSummary.subagents stays their count.) */
   subagentIds: string[];
-  /** '.' for the project root, or '[worktree-1]' for another worktree. */
+  /** The working tree's path; '.' or '[worktree-1]' once the filter rewrites it. */
   where: string;
   /** Branches checked out during the session, in order (from checkouts and links). */
   branches: string[];
@@ -218,9 +253,9 @@ interface CommitRecord {
   kind: 'commit' | 'merge' | 'squash';
   authoredAt: string;          // UTC
   committedAt: string;         // UTC
-  author: string;              // person-N, or an agent's name
+  author: string;              // a git ident, or an agent's name
   committer: string;
-  coAuthors: string[];         // from Co-Authored-By trailers: agents by name, people as person-N
+  coAuthors: string[];         // from Co-Authored-By trailers: agents by name, people as idents
   subject: string;
   body?: string;               // only with captureContent on, for textDays; Remove Captured Text clears it
   files: Array<{ path: string; status: 'A' | 'M' | 'D' | 'R'; added: number; deleted: number; from?: string }>;
@@ -236,7 +271,7 @@ interface BranchRecord {
   record: 'branch';
   version: 1;
   id: string;                  // `${name}@${firstSeenAt}`: a name deleted and made again is a new branch
-  name: string;                // scrubbed by the rules like any text: a user name in it becomes [user]
+  name: string;                // through the filter like any text
   firstSeenAt: string;         // when the repository job first saw it
   createdAt?: string;          // first reflog entry
   from?: string;               // the commit it started from
@@ -256,7 +291,7 @@ interface CheckoutRecord {
   from: string;                // branch name, or a short SHA when detached
   to: string;
   commit: string;              // the commit HEAD moved to
-  /** '.' or '[worktree-N]', since each worktree has its own HEAD. */
+  /** The working tree's path, since each worktree has its own HEAD. */
   where: string;
 }
 ```
@@ -284,9 +319,9 @@ interface PlanItemRecord {
   updated: string;
   closed?: string;
   closeReason?: string;
-  assignee?: string;           // person-N
-  owner?: string;              // person-N (bd's owner)
-  createdBy?: string;          // person-N or an agent's name (bd's created_by)
+  assignee?: string;           // a person (bd's assignee)
+  owner?: string;              // a person (bd's owner)
+  createdBy?: string;          // a person or an agent's name (bd's created_by)
   text?: { description?: string; design?: string; notes?: string; acceptance?: string };
   source: 'beads' | 'markdown';
   /** markdown: the file and heading it came from, relative to the project. */
@@ -305,7 +340,7 @@ interface TransitionRecord {
   to?: string;                 // the new status, or the other item for a dependency
   /** For 'updated': which fields changed, not their values (the item has its current text). */
   fields?: string[];
-  actor: string;               // person-N, or an agent's name
+  actor: string;               // a person, or an agent's name
   confidence: Confidence;      // 'observed' from bd's journal; 'inferred' from markdown
 }
 ```
@@ -375,7 +410,7 @@ A link's ends name records by their key: a session's id, a commit's SHA, a branc
 ```ts
 interface ExportManifest {
   format: 'snagboat-export';
-  version: 1;                  // the export format's version
+  version: 2;                  // the export format's version
   eventSchema: 4;
   generatedAt: string;
   project: string;             // from --name, else the project folder's name
@@ -383,11 +418,11 @@ interface ExportManifest {
   text: 'redacted' | 'none';
   counts: { days: number; events: number; sessions: number; findings: number; commits: number; branches: number;
             checkouts: number; planItems: number; transitions: number; links: number };
-  rulesVersion: number;        // the privacy rules' version
   snagboatVersion: string;
-  redactions: Record<string, number>;  // values replaced, by rule
-  flags: number;               // values flagged; the review folder is never named
-  repository: { privacy: 'private' | 'public' };
+  /** reviewed: every rule ran, each value decided. rewrite-all: --rewrite-all. none: --no-filter. */
+  filter: 'reviewed' | 'rewrite-all' | 'none';
+  /** Distinct values each rule found and rewrote or kept, by rule id; rules that found nothing are left out. */
+  rules: Record<string, { rewritten: number; kept: number }>;
   readme: 'README.md';
   schemas: Record<string, string>;   // each file or pattern (events/*.jsonl) and its schema in schema/
 }
@@ -423,7 +458,7 @@ Each workspace's folder in `~/.snagboat/data` gains four files beside `events/`:
 
 Adapters record `toolInput`, and `refs` where a tool call observably acted on a commit, branch or plan item, when they capture the call (event schema v4).
 
-**What's stored is raw.** Events are stored unsanitized today, with only capture-time secret redaction, and so are these. The privacy rules run once, on export. So a better rule improves every later export of old data, and heuristics see real paths and names.
+**What's stored is raw.** Events are stored unsanitized today, with only capture-time secret redaction, and so are these. The privacy filter runs once, on export. So a better rule improves every later export of old data, and heuristics see real paths and names.
 
 **Worktrees.** Each working tree of a repository is its own workspace with its own folder in the store. Each gets the repository's shared records, its commits and branches, and only its own working tree's checkouts. One run reads a repository once for all its workspaces, and a branch's `firstSeenAt` comes from whichever workspace's `git.jsonl` already has it, so the shared records are the same in each and an export of several worktrees folds them by key.
 
@@ -442,16 +477,16 @@ The git outcomes job's commit-to-session rule becomes one of the linker's rules,
 
 ```sh
 snagboat export --project <dir> --out <dir> [--name <name>] [--since <date>] [--until <date>]
-                [--text redacted|none] [--allow <flag ids>] [--allow-rule <rule>] [--fail-on-flags]
-                [--match <path>]... [--json]
+                [--text redacted|none] [--rule <id>=<action>]... [--rewrite-all | --no-filter]
+                [--match <path>]... [--zip] [--json]
 ```
 
-- It only reads the store: one workspace's `events/`, `git.jsonl`, `plan.jsonl`, `links.jsonl` and findings, with or without the core running. It runs no git and no bd, reads no transcript, and writes nothing back to the store.
+- It only reads the store: one workspace's `events/`, `git.jsonl`, `plan.jsonl`, `links.jsonl` and findings, with or without the core running. It runs no git and no bd, and reads no transcript. The one thing it writes in the store is the filter's state, in the project's own folder: its decisions and, while values are undecided, the review file.
 - `--project` defaults to the current folder's repository (the nearest folder with a `.git`). Records are selected when their workspace is the project, inside it, another worktree of its repository, or a `--match` path. Without git, another worktree is a workspace whose `git.jsonl` has the project's root commit and whose `.git` file points into the same repository (a separate clone, with its own `.git` folder, isn't one); its working tree is where its checkouts happened. These are factory-clock#31's rules, applied to the store Snagboat knows.
 - `--out` must be outside the project and its worktrees, so an export never gets committed. Since the command runs no git, it can't ask what's ignored: the one place inside allowed is under the project's `.snagboat/` folder, where it writes a `.gitignore` for the export (as the beads exporter does for `.snagboat/beads/`).
-- It prints what it wrote, what each rule replaced (counts), how many flags there are and where the review file is. `--json` prints the same as `manifest.json`.
+- It prints what it wrote and how many values each rule rewrote and kept; `--json` prints `manifest.json`. While values are undecided it writes nothing, prints where the review file is and how many values each rule found, and exits 3 ([Decisions](#decisions)).
 - `--zip` also writes `<out>.zip`, the export folder only, stamped with the manifest's time so the same store zips to the same bytes.
-- In VS Code: **Snagboat: Export Project...** runs it for the window's folder, writes the zip (the export is usually for sending), and opens the review file when anything was flagged.
+- In VS Code: **Snagboat: Export Project...** runs it for the window's folder and writes the zip (the export is usually for sending). While values are undecided it says how many, with a button that opens the review file; a review page comes later.
 - Factory Clock loads an export folder or zip as it loads daily event files today, and its scrape script takes `--from-export <dir|zip>` in place of `--events`.
 
 ## Build order
@@ -464,8 +499,8 @@ Each is a bead under `snagboat-93b.9` once this is reviewed. The store comes fir
 4. **Plan job:** `plan.jsonl` from bd's export and audit journal, or inferred from markdown when the project has no beads.
 5. **Linker:** `links.jsonl`, with each rule tested on its own in `observed` and `inferred` cases. The git outcomes job moves onto it.
    **Findings:** the core writes closed episodes to `findings.jsonl`.
-6. **Sanitizer:** rules 1–5 as one module in `src/core/export/`, with SHA re-keying, the repository and machine keys, and `export.public`, with tests on made-up data that plants every kind of value the rules name and checks none survives.
-7. **The command:** `snagboat export` (select, sanitize, review folder, final check), and the VS Code command.
+6. **Sanitizer:** the privacy rules, with tests on made-up data that plants every kind of value the rules name. Rebuilt under `snagboat-93b.11` as [the privacy filter](#the-privacy-filter): a rule per file, one engine, decisions kept in the store.
+7. **The command:** `snagboat export` (select, filter, review, write), and the VS Code command.
 8. **Factory Clock:** load an export folder, and `--from-export` in the scrape script (in factory-clock's own tracker).
 
 Heuristics that use git and plan state are their own beads, after step 5.
@@ -477,7 +512,7 @@ The questions the first draft left open, and how they were settled (November 20�
 1. **Everything exported comes from the store.** The export never re-reads transcripts, git or bd. The store takes on this schema and heuristics use it too.
 2. **Finding episodes are recorded as they happen.** This was a gap in the original design, separate from export.
 3. **The store's text caps become settings**, `capture.promptChars` and `capture.replyChars`.
-4. **Commit SHAs are re-keyed for a private repository**, and every repository counts as private unless the project sets `export.public`.
-5. **Pseudonyms use the same key as the SHAs for a private repository**, so a team that shares the repository's key gets exports that join up. A public repository uses this machine's key.
+4. **Commit SHAs are re-keyed for a private repository**, and every repository counts as private unless the project sets `export.public`. *Superseded by `snagboat-93b.11`: SHAs are kept by default, or rewritten as `[commit-N]`, and there's no public or private.*
+5. **Pseudonyms use the same key as the SHAs for a private repository**, so a team that shares the repository's key gets exports that join up. *Superseded by `snagboat-93b.11`: people are `[person-N]`, numbered per export, with no key.*
 6. **No pull request detail.** Only the number in a commit's subject, so the repository job and the export make no network calls.
 7. **Without beads, plans are inferred from markdown**, with `confidence: 'inferred'` and their lifecycle from the files' git history.

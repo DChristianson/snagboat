@@ -1457,6 +1457,7 @@
     "package": "vsce package --no-dependencies",
     "licenses": "node scripts/licenses.js",
     "check:readme": "node scripts/readmeCheck.js",
+    "docs:rules": "npm run compile-tests && node ./out/scripts/ruleTable.js",
     "compile-tests": "npm run build:packages && tsc -p . --outDir out",
     "verify:transcripts": "npm run compile-tests && node ./out/scripts/transcripts.js verify",
     "replay:heuristics": "npm run compile-tests && node ./out/scripts/replayHeuristics.js",

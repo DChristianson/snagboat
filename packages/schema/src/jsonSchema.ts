@@ -1,18 +1,18 @@
 import type { EventRefs, EventToolInput, NormalizedEvent } from './types';
 import type { BranchRecord, CheckoutRecord, CommitRecord, FindingRecord, LinkRecord, PlanItemRecord, TransitionRecord } from './storeRecords';
-import type { ExportCounts, ExportedEvent, ExportManifest, Redaction, SessionRecord } from './exportRecords';
+import type { ExportCounts, ExportedEvent, ExportManifest, SessionRecord } from './exportRecords';
 import type { Experiment, PeriodReport, ProposalEvent, SetupEvent, SetupProposal } from './advisorRecords';
 import schemaV1 = require('./normalizedEvent.v1.schema.json');
 import schemaV2 = require('./normalizedEvent.v2.schema.json');
 import schemaV3 = require('./normalizedEvent.v3.schema.json');
 import schemaV4 = require('./normalizedEvent.v4.schema.json');
-import exportedEventV4 = require('./exportedEvent.v4.schema.json');
+import exportedEventV5 = require('./exportedEvent.v5.schema.json');
 import gitRecordV1 = require('./gitRecord.v1.schema.json');
 import planRecordV1 = require('./planRecord.v1.schema.json');
 import linkRecordV1 = require('./linkRecord.v1.schema.json');
 import findingRecordV1 = require('./findingRecord.v1.schema.json');
 import sessionRecordV1 = require('./sessionRecord.v1.schema.json');
-import exportManifestV1 = require('./exportManifest.v1.schema.json');
+import exportManifestV2 = require('./exportManifest.v2.schema.json');
 import periodReportV1 = require('./periodReport.v1.schema.json');
 import proposalEventV1 = require('./proposalEvent.v1.schema.json');
 import experimentV1 = require('./experiment.v1.schema.json');
@@ -43,9 +43,10 @@ export const normalizedEventSchemaV1 = schemaV1;
 
 /**
  * One line of an export's events/YYYY-MM-DD.jsonl (docs/design/export.md): a version 4 event
- * without `workspace` and `raw`, which are never exported, plus `redactions`, which is export only.
+ * without `workspace` and `raw`, which are never exported. Version 5 of this schema: version 4
+ * also had `redactions`.
  */
-export const exportedEventSchema = exportedEventV4;
+export const exportedEventSchema = exportedEventV5;
 
 // Compile-time check: the current schema lists exactly NormalizedEvent's fields.
 // Adding a field to one and not the other fails `tsc`. (Value types are checked
@@ -58,10 +59,8 @@ const toolInputFields: Same<keyof EventToolInput, keyof typeof schemaV4.properti
 const refsFields: Same<keyof EventRefs, keyof typeof schemaV4.properties.refs.properties> = true;
 void toolInputFields;
 void refsFields;
-const exportedFields: Same<keyof ExportedEvent, keyof typeof exportedEventV4.properties> = true;
-const redactionFields: Same<keyof Redaction, keyof typeof exportedEventV4.properties.redactions.items.properties> = true;
+const exportedFields: Same<keyof ExportedEvent, keyof typeof exportedEventV5.properties> = true;
 void exportedFields;
-void redactionFields;
 
 // Version 3 is version 4 without `toolInput`, `refs` and `textTruncated`.
 type V3Fields = keyof typeof schemaV3.properties;
@@ -97,8 +96,8 @@ export const linkRecordSchema = linkRecordV1;
 export const findingRecordSchema = findingRecordV1;
 /** One line of an export's sessions.jsonl (exportRecords.ts). */
 export const sessionRecordSchema = sessionRecordV1;
-/** An export folder's manifest.json (exportRecords.ts). */
-export const exportManifestSchema = exportManifestV1;
+/** An export folder's manifest.json (exportRecords.ts), version 2. */
+export const exportManifestSchema = exportManifestV2;
 
 // Compile-time check, as for events: each schema lists exactly its type's fields.
 const commitFields: Same<keyof CommitRecord, keyof typeof gitRecordV1.$defs.commit.properties> = true;
@@ -109,8 +108,8 @@ const transitionFields: Same<keyof TransitionRecord, keyof typeof planRecordV1.$
 const linkFields: Same<keyof LinkRecord, keyof typeof linkRecordV1.properties> = true;
 const findingFields: Same<keyof FindingRecord, keyof typeof findingRecordV1.properties> = true;
 const sessionFields: Same<keyof SessionRecord, keyof typeof sessionRecordV1.properties> = true;
-const manifestFields: Same<keyof ExportManifest, keyof typeof exportManifestV1.properties> = true;
-const countsFields: Same<keyof ExportCounts, keyof typeof exportManifestV1.properties.counts.properties> = true;
+const manifestFields: Same<keyof ExportManifest, keyof typeof exportManifestV2.properties> = true;
+const countsFields: Same<keyof ExportCounts, keyof typeof exportManifestV2.properties.counts.properties> = true;
 void commitFields;
 void branchFields;
 void checkoutFields;

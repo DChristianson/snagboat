@@ -8,19 +8,20 @@ import {
   planRecordSchema,
   sessionRecordSchema,
 } from '@snagboat/schema';
+import { ruleTable } from './filter';
 
 /**
  * What makes an export explain itself (snagboat-93b.10.15, docs/design/export.md, "What an export
  * holds"): its JSON Schemas under schema/, a README.md that says what each file is, how the ids
- * join them and what each redaction marker means, and --zip's archive. Both documents are static
- * text, the same in every export: nothing here names the project, the machine or anyone, and the
- * final check reads them like every other file.
+ * join them and what each placeholder means (the privacy filter's rule table, generated from its
+ * rules), and --zip's archive. Both documents are static text, the same in every export: nothing
+ * here names the project, the machine or anyone.
  */
 
 /** Each export file (a path or a pattern), and the schema in schema/ its records follow. */
 export const EXPORT_SCHEMAS: Record<string, string> = {
-  'manifest.json': 'schema/exportManifest.v1.schema.json',
-  'events/*.jsonl': 'schema/exportedEvent.v4.schema.json',
+  'manifest.json': 'schema/exportManifest.v2.schema.json',
+  'events/*.jsonl': 'schema/exportedEvent.v5.schema.json',
   'sessions.jsonl': 'schema/sessionRecord.v1.schema.json',
   'findings.jsonl': 'schema/findingRecord.v1.schema.json',
   'git/*.jsonl': 'schema/gitRecord.v1.schema.json',
@@ -29,8 +30,8 @@ export const EXPORT_SCHEMAS: Record<string, string> = {
 };
 
 const SCHEMAS: Record<string, object> = {
-  'schema/exportManifest.v1.schema.json': exportManifestSchema,
-  'schema/exportedEvent.v4.schema.json': exportedEventSchema,
+  'schema/exportManifest.v2.schema.json': exportManifestSchema,
+  'schema/exportedEvent.v5.schema.json': exportedEventSchema,
   'schema/sessionRecord.v1.schema.json': sessionRecordSchema,
   'schema/findingRecord.v1.schema.json': findingRecordSchema,
   'schema/gitRecord.v1.schema.json': gitRecordSchema,
@@ -53,15 +54,15 @@ export function schemaFiles(): Array<{ file: string; text: string }> {
 }
 
 export function readmeFile(): { file: string; text: string } {
-  return { file: README_FILE, text: README };
+  return { file: README_FILE, text: README.replace('{{RULE_TABLE}}', ruleTable()) };
 }
 
 const README = `# A Snagboat export
 
 This folder is one project's record from Snagboat: the coding agents' sessions, what they did, the
 git history and plan items they worked on, and how those connect. It was written by
-\`snagboat export\`, which put everything through Snagboat's privacy rules first. \`manifest.json\`
-says when, which versions, what was counted and what the rules replaced.
+\`snagboat export\`, which put everything through Snagboat's privacy filter first. \`manifest.json\`
+says when, which versions, what was counted and what each of the filter's rules rewrote and kept.
 
 ## Files
 
@@ -71,8 +72,8 @@ schema.
 
 | File | One line is | Schema |
 | --- | --- | --- |
-| \`manifest.json\` | (one object) format, versions, time range, counts, redactions by rule | \`exportManifest.v1\` |
-| \`events/YYYY-MM-DD.jsonl\` | an event: a prompt, a reply, a tool call, a model call, a finding, an outcome. UTC days. | \`exportedEvent.v4\` |
+| \`manifest.json\` | (one object) format, versions, time range, counts, what each filter rule rewrote and kept | \`exportManifest.v2\` |
+| \`events/YYYY-MM-DD.jsonl\` | an event: a prompt, a reply, a tool call, a model call, a finding, an outcome. UTC days. | \`exportedEvent.v5\` |
 | \`sessions.jsonl\` | a session: its agent, model, times, tokens, branches, commits and plan items | \`sessionRecord.v1\` |
 | \`findings.jsonl\` | a finding or early warning, from first seen to last, and how it was answered | \`findingRecord.v1\` |
 | \`git/commits.jsonl\` | a commit, merges included, with its changed files | \`gitRecord.v1\` (\`commit\`) |
@@ -97,29 +98,21 @@ otherwise; a reader should ignore fields and record types it doesn't know.
 - \`sessions.jsonl\` repeats each session's branches, commits and plan items from the links, for
   convenience.
 
-## What the privacy rules replaced
+## What the privacy filter rewrote
 
-Nothing here is an absolute path, a person's name or email, or a secret. What was there reads as:
+Before writing this, Snagboat's privacy filter looked for values that might identify a person,
+a machine or a secret, and the exporter decided, value by value or rule by rule, which to rewrite
+and which to keep. \`manifest.json\`'s \`filter\` says how it ran (\`reviewed\`, \`rewrite-all\`, or
+\`none\` when it was turned off) and its \`rules\` how many values each rule rewrote and kept. A
+rewritten value reads as its rule's placeholder:
 
-| Marker | Was |
-| --- | --- |
-| \`.\` and paths like \`src/app.ts\` | the project's folder, and paths in it, made relative |
-| \`[worktree-N]\`, \`[match-N]\` | another working tree of the repository, or another folder exported with it |
-| \`~\`, \`~/[path].ts\` | the home folder, and a path under it outside the project (only the extension kept) |
-| \`[path].ts\` | any other absolute path |
-| \`[user]\`, \`[host]\` | the user's account name and the machine's name |
-| \`person-xxxxxxxx\` | a person (git author, co-author, plan item owner). The same person has the same pseudonym throughout, and in other exports made with the same key. Agents keep their names. |
-| commit SHAs | in a private repository (\`repository.privacy\` in the manifest), re-keyed: still 40 hex characters, consistent across every file, but not the repository's real SHAs |
-| \`[repo pull/158]\` | a link into the project's own repository, its owner and name removed |
-| \`[url-N host]\` | any other URL that named a person or held a token or address. A URL left as a link named nobody. |
-| \`[email-N]\`, \`[ip-N]\`, \`[denied-N]\` | an email address, an IP address, a word the exporter chose to hide. The same value has the same number throughout. |
-| \`[mac]\`, \`[phone]\`, \`[card]\`, \`[public key]\` | a MAC address, a phone number, a payment card number, an SSH or PGP public key |
-| \`[redacted]\`, \`[redacted ... key]\`, \`[redacted ... token]\` | a password, a secret in a setting or a connection string, an API key or token |
-| \`[flagged-N]\` | something that might identify someone, held back for the exporter to review. They may put it back in a later export. |
-
-Each event's \`redactions\` lists, by field, how many values each rule replaced in it, without the
-values. With \`text\` \`none\` in the manifest, prompts, replies, commit messages and plan text were
-left out entirely.
+{{RULE_TABLE}}
+Numbered placeholders (\`[person-N]\`, \`[email-N]\`, \`[commit-N]\`) are numbered for this export
+only, in the order values were first met: the same value is the same placeholder in every file, so
+ids still join, but numbers mean nothing across exports. Capture had already replaced some secrets
+with \`[redacted]\`, \`[redacted ... key]\` or \`[redacted ... token]\` before anything was stored.
+Agents (\`claude-code\`, Copilot, bots) are never people, so they keep their names. With \`text\`
+\`none\` in the manifest, prompts, replies, commit messages and plan text were left out entirely.
 
 Tool output was never recorded, so it isn't here. Prompt and reply text is as long as Snagboat kept
 it; \`textTruncated\` on an event says it was cut.
